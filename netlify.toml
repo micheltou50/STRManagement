@@ -1,0 +1,10 @@
+[build]
+  publish = "."
+  command = "npm install"
+  functions = "Netlify/functions"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Service-Worker-Allowed = "/"
+    Cache-Control = "no-cache"

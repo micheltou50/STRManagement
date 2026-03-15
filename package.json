@@ -1,0 +1,8 @@
+{
+  "name": "glenhaven",
+  "version": "1.0.0",
+  "description": "Glenhaven property manager",
+  "dependencies": {
+    "web-push": "^3.6.7"
+  }
+}
