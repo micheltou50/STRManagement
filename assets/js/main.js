@@ -15,6 +15,14 @@ const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzM0wcdsUqK0
 const VAPID_PUBLIC_KEY = 'BFOGuTUHozPz0HabwMEzAoaHk_31ftyhqBpxecKWa7BajCsgai-pa8CIimCTGzN4zKet9poURZOeho74KblxPfE';
 const PUSH_FUNCTION_URL = '/.netlify/functions/send-push';
 
+// ── DATA ADAPTER ──────────────────────────────────────────────────────────────
+// Instantiated here so CONFIG constants above are in scope as fallbacks.
+// Both arguments are thunks so URLs are read live from config on every call.
+window.DB = new GoogleSheetsAdapter(
+  () => getCurrentScriptURL(),
+  () => getPropertySheetCsvUrl()
+);
+
 // ── PUSH NOTIFICATIONS ────────────────────────────────────────────────────────
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -99,7 +107,7 @@ async function subscribeToPush(role, cleanerId) {
       if (permission !== 'granted') return null;
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+        applicationServerKey: urlBase64ToUint8Array(getVapidPublicKey())
       });
     }
     const subJson = sub.toJSON();
@@ -124,7 +132,7 @@ async function sendPushToDevice(subscription, title, body, url, tag) {
   if (!subscription) { console.warn('sendPushToDevice called with no subscription'); return; }
   try {
     console.log('Sending push "' + title + '" to endpoint:', subscription.endpoint.substring(0, 50) + '...');
-    const res = await fetch(PUSH_FUNCTION_URL, {
+    const res = await fetch(getPushFunctionUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subscription, title, body, url, tag })
@@ -173,7 +181,8 @@ async function getFreshOwnerSub() {
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(e => console.warn('SW register failed:', e));
 }
-function getScriptURL() { return localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL; }
+// Delegates to config.js — reads config first, then legacy key, then constant.
+function getScriptURL() { return getCurrentScriptURL(); }
 
 // ── SHEET POST HELPER — all sheet calls use POST to avoid URL length limits ──
 function sheetPost(scriptUrl, action, data) {
@@ -252,9 +261,7 @@ async function syncFromSheets(manual = false) {
   _syncInProgress = true;
   if (manual) showBanner('⟳ Syncing with Google Sheets...', 'info');
   try {
-    const res = await fetch(SHEET_URL + '&t=' + Date.now());
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const csv = await res.text();
+    const csv = await DB.fetchBookings(); // reads URL from config via thunk
     const lines = csv.trim().split('\n').filter(l => l.trim());
     if (lines.length < 2) throw new Error('Sheet returned no data rows');
     // Temporary debug — store header layout for display
@@ -1223,7 +1230,7 @@ function buildInvoicePDF(selected, client) {
   </div>
   ${toBlock}
   <div class="property-badge">
-    🏡 <strong>Glenhaven</strong> · Katoomba, NSW · Blue Mountains<br>
+    🏡 <strong>${getCurrentPropertyName()}</strong> · ${getCurrentPropertyTagline()}<br>
     <span style="color:#666">Management Fee Invoice</span>
   </div>
   <table>
@@ -1239,7 +1246,7 @@ function buildInvoicePDF(selected, client) {
     </tr></tfoot>
   </table>
   ${bankBlock}
-  <div class="footer">Glenhaven Property Management · Katoomba NSW · Generated ${today}</div>
+  <div class="footer">${getCurrentPropertyName()} Property Management · ${[getPropertyConfig().suburb, getPropertyConfig().state].filter(Boolean).join(' ')} · Generated ${today}</div>
   <div style="text-align:center;margin-top:32px;display:flex;gap:12px;justify-content:center">
     <button onclick="window.print()" style="background:#1E3A2F;color:white;border:none;border-radius:8px;padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer">🖨 Save as PDF</button>
     <button onclick="window.close()" style="background:#F0EDE8;color:#1A1A1A;border:none;border-radius:8px;padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer">← Back to App</button>
@@ -1326,11 +1333,11 @@ function openSettingsPanel(panelId) {
   }
   if (panelId === 'sheets') {
     const el = document.getElementById('settings-script-url');
-    if (el) el.value = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+    if (el) el.value = getCurrentScriptURL();
   }
   if (panelId === 'apps-script') {
     const el = document.getElementById('settings-script-url');
-    if (el) el.value = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+    if (el) el.value = getCurrentScriptURL();
   }
   if (panelId === 'drive') {
     const el = document.getElementById('gdrive-client-id');
@@ -1471,24 +1478,17 @@ async function getSmartPricing() {
     }
   });
 
-  const prompt = `You are a short-term rental pricing expert for Katoomba, Blue Mountains, NSW, Australia. Property: Glenhaven — 4-bedroom, 8-guest luxury cottage.
+  const pCfg   = getPricingConfig();
+  const pStats = getPropertyStats();
+  const prompt = `You are a short-term rental pricing expert for ${pCfg.locationContext}. Property: ${getCurrentPropertyName()} — ${pStats.bedrooms}-bedroom, ${pStats.maxGuests}-guest property.
 
 Booking history (${history.length} bookings, avg host payout A$${avgPayout}):
 ${JSON.stringify(history.slice(-10))}
 
-Base rate: A$${baseRate || '350'}/night. Today: ${now.toISOString().split('T')[0]}. Forecast: ${periodLabel}.
+Base rate: A$${baseRate || pCfg.baseRate || '350'}/night. Today: ${now.toISOString().split('T')[0]}. Forecast: ${periodLabel}.
 
-KATOOMBA-SPECIFIC DEMAND FACTORS:
-- Winter Magic Festival: mid-June (huge demand spike, sell out weeks ahead)
-- Yulefest: June–August (fireplaces, misty valleys, peak season for Blue Mountains)
-- Three Sisters / Echo Point: year-round but peaks school holidays + long weekends
-- Wildflower season: September–October (shoulder peak, strong Sydney day-tripper overflow)
-- Christmas/NYE: extreme peak, book months ahead
-- Easter long weekend: peak
-- NSW school holidays: very high demand (Sydney families escape to mountains)
-- Anzac Day, Queen's Birthday, Labour Day long weekends: peak
-- Nearby competition: Katoomba has ~200+ STR listings. Occupancy typically 85%+ winter weekends, 60-70% weekdays. You should price at or slightly above market on peak dates.
-- Sydney proximity (90 min drive): strong weekend demand from Sydney couples/families year-round
+LOCATION-SPECIFIC DEMAND FACTORS:
+${pCfg.locationFactors || '- No specific demand factors configured. Use general STR pricing principles for the location.'}
 
 Return ONLY valid JSON, no markdown:
 {
@@ -2331,7 +2331,7 @@ async function smartSyncExpenses() {
 function saveScriptURL() {
   const url = document.getElementById('settings-script-url').value.trim();
   if (!url) return;
-  localStorage.setItem('gh-script-url', url);
+  persistScriptUrl(url); // writes to both legacy key AND config (from config.js)
   const el = document.getElementById('script-url-confirm');
   el.style.display = 'block';
   setTimeout(() => el.style.display = 'none', 2000);
@@ -3266,29 +3266,29 @@ async function receiptImageToPDF(exp) {
 }
 
 async function getOrCreateDriveFolder(token) {
-  // Use cached folder ID if available
-  const cached = localStorage.getItem('gh-drive-folder-id');
+  const cached = getDriveFolderId(); // reads config first, then legacy key
   if (cached) return cached;
+  const folderName = getReceiptsFolderName(); // e.g. "Glenhaven Receipts"
   try {
-    const q = encodeURIComponent("name='Glenhaven Receipts' and mimeType='application/vnd.google-apps.folder' and trashed=false");
+    const q = encodeURIComponent(`name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
     const search = await fetch('https://www.googleapis.com/drive/v3/files?q=' + q, {
       headers: { Authorization: 'Bearer ' + token }
     });
     if (search.status === 401) return null; // token expired — handled by caller
     const data = await search.json();
     if (data.files && data.files.length > 0) {
-      localStorage.setItem('gh-drive-folder-id', data.files[0].id);
+      saveDriveFolderId(data.files[0].id); // persists to both config and legacy key
       return data.files[0].id;
     }
     // Create the folder
     const create = await fetch('https://www.googleapis.com/drive/v3/files', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Glenhaven Receipts', mimeType: 'application/vnd.google-apps.folder' })
+      body: JSON.stringify({ name: folderName, mimeType: 'application/vnd.google-apps.folder' })
     });
     const folder = await create.json();
     if (folder.id) {
-      localStorage.setItem('gh-drive-folder-id', folder.id);
+      saveDriveFolderId(folder.id);
       return folder.id;
     }
     return null;
@@ -3417,8 +3417,9 @@ async function migrateCategoriesInSheet() {
 // ── BACKUP & RESTORE ──────────────────────────────────────────────────────────
 function buildBackupPayload() {
   return {
-    version: 1,
+    version: 2,
     timestamp: new Date().toISOString(),
+    propertyConfig: getPropertyConfig(), // included in v2 for full restore
     bookings,
     cleans,
     notes,
@@ -3427,13 +3428,13 @@ function buildBackupPayload() {
     inventory,
     cleaners: loadCleaners(),
     settings: {
-      propertyData:    localStorage.getItem('gh-property-data'),
-      scriptUrl:       localStorage.getItem('gh-script-url'),
-      gDriveClientId:  localStorage.getItem('gh-gdrive-client-id'),
+      propertyData:       localStorage.getItem('gh-property-data'),
+      scriptUrl:          getCurrentScriptURL(),
+      gDriveClientId:     localStorage.getItem('gh-gdrive-client-id'),
       cleaningFeeDefault: localStorage.getItem('gh-cleaning-fee'),
-      smsTemplate:     localStorage.getItem('gh-sms-template'),
-      expenseCats:     localStorage.getItem('gh-expense-cats'),
-      invoiceSettings: localStorage.getItem('gh-invoice-settings'),
+      smsTemplate:        localStorage.getItem('gh-sms-template'),
+      expenseCats:        localStorage.getItem('gh-expense-cats'),
+      invoiceSettings:    localStorage.getItem('gh-invoice-settings'),
     }
   };
 }
@@ -3536,6 +3537,12 @@ async function restoreBackup(fileId, dateLabel) {
             if (d.settings.smsTemplate)        localStorage.setItem('gh-sms-template',      d.settings.smsTemplate);
             if (d.settings.expenseCats)        localStorage.setItem('gh-expense-cats',      d.settings.expenseCats);
             if (d.settings.invoiceSettings)    localStorage.setItem('gh-invoice-settings',  d.settings.invoiceSettings);
+          }
+          // Restore property config if present (v2 backups include it).
+          // Runs after settings so scriptUrl legacy mirror is already in place.
+          if (d.propertyConfig) {
+            localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(d.propertyConfig));
+            if (typeof initPropertyUI === 'function') initPropertyUI();
           }
           save();
           savePropertyData();
@@ -3866,7 +3873,7 @@ async function pushBookingToCalendar(b) {
   const token = getDriveToken();
   if (!token) return;
   const event = {
-    summary: '🏡 ' + (b.name || 'Guest') + ' — Glenhaven',
+    summary: buildCalendarEventSummary(b.name),
     description: [
       (b.guests || '') + ' guests · ' + (b.nights || '') + ' nights',
       b.platform || '',
@@ -3901,7 +3908,7 @@ async function updateBookingInCalendar(b) {
   const token = getDriveToken();
   if (!token) return;
   const event = {
-    summary: '🏡 ' + (b.name || 'Guest') + ' — Glenhaven',
+    summary: buildCalendarEventSummary(b.name),
     description: [
       (b.guests || '') + ' guests · ' + (b.nights || '') + ' nights',
       b.platform || '',
@@ -3953,7 +3960,7 @@ async function syncToGoogleCalendar() {
   let created = 0, updated = 0, failed = 0;
   for (const b of upcoming) {
     const event = {
-      summary: '🏡 ' + (b.name || 'Guest') + ' — Glenhaven',
+      summary: buildCalendarEventSummary(b.name),
       description: `${b.guests || ''} guests · ${b.nights || ''} nights · ${b.platform || ''}
 Net: $${Number(b.netPayout||0).toFixed(2)}`,
       start: { date: b.checkin },
@@ -4602,7 +4609,7 @@ function renderStorageViewer() {
 })();
 
 // Clear expenses cache only if the script URL has changed since last load
-const _scriptConfigured = (localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL || '').includes('script.google.com');
+const _scriptConfigured = !!localStorage.getItem('gh-script-url');
 const _lastScriptUrl = localStorage.getItem('gh-last-script-url');
 const _currentScriptUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
 if (_scriptConfigured && _lastScriptUrl !== _currentScriptUrl) {
@@ -4799,7 +4806,9 @@ render();
 if (isCleanerMode()) {
   // Cleaner mode — only pull AppData (cleans, inventory, cleaners). Skip bookings CSV + expenses.
   pullAppData();
-} else {
+} else if (hasValidPropertyConfig()) {
+  // Guard: do not sync on a fresh install before setup completes, which would
+  // fire with Glenhaven's default URLs from DEFAULT_PROPERTY_CONFIG.
   syncFromSheets();
   if (_scriptConfigured) setTimeout(() => pullExpensesFromSheet(), 1200);
   if (_scriptConfigured) setTimeout(() => pullAppData(), 1800);
@@ -4845,7 +4854,7 @@ setTimeout(renderCalendar, 100);
 // Auto-refresh when user returns to app — throttled to once per 5 minutes
 let _lastVisibilitySync = 0;
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
+  if (document.visibilityState === 'visible' && hasValidPropertyConfig()) {
     const now = Date.now();
     if (now - _lastVisibilitySync > 5 * 60 * 1000) {
       _lastVisibilitySync = now;
@@ -4855,7 +4864,7 @@ document.addEventListener('visibilitychange', () => {
     if (!isCleanerMode()) pullAppData();
   }
 });
-window.addEventListener('pageshow', (e) => { if (e.persisted) syncFromSheets(); });
+window.addEventListener('pageshow', (e) => { if (e.persisted && hasValidPropertyConfig()) syncFromSheets(); });
 
 // Auto-refresh cleaner app when it comes back into focus or on interval
 if (isCleanerMode()) {
@@ -4864,8 +4873,9 @@ if (isCleanerMode()) {
   });
   setInterval(() => { if (!document.hidden) pullAppData(); }, 60000);
 } else {
-  // Owner app — pull AppData every 30 seconds to catch cleaner updates
-  setInterval(() => { if (!document.hidden) pullAppData(); }, 30000);
+  // Owner app — pull AppData every 30 seconds to catch cleaner updates.
+  // Guard: no polling until setup is complete.
+  setInterval(() => { if (!document.hidden && hasValidPropertyConfig()) pullAppData(); }, 30000);
 }
 
 // ── FEEL & GESTURES ───────────────────────────────────────────────────────────
@@ -5503,7 +5513,7 @@ async function assignCleanerToBooking(bookingId) {
 
   // Pull latest pushSubs from Sheet (cleaner sub lives on cleaner's device)
   try {
-    const url = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+    const url = getCurrentScriptURL();
     console.log('Fetching pushSubs from:', url);
     if (url && url.includes('script.google.com')) {
       const resp = await fetch(url + '?action=getAppData');
@@ -5877,7 +5887,7 @@ async function debugCSVColumns() {
   }
   el.textContent = 'Fetching…';
   try {
-    const res = await fetch(SHEET_URL + '&t=' + Date.now());
+    const res = await fetch(getPropertySheetCsvUrl() + '&t=' + Date.now());
     const csv = await res.text();
     const lines = csv.trim().split('\n').filter(l => l.trim());
     const headers = parseCSVLine(lines[0]);
@@ -5902,8 +5912,7 @@ async function testCleanerEmail() {
     return;
   }
   const c = cleaners[0];
-  const ownerEmail = localStorage.getItem('gh-owner-email') || localStorage.getItem('gh-invoice-email');
-  const testTo = ownerEmail || c.email;
+  const testTo = getCurrentOwnerEmail() || c.email;
   const result = await sendCleanerEmail({
     cleanerName: c.name, cleanerEmail: testTo,
     guestName: 'Test Guest', checkin: 'Tomorrow', checkout: 'Day after',
@@ -6002,7 +6011,18 @@ function copyCleanerLinkById(id) {
 }
 
 // Init on load
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // Migrate any legacy localStorage keys into the config structure.
+  // For existing users this also sets gh-setup-complete so setup never shows.
+  migrateConfigFromLegacySettings();
+
+  // If no valid config exists, pause here until the host completes setup.
+  // For existing users / Glenhaven: resolves immediately (no-op).
+  await showSetupIfNeeded();
+
+  // Config is now valid — update DOM with property-specific values.
+  initPropertyUI();
+
   initFxSettings();
   attachButtonPress();
   attachModalHandleDrag();
@@ -6033,7 +6053,7 @@ function exportReportPDF() {
   doc.rect(0, 0, 210, 22, 'F');
   doc.setTextColor(255,255,255);
   doc.setFontSize(16); doc.setFont('helvetica','bold');
-  doc.text('Glenhaven — Performance Report', 10, 14);
+  doc.text(getCurrentPropertyName() + ' — Performance Report', 10, 14);
   doc.setFontSize(9); doc.setFont('helvetica','normal');
   doc.text(fyLabel(reportFY) + ' · Generated ' + new Date().toLocaleDateString('en-AU'), 200, 14, { align:'right' });
   y = 30;
@@ -6170,13 +6190,13 @@ function exportReportPDF() {
     didDrawRow: data => { if (data.row.index===3) { data.row.cells.forEach(c => { c.styles.fontStyle='bold'; c.styles.fillColor=fyNetInc>=0?[220,236,220]:[254,226,226]; }); } }
   });
 
-  doc.save(`Glenhaven-${fyLabel(reportFY).replace(' ','_')}.pdf`);
+  doc.save(`${getCurrentPropertyName()}-${fyLabel(reportFY).replace(' ','_')}.pdf`);
 }
 
 function exportReportCSV() {
   const months = fyMonths(reportFY);
   const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const rows = [['Glenhaven Performance Report — ' + fyLabel(reportFY)],[]];
+  const rows = [[getCurrentPropertyName() + ' Performance Report — ' + fyLabel(reportFY)],[]];
 
   // Revenue table
   rows.push(['Revenue by Month & Platform']);
@@ -6222,7 +6242,7 @@ function exportReportCSV() {
   const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = `Glenhaven-${fyLabel(reportFY).replace(' ','_')}.csv`;
+  a.href = url; a.download = `${getCurrentPropertyName()}-${fyLabel(reportFY).replace(' ','_')}.csv`;
   a.click(); URL.revokeObjectURL(url);
   showBanner('✅ CSV downloaded','success');
 }

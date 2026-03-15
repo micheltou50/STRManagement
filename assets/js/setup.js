@@ -84,10 +84,14 @@ function _setupBuildOverlay(editMode, onDone) {
   // In first-boot mode we leave Glenhaven defaults blank so the host types
   // their own values. In edit mode we always show whatever is saved.
   const preGlenhaven = {
-    name:   'Glenhaven',
-    suburb: 'Katoomba',
-    state:  'NSW',
-    region: 'Blue Mountains',
+    name:        'Glenhaven',
+    suburb:      'Katoomba',
+    state:       'NSW',
+    region:      'Blue Mountains',
+    // Suppress Glenhaven's live URLs on first-boot so a new host cannot
+    // accidentally submit the form pointing at Glenhaven's real data.
+    sheetCsvUrl: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTlssTFmteUx1q3NkqRz2hAIqtJbt8OlRxl8VcX1x5gW6mI8W52n3xutATDO13qlRNoobKSsmVPciDR/pub?gid=0&single=true&output=csv',
+    scriptUrl:   'https://script.google.com/macros/s/AKfycbzM0wcdsUqK03faXxk2VqTAEqzno4GCAMzFYGrUXc4y1LKDwd8GbCKhNJruvbXJGhOflw/exec',
   };
   const pre = (field, saved) => {
     if (editMode) return ea(saved);
@@ -233,7 +237,7 @@ function _setupBuildOverlay(editMode, onDone) {
           <label class="ss-lbl" for="s-sheet-url">Google Sheet CSV URL <span class="ss-req" aria-hidden="true">*</span></label>
           <input type="url" id="s-sheet-url" class="ss-inp"
             placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?…&output=csv"
-            value="${ea(integ.sheetCsvUrl || '')}">
+            value="${pre('sheetCsvUrl', integ.sheetCsvUrl || '')}">
           <div class="ss-hint">
             In your bookings spreadsheet: <strong>File → Share → Publish to web</strong>
             → choose the bookings sheet → CSV → Publish. Paste that URL here.
@@ -244,7 +248,7 @@ function _setupBuildOverlay(editMode, onDone) {
           <label class="ss-lbl" for="s-script-url">Apps Script URL <span class="ss-req" aria-hidden="true">*</span></label>
           <input type="url" id="s-script-url" class="ss-inp"
             placeholder="https://script.google.com/macros/s/…/exec"
-            value="${ea(integ.scriptUrl || '')}">
+            value="${pre('scriptUrl', integ.scriptUrl || '')}">
           <div class="ss-hint">
             In Apps Script: <strong>Deploy → Manage deployments → copy the /exec URL</strong>.
           </div>
@@ -291,7 +295,8 @@ function _setupBuildOverlay(editMode, onDone) {
 
     const newCfg = _setupBuildConfig(overlay);
     savePropertyConfig(newCfg);
-    localStorage.setItem('gh-setup-complete', '1');
+    // Only set the flag during first-boot; in edit mode it is already set.
+    if (!editMode) localStorage.setItem('gh-setup-complete', '1');
 
     // Mirror critical values to legacy keys so existing code paths work immediately.
     localStorage.setItem('gh-script-url', newCfg.integrations.scriptUrl);
@@ -391,6 +396,12 @@ function _setupBuildConfig(overlay) {
   const state  = v('s-state');
   const region = v('s-region');
 
+  // Read existing config once here so integrations AND pricing blocks can
+  // both use it without separate getPropertyConfig() calls (fix #6).
+  const _existing      = getPropertyConfig();
+  const _existingInteg = _existing.integrations || {};
+  const _existingPrice = _existing.pricing      || {};
+
   return {
     propertyId: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'property',
     name,
@@ -420,23 +431,22 @@ function _setupBuildConfig(overlay) {
     integrations: {
       sheetCsvUrl:     v('s-sheet-url'),
       scriptUrl:       v('s-script-url'),
-      // Preserve existing push / calendar config — do not overwrite from form.
-      vapidPublicKey:  getPropertyConfig().integrations.vapidPublicKey
+      // Preserve existing push / calendar / drive config — not in the form.
+      vapidPublicKey:  _existingInteg.vapidPublicKey
                          || (typeof VAPID_PUBLIC_KEY !== 'undefined' ? VAPID_PUBLIC_KEY : ''),
-      pushFunctionUrl: getPropertyConfig().integrations.pushFunctionUrl
-                         || '/.netlify/functions/send-push',
-      calendarId:      getPropertyConfig().integrations.calendarId || 'primary',
-      driveFolderId:   getPropertyConfig().integrations.driveFolderId || null,
+      pushFunctionUrl: _existingInteg.pushFunctionUrl || '/.netlify/functions/send-push',
+      calendarId:      _existingInteg.calendarId      || 'primary',
+      driveFolderId:   _existingInteg.driveFolderId   || null,
     },
 
     pricing: {
       baseRate:        parseFloat(v('s-rate')) || 350,
       currency:        (v('s-currency') || 'AUD').toUpperCase(),
-      // Build a basic location context from the address fields.
       locationContext: [suburb, state, v('s-country') || 'Australia'].filter(Boolean).join(', '),
-      // locationFactors is left blank — the host can fill this in later via
-      // a future Settings panel, or it defaults to generic STR principles.
-      locationFactors: getPropertyConfig().pricing.locationFactors || '',
+      // Preserve any locationFactors the host configured elsewhere.
+      // On a brand-new install this is '' (empty default), which lets the AI
+      // pricing prompt fall back to generic STR principles.
+      locationFactors: _existingPrice.locationFactors || '',
     },
   };
 }

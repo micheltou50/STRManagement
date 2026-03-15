@@ -59,7 +59,10 @@ const DEFAULT_PROPERTY_CONFIG = {
   pricing: {
     baseRate:        350,
     locationContext: 'Katoomba, Blue Mountains, NSW, Australia',
-    locationFactors: '- Winter Magic Festival: mid-June (huge demand spike)\n- Yulefest: June–August (peak season)\n- NSW school holidays: very high demand\n- Easter & ANZAC Day long weekends: peak\n- Christmas/NYE: extreme peak\n- Sydney proximity (90 min drive): strong year-round weekend demand',
+    locationFactors: '',
+    // ↑ Intentionally empty. The AI pricing prompt falls back to generic STR
+    //   principles when this is blank. Glenhaven's specific factors (Winter Magic
+    //   Festival, Yulefest etc.) must not be the default for hosts in other markets.
     currency:        'AUD',
   },
 
