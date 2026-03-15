@@ -6,6 +6,31 @@ const PROPERTY_CONFIG_KEY = 'gh-property-config'; // legacy single-property key
 const PROPERTIES_KEY = 'gh-properties';
 const ACTIVE_PROPERTY_ID_KEY = 'gh-active-property-id';
 
+// ── KEY NAMESPACING ────────────────────────────────────────────────────────────
+/**
+ * Returns a namespaced localStorage key for the current property.
+ *
+ * For propertyId 'glenhaven' the prefix is 'gh-' so all existing keys are
+ * preserved unchanged — zero migration cost for the live app.
+ * Any other propertyId produces '{id}-{key}', isolating each property's data.
+ *
+ * Usage: localStorage.getItem(lsKey('bookings'))  → 'gh-bookings' or 'seaview-bookings'
+ *
+ * @param {string} key  Short key name without prefix, e.g. 'bookings'.
+ * @returns {string}
+ */
+function lsKey(key) {
+  try {
+    const raw  = localStorage.getItem(PROPERTY_CONFIG_KEY);
+    const id   = (raw ? JSON.parse(raw).propertyId : null) || 'glenhaven';
+    const safe = id.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/^-+|-+$/g, '');
+    const prefix = safe === 'glenhaven' ? 'gh-' : safe + '-';
+    return prefix + key;
+  } catch (e) {
+    return 'gh-' + key; // safe fallback — never breaks existing data
+  }
+}
+
 // ── DEFAULTS ───────────────────────────────────────────────────────────────────
 const DEFAULT_PROPERTY_CONFIG = {
   propertyId: 'glenhaven',
