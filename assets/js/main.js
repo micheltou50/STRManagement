@@ -1366,6 +1366,9 @@ function openSettingsPanel(panelId) {
   if (panelId === 'feel') {
     loadFxSettings();
   }
+  if (panelId === 'connection-checker') {
+    resetConnectionCheckerResults();
+  }
 }
 
 function closeSettingsPanel() {
@@ -2332,23 +2335,31 @@ function saveScriptURL() {
   setTimeout(() => el.style.display = 'none', 2000);
 }
 async function testScriptConnection() {
-  const el = document.getElementById('script-test-result');
-  el.style.display = 'block';
-  el.style.background = '#FFF8E1';
-  el.style.color = '#E65100';
-  el.textContent = '⟳ Testing connection...';
+  const checkerOpen = document.getElementById('settings-panel-connection-checker')?.style.display !== 'none';
+  const resultId = checkerOpen ? 'conn-script-result' : 'script-test-result';
+  _setConnectionCheckResult(resultId, 'loading', 'Checking Apps Script endpoint…');
+
+  const scriptUrl = (getCurrentScriptURL() || '').trim();
+  if (!scriptUrl) {
+    _setConnectionCheckResult(resultId, 'fail', '❌ Missing configuration: Apps Script URL is not set.');
+    return;
+  }
+  if (!scriptUrl.toLowerCase().includes('script.google.com/macros') || !scriptUrl.endsWith('/exec')) {
+    _setConnectionCheckResult(resultId, 'fail', '❌ Invalid URL: expected a deployed Apps Script /exec URL.');
+    return;
+  }
+
   try {
-    const url = getScriptURL() + '?action=test';
-    const res = await fetch(url);
-    const testJson = await res.json();
-    if (!testJson.status) throw new Error('unexpected response from script');
-    el.style.background = '#E8F5E9';
-    el.style.color = '#2E7D32';
-    el.textContent = '✓ Connected — script responded OK';
+    const json = (window.DB && typeof window.DB.testConnection === 'function')
+      ? await window.DB.testConnection()
+      : await fetch(scriptUrl + '?action=test').then(r => r.json());
+
+    const ok = !!(json && (json.success === true || json.status === 'ok' || json.status === 'success' || json.status === true));
+    if (!ok) throw new Error((json && (json.error || json.status)) || 'Unexpected response');
+
+    _setConnectionCheckResult(resultId, 'ok', '✅ Connected: Apps Script responded to a safe test action.');
   } catch(e) {
-    el.style.background = '#FDECEA';
-    el.style.color = '#C0392B';
-    el.textContent = '✗ Could not reach script: ' + e.message;
+    _setConnectionCheckResult(resultId, 'fail', '❌ Failed: Apps Script test request did not succeed. ' + e.message);
   }
 }
 function saveBankDetails() {
@@ -5896,6 +5907,96 @@ async function debugCSVColumns() {
   } catch(e) {
     el.textContent = 'Error: ' + e.message;
   }
+}
+
+function _setConnectionCheckResult(id, status, msg) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.style.display = 'block';
+  el.textContent = msg;
+
+  if (status === 'ok') {
+    el.style.background = '#F0FAF4';
+    el.style.color = 'var(--moss)';
+  } else if (status === 'loading') {
+    el.style.background = 'var(--warm)';
+    el.style.color = 'var(--text-soft)';
+  } else {
+    el.style.background = '#FEF2F2';
+    el.style.color = 'var(--red)';
+  }
+}
+
+function resetConnectionCheckerResults() {
+  ['conn-sheet-result', 'conn-script-result', 'conn-notif-result'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+}
+
+async function testSheetConnection() {
+  const sheetUrl = (getPropertySheetCsvUrl() || '').trim();
+  if (!sheetUrl) {
+    _setConnectionCheckResult('conn-sheet-result', 'fail', '❌ Missing configuration: Google Sheet CSV URL is not set.');
+    return;
+  }
+  if (!sheetUrl.toLowerCase().includes('docs.google.com/spreadsheets') || !sheetUrl.includes('output=csv')) {
+    _setConnectionCheckResult('conn-sheet-result', 'fail', '❌ Invalid URL: expected a published Google Sheets CSV URL ending with output=csv.');
+    return;
+  }
+
+  _setConnectionCheckResult('conn-sheet-result', 'loading', 'Checking Sheet URL…');
+  try {
+    const sep = sheetUrl.includes('?') ? '&' : '?';
+    const res = await fetch(sheetUrl + sep + 't=' + Date.now());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const csv = await res.text();
+    const lines = csv.trim().split('\n').filter(l => l.trim());
+    if (!lines.length) throw new Error('No CSV rows returned');
+    const headers = parseCSVLine(lines[0]).filter(Boolean);
+    if (!headers.length) throw new Error('Could not parse CSV headers');
+    _setConnectionCheckResult('conn-sheet-result', 'ok', `✅ Connected: fetched CSV (${Math.max(lines.length - 1, 0)} data row${lines.length - 1 === 1 ? '' : 's'}).`);
+  } catch (e) {
+    _setConnectionCheckResult('conn-sheet-result', 'fail', '❌ Failed: could not fetch/parse the sheet CSV. ' + e.message);
+  }
+}
+
+
+async function testNotificationConfig() {
+  _setConnectionCheckResult('conn-notif-result', 'loading', 'Checking notification/email configuration…');
+
+  const ownerEmail = (getCurrentOwnerEmail() || '').trim();
+  const pushFunctionUrl = (getPushFunctionUrl() || '').trim();
+  const scriptUrl = (getCurrentScriptURL() || '').trim();
+  const pushSupported = ('Notification' in window);
+  const perm = pushSupported ? Notification.permission : 'unsupported';
+  const ownerSub = getOwnerSub();
+
+  const checks = [];
+  if (ownerEmail) checks.push('Owner email configured');
+  if (scriptUrl && scriptUrl.toLowerCase().includes('script.google.com/macros') && scriptUrl.endsWith('/exec')) checks.push('Apps Script URL configured');
+  if (pushFunctionUrl) checks.push('Push function URL configured');
+  if (pushSupported) checks.push('Browser supports notifications');
+  if (perm === 'granted' && ownerSub) checks.push('Push enabled on this device');
+
+  const missing = [];
+  if (!ownerEmail) missing.push('owner email missing');
+  if (!(scriptUrl && scriptUrl.toLowerCase().includes('script.google.com/macros') && scriptUrl.endsWith('/exec'))) missing.push('Apps Script URL invalid/missing');
+  if (!pushFunctionUrl) missing.push('push function URL missing');
+
+  const mode = 'configuration check only (no live send)';
+  if (missing.length) {
+    _setConnectionCheckResult('conn-notif-result', 'fail', `⚠️ ${mode}: ${checks.length ? checks.join(' · ') + '. ' : ''}Missing: ${missing.join(', ')}.`);
+    return;
+  }
+
+  const pushMsg = !pushSupported
+    ? 'push not supported on this browser'
+    : (perm === 'granted' && ownerSub)
+      ? 'push ready on this device'
+      : 'push not enabled on this device yet';
+
+  _setConnectionCheckResult('conn-notif-result', 'ok', `✅ ${mode}: email/push prerequisites look valid (${pushMsg}).`);
 }
 
 async function testCleanerEmail() {
