@@ -5912,29 +5912,6 @@ async function debugCSVColumns() {
   }
 }
 
-function renderPropertySwitcher() {
-  const sel = document.getElementById('property-switcher-select');
-  if (!sel) return;
-  const list = getAllProperties();
-  const activeId = getActivePropertyId();
-  sel.innerHTML = list.map(p => `<option value="${escHtml(p.propertyId)}" ${p.propertyId === activeId ? 'selected' : ''}>${escHtml(p.name || p.propertyId)}</option>`).join('');
-  const active = getActivePropertyConfig();
-  const label = document.getElementById('active-property-name');
-  if (label) label.textContent = active.name || 'Property';
-}
-
-function switchActiveProperty(id) {
-  if (!id) return;
-  const ok = setActivePropertyId(id);
-  if (!ok) {
-    showBanner('⚠ Could not switch property', 'warn');
-    return;
-  }
-  initPropertyUI();
-  if (typeof renderAll === 'function') renderAll();
-  showBanner('✓ Switched to ' + getCurrentPropertyName(), 'ok');
-}
-
 function _setConnectionCheckResult(id, status, msg) {
   const el = document.getElementById(id);
   if (!el) return;

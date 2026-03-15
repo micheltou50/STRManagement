@@ -177,7 +177,7 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
             <label class="ss-lbl" for="s-tagline">Tagline <span class="ss-opt">(optional)</span></label>
             <input type="text" id="s-tagline" class="ss-inp"
               placeholder="e.g. Katoomba, NSW · Blue Mountains"
-              value="${createMode ? '' : pre('tagline', branding.tagline || '')}">
+              value="${ea(branding.tagline || '')}">
           </div>
         </div>
 
@@ -328,9 +328,8 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
       if (!ok) return;
     }
 
-    const newCfg = _setupBuildConfig(overlay, createMode);
-    if (createMode) addPropertyConfig(newCfg);
-    else savePropertyConfig(newCfg);
+    const newCfg = _setupBuildConfig(overlay);
+    savePropertyConfig(newCfg);
     // Only set the flag during first-boot; in edit mode it is already set.
     if (!editMode) localStorage.setItem('gh-setup-complete', '1');
 
@@ -453,7 +452,7 @@ function _setupBuildConfig(overlay, createMode) {
 
     branding: {
       subtitle: [suburb, state].filter(Boolean).join(' · '),
-      tagline:  tagline || ((!createMode && _hasExistingProperty) ? ((_existing.branding || {}).tagline || '') : '') || [[suburb, state].filter(Boolean).join(', '), region].filter(Boolean).join(' · '),
+      tagline:  tagline || ((_existing.branding || {}).tagline) || [[suburb, state].filter(Boolean).join(', '), region].filter(Boolean).join(' · '),
     },
 
     property: {
