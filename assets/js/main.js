@@ -1785,6 +1785,7 @@ function showDetail(id) {
     <button class="btn-secondary" style="margin-bottom:8px;background:#FDECEA;color:var(--red)" onclick="deleteBooking(${b.id})">Delete Booking</button>
   `;
   document.getElementById('detail-modal').classList.add('open'); document.body.style.overflow='hidden';
+  setTimeout(attachModalHandleDrag, 0);
 }
 
 function showEditModal(id) {
@@ -5023,6 +5024,16 @@ function attachLongPress() {
 
 // ── MODAL HANDLE DRAG TO DISMISS ─────────────────────────────────────────────
 function attachModalHandleDrag() {
+  const closeForOverlay = (overlay) => {
+    if (!overlay) return;
+    if (overlay.id === 'modal') closeModal();
+    else if (overlay.id === 'detail-modal') closeDetailModal();
+    else if (overlay.id === 'notify-modal') closeNotifyModal();
+    else if (overlay.id === 'expense-edit-modal') closeExpenseEdit();
+    else if (overlay.id === 'inv-edit-modal') closeInvEdit();
+    else { overlay.classList.remove('open'); _checkModalsClosed(); }
+  };
+
   document.querySelectorAll('.modal-drag-zone').forEach(zone => {
     if (zone.dataset.dragAttached) return;
     zone.dataset.dragAttached = '1';
@@ -5031,43 +5042,55 @@ function attachModalHandleDrag() {
     const overlay = zone.closest('.modal-overlay');
     if (!modal || !overlay) return;
 
-    let startY = 0, currentY = 0, dragging = false;
+    let startY = 0;
+    let currentY = 0;
+    let dragging = false;
 
-    zone.addEventListener('touchstart', e => {
-      startY = e.touches[0].clientY;
+    const beginDrag = (clientY) => {
+      startY = clientY;
       currentY = 0;
       dragging = true;
       modal.style.transition = 'none';
-    }, { passive: true });
+    };
 
-    zone.addEventListener('touchmove', e => {
+    const moveDrag = (clientY) => {
       if (!dragging) return;
-      const dy = e.touches[0].clientY - startY;
+      const dy = clientY - startY;
       if (dy < 0) return;
       currentY = dy;
       modal.style.transform = `translateY(${dy}px)`;
-    }, { passive: true });
+    };
 
-    zone.addEventListener('touchend', () => {
+    const endDrag = () => {
       if (!dragging) return;
       dragging = false;
       modal.style.transition = 'transform 0.42s cubic-bezier(0.32,0.72,0,1)';
       if (currentY > 80) {
-        modal.style.transform = `translateY(100%)`;
+        modal.style.transform = 'translateY(100%)';
         setTimeout(() => {
           modal.style.transform = '';
-          if (overlay.id === 'modal') closeModal();
-          else if (overlay.id === 'detail-modal') closeDetailModal();
-          else if (overlay.id === 'notify-modal') closeNotifyModal();
-          else if (overlay.id === 'expense-edit-modal') closeExpenseEdit();
-          else if (overlay.id === 'inv-edit-modal') closeInvEdit();
-          else { overlay.classList.remove('open'); _checkModalsClosed(); }
-        }, 380);
+          closeForOverlay(overlay);
+        }, 280);
       } else {
         modal.style.transform = 'translateY(0)';
-        setTimeout(() => { modal.style.transform = ''; }, 420);
+        setTimeout(() => { modal.style.transform = ''; }, 320);
       }
-    }, { passive: true });
+    };
+
+    zone.addEventListener('touchstart', e => beginDrag(e.touches[0].clientY), { passive: true });
+    zone.addEventListener('touchmove', e => {
+      moveDrag(e.touches[0].clientY);
+      if (dragging) e.preventDefault();
+    }, { passive: false });
+    zone.addEventListener('touchend', endDrag, { passive: true });
+    zone.addEventListener('touchcancel', endDrag, { passive: true });
+
+    zone.addEventListener('pointerdown', e => beginDrag(e.clientY));
+    zone.addEventListener('pointermove', e => { if (dragging) moveDrag(e.clientY); });
+    zone.addEventListener('pointerup', endDrag);
+    zone.addEventListener('pointercancel', endDrag);
+    zone.addEventListener('mouseup', endDrag);
+    zone.addEventListener('mouseleave', () => { if (dragging && currentY > 80) endDrag(); });
   });
 }
 
