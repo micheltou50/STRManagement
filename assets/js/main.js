@@ -1310,6 +1310,9 @@ function openSettingsPanel(panelId) {
   if (panelId === 'team') {
     renderTeamList();
   }
+  if (panelId === 'property-switcher') {
+    renderPropertySwitcher();
+  }
   if (panelId === 'notifications') {
     setTimeout(updateNotifStatus, 100);
   }
@@ -6108,19 +6111,18 @@ function copyCleanerLinkById(id) {
 
 // Init on load
 document.addEventListener('DOMContentLoaded', async () => {
-  // Migrate any legacy localStorage keys into the config structure.
-  // For existing users this also sets gh-setup-complete so setup never shows.
-  // Setup check MUST run before migration — migrateConfigFromLegacySettings writes
-  // the full DEFAULT_PROPERTY_CONFIG (including Glenhaven's URLs) to localStorage,
-  // which would make hasValidPropertyConfig() return true on a fresh install and
-  // skip the setup screen entirely.
+  // Migrate single-property legacy config/keys into multi-property storage first.
+  migrateConfigFromLegacySettings();
+
+  // Setup appears only when no valid active property config exists.
   await showSetupIfNeeded();
 
-  // Now safe to migrate legacy keys into config (no-op if no legacy keys exist).
+  // Ensure mirrors/flags remain synced after setup or migration.
   migrateConfigFromLegacySettings();
 
   // Config is now valid — update DOM with property-specific values.
   initPropertyUI();
+  renderPropertySwitcher();
 
   initFxSettings();
   attachButtonPress();

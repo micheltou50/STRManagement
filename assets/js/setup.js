@@ -34,17 +34,21 @@ function showSetupIfNeeded() {
  * Pre-fills all fields from the current config. Does not block the app.
  */
 function reopenPropertySetup() {
-  _setupShowOverlay(true).catch(() => {});
+  _setupShowOverlay(true, false).catch(() => {});
+}
+
+function openAddPropertySetup() {
+  _setupShowOverlay(true, true).catch(() => {});
 }
 
 
 // ── OVERLAY ───────────────────────────────────────────────────────────────────
 
-function _setupShowOverlay(editMode) {
+function _setupShowOverlay(editMode, createMode) {
   return new Promise(resolve => {
     _setupInjectStyles();
 
-    const overlay = _setupBuildOverlay(editMode, () => {
+    const overlay = _setupBuildOverlay(editMode, createMode, () => {
       // Clean up and unblock app boot.
       overlay.style.opacity   = '0';
       overlay.style.transform = 'translateY(16px)';
@@ -68,8 +72,8 @@ function _setupShowOverlay(editMode) {
   });
 }
 
-function _setupBuildOverlay(editMode, onDone) {
-  const cfg   = getPropertyConfig();
+function _setupBuildOverlay(editMode, createMode, onDone) {
+  const cfg   = createMode ? _setupBlankConfig() : getActivePropertyConfig();
   const stats = cfg.property    || {};
   const integ = cfg.integrations || {};
   const owner = cfg.owner        || {};
@@ -89,6 +93,7 @@ function _setupBuildOverlay(editMode, onDone) {
     suburb:      'Katoomba',
     state:       'NSW',
     region:      'Blue Mountains',
+    tagline:     'Katoomba, NSW · Blue Mountains',
     // Suppress Glenhaven's live URLs on first-boot so a new host cannot
     // accidentally submit the form pointing at Glenhaven's real data.
     sheetCsvUrl: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTlssTFmteUx1q3NkqRz2hAIqtJbt8OlRxl8VcX1x5gW6mI8W52n3xutATDO13qlRNoobKSsmVPciDR/pub?gid=0&single=true&output=csv',
@@ -104,7 +109,7 @@ function _setupBuildOverlay(editMode, onDone) {
   overlay.id = 'setup-overlay';
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
-  overlay.setAttribute('aria-label', editMode ? 'Edit property configuration' : 'Property setup');
+  overlay.setAttribute('aria-label', createMode ? 'Add property configuration' : (editMode ? 'Edit property configuration' : 'Property setup')); 
 
   overlay.innerHTML = `
     <div id="setup-card">
@@ -113,10 +118,12 @@ function _setupBuildOverlay(editMode, onDone) {
       <div id="setup-header">
         <div id="setup-icon">🏡</div>
         <div>
-          <div id="setup-title">${editMode ? 'Edit Property Configuration' : 'Welcome — Set Up Your Property'}</div>
-          <div id="setup-desc">${editMode
-            ? 'Update your property details. Changes take effect immediately.'
-            : 'Fill in your property details to get started. You can edit these any time in Settings → Property Setup.'
+          <div id="setup-title">${createMode ? 'Add Property' : (editMode ? 'Edit Property Configuration' : 'Welcome — Set Up Your Property')}</div>
+          <div id="setup-desc">${createMode
+            ? 'Create another property profile. It will become your active property after save.'
+            : (editMode
+                ? 'Update your property details. Changes take effect immediately.'
+                : 'Fill in your property details to get started. You can edit these any time in Settings → Property Setup.')
           }</div>
         </div>
       </div>
@@ -275,7 +282,7 @@ function _setupBuildOverlay(editMode, onDone) {
             : ''
           }
           <button type="submit" id="setup-save" class="ss-btn-primary">
-            ${editMode ? '💾 Save Changes' : '✓ Save & Continue'}
+            ${createMode ? '✓ Add Property' : (editMode ? '💾 Save Changes' : '✓ Save & Continue')}
           </button>
         </div>
 
@@ -415,7 +422,7 @@ function _setupValidate(overlay) {
  * @param {HTMLElement} overlay
  * @returns {Object}
  */
-function _setupBuildConfig(overlay) {
+function _setupBuildConfig(overlay, createMode) {
   const v  = id => ((overlay.querySelector('#' + id) || {}).value || '').trim();
   const vF = id => parseFloat(v(id)) || 0;
 
@@ -430,9 +437,13 @@ function _setupBuildConfig(overlay) {
   const _existing      = getPropertyConfig();
   const _existingInteg = _existing.integrations || {};
   const _existingPrice = _existing.pricing      || {};
+  const _activeId = (typeof getActivePropertyId === 'function') ? getActivePropertyId() : null;
+  const _hasExistingProperty = !!(_activeId && typeof getPropertyById === 'function' && getPropertyById(_activeId));
 
   return {
-    propertyId: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'property',
+    propertyId: createMode
+      ? undefined
+      : (_existing.propertyId || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'property'),
     name,
     suburb,
     state,
@@ -480,6 +491,35 @@ function _setupBuildConfig(overlay) {
   };
 }
 
+
+function _setupBlankConfig() {
+  const d = (typeof DEFAULT_PROPERTY_CONFIG !== 'undefined') ? DEFAULT_PROPERTY_CONFIG : {};
+  return {
+    propertyId: '',
+    name: '',
+    suburb: '',
+    state: '',
+    region: '',
+    country: d.country || 'Australia',
+    branding: { subtitle: '', tagline: '' },
+    property: { bedrooms: '', maxGuests: '', bathrooms: '', type: 'house' },
+    owner: { name: '', email: '', phone: '' },
+    integrations: {
+      sheetCsvUrl: '',
+      scriptUrl: '',
+      vapidPublicKey: (d.integrations && d.integrations.vapidPublicKey) || '',
+      pushFunctionUrl: (d.integrations && d.integrations.pushFunctionUrl) || '/.netlify/functions/send-push',
+      calendarId: (d.integrations && d.integrations.calendarId) || 'primary',
+      driveFolderId: null
+    },
+    pricing: {
+      baseRate: (d.pricing && d.pricing.baseRate) || 350,
+      currency: (d.pricing && d.pricing.currency) || 'AUD',
+      locationContext: '',
+      locationFactors: ''
+    }
+  };
+}
 
 // ── STYLES ────────────────────────────────────────────────────────────────────
 function _setupInjectStyles() {
