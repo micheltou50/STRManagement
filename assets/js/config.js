@@ -1,12 +1,50 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    PROPERTY CONFIG — Glenhaven Property Manager (Product Version)
-   ═══════════════════════════════════════════════════════════════════════════ */
+   ═══════════════════════════════════════════════════════════════════════════
 
-const PROPERTY_CONFIG_KEY = 'gh-property-config'; // legacy single-property key
-const PROPERTIES_KEY = 'gh-properties';
-const ACTIVE_PROPERTY_ID_KEY = 'gh-active-property-id';
+   Load order in index.html:
+     <script src="/assets/js/config.js"></script>   ← first
+     <script src="/assets/js/setup.js"></script>    ← second
+     <script src="/assets/js/adapter.js"></script>
+     <script src="/assets/js/main.js"></script>
+
+   v2 changes:
+     + hasValidPropertyConfig()  — first-boot detection for setup.js
+     + migrateConfigFromLegacySettings() now sets 'gh-setup-complete' when
+       legacy keys exist, so existing Glenhaven users never see setup screen.
+═══════════════════════════════════════════════════════════════════════════ */
+
+const PROPERTY_CONFIG_KEY = 'gh-property-config';
+
+// ── KEY NAMESPACING ────────────────────────────────────────────────────────────
+/**
+ * Returns a namespaced localStorage key for the current property.
+ *
+ * For propertyId 'glenhaven' the prefix is 'gh-' so all existing keys are
+ * preserved unchanged — zero migration cost for the live app.
+ * Any other propertyId produces '{id}-{key}', isolating each property's data.
+ *
+ * Usage: localStorage.getItem(lsKey('bookings'))  → 'gh-bookings' or 'seaview-bookings'
+ *
+ * @param {string} key  Short key name without prefix, e.g. 'bookings'.
+ * @returns {string}
+ */
+function lsKey(key) {
+  try {
+    const raw  = localStorage.getItem(PROPERTY_CONFIG_KEY);
+    const id   = (raw ? JSON.parse(raw).propertyId : null) || 'glenhaven';
+    const safe = id.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/^-+|-+$/g, '');
+    const prefix = safe === 'glenhaven' ? 'gh-' : safe + '-';
+    return prefix + key;
+  } catch (e) {
+    return 'gh-' + key; // safe fallback — never breaks existing data
+  }
+}
 
 // ── DEFAULTS ───────────────────────────────────────────────────────────────────
+// Glenhaven values are safe defaults for the live app.
+// For a new product deployment, set integrations.scriptUrl / sheetCsvUrl to ''
+// so the first-boot setup flow is triggered for new hosts.
 const DEFAULT_PROPERTY_CONFIG = {
   propertyId: 'glenhaven',
   name:       'Glenhaven',
@@ -47,6 +85,9 @@ const DEFAULT_PROPERTY_CONFIG = {
     baseRate:        350,
     locationContext: 'Katoomba, Blue Mountains, NSW, Australia',
     locationFactors: '',
+    // ↑ Intentionally empty. The AI pricing prompt falls back to generic STR
+    //   principles when this is blank. Glenhaven's specific factors (Winter Magic
+    //   Festival, Yulefest etc.) must not be the default for hosts in other markets.
     currency:        'AUD',
   },
 
@@ -57,299 +98,105 @@ const DEFAULT_PROPERTY_CONFIG = {
   },
 };
 
-// ── PROPERTY-SCOPED STORAGE PATCH ─────────────────────────────────────────────
-// Keep shared config keys global; scope operational gh-* keys by active property.
-const _GLOBAL_GH_KEYS = new Set([
-  PROPERTY_CONFIG_KEY,
-  PROPERTIES_KEY,
-  ACTIVE_PROPERTY_ID_KEY,
-  'gh-config-migrated-v1',
-  'gh-setup-complete'
-]);
-const _SCOPED_KEY_PREFIXES = [
-  'gh-bookings', 'gh-cleans', 'gh-notes', 'gh-expenses', 'gh-maintenance', 'gh-inventory',
-  'gh-cleaners', 'gh-last-sync', 'gh-last-push', 'gh-last-backup', 'gh-last-cleaner',
-  'gh-push-subs', 'gh-property-data', 'gh-drive-folder-id', 'gh-drive-token', 'gh-drive-token-expiry',
-  'gh-drive-connect-dismissed', 'gh-gdrive-client-id', 'gh-api-key', 'gh-gemini-key', 'gh-base-rate',
-  'gh-cleaning-fee', 'gh-clients', 'gh-expense-cats', 'gh-invoice-settings', 'gh-sms-template',
-  'gh-owner-email', 'gh-inv-', 'gh-bank-', 'gh-cleaner-authed-', 'gh-email-tpl-', 'gh-fx-',
-  'gh-ai-ignore', 'gh-script-url'
-];
 
-(function patchLocalStorageForActiveProperty() {
-  if (window.__ghScopedStoragePatched) return;
-  window.__ghScopedStoragePatched = true;
+// ── FIRST-BOOT DETECTION ───────────────────────────────────────────────────────
+/**
+ * Returns true when a usable property config already exists.
+ * Called by setup.js before deciding whether to show the setup screen.
+ * Must never throw.
+ *
+ * Three paths to "valid":
+ *   1. 'gh-setup-complete' is set — user finished the setup flow.
+ *   2. Legacy Glenhaven user: gh-config-migrated-v1 + gh-script-url present.
+ *   3. Config object in localStorage has name + scriptUrl populated.
+ */
+function hasValidPropertyConfig() {
+  if (localStorage.getItem('gh-setup-complete') === '1') return true;
 
-  const p = Storage.prototype;
-  const _get = p.getItem;
-  const _set = p.setItem;
-  const _remove = p.removeItem;
+  // Existing user who already has a script URL configured — skip setup.
+  // This covers users loading the new code for the first time before migration runs.
+  if (localStorage.getItem('gh-script-url')) return true;
 
-  const rawActiveId = () => {
-    const id = _get.call(localStorage, ACTIVE_PROPERTY_ID_KEY);
-    return id || 'default';
-  };
-
-  const shouldScope = (key) => {
-    if (!key || typeof key !== 'string') return false;
-    if (!key.startsWith('gh-')) return false;
-    if (_GLOBAL_GH_KEYS.has(key)) return false;
-    return _SCOPED_KEY_PREFIXES.some(prefix => key.startsWith(prefix));
-  };
-
-  const scopedKey = key => key + '::' + rawActiveId();
-
-  p.getItem = function(key) {
-    if (shouldScope(key)) {
-      const scoped = _get.call(this, scopedKey(key));
-      if (scoped !== null) return scoped;
-    }
-    return _get.call(this, key);
-  };
-
-  p.setItem = function(key, value) {
-    if (shouldScope(key)) return _set.call(this, scopedKey(key), value);
-    return _set.call(this, key, value);
-  };
-
-  p.removeItem = function(key) {
-    if (shouldScope(key)) {
-      _remove.call(this, scopedKey(key));
-      // also remove legacy unscoped key when explicitly deleting
-      _remove.call(this, key);
-      return;
-    }
-    _remove.call(this, key);
-  };
-})();
-
-
-// ── MULTI-PROPERTY HELPERS ────────────────────────────────────────────────────
-function _normalisePropertyId(raw, fallbackName) {
-  const base = String(raw || fallbackName || 'property')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 40) || 'property';
-
-  const ids = new Set(getAllProperties().map(p => p && p.propertyId).filter(Boolean));
-  if (!ids.has(base)) return base;
-  let i = 2;
-  while (ids.has(base + '-' + i)) i++;
-  return base + '-' + i;
+  try {
+    const raw = localStorage.getItem(PROPERTY_CONFIG_KEY);
+    if (!raw) return false;
+    const c = JSON.parse(raw);
+    return !!(c && c.name && c.integrations && c.integrations.scriptUrl);
+  } catch (e) { return false; }
 }
 
-function getAllProperties() {
+
+// ── CONFIG READ / WRITE ────────────────────────────────────────────────────────
+/**
+ * Returns the merged config (saved ← defaults).
+ * Never throws — returns defaults on parse error.
+ */
+function getPropertyConfig() {
   try {
-    const raw = localStorage.getItem(PROPERTIES_KEY);
-    if (!raw) return [];
-    const list = JSON.parse(raw);
-    if (!Array.isArray(list)) return [];
-    return list
-      .filter(Boolean)
-      .map(p => {
-        const merged = _deepMerge(_cloneDefaults(), p || {});
-        merged.propertyId = merged.propertyId || _normalisePropertyId('', merged.name);
-        return merged;
-      });
+    const saved = localStorage.getItem(PROPERTY_CONFIG_KEY);
+    if (!saved) return _cloneDefaults();
+    return _deepMerge(_cloneDefaults(), JSON.parse(saved));
   } catch (e) {
-    console.warn('[Config] Failed to load gh-properties.', e);
-    return [];
+    console.warn('[Config] Failed to load property config — using defaults.', e);
+    return _cloneDefaults();
   }
 }
 
-function saveAllProperties(list) {
+/**
+ * Deep-merges `updates` into the current config and persists.
+ * Empty strings and nulls do not overwrite existing values.
+ * @param {Object} updates  Partial config (may be nested).
+ * @returns {Object|null}
+ */
+function savePropertyConfig(updates) {
   try {
-    const safe = (Array.isArray(list) ? list : [])
-      .filter(Boolean)
-      .map((p, i) => {
-        const merged = _deepMerge(_cloneDefaults(), p || {});
-        merged.propertyId = merged.propertyId || _normalisePropertyId('', merged.name || ('property-' + (i + 1)));
-        return merged;
-      });
-    localStorage.setItem(PROPERTIES_KEY, JSON.stringify(safe));
-    return safe;
+    const merged = _deepMerge(getPropertyConfig(), updates);
+    localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(merged));
+    return merged;
   } catch (e) {
-    console.warn('[Config] Failed to save gh-properties.', e);
+    console.warn('[Config] Failed to save property config.', e);
     return null;
   }
 }
 
-function getActivePropertyId() {
-  const id = localStorage.getItem(ACTIVE_PROPERTY_ID_KEY);
-  if (id) return id;
-  const list = getAllProperties();
-  return (list[0] && list[0].propertyId) || null;
-}
-
-function setActivePropertyId(id) {
-  const list = getAllProperties();
-  const found = list.find(p => p.propertyId === id);
-  if (!found) return false;
-  localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, id);
-  _syncLegacyMirrorsFromActive();
-  return true;
-}
-
-function getPropertyById(id) {
-  const list = getAllProperties();
-  const hit = list.find(p => p.propertyId === id);
-  return hit ? _deepMerge(_cloneDefaults(), hit) : null;
-}
-
-function getActivePropertyConfig() {
-  const activeId = getActivePropertyId();
-  if (!activeId) return _cloneDefaults();
-  return getPropertyById(activeId) || _cloneDefaults();
-}
-
-function addPropertyConfig(property) {
-  const list = getAllProperties();
-  const next = _deepMerge(_cloneDefaults(), property || {});
-  next.propertyId = _normalisePropertyId(next.propertyId, next.name);
-  list.push(next);
-  saveAllProperties(list);
-  localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, next.propertyId);
-  _syncLegacyMirrorsFromActive();
-  return next;
-}
-
-function updatePropertyConfig(id, patch) {
-  const list = getAllProperties();
-  const idx = list.findIndex(p => p.propertyId === id);
-  if (idx === -1) return null;
-  const merged = _deepMerge(list[idx], patch || {});
-  merged.propertyId = list[idx].propertyId;
-  list[idx] = merged;
-  saveAllProperties(list);
-  if (getActivePropertyId() === id) _syncLegacyMirrorsFromActive();
-  return merged;
-}
-
-function removePropertyConfig(id) {
-  const list = getAllProperties();
-  if (list.length <= 1) return false;
-  const next = list.filter(p => p.propertyId !== id);
-  if (next.length === list.length) return false;
-  saveAllProperties(next);
-  if (getActivePropertyId() === id) {
-    localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, next[0].propertyId);
-    _syncLegacyMirrorsFromActive();
-  }
-  return true;
-}
-
-function migrateLegacySinglePropertyConfig() {
-  const existing = getAllProperties();
-  if (existing.length) {
-    const active = getActivePropertyId();
-    if (!active || !existing.find(p => p.propertyId === active)) {
-      localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, existing[0].propertyId);
-    }
-    return;
-  }
-
-  let source = null;
-  try {
-    const raw = localStorage.getItem(PROPERTY_CONFIG_KEY);
-    if (raw) source = JSON.parse(raw);
-  } catch (e) {}
-
-  if (!source) {
-    // Legacy fallback from older keys
-    const scriptUrl = localStorage.getItem('gh-script-url') || '';
-    const email = localStorage.getItem('gh-inv-email') || '';
-    const ownerName = localStorage.getItem('gh-inv-name') || '';
-    const baseRate = Number(localStorage.getItem('gh-base-rate') || 0) || 0;
-    if (scriptUrl || email || ownerName || baseRate) {
-      source = {
-        owner: { email, name: ownerName },
-        integrations: { scriptUrl },
-        pricing: { baseRate: baseRate || 350 }
-      };
-    }
-  }
-
-  if (!source) return;
-
-  const merged = _deepMerge(_cloneDefaults(), source);
-  merged.propertyId = _normalisePropertyId(merged.propertyId, merged.name);
-  saveAllProperties([merged]);
-  localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, merged.propertyId);
-  localStorage.setItem('gh-setup-complete', '1');
-  _syncLegacyMirrorsFromActive();
-}
-
-
-// ── FIRST-BOOT DETECTION ───────────────────────────────────────────────────────
-function hasValidPropertyConfig() {
-  if (localStorage.getItem('gh-setup-complete') === '1') return true;
-  if (localStorage.getItem('gh-script-url')) return true;
-
-  const active = getActivePropertyConfig();
-  return !!(active && active.name && active.integrations && active.integrations.scriptUrl);
-}
-
-
-// ── COMPAT: SINGLE-PROPERTY API NOW TARGETS ACTIVE PROPERTY ───────────────────
-function getPropertyConfig() {
-  return getActivePropertyConfig();
-}
-
-function savePropertyConfig(updates) {
-  const active = getActivePropertyConfig();
-  const activeId = getActivePropertyId();
-
-  // First save path on fresh setup where no property exists yet.
-  if (!activeId || !getPropertyById(activeId)) {
-    const first = _deepMerge(active, updates || {});
-    first.propertyId = _normalisePropertyId(first.propertyId, first.name);
-    saveAllProperties([first]);
-    localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, first.propertyId);
-    localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(first)); // keep legacy shadow
-    _syncLegacyMirrorsFromActive();
-    return first;
-  }
-
-  const merged = updatePropertyConfig(activeId, updates || {});
-  if (merged) localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(merged)); // keep legacy shadow
-  return merged;
-}
-
 
 // ── ACCESSOR HELPERS ───────────────────────────────────────────────────────────
+
+/** Apps Script URL. Priority: config → legacy gh-script-url → constant. */
 function getCurrentScriptURL() {
-  const cfg = getActivePropertyConfig();
+  const cfg = getPropertyConfig();
   if (cfg.integrations && cfg.integrations.scriptUrl) return cfg.integrations.scriptUrl;
   const legacy = localStorage.getItem('gh-script-url');
   if (legacy) return legacy;
   return (typeof DEFAULT_SCRIPT_URL !== 'undefined') ? DEFAULT_SCRIPT_URL : '';
 }
 
+/** Published bookings CSV URL. Priority: config → SHEET_URL constant. */
 function getPropertySheetCsvUrl() {
-  const cfg = getActivePropertyConfig();
+  const cfg = getPropertyConfig();
   if (cfg.integrations && cfg.integrations.sheetCsvUrl) return cfg.integrations.sheetCsvUrl;
   return (typeof SHEET_URL !== 'undefined') ? SHEET_URL : '';
 }
 
 function getCurrentPropertyName() {
-  return getActivePropertyConfig().name || 'Property';
+  return getPropertyConfig().name || 'Property';
 }
 
 function getCurrentPropertySubtitle() {
-  const c = getActivePropertyConfig();
+  const c = getPropertyConfig();
   if (c.branding && c.branding.subtitle) return c.branding.subtitle;
   return [c.suburb, c.state].filter(Boolean).join(' · ');
 }
 
 function getCurrentPropertyTagline() {
-  const c = getActivePropertyConfig();
+  const c = getPropertyConfig();
   if (c.branding && c.branding.tagline) return c.branding.tagline;
   return [[c.suburb, c.state].filter(Boolean).join(', '), c.region].filter(Boolean).join(' · ');
 }
 
+/** Owner email. Priority: config → gh-inv-email → gh-owner-email → ''. */
 function getCurrentOwnerEmail() {
-  const c = getActivePropertyConfig();
+  const c = getPropertyConfig();
   return (c.owner && c.owner.email)
     || localStorage.getItem('gh-inv-email')
     || localStorage.getItem('gh-owner-email')
@@ -357,13 +204,13 @@ function getCurrentOwnerEmail() {
 }
 
 function getVapidPublicKey() {
-  const c = getActivePropertyConfig();
+  const c = getPropertyConfig();
   if (c.integrations && c.integrations.vapidPublicKey) return c.integrations.vapidPublicKey;
   return (typeof VAPID_PUBLIC_KEY !== 'undefined') ? VAPID_PUBLIC_KEY : '';
 }
 
 function getPushFunctionUrl() {
-  const c = getActivePropertyConfig();
+  const c = getPropertyConfig();
   return (c.integrations && c.integrations.pushFunctionUrl) || '/.netlify/functions/send-push';
 }
 
@@ -371,7 +218,7 @@ function getReceiptsFolderName() { return getCurrentPropertyName() + ' Receipts'
 function getBackupsFolderName()  { return getCurrentPropertyName() + ' Backups';  }
 
 function getPropertyStats() {
-  const c = getActivePropertyConfig();
+  const c = getPropertyConfig();
   return {
     bedrooms:  (c.property && c.property.bedrooms)  || 0,
     maxGuests: (c.property && c.property.maxGuests) || 0,
@@ -380,7 +227,7 @@ function getPropertyStats() {
 }
 
 function getPricingConfig() {
-  return getActivePropertyConfig().pricing || DEFAULT_PROPERTY_CONFIG.pricing;
+  return getPropertyConfig().pricing || DEFAULT_PROPERTY_CONFIG.pricing;
 }
 
 function buildCalendarEventSummary(guestName) {
@@ -388,7 +235,7 @@ function buildCalendarEventSummary(guestName) {
 }
 
 function getDriveFolderId() {
-  const c = getActivePropertyConfig();
+  const c = getPropertyConfig();
   if (c.integrations && c.integrations.driveFolderId) return c.integrations.driveFolderId;
   return localStorage.getItem('gh-drive-folder-id') || null;
 }
@@ -398,6 +245,10 @@ function saveDriveFolderId(folderId) {
   savePropertyConfig({ integrations: { driveFolderId: folderId } });
 }
 
+/**
+ * Persists script URL to both legacy key AND config.
+ * Call from saveScriptURL() in main.js.
+ */
 function persistScriptUrl(url) {
   if (!url) return;
   localStorage.setItem('gh-script-url', url);
@@ -406,75 +257,68 @@ function persistScriptUrl(url) {
 
 
 // ── MIGRATION ──────────────────────────────────────────────────────────────────
+/**
+ * One-time migration: copies legacy localStorage keys into config.
+ * Sets 'gh-setup-complete' when legacy keys exist so existing users never
+ * see the setup screen. Safe to call repeatedly.
+ */
 function migrateConfigFromLegacySettings() {
   const MIGRATION_FLAG = 'gh-config-migrated-v1';
-  if (localStorage.getItem(MIGRATION_FLAG)) {
-    migrateLegacySinglePropertyConfig();
-    return;
-  }
+  if (localStorage.getItem(MIGRATION_FLAG)) return;
 
-  migrateLegacySinglePropertyConfig();
+  const updates     = { integrations: {}, owner: {} };
+  const scriptUrl   = localStorage.getItem('gh-script-url');
+  const email       = localStorage.getItem('gh-inv-email');
+  const ownerName   = localStorage.getItem('gh-inv-name');
+  const folderId    = localStorage.getItem('gh-drive-folder-id');
+  const baseRate    = localStorage.getItem('gh-base-rate');
 
-  const updates = { integrations: {}, owner: {} };
-  const scriptUrl = localStorage.getItem('gh-script-url');
-  const email = localStorage.getItem('gh-inv-email');
-  const ownerName = localStorage.getItem('gh-inv-name');
-  const folderId = localStorage.getItem('gh-drive-folder-id');
-  const baseRate = localStorage.getItem('gh-base-rate');
-
-  if (scriptUrl)  updates.integrations.scriptUrl = scriptUrl;
-  if (folderId)   updates.integrations.driveFolderId = folderId;
-  if (email)      updates.owner.email = email;
-  if (ownerName)  updates.owner.name = ownerName;
+  if (scriptUrl)  updates.integrations.scriptUrl     = scriptUrl;
+  if (folderId)   updates.integrations.driveFolderId  = folderId;
+  if (email)      updates.owner.email                 = email;
+  if (ownerName)  updates.owner.name                  = ownerName;
   if (baseRate)   updates.pricing = { baseRate: Number(baseRate) || 350 };
 
   savePropertyConfig(updates);
   localStorage.setItem(MIGRATION_FLAG, '1');
+
+  // Existing user with a script URL → mark setup complete so they never
+  // see the setup flow on first load after deploying this version.
   if (scriptUrl) localStorage.setItem('gh-setup-complete', '1');
 
-  _syncLegacyMirrorsFromActive();
+  console.log('[Config] Legacy settings migrated to property config.');
 }
 
 
 // ── DOM INIT ───────────────────────────────────────────────────────────────────
+/**
+ * Patches static HTML elements with live config values.
+ * Called after DOMContentLoaded and after setup form is saved.
+ * Missing elements are silently skipped.
+ */
 function initPropertyUI() {
-  const cfg = getActivePropertyConfig();
+  const cfg   = getPropertyConfig();
   const stats = getPropertyStats();
 
   document.title = cfg.name + ' — Property Manager';
 
-  _setText('header-sub-title', getCurrentPropertySubtitle());
-  _setText('prop-hero-name', cfg.name);
+  _setText('header-sub-title',  getCurrentPropertySubtitle());
+  _setText('prop-hero-name',    cfg.name);
   _setText('prop-hero-tagline', getCurrentPropertyTagline());
-  _setText('prop-hero-beds', stats.bedrooms);
-  _setText('prop-hero-guests', stats.maxGuests);
-  _setText('prop-hero-baths', stats.bathrooms);
+  _setText('prop-hero-beds',    stats.bedrooms);
+  _setText('prop-hero-guests',  stats.maxGuests);
+  _setText('prop-hero-baths',   stats.bathrooms);
 
-  _setText('prop-info-name', cfg.name);
+  _setText('prop-info-name',     cfg.name);
   _setText('prop-info-location', [cfg.suburb, cfg.state].filter(Boolean).join(', '));
-  _setText('prop-info-beds', stats.bedrooms);
-  _setText('prop-info-guests', stats.maxGuests);
-  _setText('prop-info-baths', stats.bathrooms);
-  _setText('active-property-name', cfg.name);
-
-  if (typeof renderPropertySwitcher === 'function') renderPropertySwitcher();
+  _setText('prop-info-beds',     stats.bedrooms);
+  _setText('prop-info-guests',   stats.maxGuests);
+  _setText('prop-info-baths',    stats.bathrooms);
 }
 
 function _setText(id, value) {
   const el = document.getElementById(id);
   if (el && value !== undefined && value !== null) el.textContent = String(value);
-}
-
-function _syncLegacyMirrorsFromActive() {
-  const cfg = getActivePropertyConfig();
-  if (!cfg || !cfg.integrations) return;
-
-  if (cfg.integrations.scriptUrl) localStorage.setItem('gh-script-url', cfg.integrations.scriptUrl);
-  if (cfg.owner && cfg.owner.email) localStorage.setItem('gh-inv-email', cfg.owner.email);
-  if (cfg.owner && cfg.owner.name) localStorage.setItem('gh-inv-name', cfg.owner.name);
-
-  // Keep single-property shadow for backward-compatible reads.
-  try { localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(cfg)); } catch (e) {}
 }
 
 

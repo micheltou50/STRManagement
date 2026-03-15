@@ -32,10 +32,10 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 function getPushSubs() {
-  return JSON.parse(localStorage.getItem('gh-push-subs') || '{"cleaners":{}}');
+  return JSON.parse(localStorage.getItem(lsKey('push-subs')) || '{"cleaners":{}}');
 }
 function savePushSubsLocal(subs) {
-  localStorage.setItem('gh-push-subs', JSON.stringify(subs));
+  localStorage.setItem(lsKey('push-subs'), JSON.stringify(subs));
   pushAppData('pushSubs', subs); // immediate, not debounced — subscriptions are critical
 }
 
@@ -168,7 +168,7 @@ async function getFreshOwnerSub() {
           owner: json.data.pushSubs.owner || local.owner,
           cleaners: Object.assign({}, json.data.pushSubs.cleaners, local.cleaners)
         };
-        localStorage.setItem('gh-push-subs', JSON.stringify(merged));
+        localStorage.setItem(lsKey('push-subs'), JSON.stringify(merged));
         console.log('Refreshed pushSubs, owner sub:', merged.owner ? 'found' : 'NOT FOUND');
         return merged.owner || null;
       }
@@ -217,18 +217,18 @@ function platformIcon(platform, size) {
   if (s.includes('direct') || s.includes('owner')) return `<div style="${style};background:#4A7C59">👤</div>`;
   return `<div style="${style};background:#8B9467">🏠</div>`;
 }
-let bookings = loadJSON('gh-bookings');
-let cleans   = loadJSON('gh-cleans');
-let notes    = loadJSON('gh-notes');
+let bookings = loadJSON(lsKey('bookings'));
+let cleans   = loadJSON(lsKey('cleans'));
+let notes    = loadJSON(lsKey('notes'));
 let calYear  = new Date().getFullYear();
 let calMonth = new Date().getMonth();
 
 const _appDataTimers = {};
 
 function save() {
-  localStorage.setItem('gh-bookings', JSON.stringify(bookings));
-  localStorage.setItem('gh-cleans',   JSON.stringify(cleans));
-  localStorage.setItem('gh-notes',    JSON.stringify(notes));
+  localStorage.setItem(lsKey('bookings'), JSON.stringify(bookings));
+  localStorage.setItem(lsKey('cleans'),   JSON.stringify(cleans));
+  localStorage.setItem(lsKey('notes'),    JSON.stringify(notes));
   scheduleAppDataSave('cleans', cleans);
   scheduleAppDataSave('notes',  notes);
 }
@@ -241,7 +241,7 @@ function pushToSheet(action, booking) {
     .then(json => {
       if (json.status === 'ok') {
         showBanner('✓ Synced to Google Sheets', 'ok');
-        localStorage.setItem('gh-last-push', new Date().toLocaleString('en-AU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}));
+        localStorage.setItem(lsKey('last-push'), new Date().toLocaleString('en-AU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}));
       } else if (json.status === 'not_found' && action === 'update') {
         sheetPost(url, 'add', booking);
         showBanner('✓ Added to Google Sheets', 'ok');
@@ -425,7 +425,7 @@ function finishSync(imported, skipped, manual) {
 
   save();
   const syncTime = new Date().toLocaleString('en-AU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
-  localStorage.setItem('gh-last-sync', syncTime);
+  localStorage.setItem(lsKey('last-sync'), syncTime);
   renderAll();
   const calMsg = toDeleteFromCal.length ? ` · ${toDeleteFromCal.length} calendar event${toDeleteFromCal.length > 1 ? 's' : ''} removed` : '';
   const cancelledCount = imported.filter(b => b.status === 'cancelled').length;
@@ -1154,18 +1154,18 @@ function confirmInvoiceClient() {
 }
 function buildInvoicePDF(selected, client) {
   const inv = {
-    name: localStorage.getItem('gh-inv-name') || '',
-    company: localStorage.getItem('gh-inv-company') || '',
-    abn: localStorage.getItem('gh-inv-abn') || '',
-    acn: localStorage.getItem('gh-inv-acn') || '',
-    email: localStorage.getItem('gh-inv-email') || '',
-    address: localStorage.getItem('gh-inv-address') || ''
+    name: localStorage.getItem(lsKey('inv-name')) || '',
+    company: localStorage.getItem(lsKey('inv-company')) || '',
+    abn: localStorage.getItem(lsKey('inv-abn')) || '',
+    acn: localStorage.getItem(lsKey('inv-acn')) || '',
+    email: localStorage.getItem(lsKey('inv-email')) || '',
+    address: localStorage.getItem(lsKey('inv-address')) || ''
   };
   const bank = {
-    name: localStorage.getItem('gh-bank-name') || '',
-    bsb: localStorage.getItem('gh-bank-bsb') || '',
-    acc: localStorage.getItem('gh-bank-acc') || '',
-    bank: localStorage.getItem('gh-bank-bank') || ''
+    name: localStorage.getItem(lsKey('bank-name')) || '',
+    bsb: localStorage.getItem(lsKey('bank-bsb')) || '',
+    acc: localStorage.getItem(lsKey('bank-acc')) || '',
+    bank: localStorage.getItem(lsKey('bank-bank')) || ''
   };
   const invNum = 'INV-' + Date.now().toString().slice(-6);
   const today = new Date().toLocaleDateString('en-AU',{day:'numeric',month:'long',year:'numeric'});
@@ -1305,13 +1305,10 @@ function openSettingsPanel(panelId) {
   if (panelId === 'sms-template') {
     const defaultTemplate = `Hi {cleanerFirstName}\n\nNew Booking - please see below\n\nCheck in: {checkin}\nCheck out: {checkout}\nName: {guestFirstName}\nNumber of guests: {guests}\n\nPlease let me know if you are available`;
     const el = document.getElementById('settings-sms-template');
-    if (el) el.value = localStorage.getItem('gh-sms-template') || defaultTemplate;
+    if (el) el.value = localStorage.getItem(lsKey('sms-template')) || defaultTemplate;
   }
   if (panelId === 'team') {
     renderTeamList();
-  }
-  if (panelId === 'property-switcher') {
-    renderPropertySwitcher();
   }
   if (panelId === 'notifications') {
     setTimeout(updateNotifStatus, 100);
@@ -1322,13 +1319,13 @@ function openSettingsPanel(panelId) {
   if (panelId === 'invoice-details') {
     ['name','company','abn','acn','email','address'].forEach(k => {
       const el = document.getElementById('inv-'+k);
-      if (el) el.value = localStorage.getItem('gh-inv-'+k) || '';
+      if (el) el.value = localStorage.getItem(lsKey('inv-'+k)) || '';
     });
   }
   if (panelId === 'bank-details') {
     ['name','bsb','acc','bank'].forEach(k => {
       const el = document.getElementById('inv-bank-'+k);
-      if (el) el.value = localStorage.getItem('gh-inv-bank-'+k) || '';
+      if (el) el.value = localStorage.getItem(lsKey('inv-bank-'+k)) || '';
     });
   }
   if (panelId === 'invoice-clients') {
@@ -1350,14 +1347,14 @@ function openSettingsPanel(panelId) {
   }
   if (panelId === 'backup') {
     const el = document.getElementById('backup-last-time');
-    if (el) el.textContent = localStorage.getItem('gh-last-backup') || 'Never';
+    if (el) el.textContent = localStorage.getItem(lsKey('last-backup')) || 'Never';
   }
   if (panelId === 'ai-import') {
     const el = document.getElementById('settings-api-key');
     if (el) el.value = localStorage.getItem('gh-api-key') || '';
   }
   if (panelId === 'smart-pricing') {
-    const saved = localStorage.getItem('gh-base-rate');
+    const saved = localStorage.getItem(lsKey('base-rate'));
     if (saved) { const el = document.getElementById('pricing-base-rate'); if (el) el.value = saved; }
   }
   if (panelId === 'ai-ignore') {
@@ -1368,9 +1365,6 @@ function openSettingsPanel(panelId) {
   }
   if (panelId === 'feel') {
     loadFxSettings();
-  }
-  if (panelId === 'connection-checker') {
-    resetConnectionCheckerResults();
   }
 }
 
@@ -1401,7 +1395,7 @@ function renderExpenseCatSettings() {
 
 function updateExpenseCat(index, newName) {
   const cats = getExpenseCats();
-  if (newName.trim()) { cats[index] = newName.trim(); localStorage.setItem('gh-expense-cats', JSON.stringify(cats)); populateExpenseCatSelect(); }
+  if (newName.trim()) { cats[index] = newName.trim(); localStorage.setItem(lsKey('expense-cats'), JSON.stringify(cats)); populateExpenseCatSelect(); }
 }
 
 function addExpenseCat() {
@@ -1409,7 +1403,7 @@ function addExpenseCat() {
   if (!val) return;
   const cats = getExpenseCats();
   cats.push(val);
-  localStorage.setItem('gh-expense-cats', JSON.stringify(cats));
+  localStorage.setItem(lsKey('expense-cats'), JSON.stringify(cats));
   document.getElementById('new-expense-cat').value = '';
   renderExpenseCatSettings();
   populateExpenseCatSelect();
@@ -1421,7 +1415,7 @@ async function deleteExpenseCat(index) {
   const _okCat = await showAppModal({ title: 'Delete Category', msg: 'Delete category "' + cats[index] + '"?', confirmText: 'Delete', confirmColor: 'var(--red)' });
   if (!_okCat) return;
   cats.splice(index, 1);
-  localStorage.setItem('gh-expense-cats', JSON.stringify(cats));
+  localStorage.setItem(lsKey('expense-cats'), JSON.stringify(cats));
   renderExpenseCatSettings();
   populateExpenseCatSelect();
 }
@@ -1429,7 +1423,7 @@ async function deleteExpenseCat(index) {
 async function resetExpenseCats() {
   const _okReset = await showAppModal({ title: 'Reset Categories', msg: "Reset to default categories? This won't affect existing expenses.", confirmText: 'Reset' });
   if (!_okReset) return;
-  localStorage.removeItem('gh-expense-cats');
+  localStorage.removeItem(lsKey('expense-cats'));
   renderExpenseCatSettings();
   populateExpenseCatSelect();
   showBanner('✓ Categories reset', 'ok');
@@ -1444,7 +1438,7 @@ async function getSmartPricing() {
 
   const period = document.getElementById('pricing-period').value;
   const baseRate = document.getElementById('pricing-base-rate').value;
-  if (baseRate) localStorage.setItem('gh-base-rate', baseRate);
+  if (baseRate) localStorage.setItem(lsKey('base-rate'), baseRate);
 
   status.style.background = '#FFF8E1'; status.style.color = '#E65100';
   status.textContent = '⟳ Analysing your bookings and seasonal data...';
@@ -1689,12 +1683,12 @@ function renderPricingCalendar(data, bookedDates, startDate, endDate) {
   return html;
 }
 function renderSettings() {
-  const lastSync = localStorage.getItem('gh-last-sync') || 'Never';
+  const lastSync = localStorage.getItem(lsKey('last-sync')) || 'Never';
   const lsEl = document.getElementById('settings-last-sync');
   if (lsEl) lsEl.textContent = lastSync;
   const bcEl = document.getElementById('settings-booking-count');
   if (bcEl) bcEl.textContent = bookings.length + ' bookings loaded';
-  const lastBackup = localStorage.getItem('gh-last-backup') || 'Never';
+  const lastBackup = localStorage.getItem(lsKey('last-backup')) || 'Never';
   const buEl = document.getElementById('backup-last-time');
   if (buEl) buEl.textContent = lastBackup;
   setTimeout(updateNotifStatus, 100);
@@ -1934,7 +1928,7 @@ function addClean() {
   const cleaner = selectEl ? selectEl.value.trim() : document.getElementById('clean-name').value.trim();
   const date=document.getElementById('clean-date').value;
   if (!bookingId||!cleaner||!date){showBanner('⚠ Please fill all fields','warn');return;}
-  localStorage.setItem('gh-last-cleaner', cleaner);
+  localStorage.setItem(lsKey('last-cleaner'), cleaner);
   const booking=bookings.find(b=>b.id===bookingId);
   if (!booking) { showBanner('⚠ Booking not found — it may have been deleted', 'warn'); return; }
   // Find cleaner ID from the saved cleaners list
@@ -2134,7 +2128,7 @@ function openNotifyModal(cleanId) {
 
   // Use saved template or default
   const defaultTemplate = `Hi {cleanerFirstName}\n\nNew Booking - please see below\n\nCheck in: {checkin}\nCheck out: {checkout}\nName: {guestFirstName}\nNumber of guests: {guests}\n\nPlease let me know if you are available`;
-  const template = localStorage.getItem('gh-sms-template') || defaultTemplate;
+  const template = localStorage.getItem(lsKey('sms-template')) || defaultTemplate;
   const msg = template
     .replace('{cleanerFirstName}', (c.cleaner||'').split(' ')[0])
     .replace('{cleanerName}', c.cleaner)
@@ -2246,7 +2240,7 @@ function syncToSheet() {
   el.style.color = '#2E7D32';
   el.textContent = '✓ Sync page opened — close it once you see status ok';
   const syncTime = new Date().toLocaleString('en-AU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
-  localStorage.setItem('gh-last-push', syncTime);
+  localStorage.setItem(lsKey('last-push'), syncTime);
 }
 
 
@@ -2260,7 +2254,7 @@ function clearCacheAndResync() {
   }).then(ok => {
     if (!ok) return;
     // Only clear the data that comes from the sheet — preserve everything else
-    ['gh-bookings','gh-cleans','gh-notes','gh-expenses','gh-last-sync'].forEach(k => localStorage.removeItem(k));
+    ['gh-bookings','gh-cleans','gh-notes','gh-expenses','gh-last-sync'].map(k => lsKey(k.replace('gh-',''))).forEach(k => localStorage.removeItem(k));
     location.reload();
   });
 }
@@ -2269,7 +2263,7 @@ function clearCacheAndResync() {
 function saveSMSTemplate() {
   const val = document.getElementById('settings-sms-template');
   if (!val) return;
-  localStorage.setItem('gh-sms-template', val.value);
+  localStorage.setItem(lsKey('sms-template'), val.value);
   showBanner('✓ SMS template saved', 'ok');
 }
 
@@ -2338,44 +2332,36 @@ function saveScriptURL() {
   setTimeout(() => el.style.display = 'none', 2000);
 }
 async function testScriptConnection() {
-  const checkerOpen = document.getElementById('settings-panel-connection-checker')?.style.display !== 'none';
-  const resultId = checkerOpen ? 'conn-script-result' : 'script-test-result';
-  _setConnectionCheckResult(resultId, 'loading', 'Checking Apps Script endpoint…');
-
-  const scriptUrl = (getCurrentScriptURL() || '').trim();
-  if (!scriptUrl) {
-    _setConnectionCheckResult(resultId, 'fail', '❌ Missing configuration: Apps Script URL is not set.');
-    return;
-  }
-  if (!scriptUrl.toLowerCase().includes('script.google.com/macros') || !scriptUrl.endsWith('/exec')) {
-    _setConnectionCheckResult(resultId, 'fail', '❌ Invalid URL: expected a deployed Apps Script /exec URL.');
-    return;
-  }
-
+  const el = document.getElementById('script-test-result');
+  el.style.display = 'block';
+  el.style.background = '#FFF8E1';
+  el.style.color = '#E65100';
+  el.textContent = '⟳ Testing connection...';
   try {
-    const json = (window.DB && typeof window.DB.testConnection === 'function')
-      ? await window.DB.testConnection()
-      : await fetch(scriptUrl + '?action=test').then(r => r.json());
-
-    const ok = !!(json && (json.success === true || json.status === 'ok' || json.status === 'success' || json.status === true));
-    if (!ok) throw new Error((json && (json.error || json.status)) || 'Unexpected response');
-
-    _setConnectionCheckResult(resultId, 'ok', '✅ Connected: Apps Script responded to a safe test action.');
+    const url = getScriptURL() + '?action=test';
+    const res = await fetch(url);
+    const testJson = await res.json();
+    if (!testJson.status) throw new Error('unexpected response from script');
+    el.style.background = '#E8F5E9';
+    el.style.color = '#2E7D32';
+    el.textContent = '✓ Connected — script responded OK';
   } catch(e) {
-    _setConnectionCheckResult(resultId, 'fail', '❌ Failed: Apps Script test request did not succeed. ' + e.message);
+    el.style.background = '#FDECEA';
+    el.style.color = '#C0392B';
+    el.textContent = '✗ Could not reach script: ' + e.message;
   }
 }
 function saveBankDetails() {
   ['name','bsb','acc','bank'].forEach(k => {
     const val = document.getElementById('inv-bank-'+k)?.value?.trim();
-    if (val !== undefined) localStorage.setItem('gh-bank-'+k, val);
+    if (val !== undefined) localStorage.setItem(lsKey('bank-')+k, val);
   });
   const el = document.getElementById('inv-bank-confirm');
   el.style.display='block'; setTimeout(()=>el.style.display='none',2000);
 }
 
-function loadClients() { return JSON.parse(localStorage.getItem('gh-clients')||'[]'); }
-function saveClients(c) { localStorage.setItem('gh-clients', JSON.stringify(c)); }
+function loadClients() { return JSON.parse(localStorage.getItem(lsKey('clients'))||'[]'); }
+function saveClients(c) { localStorage.setItem(lsKey('clients'), JSON.stringify(c)); }
 
 function renderClientsList() {
   const clients = loadClients();
@@ -2448,17 +2434,17 @@ function getApiKey() {
 function saveInvoiceDetails() {
   ['name','company','abn','acn','email','address'].forEach(k => {
     const val = document.getElementById('inv-'+k)?.value?.trim();
-    if (val !== undefined) localStorage.setItem('gh-inv-'+k, val);
+    if (val !== undefined) localStorage.setItem(lsKey('inv-')+k, val);
   });
   const el = document.getElementById('inv-save-confirm');
   el.style.display = 'block';
   setTimeout(() => el.style.display = 'none', 2000);
 }
 function loadCleaners() {
-  return loadJSON('gh-cleaners');
+  return loadJSON(lsKey('cleaners'));
 }
 function saveCleaners(list) {
-  localStorage.setItem('gh-cleaners', JSON.stringify(list));
+  localStorage.setItem(lsKey('cleaners'), JSON.stringify(list));
   scheduleAppDataSave('cleaners', list);
 }
 function addCleaner() {
@@ -2589,7 +2575,7 @@ function populateCleanerSelect() {
   const sel = document.getElementById('clean-name');
   if (!sel) return;
   if (cleaners.length > 0) {
-    const lastCleaner = localStorage.getItem('gh-last-cleaner') || '';
+    const lastCleaner = localStorage.getItem(lsKey('last-cleaner')) || '';
     sel.innerHTML = cleaners.map(c => `<option value="${c.name}" data-phone="${c.phone||''}" ${c.name===lastCleaner?'selected':''}>${c.name}${c.phone?' — '+c.phone:''}</option>`).join('');
   } else {
     sel.innerHTML = '<option value="">No cleaners saved — add in Settings</option>';
@@ -2817,10 +2803,10 @@ Return empty arrays if nothing found in a category.`;
 
 // ── AI IGNORE LIST ────────────────────────────────────────────────────────────
 function loadAIIgnoreList() {
-  return JSON.parse(localStorage.getItem('gh-ai-ignore') || '[]');
+  return JSON.parse(localStorage.getItem(lsKey('ai-ignore')) || '[]');
 }
 function saveAIIgnoreList(list) {
-  localStorage.setItem('gh-ai-ignore', JSON.stringify(list));
+  localStorage.setItem(lsKey('ai-ignore'), JSON.stringify(list));
   scheduleAppDataSave('aiIgnore', list);
 }
 function addAIIgnoreItem(type, key, label, reason) {
@@ -3437,13 +3423,13 @@ function buildBackupPayload() {
     inventory,
     cleaners: loadCleaners(),
     settings: {
-      propertyData:       localStorage.getItem('gh-property-data'),
+      propertyData:       localStorage.getItem(lsKey('property-data')),
       scriptUrl:          getCurrentScriptURL(),
       gDriveClientId:     localStorage.getItem('gh-gdrive-client-id'),
-      cleaningFeeDefault: localStorage.getItem('gh-cleaning-fee'),
-      smsTemplate:        localStorage.getItem('gh-sms-template'),
-      expenseCats:        localStorage.getItem('gh-expense-cats'),
-      invoiceSettings:    localStorage.getItem('gh-invoice-settings'),
+      cleaningFeeDefault: localStorage.getItem(lsKey('cleaning-fee')),
+      smsTemplate:        localStorage.getItem(lsKey('sms-template')),
+      expenseCats:        localStorage.getItem(lsKey('expense-cats')),
+      invoiceSettings:    localStorage.getItem(lsKey('invoice-settings')),
     }
   };
 }
@@ -3468,7 +3454,7 @@ async function saveBackup() {
     const json = await resp.json();
     if (json.status === 'ok') {
       const now = new Date().toLocaleString('en-AU', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
-      localStorage.setItem('gh-last-backup', now);
+      localStorage.setItem(lsKey('last-backup'), now);
       const el = document.getElementById('backup-last-time');
       if (el) el.textContent = now;
       const msg = `✓ Backup saved — ${json.filename}`;
@@ -3539,13 +3525,13 @@ async function restoreBackup(fileId, dateLabel) {
           inventory   = d.inventory   || [];
           if (d.cleaners) saveCleaners(d.cleaners);
           if (d.settings) {
-            if (d.settings.propertyData)       localStorage.setItem('gh-property-data',    d.settings.propertyData);
+            if (d.settings.propertyData)       localStorage.setItem(lsKey('property-data'),    d.settings.propertyData);
             if (d.settings.scriptUrl)          localStorage.setItem('gh-script-url',        d.settings.scriptUrl);
             if (d.settings.gDriveClientId)     localStorage.setItem('gh-gdrive-client-id',  d.settings.gDriveClientId);
-            if (d.settings.cleaningFeeDefault)  localStorage.setItem('gh-cleaning-fee',      d.settings.cleaningFeeDefault);
-            if (d.settings.smsTemplate)        localStorage.setItem('gh-sms-template',      d.settings.smsTemplate);
-            if (d.settings.expenseCats)        localStorage.setItem('gh-expense-cats',      d.settings.expenseCats);
-            if (d.settings.invoiceSettings)    localStorage.setItem('gh-invoice-settings',  d.settings.invoiceSettings);
+            if (d.settings.cleaningFeeDefault)  localStorage.setItem(lsKey('cleaning-fee'),      d.settings.cleaningFeeDefault);
+            if (d.settings.smsTemplate)        localStorage.setItem(lsKey('sms-template'),      d.settings.smsTemplate);
+            if (d.settings.expenseCats)        localStorage.setItem(lsKey('expense-cats'),      d.settings.expenseCats);
+            if (d.settings.invoiceSettings)    localStorage.setItem(lsKey('invoice-settings'),  d.settings.invoiceSettings);
           }
           // Restore property config if present (v2 backups include it).
           // Runs after settings so scriptUrl legacy mirror is already in place.
@@ -4396,9 +4382,9 @@ async function deleteInventoryItemFromEdit() {
 }
 
 // ── PROPERTY DATA ─────────────────────────────────────────────────────────
-let expenses    = JSON.parse(localStorage.getItem('gh-expenses')    || '[]');
-let maintenance = JSON.parse(localStorage.getItem('gh-maintenance') || '[]');
-let inventory   = JSON.parse(localStorage.getItem('gh-inventory')   || '[]');
+let expenses    = JSON.parse(localStorage.getItem(lsKey('expenses'))    || '[]');
+let maintenance = JSON.parse(localStorage.getItem(lsKey('maintenance')) || '[]');
+let inventory   = JSON.parse(localStorage.getItem(lsKey('inventory'))   || '[]');
 
 const DEFAULT_EXPENSE_CATS = [
   'Cleaning & Garden','Maintenance & Repairs','Supplies & Consumables',
@@ -4406,13 +4392,13 @@ const DEFAULT_EXPENSE_CATS = [
   'Renovation','Professional Services','Other'
 ];
 function getExpenseCats() {
-  const saved = localStorage.getItem('gh-expense-cats');
+  const saved = localStorage.getItem(lsKey('expense-cats'));
   return saved ? JSON.parse(saved) : DEFAULT_EXPENSE_CATS;
 }
 function savePropertyData() {
-  localStorage.setItem('gh-expenses',    JSON.stringify(expenses));
-  localStorage.setItem('gh-maintenance', JSON.stringify(maintenance));
-  localStorage.setItem('gh-inventory',   JSON.stringify(inventory));
+  localStorage.setItem(lsKey('expenses'),    JSON.stringify(expenses));
+  localStorage.setItem(lsKey('maintenance'), JSON.stringify(maintenance));
+  localStorage.setItem(lsKey('inventory'),   JSON.stringify(inventory));
   scheduleAppDataSave('inventory',    inventory);
   scheduleAppDataSave('maintenance',  maintenance);
 }
@@ -4559,13 +4545,13 @@ function renderStorageViewer() {
   const el = document.getElementById('storage-viewer');
   if (!el) return;
   // Only show the meaningful data keys: bookings, cleans, expenses
-  const DATA_KEYS = ['gh-bookings', 'gh-cleans', 'gh-expenses'];
+  const DATA_KEYS = [lsKey('bookings'), lsKey('cleans'), lsKey('expenses')];
   el.innerHTML = DATA_KEYS.map(k => {
     const val = localStorage.getItem(k);
     let items = [];
     let count = 0;
     try { items = JSON.parse(val || '[]'); count = Array.isArray(items) ? items.length : 0; } catch(e) {}
-    const label = k === 'gh-bookings' ? '🏠 Bookings' : k === 'gh-cleans' ? '🧹 Cleans' : '💰 Expenses';
+    const label = k.endsWith('bookings') ? '🏠 Bookings' : k.endsWith('cleans') ? '🧹 Cleans' : '💰 Expenses';
     return `
     <div style="padding:12px 0;border-bottom:1px solid var(--warm)">
       <div style="display:flex;align-items:center;justify-content:space-between">
@@ -4573,7 +4559,7 @@ function renderStorageViewer() {
           <div style="font-weight:600;font-size:14px;color:var(--forest)">${label}</div>
           <div style="font-size:12px;color:var(--text-soft);margin-top:2px">${count} record${count!==1?'s':''} stored locally</div>
         </div>
-        <button onclick="showAppModal({title:'Clear ${label}?',msg:'This removes all locally saved ${k==='gh-bookings'?'booking':'clean'} data. Sheet data is unaffected.',confirmText:'Clear',confirmColor:'var(--red)'}).then(ok=>{if(ok){localStorage.removeItem('${k}');renderStorageViewer();showBanner('Cleared ${label.replace(/[^a-zA-Z ]/,'')}','ok');}})" style="font-size:12px;color:var(--red);background:#FEF2F2;border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600">Clear</button>
+        <button onclick="showAppModal({title:'Clear ${label}?',msg:'This removes all locally saved data. Sheet data is unaffected.',confirmText:'Clear',confirmColor:'var(--red)'}).then(ok=>{if(ok){localStorage.removeItem('${k}');renderStorageViewer();showBanner('Cleared ${label.replace(/[^a-zA-Z ]/g,'')}','ok');}})" style="font-size:12px;color:var(--red);background:#FEF2F2;border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600">Clear</button>
       </div>
       ${count > 0 ? `<div style="font-size:11px;color:var(--text-soft);font-family:monospace;margin-top:6px;white-space:pre-wrap;word-break:break-all">${JSON.stringify(items.slice(0,1), null, 1).substring(0, 100)}${count > 1 ? '\n...' : ''}</div>` : ''}
     </div>`;
@@ -4619,12 +4605,12 @@ function renderStorageViewer() {
 
 // Clear expenses cache only if the script URL has changed since last load
 const _scriptConfigured = !!localStorage.getItem('gh-script-url');
-const _lastScriptUrl = localStorage.getItem('gh-last-script-url');
+const _lastScriptUrl = localStorage.getItem(lsKey('last-script-url'));
 const _currentScriptUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
 if (_scriptConfigured && _lastScriptUrl !== _currentScriptUrl) {
-  localStorage.removeItem('gh-expenses');
+  localStorage.removeItem(lsKey('expenses'));
   expenses = [];
-  localStorage.setItem('gh-last-script-url', _currentScriptUrl);
+  localStorage.setItem(lsKey('last-script-url'), _currentScriptUrl);
 }
 
 // ── APP DATA SYNC (Sheet ↔ localStorage) ──────────────────────────────────────
@@ -4732,12 +4718,12 @@ async function pullAppData(manual = false) {
     let restored = [];
 
     if (d.cleaners && Array.isArray(d.cleaners) && d.cleaners.length > 0) {
-      localStorage.setItem('gh-cleaners', JSON.stringify(d.cleaners));
+      localStorage.setItem(lsKey('cleaners'), JSON.stringify(d.cleaners));
       restored.push(d.cleaners.length + ' cleaners');
     }
     if (d.cleans && Array.isArray(d.cleans) && d.cleans.length > 0) {
       // Merge: prefer local confirmed/declined/done states over Sheet (in case Sheet is stale)
-      const localCleans = JSON.parse(localStorage.getItem('gh-cleans') || '[]');
+      const localCleans = JSON.parse(localStorage.getItem(lsKey('cleans')) || '[]');
       const merged = d.cleans.map(sheetClean => {
         const local = localCleans.find(lc => String(lc.id) === String(sheetClean.id));
         if (local) {
@@ -4756,7 +4742,7 @@ async function pullAppData(manual = false) {
       });
       cleans.length = 0;
       merged.forEach(c => cleans.push(c));
-      localStorage.setItem('gh-cleans', JSON.stringify(cleans));
+      localStorage.setItem(lsKey('cleans'), JSON.stringify(cleans));
       // Sync booking.cleanerConfirmed from cleans
       cleans.forEach(c => {
         if (c.cleanerConfirmed) {
@@ -4764,33 +4750,33 @@ async function pullAppData(manual = false) {
           if (b) b.cleanerConfirmed = true;
         }
       });
-      localStorage.setItem('gh-bookings', JSON.stringify(bookings));
+      localStorage.setItem(lsKey('bookings'), JSON.stringify(bookings));
       restored.push(merged.length + ' cleans');
     }
     if (d.notes && Array.isArray(d.notes)) {
       notes.length = 0;
       d.notes.forEach(n => notes.push(n));
-      localStorage.setItem('gh-notes', JSON.stringify(notes));
+      localStorage.setItem(lsKey('notes'), JSON.stringify(notes));
       restored.push(d.notes.length + ' notes');
     }
     if (d.inventory && Array.isArray(d.inventory) && d.inventory.length > 0) {
       inventory.length = 0;
       d.inventory.forEach(i => inventory.push(i));
-      localStorage.setItem('gh-inventory', JSON.stringify(inventory));
+      localStorage.setItem(lsKey('inventory'), JSON.stringify(inventory));
       restored.push(d.inventory.length + ' inventory items');
     }
     if (d.maintenance && Array.isArray(d.maintenance)) {
       maintenance.length = 0;
       d.maintenance.forEach(m => maintenance.push(m));
-      localStorage.setItem('gh-maintenance', JSON.stringify(maintenance));
+      localStorage.setItem(lsKey('maintenance'), JSON.stringify(maintenance));
     }
     if (d.aiIgnore && Array.isArray(d.aiIgnore)) {
-      localStorage.setItem('gh-ai-ignore', JSON.stringify(d.aiIgnore));
+      localStorage.setItem(lsKey('ai-ignore'), JSON.stringify(d.aiIgnore));
     }
     if (d.pushSubs && d.pushSubs.cleaners) {
       const local = getPushSubs();
       const merged = { owner: local.owner || d.pushSubs.owner, cleaners: Object.assign({}, d.pushSubs.cleaners, local.cleaners) };
-      localStorage.setItem('gh-push-subs', JSON.stringify(merged));
+      localStorage.setItem(lsKey('push-subs'), JSON.stringify(merged));
     }
 
     renderAll();
@@ -5533,7 +5519,7 @@ async function assignCleanerToBooking(bookingId) {
           owner: local.owner || json.data.pushSubs.owner,
           cleaners: Object.assign({}, json.data.pushSubs.cleaners, local.cleaners)
         };
-        localStorage.setItem('gh-push-subs', JSON.stringify(merged));
+        localStorage.setItem(lsKey('push-subs'), JSON.stringify(merged));
         console.log('Refreshed pushSubs. Cleaners:', Object.keys(merged.cleaners));
       } else {
         console.warn('getAppData response:', json);
@@ -5688,7 +5674,7 @@ const EMAIL_TEMPLATE_VARS = [
 ];
 
 function loadEmailTemplate(type) {
-  const saved = loadJSON('gh-email-tpl-' + type);
+  const saved = loadJSON(lsKey('email-tpl-' + type));
   return saved || EMAIL_TEMPLATE_DEFAULTS[type];
 }
 
@@ -5697,7 +5683,7 @@ function saveEmailTemplate(type) {
   const body    = document.getElementById('etpl-body').value;
   const color   = document.getElementById('etpl-color').value;
   const tpl = { subject, body, color };
-  localStorage.setItem('gh-email-tpl-' + type, JSON.stringify(tpl));
+  localStorage.setItem(lsKey('email-tpl-' + type), JSON.stringify(tpl));
   // Sync reminder template to AppData so Apps Script can use it
   if (type === 'reminder') scheduleAppDataSave('emailTplReminder', tpl);
   if (type === 'assignment') scheduleAppDataSave('emailTplAssignment', tpl);
@@ -5912,96 +5898,6 @@ async function debugCSVColumns() {
   }
 }
 
-function _setConnectionCheckResult(id, status, msg) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.style.display = 'block';
-  el.textContent = msg;
-
-  if (status === 'ok') {
-    el.style.background = '#F0FAF4';
-    el.style.color = 'var(--moss)';
-  } else if (status === 'loading') {
-    el.style.background = 'var(--warm)';
-    el.style.color = 'var(--text-soft)';
-  } else {
-    el.style.background = '#FEF2F2';
-    el.style.color = 'var(--red)';
-  }
-}
-
-function resetConnectionCheckerResults() {
-  ['conn-sheet-result', 'conn-script-result', 'conn-notif-result'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = 'none';
-  });
-}
-
-async function testSheetConnection() {
-  const sheetUrl = (getPropertySheetCsvUrl() || '').trim();
-  if (!sheetUrl) {
-    _setConnectionCheckResult('conn-sheet-result', 'fail', '❌ Missing configuration: Google Sheet CSV URL is not set.');
-    return;
-  }
-  if (!sheetUrl.toLowerCase().includes('docs.google.com/spreadsheets') || !sheetUrl.includes('output=csv')) {
-    _setConnectionCheckResult('conn-sheet-result', 'fail', '❌ Invalid URL: expected a published Google Sheets CSV URL ending with output=csv.');
-    return;
-  }
-
-  _setConnectionCheckResult('conn-sheet-result', 'loading', 'Checking Sheet URL…');
-  try {
-    const sep = sheetUrl.includes('?') ? '&' : '?';
-    const res = await fetch(sheetUrl + sep + 't=' + Date.now());
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const csv = await res.text();
-    const lines = csv.trim().split('\n').filter(l => l.trim());
-    if (!lines.length) throw new Error('No CSV rows returned');
-    const headers = parseCSVLine(lines[0]).filter(Boolean);
-    if (!headers.length) throw new Error('Could not parse CSV headers');
-    _setConnectionCheckResult('conn-sheet-result', 'ok', `✅ Connected: fetched CSV (${Math.max(lines.length - 1, 0)} data row${lines.length - 1 === 1 ? '' : 's'}).`);
-  } catch (e) {
-    _setConnectionCheckResult('conn-sheet-result', 'fail', '❌ Failed: could not fetch/parse the sheet CSV. ' + e.message);
-  }
-}
-
-
-async function testNotificationConfig() {
-  _setConnectionCheckResult('conn-notif-result', 'loading', 'Checking notification/email configuration…');
-
-  const ownerEmail = (getCurrentOwnerEmail() || '').trim();
-  const pushFunctionUrl = (getPushFunctionUrl() || '').trim();
-  const scriptUrl = (getCurrentScriptURL() || '').trim();
-  const pushSupported = ('Notification' in window);
-  const perm = pushSupported ? Notification.permission : 'unsupported';
-  const ownerSub = getOwnerSub();
-
-  const checks = [];
-  if (ownerEmail) checks.push('Owner email configured');
-  if (scriptUrl && scriptUrl.toLowerCase().includes('script.google.com/macros') && scriptUrl.endsWith('/exec')) checks.push('Apps Script URL configured');
-  if (pushFunctionUrl) checks.push('Push function URL configured');
-  if (pushSupported) checks.push('Browser supports notifications');
-  if (perm === 'granted' && ownerSub) checks.push('Push enabled on this device');
-
-  const missing = [];
-  if (!ownerEmail) missing.push('owner email missing');
-  if (!(scriptUrl && scriptUrl.toLowerCase().includes('script.google.com/macros') && scriptUrl.endsWith('/exec'))) missing.push('Apps Script URL invalid/missing');
-  if (!pushFunctionUrl) missing.push('push function URL missing');
-
-  const mode = 'configuration check only (no live send)';
-  if (missing.length) {
-    _setConnectionCheckResult('conn-notif-result', 'fail', `⚠️ ${mode}: ${checks.length ? checks.join(' · ') + '. ' : ''}Missing: ${missing.join(', ')}.`);
-    return;
-  }
-
-  const pushMsg = !pushSupported
-    ? 'push not supported on this browser'
-    : (perm === 'granted' && ownerSub)
-      ? 'push ready on this device'
-      : 'push not enabled on this device yet';
-
-  _setConnectionCheckResult('conn-notif-result', 'ok', `✅ ${mode}: email/push prerequisites look valid (${pushMsg}).`);
-}
-
 async function testCleanerEmail() {
   const resultEl = document.getElementById('email-test-result');
   if (resultEl) { resultEl.style.display = 'block'; resultEl.style.background = 'var(--warm)'; resultEl.style.color = 'var(--text-soft)'; resultEl.textContent = 'Sending…'; }
@@ -6111,18 +6007,19 @@ function copyCleanerLinkById(id) {
 
 // Init on load
 document.addEventListener('DOMContentLoaded', async () => {
-  // Migrate single-property legacy config/keys into multi-property storage first.
-  migrateConfigFromLegacySettings();
-
-  // Setup appears only when no valid active property config exists.
+  // Migrate any legacy localStorage keys into the config structure.
+  // For existing users this also sets gh-setup-complete so setup never shows.
+  // Setup check MUST run before migration — migrateConfigFromLegacySettings writes
+  // the full DEFAULT_PROPERTY_CONFIG (including Glenhaven's URLs) to localStorage,
+  // which would make hasValidPropertyConfig() return true on a fresh install and
+  // skip the setup screen entirely.
   await showSetupIfNeeded();
 
-  // Ensure mirrors/flags remain synced after setup or migration.
+  // Now safe to migrate legacy keys into config (no-op if no legacy keys exist).
   migrateConfigFromLegacySettings();
 
   // Config is now valid — update DOM with property-specific values.
   initPropertyUI();
-  renderPropertySwitcher();
 
   initFxSettings();
   attachButtonPress();
@@ -6183,7 +6080,7 @@ function exportReportPDF() {
   const fyNights = allM.reduce((s,m)=>s+m.booked,0);
   const fyAvail = allM.reduce((s,m)=>s+m.avail,0);
   const fyOcc = fyAvail ? (fyNights/fyAvail*100) : 0;
-  const allExp = (JSON.parse(localStorage.getItem('gh-expenses')||'[]')).filter(e => {
+  const allExp = (JSON.parse(localStorage.getItem(lsKey('expenses'))||'[]')).filter(e => {
     const d=new Date(e.date); const mo=d.getMonth(); const yr=d.getFullYear();
     return (yr===reportFY&&mo>=6)||(yr===reportFY+1&&mo<=5);
   });
@@ -6332,7 +6229,7 @@ function exportReportCSV() {
   rows.push([]);
 
   // Expenses
-  const allExp = (JSON.parse(localStorage.getItem('gh-expenses')||'[]')).filter(e => {
+  const allExp = (JSON.parse(localStorage.getItem(lsKey('expenses'))||'[]')).filter(e => {
     const d=new Date(e.date); const m=d.getMonth(); const yr=d.getFullYear();
     return (yr===reportFY&&m>=6)||(yr===reportFY+1&&m<=5);
   });
