@@ -74,6 +74,7 @@ function _setupBuildOverlay(editMode, onDone) {
   const integ = cfg.integrations || {};
   const owner = cfg.owner        || {};
   const price = cfg.pricing      || {};
+  const branding = cfg.branding  || {};
 
   // ── Helper: safe attribute-escaped string ──
   const ea = s => String(s || '')
@@ -166,11 +167,21 @@ function _setupBuildOverlay(editMode, onDone) {
               value="${pre('region', cfg.region)}">
           </div>
           <div class="ss-field">
+            <label class="ss-lbl" for="s-tagline">Tagline <span class="ss-opt">(optional)</span></label>
+            <input type="text" id="s-tagline" class="ss-inp"
+              placeholder="e.g. Katoomba, NSW · Blue Mountains"
+              value="${ea(branding.tagline || '')}">
+          </div>
+        </div>
+
+        <div class="ss-row">
+          <div class="ss-field">
             <label class="ss-lbl" for="s-country">Country</label>
             <input type="text" id="s-country" class="ss-inp"
               placeholder="Australia" maxlength="40"
               value="${ea(cfg.country || 'Australia')}">
           </div>
+          <div class="ss-field"></div>
         </div>
 
         <!-- ══ SECTION: DETAILS ══ -->
@@ -293,6 +304,23 @@ function _setupBuildOverlay(editMode, onDone) {
 
     errEl.style.display = 'none';
 
+    const currentSheetUrl = (integ.sheetCsvUrl || '').trim();
+    const currentScriptUrl = (integ.scriptUrl || '').trim();
+    const nextSheetUrl = (((overlay.querySelector('#s-sheet-url') || {}).value) || '').trim();
+    const nextScriptUrl = (((overlay.querySelector('#s-script-url') || {}).value) || '').trim();
+    const changedSheetUrl = currentSheetUrl && nextSheetUrl !== currentSheetUrl;
+    const changedScriptUrl = currentScriptUrl && nextScriptUrl !== currentScriptUrl;
+
+    if (changedSheetUrl || changedScriptUrl) {
+      const targets = [];
+      if (changedSheetUrl) targets.push('Google Sheet CSV URL');
+      if (changedScriptUrl) targets.push('Apps Script URL');
+      const ok = window.confirm(
+        `You changed ${targets.join(' and ')}. This can affect bookings sync and Google integrations. Save these changes?`
+      );
+      if (!ok) return;
+    }
+
     const newCfg = _setupBuildConfig(overlay);
     savePropertyConfig(newCfg);
     // Only set the flag during first-boot; in edit mode it is already set.
@@ -395,6 +423,7 @@ function _setupBuildConfig(overlay) {
   const suburb = v('s-suburb');
   const state  = v('s-state');
   const region = v('s-region');
+  const tagline = v('s-tagline');
 
   // Read existing config once here so integrations AND pricing blocks can
   // both use it without separate getPropertyConfig() calls (fix #6).
@@ -412,7 +441,7 @@ function _setupBuildConfig(overlay) {
 
     branding: {
       subtitle: [suburb, state].filter(Boolean).join(' · '),
-      tagline:  [[suburb, state].filter(Boolean).join(', '), region].filter(Boolean).join(' · '),
+      tagline:  tagline || ((_existing.branding || {}).tagline) || [[suburb, state].filter(Boolean).join(', '), region].filter(Boolean).join(' · '),
     },
 
     property: {
