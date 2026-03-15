@@ -2053,8 +2053,6 @@ function _checkModalsClosed(){
   const anyOpen = !!document.querySelector('.modal-overlay.open');
   if (!anyOpen) document.body.style.overflow = '';
 }
-document.getElementById('modal').addEventListener('click',function(e){if(e.target===this)closeModal();});
-document.getElementById('detail-modal').addEventListener('click',function(e){if(e.target===this)closeDetailModal();});
 function switchModalTab(tab,btn){
   document.querySelectorAll('#modal .tab').forEach(t=>t.classList.remove('active'));
   btn.classList.add('active');
@@ -2193,9 +2191,6 @@ function sendSMS() {
 function closeNotifyModal() {
   document.getElementById('notify-modal').classList.remove('open'); _checkModalsClosed();
 }
-document.getElementById('notify-modal').addEventListener('click', function(e) {
-  if (e.target === this) closeNotifyModal();
-});
 
 // ── SETTINGS ─────────────────────────────────────────────────────────────
 function chooseGoogleAccount() {
@@ -6014,11 +6009,14 @@ function copyCleanerLinkById(id) {
 document.addEventListener('DOMContentLoaded', async () => {
   // Migrate any legacy localStorage keys into the config structure.
   // For existing users this also sets gh-setup-complete so setup never shows.
-  migrateConfigFromLegacySettings();
-
-  // If no valid config exists, pause here until the host completes setup.
-  // For existing users / Glenhaven: resolves immediately (no-op).
+  // Setup check MUST run before migration — migrateConfigFromLegacySettings writes
+  // the full DEFAULT_PROPERTY_CONFIG (including Glenhaven's URLs) to localStorage,
+  // which would make hasValidPropertyConfig() return true on a fresh install and
+  // skip the setup screen entirely.
   await showSetupIfNeeded();
+
+  // Now safe to migrate legacy keys into config (no-op if no legacy keys exist).
+  migrateConfigFromLegacySettings();
 
   // Config is now valid — update DOM with property-specific values.
   initPropertyUI();
@@ -6026,6 +6024,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   initFxSettings();
   attachButtonPress();
   attachModalHandleDrag();
+
+  // Modal backdrop-click listeners — must run after DOM is ready
+  document.getElementById('modal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
+  document.getElementById('detail-modal').addEventListener('click', function(e) { if (e.target === this) closeDetailModal(); });
+  document.getElementById('notify-modal').addEventListener('click', function(e) { if (e.target === this) closeNotifyModal(); });
   // Cleaner mode detection
   if (isCleanerMode()) {
     if (isCleanerAuthed()) {

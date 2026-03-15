@@ -88,8 +88,9 @@ const DEFAULT_PROPERTY_CONFIG = {
 function hasValidPropertyConfig() {
   if (localStorage.getItem('gh-setup-complete') === '1') return true;
 
-  if (localStorage.getItem('gh-config-migrated-v1') &&
-      localStorage.getItem('gh-script-url'))             return true;
+  // Existing user who already has a script URL configured — skip setup.
+  // This covers users loading the new code for the first time before migration runs.
+  if (localStorage.getItem('gh-script-url')) return true;
 
   try {
     const raw = localStorage.getItem(PROPERTY_CONFIG_KEY);
