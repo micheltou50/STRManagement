@@ -547,6 +547,13 @@
       <div class="settings-back" onclick="closeSettingsCat()">‹ Settings</div>
       <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Property</div>
       <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
+        <div class="settings-cat-item" onclick="openSettingsPanel('property-switcher')">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:9px;background:#AF52DE;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🏘️</div>
+            <div><div style="font-weight:500;font-size:14px">Active Property</div><div style="font-size:12px;color:var(--text-soft)" id="active-property-name">Glenhaven</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+        </div>
         <div class="settings-cat-item" onclick="openSettingsPanel('property-info')">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#1E3A2F;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🏡</div>
@@ -558,6 +565,13 @@
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#34C759;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">👥</div>
             <div><div style="font-weight:500;font-size:14px">Team</div><div style="font-size:12px;color:var(--text-soft)" id="team-count-row">Cleaners & contractors</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+        </div>
+        <div class="settings-cat-item" onclick="openSettingsPanel('connection-checker')">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:9px;background:#5AC8FA;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🧪</div>
+            <div><div style="font-weight:500;font-size:14px">Connection Checker</div><div style="font-size:12px;color:var(--text-soft)">Manual tests for Sheet, Script &amp; notifications</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
@@ -632,6 +646,17 @@
       <div id="cleaner-profile-content"></div>
     </div>
 
+    <div id="settings-panel-property-switcher" style="display:none">
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Property</div>
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-title">🏘️ Properties</div>
+        <label for="property-switcher-select">Current Property</label>
+        <select id="property-switcher-select" onchange="switchActiveProperty(this.value)"></select>
+        <div style="font-size:12px;color:var(--text-soft);margin-top:8px">Switching property updates sheet/script/config context immediately.</div>
+        <button class="btn-secondary" onclick="openAddPropertySetup()" style="margin-top:12px">＋ Add Property</button>
+      </div>
+    </div>
+
     <!-- PANEL: PROPERTY INFO -->
     <div id="settings-panel-property-info" style="display:none">
       <div class="settings-back" onclick="closeSettingsPanel()">‹ Property</div>
@@ -643,6 +668,27 @@
         <div class="detail-row"><span class="detail-label">Max Guests</span><span class="detail-val" id="prop-info-guests">8</span></div>
         <div class="detail-row"><span class="detail-label">Bathrooms</span><span class="detail-val" id="prop-info-baths">2.5</span></div>
       </div>
+    </div>
+
+
+    <div id="settings-panel-connection-checker" style="display:none">
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Property</div>
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-title">🧪 Connection Checker</div>
+        <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Run manual checks for your saved Google Sheet, Apps Script, and notifications/email configuration. No bookings or settings are modified.</div>
+
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <button class="btn-secondary" onclick="testSheetConnection()">Test Sheet Connection</button>
+          <div id="conn-sheet-result" style="display:none;font-size:12px;padding:8px 10px;border-radius:8px"></div>
+
+          <button class="btn-secondary" onclick="testScriptConnection()">Test Script Connection</button>
+          <div id="conn-script-result" style="display:none;font-size:12px;padding:8px 10px;border-radius:8px"></div>
+
+          <button class="btn-secondary" onclick="testNotificationConfig()">Test Email / Notifications</button>
+          <div id="conn-notif-result" style="display:none;font-size:12px;padding:8px 10px;border-radius:8px"></div>
+        </div>
+      </div>
+      <div style="padding:10px 12px;background:var(--mist);border-radius:var(--radius-sm);font-size:12px;color:var(--text-soft);line-height:1.6">These are <strong>manual diagnostics</strong> only. They do not auto-run and do not send live cleaner emails or push alerts.</div>
     </div>
 
     <!-- PANEL: PUSH NOTIFICATIONS -->
@@ -1310,6 +1356,7 @@
 <div class="modal-overlay" id="detail-modal">
   <div class="modal">
     <div class="modal-drag-zone"><div class="modal-handle"></div></div>
+    <button type="button" class="btn-secondary" onclick="closeDetailModal()" style="margin:0 0 10px auto;display:block;padding:8px 12px;font-size:12px">Close</button>
     <div id="detail-content"></div>
     <button class="btn-secondary" onclick="closeDetailModal()">Close</button>
   </div>

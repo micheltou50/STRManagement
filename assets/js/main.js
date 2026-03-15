@@ -1310,6 +1310,9 @@ function openSettingsPanel(panelId) {
   if (panelId === 'team') {
     renderTeamList();
   }
+  if (panelId === 'property-switcher') {
+    renderPropertySwitcher();
+  }
   if (panelId === 'notifications') {
     setTimeout(updateNotifStatus, 100);
   }
@@ -1365,6 +1368,9 @@ function openSettingsPanel(panelId) {
   }
   if (panelId === 'feel') {
     loadFxSettings();
+  }
+  if (panelId === 'connection-checker') {
+    resetConnectionCheckerResults();
   }
 }
 
@@ -1785,6 +1791,7 @@ function showDetail(id) {
     <button class="btn-secondary" style="margin-bottom:8px;background:#FDECEA;color:var(--red)" onclick="deleteBooking(${b.id})">Delete Booking</button>
   `;
   document.getElementById('detail-modal').classList.add('open'); document.body.style.overflow='hidden';
+  setTimeout(attachModalHandleDrag, 0);
 }
 
 function showEditModal(id) {
@@ -2332,23 +2339,31 @@ function saveScriptURL() {
   setTimeout(() => el.style.display = 'none', 2000);
 }
 async function testScriptConnection() {
-  const el = document.getElementById('script-test-result');
-  el.style.display = 'block';
-  el.style.background = '#FFF8E1';
-  el.style.color = '#E65100';
-  el.textContent = '⟳ Testing connection...';
+  const checkerOpen = document.getElementById('settings-panel-connection-checker')?.style.display !== 'none';
+  const resultId = checkerOpen ? 'conn-script-result' : 'script-test-result';
+  _setConnectionCheckResult(resultId, 'loading', 'Checking Apps Script endpoint…');
+
+  const scriptUrl = (getCurrentScriptURL() || '').trim();
+  if (!scriptUrl) {
+    _setConnectionCheckResult(resultId, 'fail', '❌ Missing configuration: Apps Script URL is not set.');
+    return;
+  }
+  if (!scriptUrl.toLowerCase().includes('script.google.com/macros') || !scriptUrl.endsWith('/exec')) {
+    _setConnectionCheckResult(resultId, 'fail', '❌ Invalid URL: expected a deployed Apps Script /exec URL.');
+    return;
+  }
+
   try {
-    const url = getScriptURL() + '?action=test';
-    const res = await fetch(url);
-    const testJson = await res.json();
-    if (!testJson.status) throw new Error('unexpected response from script');
-    el.style.background = '#E8F5E9';
-    el.style.color = '#2E7D32';
-    el.textContent = '✓ Connected — script responded OK';
+    const json = (window.DB && typeof window.DB.testConnection === 'function')
+      ? await window.DB.testConnection()
+      : await fetch(scriptUrl + '?action=test').then(r => r.json());
+
+    const ok = !!(json && (json.success === true || json.status === 'ok' || json.status === 'success' || json.status === true));
+    if (!ok) throw new Error((json && (json.error || json.status)) || 'Unexpected response');
+
+    _setConnectionCheckResult(resultId, 'ok', '✅ Connected: Apps Script responded to a safe test action.');
   } catch(e) {
-    el.style.background = '#FDECEA';
-    el.style.color = '#C0392B';
-    el.textContent = '✗ Could not reach script: ' + e.message;
+    _setConnectionCheckResult(resultId, 'fail', '❌ Failed: Apps Script test request did not succeed. ' + e.message);
   }
 }
 function saveBankDetails() {
@@ -5023,6 +5038,16 @@ function attachLongPress() {
 
 // ── MODAL HANDLE DRAG TO DISMISS ─────────────────────────────────────────────
 function attachModalHandleDrag() {
+  const closeForOverlay = (overlay) => {
+    if (!overlay) return;
+    if (overlay.id === 'modal') closeModal();
+    else if (overlay.id === 'detail-modal') closeDetailModal();
+    else if (overlay.id === 'notify-modal') closeNotifyModal();
+    else if (overlay.id === 'expense-edit-modal') closeExpenseEdit();
+    else if (overlay.id === 'inv-edit-modal') closeInvEdit();
+    else { overlay.classList.remove('open'); _checkModalsClosed(); }
+  };
+
   document.querySelectorAll('.modal-drag-zone').forEach(zone => {
     if (zone.dataset.dragAttached) return;
     zone.dataset.dragAttached = '1';
@@ -5031,43 +5056,55 @@ function attachModalHandleDrag() {
     const overlay = zone.closest('.modal-overlay');
     if (!modal || !overlay) return;
 
-    let startY = 0, currentY = 0, dragging = false;
+    let startY = 0;
+    let currentY = 0;
+    let dragging = false;
 
-    zone.addEventListener('touchstart', e => {
-      startY = e.touches[0].clientY;
+    const beginDrag = (clientY) => {
+      startY = clientY;
       currentY = 0;
       dragging = true;
       modal.style.transition = 'none';
-    }, { passive: true });
+    };
 
-    zone.addEventListener('touchmove', e => {
+    const moveDrag = (clientY) => {
       if (!dragging) return;
-      const dy = e.touches[0].clientY - startY;
+      const dy = clientY - startY;
       if (dy < 0) return;
       currentY = dy;
       modal.style.transform = `translateY(${dy}px)`;
-    }, { passive: true });
+    };
 
-    zone.addEventListener('touchend', () => {
+    const endDrag = () => {
       if (!dragging) return;
       dragging = false;
       modal.style.transition = 'transform 0.42s cubic-bezier(0.32,0.72,0,1)';
       if (currentY > 80) {
-        modal.style.transform = `translateY(100%)`;
+        modal.style.transform = 'translateY(100%)';
         setTimeout(() => {
           modal.style.transform = '';
-          if (overlay.id === 'modal') closeModal();
-          else if (overlay.id === 'detail-modal') closeDetailModal();
-          else if (overlay.id === 'notify-modal') closeNotifyModal();
-          else if (overlay.id === 'expense-edit-modal') closeExpenseEdit();
-          else if (overlay.id === 'inv-edit-modal') closeInvEdit();
-          else { overlay.classList.remove('open'); _checkModalsClosed(); }
-        }, 380);
+          closeForOverlay(overlay);
+        }, 280);
       } else {
         modal.style.transform = 'translateY(0)';
-        setTimeout(() => { modal.style.transform = ''; }, 420);
+        setTimeout(() => { modal.style.transform = ''; }, 320);
       }
-    }, { passive: true });
+    };
+
+    zone.addEventListener('touchstart', e => beginDrag(e.touches[0].clientY), { passive: true });
+    zone.addEventListener('touchmove', e => {
+      moveDrag(e.touches[0].clientY);
+      if (dragging) e.preventDefault();
+    }, { passive: false });
+    zone.addEventListener('touchend', endDrag, { passive: true });
+    zone.addEventListener('touchcancel', endDrag, { passive: true });
+
+    zone.addEventListener('pointerdown', e => beginDrag(e.clientY));
+    zone.addEventListener('pointermove', e => { if (dragging) moveDrag(e.clientY); });
+    zone.addEventListener('pointerup', endDrag);
+    zone.addEventListener('pointercancel', endDrag);
+    zone.addEventListener('mouseup', endDrag);
+    zone.addEventListener('mouseleave', () => { if (dragging && currentY > 80) endDrag(); });
   });
 }
 
@@ -5898,6 +5935,119 @@ async function debugCSVColumns() {
   }
 }
 
+function renderPropertySwitcher() {
+  const sel = document.getElementById('property-switcher-select');
+  if (!sel) return;
+  const list = getAllProperties();
+  const activeId = getActivePropertyId();
+  sel.innerHTML = list.map(p => `<option value="${escHtml(p.propertyId)}" ${p.propertyId === activeId ? 'selected' : ''}>${escHtml(p.name || p.propertyId)}</option>`).join('');
+  const active = getActivePropertyConfig();
+  const label = document.getElementById('active-property-name');
+  if (label) label.textContent = active.name || 'Property';
+}
+
+function switchActiveProperty(id) {
+  if (!id) return;
+  const ok = setActivePropertyId(id);
+  if (!ok) {
+    showBanner('⚠ Could not switch property', 'warn');
+    return;
+  }
+  initPropertyUI();
+  if (typeof renderAll === 'function') renderAll();
+  showBanner('✓ Switched to ' + getCurrentPropertyName(), 'ok');
+}
+
+function _setConnectionCheckResult(id, status, msg) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.style.display = 'block';
+  el.textContent = msg;
+
+  if (status === 'ok') {
+    el.style.background = '#F0FAF4';
+    el.style.color = 'var(--moss)';
+  } else if (status === 'loading') {
+    el.style.background = 'var(--warm)';
+    el.style.color = 'var(--text-soft)';
+  } else {
+    el.style.background = '#FEF2F2';
+    el.style.color = 'var(--red)';
+  }
+}
+
+function resetConnectionCheckerResults() {
+  ['conn-sheet-result', 'conn-script-result', 'conn-notif-result'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+}
+
+async function testSheetConnection() {
+  const sheetUrl = (getPropertySheetCsvUrl() || '').trim();
+  if (!sheetUrl) {
+    _setConnectionCheckResult('conn-sheet-result', 'fail', '❌ Missing configuration: Google Sheet CSV URL is not set.');
+    return;
+  }
+  if (!sheetUrl.toLowerCase().includes('docs.google.com/spreadsheets') || !sheetUrl.includes('output=csv')) {
+    _setConnectionCheckResult('conn-sheet-result', 'fail', '❌ Invalid URL: expected a published Google Sheets CSV URL ending with output=csv.');
+    return;
+  }
+
+  _setConnectionCheckResult('conn-sheet-result', 'loading', 'Checking Sheet URL…');
+  try {
+    const sep = sheetUrl.includes('?') ? '&' : '?';
+    const res = await fetch(sheetUrl + sep + 't=' + Date.now());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const csv = await res.text();
+    const lines = csv.trim().split('\n').filter(l => l.trim());
+    if (!lines.length) throw new Error('No CSV rows returned');
+    const headers = parseCSVLine(lines[0]).filter(Boolean);
+    if (!headers.length) throw new Error('Could not parse CSV headers');
+    _setConnectionCheckResult('conn-sheet-result', 'ok', `✅ Connected: fetched CSV (${Math.max(lines.length - 1, 0)} data row${lines.length - 1 === 1 ? '' : 's'}).`);
+  } catch (e) {
+    _setConnectionCheckResult('conn-sheet-result', 'fail', '❌ Failed: could not fetch/parse the sheet CSV. ' + e.message);
+  }
+}
+
+
+async function testNotificationConfig() {
+  _setConnectionCheckResult('conn-notif-result', 'loading', 'Checking notification/email configuration…');
+
+  const ownerEmail = (getCurrentOwnerEmail() || '').trim();
+  const pushFunctionUrl = (getPushFunctionUrl() || '').trim();
+  const scriptUrl = (getCurrentScriptURL() || '').trim();
+  const pushSupported = ('Notification' in window);
+  const perm = pushSupported ? Notification.permission : 'unsupported';
+  const ownerSub = getOwnerSub();
+
+  const checks = [];
+  if (ownerEmail) checks.push('Owner email configured');
+  if (scriptUrl && scriptUrl.toLowerCase().includes('script.google.com/macros') && scriptUrl.endsWith('/exec')) checks.push('Apps Script URL configured');
+  if (pushFunctionUrl) checks.push('Push function URL configured');
+  if (pushSupported) checks.push('Browser supports notifications');
+  if (perm === 'granted' && ownerSub) checks.push('Push enabled on this device');
+
+  const missing = [];
+  if (!ownerEmail) missing.push('owner email missing');
+  if (!(scriptUrl && scriptUrl.toLowerCase().includes('script.google.com/macros') && scriptUrl.endsWith('/exec'))) missing.push('Apps Script URL invalid/missing');
+  if (!pushFunctionUrl) missing.push('push function URL missing');
+
+  const mode = 'configuration check only (no live send)';
+  if (missing.length) {
+    _setConnectionCheckResult('conn-notif-result', 'fail', `⚠️ ${mode}: ${checks.length ? checks.join(' · ') + '. ' : ''}Missing: ${missing.join(', ')}.`);
+    return;
+  }
+
+  const pushMsg = !pushSupported
+    ? 'push not supported on this browser'
+    : (perm === 'granted' && ownerSub)
+      ? 'push ready on this device'
+      : 'push not enabled on this device yet';
+
+  _setConnectionCheckResult('conn-notif-result', 'ok', `✅ ${mode}: email/push prerequisites look valid (${pushMsg}).`);
+}
+
 async function testCleanerEmail() {
   const resultEl = document.getElementById('email-test-result');
   if (resultEl) { resultEl.style.display = 'block'; resultEl.style.background = 'var(--warm)'; resultEl.style.color = 'var(--text-soft)'; resultEl.textContent = 'Sending…'; }
@@ -6007,19 +6157,18 @@ function copyCleanerLinkById(id) {
 
 // Init on load
 document.addEventListener('DOMContentLoaded', async () => {
-  // Migrate any legacy localStorage keys into the config structure.
-  // For existing users this also sets gh-setup-complete so setup never shows.
-  // Setup check MUST run before migration — migrateConfigFromLegacySettings writes
-  // the full DEFAULT_PROPERTY_CONFIG (including Glenhaven's URLs) to localStorage,
-  // which would make hasValidPropertyConfig() return true on a fresh install and
-  // skip the setup screen entirely.
+  // Migrate single-property legacy config/keys into multi-property storage first.
+  migrateConfigFromLegacySettings();
+
+  // Setup appears only when no valid active property config exists.
   await showSetupIfNeeded();
 
-  // Now safe to migrate legacy keys into config (no-op if no legacy keys exist).
+  // Ensure mirrors/flags remain synced after setup or migration.
   migrateConfigFromLegacySettings();
 
   // Config is now valid — update DOM with property-specific values.
   initPropertyUI();
+  renderPropertySwitcher();
 
   initFxSettings();
   attachButtonPress();
