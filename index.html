@@ -653,7 +653,10 @@
         <label for="property-switcher-select">Current Property</label>
         <select id="property-switcher-select" onchange="switchActiveProperty(this.value)"></select>
         <div style="font-size:12px;color:var(--text-soft);margin-top:8px">Switching property updates sheet/script/config context immediately.</div>
-        <button class="btn-secondary" onclick="openAddPropertySetup()" style="margin-top:12px">＋ Add Property</button>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn-secondary" onclick="reopenPropertySetup()" style="flex:1">✏️ Edit Current</button>
+          <button class="btn-secondary" onclick="openAddPropertySetup()" style="flex:1">＋ Add Property</button>
+        </div>
       </div>
     </div>
 
