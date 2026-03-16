@@ -1750,12 +1750,37 @@ function populateSelects() {
   document.getElementById('note-booking-select').innerHTML = allOpts;
 }
 
+function _normName(v) {
+  return String(v || '').trim().toLowerCase();
+}
+
+function _findMatchingCleanForBooking(booking, preferredDate) {
+  if (!booking) return null;
+  const byBookingId = cleans.find(c => String(c.bookingId) === String(booking.id));
+  if (byBookingId) return byBookingId;
+
+  const targetDate = String(preferredDate || booking.checkout || '').slice(0, 10);
+  const name = _normName(booking.name);
+  if (name && targetDate) {
+    const byGuestAndDate = cleans.find(c => _normName(c.guestName) === name && String(c.date || '').slice(0, 10) === targetDate);
+    if (byGuestAndDate) return byGuestAndDate;
+  }
+
+  if (name) {
+    const byGuestOnly = cleans.find(c => _normName(c.guestName) === name);
+    if (byGuestOnly) return byGuestOnly;
+  }
+
+  return null;
+}
+
 // ── BOOKING DETAIL ────────────────────────────────────────────────────────
 function showDetail(id) {
   const b = bookings.find(b=>b.id===id);
   if (!b) return;
   const bn = notes.filter(n=>n.bookingId===id);
-  const bc = cleans.filter(c=>c.bookingId===id);
+  const matchedClean = _findMatchingCleanForBooking(b);
+  const bc = matchedClean ? [matchedClean] : [];
   document.getElementById('detail-content').innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div style="display:flex;align-items:center;gap:12px">
@@ -1804,7 +1829,7 @@ function showDetail(id) {
           if (!cls.length) return '<div style="font-size:12px;color:var(--text-soft)">No cleaners set up yet — add in Settings → Property &amp; People</div>';
           return `<select id="detail-assign-cleaner" style="margin-bottom:8px">
             <option value="">— Not assigned —</option>
-            ${cls.map(c=>`<option value="${c.id}" ${assigned&&assigned.cleanerId===c.id?'selected':''}>${c.name}</option>`).join('')}
+            ${cls.map(c=>`<option value="${c.id}" ${assigned&&String(assigned.cleanerId)===String(c.id)?'selected':''}>${c.name}</option>`).join('')}
           </select>
           <input type="date" id="detail-assign-date" value="${assigned?assigned.date:b.checkout}" style="margin-bottom:8px">
           <button onclick="assignCleanerToBooking(${b.id})" class="btn-primary" style="width:100%">💾 Save Assignment</button>`;
@@ -5582,12 +5607,17 @@ async function assignCleanerToBooking(bookingId) {
   if (!cleanerObj) { showBanner('⚠ Cleaner not found', 'warn'); return; }
   const booking = bookings.find(b => b.id === bookingId);
   if (!booking) return;
-  const existingIdx = cleans.findIndex(c => c.bookingId === bookingId);
+  const matched = _findMatchingCleanForBooking(booking, date);
+  const existingIdx = matched ? cleans.findIndex(c => c.id === matched.id) : -1;
+  const prev = existingIdx >= 0 ? cleans[existingIdx] : null;
   const newClean = {
-    id: existingIdx >= 0 ? cleans[existingIdx].id : Date.now(),
+    id: prev ? prev.id : Date.now(),
     bookingId, guestName: booking.name,
     cleaner: cleanerObj.name, cleanerId: cleanerObj.id,
-    date, done: false, notified: false, cleanerConfirmed: false
+    date,
+    done: !!(prev && prev.done),
+    notified: !!(prev && prev.notified),
+    cleanerConfirmed: !!(prev && prev.cleanerConfirmed)
   };
   if (existingIdx >= 0) cleans[existingIdx] = newClean;
   else cleans.push(newClean);
