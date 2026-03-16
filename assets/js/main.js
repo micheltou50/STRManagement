@@ -2442,7 +2442,7 @@ function saveScriptURL() {
   const input = document.getElementById('settings-script-url');
   if (!input) return;
   const url = input.value.trim();
-  if (!url) { showBanner('⚠ Could not save: Apps Script URL is empty', 'warn'); return; }
+  if (!url) return;
   persistScriptUrl(url); // writes to both legacy key AND config (from config.js)
   const el = document.getElementById('script-url-confirm');
   if (el) { el.style.display = 'block'; setTimeout(() => el.style.display = 'none', 2000); }
@@ -2543,7 +2543,7 @@ function saveGDriveClientId() {
   const input = document.getElementById('gdrive-client-id');
   if (!input) return;
   const id = input.value.trim();
-  if (!id) { showBanner('⚠ Could not save: Google Drive Client ID is empty', 'warn'); return; }
+  if (!id) return;
   localStorage.setItem('gh-gdrive-client-id', id);
   const el = document.getElementById('gdrive-client-confirm');
   if (el) { el.style.display = 'block'; setTimeout(() => el.style.display = 'none', 2000); }
