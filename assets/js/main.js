@@ -437,20 +437,67 @@ let bannerTimer;
 function showBanner(msg, type) {
   const banner = document.getElementById('sync-banner');
   const text = document.getElementById('sync-text');
+  if (!banner || !text) return;
 
-  // UX decision: only surface banners when something needs attention.
-  const problemTypes = new Set(['warn', 'error']);
-  if (!problemTypes.has(type)) {
-    banner.style.display = 'none';
-    return;
-  }
+  const styles = {
+    ok:      { bg: '#2E7D32', ms: 3200 },
+    success: { bg: '#2E7D32', ms: 3200 },
+    info:    { bg: '#2C4A3E', ms: 2600 },
+    warn:    { bg: '#B9652C', ms: 4600 },
+    error:   { bg: '#B24747', ms: 5200 }
+  };
+  const tone = styles[type] || styles.warn;
 
-  const colors = { warn: '#B9652C', error: '#B24747' };
-  banner.style.background = colors[type] || colors.warn;
+  banner.style.background = tone.bg;
   banner.style.display = 'flex';
   text.textContent = msg;
   clearTimeout(bannerTimer);
-  bannerTimer = setTimeout(() => { banner.style.display = 'none'; }, 4200);
+  bannerTimer = setTimeout(() => { banner.style.display = 'none'; }, tone.ms);
+}
+
+function isCleanerPerson(person) {
+  const role = String((person && person.role) || '').trim().toLowerCase();
+  return !role || role === 'cleaner';
+}
+
+function renderSetupWarningBanner() {
+  const wrap = document.getElementById('setup-warning-banner');
+  const titleEl = document.getElementById('setup-warning-title');
+  const bodyEl = document.getElementById('setup-warning-body');
+  if (!wrap || !titleEl || !bodyEl) return;
+
+  if (typeof isCleanerMode === 'function' && isCleanerMode()) {
+    wrap.style.display = 'none';
+    return;
+  }
+
+  const gaps = (typeof getPropertyConfigGaps === 'function') ? getPropertyConfigGaps() : [];
+  if (!gaps.length) {
+    wrap.style.display = 'none';
+    bodyEl.innerHTML = '';
+    return;
+  }
+
+  const critical = gaps.filter(g => g.severity === 'critical');
+  const heading = critical.length
+    ? '⚠️ Setup Required'
+    : 'ℹ️ Setup Recommendation';
+  titleEl.textContent = heading;
+
+  wrap.style.borderColor = critical.length ? '#F0AA4A' : '#E8D39B';
+  wrap.style.background = critical.length ? '#FFF8E8' : '#FFFDF4';
+
+  bodyEl.innerHTML = `
+    <div style="margin-bottom:6px">
+      Missing for <strong>${escHtml(getCurrentPropertyName())}</strong>:
+    </div>
+    <ul style="margin:0;padding-left:16px">
+      ${gaps.map(g => `<li style="margin:0 0 3px 0"><strong>${escHtml(g.label)}</strong> — ${escHtml(g.detail)}</li>`).join('')}
+    </ul>
+    <div style="margin-top:8px">Fix in <strong>Settings → Property → Property Configuration</strong>.</div>
+  `;
+
+  wrap.style.display = 'block';
 }
 
 // ── NAV ───────────────────────────────────────────────────────────────────
@@ -1748,6 +1795,7 @@ function populateSelects() {
   const cleanOpts = '<option value="">Select booking...</option>' + unnotified.map(b=>`<option value="${b.id}">${b.name} (${fmt(b.checkin)})</option>`).join('');
   document.getElementById('clean-booking-select').innerHTML = cleanOpts;
   document.getElementById('note-booking-select').innerHTML = allOpts;
+  populateCleanerSelect();
 }
 
 function _normName(v) {
@@ -1824,7 +1872,7 @@ function showDetail(id) {
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--warm)">
         <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:8px">Assign Cleaner</div>
         ${(()=>{
-          const cls = loadCleaners().filter(c=>!c.role||c.role==='Cleaner');
+          const cls = loadCleaners().filter(c => isCleanerPerson(c));
           const assigned = bc[0];
           if (!cls.length) return '<div style="font-size:12px;color:var(--text-soft)">No cleaners set up yet — add in Settings → Property &amp; People</div>';
           return `<select id="detail-assign-cleaner" style="margin-bottom:8px">
@@ -2397,8 +2445,8 @@ function saveScriptURL() {
   if (!url) return;
   persistScriptUrl(url); // writes to both legacy key AND config (from config.js)
   const el = document.getElementById('script-url-confirm');
-  el.style.display = 'block';
-  setTimeout(() => el.style.display = 'none', 2000);
+  if (el) { el.style.display = 'block'; setTimeout(() => el.style.display = 'none', 2000); }
+  showBanner('✓ Settings saved: Apps Script URL', 'ok');
 }
 async function testScriptConnection() {
   const checkerOpen = document.getElementById('settings-panel-connection-checker')?.style.display !== 'none';
@@ -2435,6 +2483,7 @@ function saveBankDetails() {
   });
   const el = document.getElementById('inv-bank-confirm');
   el.style.display='block'; setTimeout(()=>el.style.display='none',2000);
+  showBanner('✓ Settings saved: bank details', 'ok');
 }
 
 function loadClients() { return JSON.parse(localStorage.getItem(lsKey('clients'))||'[]'); }
@@ -2483,11 +2532,12 @@ async function deleteClient(i) {
 
 function saveGeminiKey() {
   const key = document.getElementById('settings-gemini-key').value.trim();
-  if (!key) return;
+  if (!key) { showBanner('⚠ Could not save: Gemini key is empty', 'warn'); return; }
   localStorage.setItem('gh-gemini-key', key);
   const el = document.getElementById('gemini-key-confirm');
   el.style.display = 'block';
   setTimeout(() => el.style.display = 'none', 2000);
+  showBanner('✓ Settings saved: Gemini key', 'ok');
 }
 function saveGDriveClientId() {
   const input = document.getElementById('gdrive-client-id');
@@ -2496,16 +2546,17 @@ function saveGDriveClientId() {
   if (!id) return;
   localStorage.setItem('gh-gdrive-client-id', id);
   const el = document.getElementById('gdrive-client-confirm');
-  el.style.display = 'block';
-  setTimeout(() => el.style.display = 'none', 2000);
+  if (el) { el.style.display = 'block'; setTimeout(() => el.style.display = 'none', 2000); }
+  showBanner('✓ Settings saved: Google Drive Client ID', 'ok');
 }
 function saveApiKey() {
   const key = document.getElementById('settings-api-key').value.trim();
-  if (!key) return;
+  if (!key) { showBanner('⚠ Could not save: API key is empty', 'warn'); return; }
   localStorage.setItem('gh-api-key', key);
   const el = document.getElementById('api-key-confirm');
   el.style.display = 'block';
   setTimeout(() => el.style.display = 'none', 2000);
+  showBanner('✓ Settings saved: API key', 'ok');
 }
 function getApiKey() {
   return localStorage.getItem('gh-api-key') || '';
@@ -2518,6 +2569,7 @@ function saveInvoiceDetails() {
   const el = document.getElementById('inv-save-confirm');
   el.style.display = 'block';
   setTimeout(() => el.style.display = 'none', 2000);
+  showBanner('✓ Settings saved: invoice details', 'ok');
 }
 function loadCleaners() {
   return loadJSON(lsKey('cleaners'));
@@ -2650,7 +2702,7 @@ function saveCleanerContact(id) {
   populateCleanerSelect();
 }
 function populateCleanerSelect() {
-  const cleaners = loadCleaners().filter(c => !c.role || c.role === 'Cleaner');
+  const cleaners = loadCleaners().filter(c => isCleanerPerson(c));
   const sel = document.getElementById('clean-name');
   if (!sel) return;
   if (cleaners.length > 0) {
@@ -4375,6 +4427,7 @@ async function saveExpenseEdit() {
       statusEl.style.display = 'block';
       statusEl.style.color = 'var(--amber)';
       statusEl.textContent = '⚠ Connect Google Drive in Settings to upload receipts';
+      showBanner('Upload failed: Google Drive is not connected. Open Settings → Google Services → Drive.', 'warn');
     } else {
       statusEl.style.display = 'block';
       statusEl.style.color = 'var(--text-soft)';
@@ -4391,21 +4444,34 @@ async function saveExpenseEdit() {
         const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
           method: 'POST', headers: { Authorization: 'Bearer ' + driveToken }, body: form
         });
-        if (res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          statusEl.style.color = 'var(--red)';
+          statusEl.textContent = '⚠ Upload failed — Drive permission expired. Reconnect Google Drive.';
+          showBanner('Upload failed: Google Drive permission expired. Reconnect in Settings.', 'warn');
+        } else if (res.ok) {
           const file = await res.json();
           if (file.id) {
             await setDriveFilePublic(file.id, driveToken);
             e.driveLink = 'https://drive.google.com/file/d/' + file.id + '/view';
             statusEl.style.color = 'var(--moss)';
             statusEl.textContent = '✓ Receipt uploaded';
+            showBanner('✓ Upload completed: receipt saved to Google Drive', 'ok');
+          } else {
+            statusEl.style.color = 'var(--red)';
+            statusEl.textContent = '⚠ Upload failed — Google Drive did not return a file ID';
+            showBanner('Upload failed: Google Drive did not return a file ID', 'warn');
           }
         } else {
+          const errData = await res.json().catch(() => ({}));
+          const msg = (errData.error && errData.error.message) || ('HTTP ' + res.status);
           statusEl.style.color = 'var(--red)';
           statusEl.textContent = '⚠ Upload failed — expense saved without receipt';
+          showBanner('Upload failed: ' + msg, 'warn');
         }
       } catch(err) {
         statusEl.style.color = 'var(--red)';
         statusEl.textContent = '⚠ Upload failed: ' + err.message;
+        showBanner('Upload failed: network or Google Drive error (' + (err.message || 'unknown') + ')', 'warn');
       }
     }
   }
@@ -6168,7 +6234,7 @@ function openCleanerSettings() {
 function renderCleanerAccessList() {
   const el = document.getElementById('cleaner-access-list');
   if (!el) return;
-  const cleaners = loadCleaners().filter(c => !c.role || c.role === 'Cleaner');
+  const cleaners = loadCleaners().filter(c => isCleanerPerson(c));
   if (!cleaners.length) {
     el.innerHTML = `<div class="card" style="margin-bottom:12px;text-align:center;padding:24px">
       <div style="font-size:32px;margin-bottom:8px">🧹</div>

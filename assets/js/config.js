@@ -423,6 +423,66 @@ function getDriveFolderId() {
   return localStorage.getItem('gh-drive-folder-id') || null;
 }
 
+function getDriveClientId() {
+  return localStorage.getItem('gh-gdrive-client-id') || '';
+}
+
+function getPropertyConfigGaps() {
+  const cfg = getActivePropertyConfig() || {};
+  const integ = cfg.integrations || {};
+
+  const sheetCsvUrl = String(integ.sheetCsvUrl || '').trim();
+  const scriptUrl = String(integ.scriptUrl || '').trim();
+  const driveFolderId = String(getDriveFolderId() || '').trim();
+  const driveClientId = String(getDriveClientId() || '').trim();
+
+  const gaps = [];
+
+  const sheetLooksValid =
+    !!sheetCsvUrl
+    && sheetCsvUrl.toLowerCase().includes('docs.google.com/spreadsheets')
+    && sheetCsvUrl.includes('output=csv');
+  if (!sheetLooksValid) {
+    gaps.push({
+      key: 'sheetCsvUrl',
+      severity: 'critical',
+      label: 'Google Sheet CSV URL missing or invalid',
+      detail: 'Bookings pull/sync from Sheets will not work.'
+    });
+  }
+
+  const scriptLooksValid =
+    !!scriptUrl
+    && scriptUrl.toLowerCase().includes('script.google.com/macros')
+    && scriptUrl.endsWith('/exec');
+  if (!scriptLooksValid) {
+    gaps.push({
+      key: 'scriptUrl',
+      severity: 'critical',
+      label: 'Apps Script URL missing or invalid',
+      detail: 'Push/sync actions, email notifications, and server-side automations will fail.'
+    });
+  }
+
+  if (!driveClientId) {
+    gaps.push({
+      key: 'gdriveClientId',
+      severity: 'warning',
+      label: 'Google Drive OAuth Client ID missing',
+      detail: 'Receipt uploads and Drive backup features require a Drive connection.'
+    });
+  } else if (!driveFolderId) {
+    gaps.push({
+      key: 'driveFolderId',
+      severity: 'warning',
+      label: 'Google Drive folder ID missing',
+      detail: 'Drive uploads/backups may not target the expected folder until configured.'
+    });
+  }
+
+  return gaps;
+}
+
 function saveDriveFolderId(folderId) {
   localStorage.setItem('gh-drive-folder-id', folderId);
   savePropertyConfig({ integrations: { driveFolderId: folderId } });
@@ -488,6 +548,7 @@ function initPropertyUI() {
   _setText('active-property-name', cfg.name);
 
   if (typeof renderPropertySwitcher === 'function') renderPropertySwitcher();
+  if (typeof renderSetupWarningBanner === 'function') renderSetupWarningBanner();
 }
 
 function _setText(id, value) {
