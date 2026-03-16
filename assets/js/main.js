@@ -158,7 +158,7 @@ function getCleanerSub(cleanerId) { return (getPushSubs().cleaners || {})[String
 async function getFreshOwnerSub() {
   // Always pull latest pushSubs from Sheet — owner sub lives on owner's device
   try {
-    const url = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+    const url = (getCurrentScriptURL() || '').trim();
     if (url && url.includes('script.google.com')) {
       const resp = await fetch(url + '?action=getAppData');
       const json = await resp.json();
@@ -1372,6 +1372,41 @@ function openSettingsPanel(panelId) {
   if (panelId === 'connection-checker') {
     resetConnectionCheckerResults();
   }
+}
+
+function renderPropertySwitcher() {
+  const select = document.getElementById('property-switcher-select');
+  if (!select || typeof getAllProperties !== 'function') return;
+
+  const props = getAllProperties();
+  const activeId = getActivePropertyId();
+  select.innerHTML = props.map(p =>
+    '<option value="' + escHtml(p.propertyId) + '">' + escHtml(p.name || p.propertyId) + '</option>'
+  ).join('');
+
+  if (activeId) select.value = activeId;
+
+  const active = getActivePropertyConfig();
+  const activeNameEl = document.getElementById('active-property-name');
+  if (activeNameEl) activeNameEl.textContent = active.name || 'Property';
+}
+
+function switchActiveProperty(id) {
+  if (!id || typeof setActivePropertyId !== 'function') return;
+  const current = getActivePropertyId();
+  if (id === current) return;
+
+  const ok = setActivePropertyId(id);
+  if (!ok) {
+    showBanner('⚠ Could not switch property', 'warn');
+    renderPropertySwitcher();
+    return;
+  }
+
+  showBanner('✓ Switched to ' + getCurrentPropertyName(), 'ok');
+
+  // Reload to ensure all property-scoped module state is rehydrated cleanly.
+  setTimeout(() => window.location.reload(), 120);
 }
 
 function closeSettingsPanel() {
@@ -4617,14 +4652,16 @@ function renderStorageViewer() {
   if (changed) savePropertyData();
 })();
 
-// Clear expenses cache only if the script URL has changed since last load
-const _scriptConfigured = !!localStorage.getItem('gh-script-url');
-const _lastScriptUrl = localStorage.getItem('gh-last-script-url');
-const _currentScriptUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+// Clear expenses cache only if the active property's script URL has changed since last load
+const _activePropertyIdForSync = (typeof getActivePropertyId === 'function' && getActivePropertyId()) || 'default';
+const _lastScriptUrlKey = 'gh-last-script-url::' + _activePropertyIdForSync;
+const _currentScriptUrl = (getCurrentScriptURL() || '').trim();
+const _scriptConfigured = !!_currentScriptUrl;
+const _lastScriptUrl = localStorage.getItem(_lastScriptUrlKey);
 if (_scriptConfigured && _lastScriptUrl !== _currentScriptUrl) {
   localStorage.removeItem('gh-expenses');
   expenses = [];
-  localStorage.setItem('gh-last-script-url', _currentScriptUrl);
+  localStorage.setItem(_lastScriptUrlKey, _currentScriptUrl);
 }
 
 // ── APP DATA SYNC (Sheet ↔ localStorage) ──────────────────────────────────────
