@@ -158,7 +158,7 @@ function getCleanerSub(cleanerId) { return (getPushSubs().cleaners || {})[String
 async function getFreshOwnerSub() {
   // Always pull latest pushSubs from Sheet — owner sub lives on owner's device
   try {
-    const url = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+    const url = (getCurrentScriptURL() || '').trim();
     if (url && url.includes('script.google.com')) {
       const resp = await fetch(url + '?action=getAppData');
       const json = await resp.json();
