@@ -118,12 +118,12 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
       <div id="setup-header">
         <div id="setup-icon">🏡</div>
         <div>
-          <div id="setup-title">${createMode ? 'Add Property' : (editMode ? 'Edit Property Configuration' : 'Welcome — Set Up Your Property')}</div>
+          <div id="setup-title">${createMode ? 'Add Property' : (editMode ? 'Property Configuration' : 'Welcome — Set Up Your Property')}</div>
           <div id="setup-desc">${createMode
             ? 'Create another property profile. It will become your active property after save.'
             : (editMode
                 ? 'Update your property details. Changes take effect immediately.'
-                : 'Fill in your property details to get started. You can edit these any time in Settings → Property Setup.')
+                : 'Fill in your property details to get started. You can edit these any time in Settings → Property → Property Configuration.')
           }</div>
         </div>
       </div>
@@ -272,6 +272,28 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
           </div>
         </div>
 
+        <div class="ss-row">
+          <div class="ss-field">
+            <label class="ss-lbl" for="s-gdrive-client-id">Google OAuth Client ID</label>
+            <input type="text" id="s-gdrive-client-id" class="ss-inp"
+              placeholder="xxxxx.apps.googleusercontent.com"
+              value="${ea(localStorage.getItem('gh-gdrive-client-id') || '')}">
+          </div>
+          <div class="ss-field">
+            <label class="ss-lbl" for="s-drive-folder-id">Drive Folder ID</label>
+            <input type="text" id="s-drive-folder-id" class="ss-inp"
+              placeholder="e.g. 1AbCdEf..."
+              value="${ea(integ.driveFolderId || '')}">
+          </div>
+        </div>
+
+        <div class="ss-field" style="margin-top:10px;margin-bottom:4px">
+          <label class="ss-lbl" for="s-calendar-id">Google Calendar ID</label>
+          <input type="text" id="s-calendar-id" class="ss-inp"
+            placeholder="primary"
+            value="${ea(integ.calendarId || 'primary')}">
+        </div>
+
         <!-- ── Error area ── -->
         <div id="setup-errors" role="alert" aria-live="assertive" style="display:none"></div>
 
@@ -341,6 +363,8 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
     localStorage.setItem('gh-script-url', newCfg.integrations.scriptUrl);
     if (newCfg.owner.email) localStorage.setItem('gh-inv-email',  newCfg.owner.email);
     if (newCfg.owner.name)  localStorage.setItem('gh-inv-name',   newCfg.owner.name);
+    const driveClientId = (((overlay.querySelector('#s-gdrive-client-id') || {}).value) || '').trim();
+    if (driveClientId) localStorage.setItem('gh-gdrive-client-id', driveClientId);
 
     // Update DB adapter thunks pick up the new scriptUrl on the next call.
     // (No action needed — thunks call getCurrentScriptURL() at call time.)
@@ -390,6 +414,7 @@ function _setupValidate(overlay) {
   const email     = v('s-owner-email').trim();
   const sheetUrl  = v('s-sheet-url').trim();
   const scriptUrl = v('s-script-url').trim();
+  const driveFolderId = v('s-drive-folder-id').trim();
 
   if (!name)   errors.push('Property name is required.');
   if (!suburb) errors.push('Suburb / town is required.');
@@ -419,6 +444,10 @@ function _setupValidate(overlay) {
     errors.push('Apps Script URL should contain script.google.com/macros.');
   } else if (!scriptUrl.endsWith('/exec')) {
     errors.push('Apps Script URL should end in /exec (the deployed web-app URL).');
+  }
+
+  if (driveFolderId && !/^[A-Za-z0-9_-]{10,}$/.test(driveFolderId)) {
+    errors.push('Drive Folder ID looks invalid. Paste the folder ID only (letters, numbers, _ or -).');
   }
 
   return errors;
@@ -485,8 +514,8 @@ function _setupBuildConfig(overlay, createMode) {
       vapidPublicKey:  _existingInteg.vapidPublicKey
                          || (typeof VAPID_PUBLIC_KEY !== 'undefined' ? VAPID_PUBLIC_KEY : ''),
       pushFunctionUrl: _existingInteg.pushFunctionUrl || '/.netlify/functions/send-push',
-      calendarId:      _existingInteg.calendarId      || 'primary',
-      driveFolderId:   _existingInteg.driveFolderId   || null,
+      calendarId:      v('s-calendar-id') || _existingInteg.calendarId || 'primary',
+      driveFolderId:   v('s-drive-folder-id') || _existingInteg.driveFolderId || null,
     },
 
     pricing: {
