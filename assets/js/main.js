@@ -1374,6 +1374,41 @@ function openSettingsPanel(panelId) {
   }
 }
 
+function renderPropertySwitcher() {
+  const select = document.getElementById('property-switcher-select');
+  if (!select || typeof getAllProperties !== 'function') return;
+
+  const props = getAllProperties();
+  const activeId = getActivePropertyId();
+  select.innerHTML = props.map(p =>
+    '<option value="' + escHtml(p.propertyId) + '">' + escHtml(p.name || p.propertyId) + '</option>'
+  ).join('');
+
+  if (activeId) select.value = activeId;
+
+  const active = getActivePropertyConfig();
+  const activeNameEl = document.getElementById('active-property-name');
+  if (activeNameEl) activeNameEl.textContent = active.name || 'Property';
+}
+
+function switchActiveProperty(id) {
+  if (!id || typeof setActivePropertyId !== 'function') return;
+  const current = getActivePropertyId();
+  if (id === current) return;
+
+  const ok = setActivePropertyId(id);
+  if (!ok) {
+    showBanner('⚠ Could not switch property', 'warn');
+    renderPropertySwitcher();
+    return;
+  }
+
+  showBanner('✓ Switched to ' + getCurrentPropertyName(), 'ok');
+
+  // Reload to ensure all property-scoped module state is rehydrated cleanly.
+  setTimeout(() => window.location.reload(), 120);
+}
+
 function closeSettingsPanel() {
   const panel = document.querySelector('[id^="settings-panel-"]:not([style*="display: none"]):not([style*="display:none"])');
   const returnCat = panel?.dataset.prevCat;
