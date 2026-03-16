@@ -2391,7 +2391,9 @@ async function smartSyncExpenses() {
 }
 
 function saveScriptURL() {
-  const url = document.getElementById('settings-script-url').value.trim();
+  const input = document.getElementById('settings-script-url');
+  if (!input) return;
+  const url = input.value.trim();
   if (!url) return;
   persistScriptUrl(url); // writes to both legacy key AND config (from config.js)
   const el = document.getElementById('script-url-confirm');
@@ -2488,7 +2490,9 @@ function saveGeminiKey() {
   setTimeout(() => el.style.display = 'none', 2000);
 }
 function saveGDriveClientId() {
-  const id = document.getElementById('gdrive-client-id').value.trim();
+  const input = document.getElementById('gdrive-client-id');
+  if (!input) return;
+  const id = input.value.trim();
   if (!id) return;
   localStorage.setItem('gh-gdrive-client-id', id);
   const el = document.getElementById('gdrive-client-confirm');
