@@ -158,7 +158,7 @@ function getCleanerSub(cleanerId) { return (getPushSubs().cleaners || {})[String
 async function getFreshOwnerSub() {
   // Always pull latest pushSubs from Sheet — owner sub lives on owner's device
   try {
-    const url = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+    const url = (getCurrentScriptURL() || '').trim();
     if (url && url.includes('script.google.com')) {
       const resp = await fetch(url + '?action=getAppData');
       const json = await resp.json();
@@ -1374,6 +1374,41 @@ function openSettingsPanel(panelId) {
   }
 }
 
+function renderPropertySwitcher() {
+  const select = document.getElementById('property-switcher-select');
+  if (!select || typeof getAllProperties !== 'function') return;
+
+  const props = getAllProperties();
+  const activeId = getActivePropertyId();
+  select.innerHTML = props.map(p =>
+    '<option value="' + escHtml(p.propertyId) + '">' + escHtml(p.name || p.propertyId) + '</option>'
+  ).join('');
+
+  if (activeId) select.value = activeId;
+
+  const active = getActivePropertyConfig();
+  const activeNameEl = document.getElementById('active-property-name');
+  if (activeNameEl) activeNameEl.textContent = active.name || 'Property';
+}
+
+function switchActiveProperty(id) {
+  if (!id || typeof setActivePropertyId !== 'function') return;
+  const current = getActivePropertyId();
+  if (id === current) return;
+
+  const ok = setActivePropertyId(id);
+  if (!ok) {
+    showBanner('⚠ Could not switch property', 'warn');
+    renderPropertySwitcher();
+    return;
+  }
+
+  showBanner('✓ Switched to ' + getCurrentPropertyName(), 'ok');
+
+  // Reload to ensure all property-scoped module state is rehydrated cleanly.
+  setTimeout(() => window.location.reload(), 120);
+}
+
 function closeSettingsPanel() {
   const panel = document.querySelector('[id^="settings-panel-"]:not([style*="display: none"]):not([style*="display:none"])');
   const returnCat = panel?.dataset.prevCat;
@@ -1715,12 +1750,37 @@ function populateSelects() {
   document.getElementById('note-booking-select').innerHTML = allOpts;
 }
 
+function _normName(v) {
+  return String(v || '').trim().toLowerCase();
+}
+
+function _findMatchingCleanForBooking(booking, preferredDate) {
+  if (!booking) return null;
+  const byBookingId = cleans.find(c => String(c.bookingId) === String(booking.id));
+  if (byBookingId) return byBookingId;
+
+  const targetDate = String(preferredDate || booking.checkout || '').slice(0, 10);
+  const name = _normName(booking.name);
+  if (name && targetDate) {
+    const byGuestAndDate = cleans.find(c => _normName(c.guestName) === name && String(c.date || '').slice(0, 10) === targetDate);
+    if (byGuestAndDate) return byGuestAndDate;
+  }
+
+  if (name) {
+    const byGuestOnly = cleans.find(c => _normName(c.guestName) === name);
+    if (byGuestOnly) return byGuestOnly;
+  }
+
+  return null;
+}
+
 // ── BOOKING DETAIL ────────────────────────────────────────────────────────
 function showDetail(id) {
   const b = bookings.find(b=>b.id===id);
   if (!b) return;
   const bn = notes.filter(n=>n.bookingId===id);
-  const bc = cleans.filter(c=>c.bookingId===id);
+  const matchedClean = _findMatchingCleanForBooking(b);
+  const bc = matchedClean ? [matchedClean] : [];
   document.getElementById('detail-content').innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div style="display:flex;align-items:center;gap:12px">
@@ -1769,7 +1829,7 @@ function showDetail(id) {
           if (!cls.length) return '<div style="font-size:12px;color:var(--text-soft)">No cleaners set up yet — add in Settings → Property &amp; People</div>';
           return `<select id="detail-assign-cleaner" style="margin-bottom:8px">
             <option value="">— Not assigned —</option>
-            ${cls.map(c=>`<option value="${c.id}" ${assigned&&assigned.cleanerId===c.id?'selected':''}>${c.name}</option>`).join('')}
+            ${cls.map(c=>`<option value="${c.id}" ${assigned&&String(assigned.cleanerId)===String(c.id)?'selected':''}>${c.name}</option>`).join('')}
           </select>
           <input type="date" id="detail-assign-date" value="${assigned?assigned.date:b.checkout}" style="margin-bottom:8px">
           <button onclick="assignCleanerToBooking(${b.id})" class="btn-primary" style="width:100%">💾 Save Assignment</button>`;
@@ -4617,14 +4677,16 @@ function renderStorageViewer() {
   if (changed) savePropertyData();
 })();
 
-// Clear expenses cache only if the script URL has changed since last load
-const _scriptConfigured = !!localStorage.getItem('gh-script-url');
-const _lastScriptUrl = localStorage.getItem('gh-last-script-url');
-const _currentScriptUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+// Clear expenses cache only if the active property's script URL has changed since last load
+const _activePropertyIdForSync = (typeof getActivePropertyId === 'function' && getActivePropertyId()) || 'default';
+const _lastScriptUrlKey = 'gh-last-script-url::' + _activePropertyIdForSync;
+const _currentScriptUrl = (getCurrentScriptURL() || '').trim();
+const _scriptConfigured = !!_currentScriptUrl;
+const _lastScriptUrl = localStorage.getItem(_lastScriptUrlKey);
 if (_scriptConfigured && _lastScriptUrl !== _currentScriptUrl) {
   localStorage.removeItem('gh-expenses');
   expenses = [];
-  localStorage.setItem('gh-last-script-url', _currentScriptUrl);
+  localStorage.setItem(_lastScriptUrlKey, _currentScriptUrl);
 }
 
 // ── APP DATA SYNC (Sheet ↔ localStorage) ──────────────────────────────────────
@@ -5507,12 +5569,17 @@ async function assignCleanerToBooking(bookingId) {
   if (!cleanerObj) { showBanner('⚠ Cleaner not found', 'warn'); return; }
   const booking = bookings.find(b => b.id === bookingId);
   if (!booking) return;
-  const existingIdx = cleans.findIndex(c => c.bookingId === bookingId);
+  const matched = _findMatchingCleanForBooking(booking, date);
+  const existingIdx = matched ? cleans.findIndex(c => c.id === matched.id) : -1;
+  const prev = existingIdx >= 0 ? cleans[existingIdx] : null;
   const newClean = {
-    id: existingIdx >= 0 ? cleans[existingIdx].id : Date.now(),
+    id: prev ? prev.id : Date.now(),
     bookingId, guestName: booking.name,
     cleaner: cleanerObj.name, cleanerId: cleanerObj.id,
-    date, done: false, notified: false, cleanerConfirmed: false
+    date,
+    done: !!(prev && prev.done),
+    notified: !!(prev && prev.notified),
+    cleanerConfirmed: !!(prev && prev.cleanerConfirmed)
   };
   if (existingIdx >= 0) cleans[existingIdx] = newClean;
   else cleans.push(newClean);
