@@ -328,10 +328,14 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
       if (!ok) return;
     }
 
-    const newCfg = _setupBuildConfig(overlay);
-    savePropertyConfig(newCfg);
+    const newCfg = _setupBuildConfig(overlay, createMode);
+    if (createMode && typeof addPropertyConfig === 'function') {
+      addPropertyConfig(newCfg);
+    } else {
+      savePropertyConfig(newCfg);
+    }
     // Only set the flag during first-boot; in edit mode it is already set.
-    if (!editMode) localStorage.setItem('gh-setup-complete', '1');
+    if (!editMode || createMode) localStorage.setItem('gh-setup-complete', '1');
 
     // Mirror critical values to legacy keys so existing code paths work immediately.
     localStorage.setItem('gh-script-url', newCfg.integrations.scriptUrl);
@@ -343,6 +347,12 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
 
     // Reflect changes in the DOM immediately.
     if (typeof initPropertyUI === 'function') initPropertyUI();
+
+    if (createMode) {
+      // A new property should start with its own isolated app-state keys.
+      // Reload to re-hydrate all module-level arrays from scoped storage.
+      setTimeout(() => window.location.reload(), 250);
+    }
 
     // Brief success state on the button before dismissing.
     saveBtn.textContent = '✓ Saved!';

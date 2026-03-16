@@ -174,7 +174,8 @@ function getAllProperties() {
       .filter(Boolean)
       .map(p => {
         const merged = _deepMerge(_cloneDefaults(), p || {});
-        merged.propertyId = merged.propertyId || _normalisePropertyId('', merged.name);
+        merged.propertyId = merged.propertyId || merged.id || _normalisePropertyId('', merged.name);
+        merged.id = merged.propertyId;
         return merged;
       });
   } catch (e) {
@@ -189,7 +190,8 @@ function saveAllProperties(list) {
       .filter(Boolean)
       .map((p, i) => {
         const merged = _deepMerge(_cloneDefaults(), p || {});
-        merged.propertyId = merged.propertyId || _normalisePropertyId('', merged.name || ('property-' + (i + 1)));
+        merged.propertyId = merged.propertyId || merged.id || _normalisePropertyId('', merged.name || ('property-' + (i + 1)));
+        merged.id = merged.propertyId;
         return merged;
       });
     localStorage.setItem(PROPERTIES_KEY, JSON.stringify(safe));
@@ -209,16 +211,16 @@ function getActivePropertyId() {
 
 function setActivePropertyId(id) {
   const list = getAllProperties();
-  const found = list.find(p => p.propertyId === id);
+  const found = list.find(p => p.propertyId === id || p.id === id);
   if (!found) return false;
-  localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, id);
+  localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, found.propertyId);
   _syncLegacyMirrorsFromActive();
   return true;
 }
 
 function getPropertyById(id) {
   const list = getAllProperties();
-  const hit = list.find(p => p.propertyId === id);
+  const hit = list.find(p => p.propertyId === id || p.id === id);
   return hit ? _deepMerge(_cloneDefaults(), hit) : null;
 }
 
@@ -231,7 +233,8 @@ function getActivePropertyConfig() {
 function addPropertyConfig(property) {
   const list = getAllProperties();
   const next = _deepMerge(_cloneDefaults(), property || {});
-  next.propertyId = _normalisePropertyId(next.propertyId, next.name);
+  next.propertyId = _normalisePropertyId(next.propertyId || next.id, next.name);
+  next.id = next.propertyId;
   list.push(next);
   saveAllProperties(list);
   localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, next.propertyId);
@@ -241,10 +244,11 @@ function addPropertyConfig(property) {
 
 function updatePropertyConfig(id, patch) {
   const list = getAllProperties();
-  const idx = list.findIndex(p => p.propertyId === id);
+  const idx = list.findIndex(p => p.propertyId === id || p.id === id);
   if (idx === -1) return null;
   const merged = _deepMerge(list[idx], patch || {});
   merged.propertyId = list[idx].propertyId;
+  merged.id = merged.propertyId;
   list[idx] = merged;
   saveAllProperties(list);
   if (getActivePropertyId() === id) _syncLegacyMirrorsFromActive();
@@ -298,7 +302,8 @@ function migrateLegacySinglePropertyConfig() {
   if (!source) return;
 
   const merged = _deepMerge(_cloneDefaults(), source);
-  merged.propertyId = _normalisePropertyId(merged.propertyId, merged.name);
+  merged.propertyId = _normalisePropertyId(merged.propertyId || merged.id, merged.name);
+  merged.id = merged.propertyId;
   saveAllProperties([merged]);
   localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, merged.propertyId);
   localStorage.setItem('gh-setup-complete', '1');
