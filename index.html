@@ -498,19 +498,35 @@
     ═══════════════════════════════════════════════════════ -->
     <div id="settings-menu">
       <div id="settings-plan-nudge" style="margin-bottom:12px"></div>
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:16px 4px 8px">Property</div>
+      <div class="card" style="margin-bottom:12px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--forest);text-transform:uppercase;letter-spacing:0.5px">⚙️ Control Center</div>
+            <div style="font-size:12px;color:var(--text-soft);margin-top:4px">Manage property setup, integrations, team access, and connection health in one place.</div>
+          </div>
+          <button class="btn-secondary" onclick="openSettingsPanel('connection-checker')" style="margin:0;white-space:nowrap;padding:8px 10px">Run Checks</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+          <div style="background:var(--mist);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft)">Last Sync</div><div style="font-size:12px;font-weight:600;color:var(--forest)" id="settings-health-last-sync">Never</div></div>
+          <div style="background:var(--mist);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft)">Last Backup</div><div style="font-size:12px;font-weight:600;color:var(--forest)" id="settings-health-last-backup">Never</div></div>
+          <div style="background:var(--mist);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft)">Bookings</div><div style="font-size:12px;font-weight:600;color:var(--forest)" id="settings-health-bookings">0 loaded</div></div>
+          <div style="background:var(--mist);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft)">Integrations</div><div style="font-size:12px;font-weight:600;color:var(--forest)">Google + Apps Script</div></div>
+        </div>
+      </div>
+
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Core Setup</div>
       <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
         <div class="settings-cat-item" onclick="openSettingsCat('property')">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#1E3A2F;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🏠</div>
-            <div><div style="font-weight:500;font-size:14px">Property</div><div style="font-size:12px;color:var(--text-soft)">Configuration, team &amp; messaging</div></div>
+            <div><div style="font-weight:500;font-size:14px">Property</div><div style="font-size:12px;color:var(--text-soft)">Details, contacts, messaging, and setup</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
         <div class="settings-cat-item" onclick="openSettingsCat('cleaner')">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#34C759;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🧹</div>
-            <div><div style="font-weight:500;font-size:14px">Team Access</div><div style="font-size:12px;color:var(--text-soft)">Cleaner links & permissions</div></div>
+            <div><div style="font-weight:500;font-size:14px">Team</div><div style="font-size:12px;color:var(--text-soft)">Cleaner access links and permissions</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
@@ -534,12 +550,12 @@
         </div>
       </div>
 
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Cloud & AI</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Integrations</div>
       <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
         <div class="settings-cat-item" onclick="openSettingsCat('google')">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#4285F4;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🔗</div>
-            <div><div style="font-weight:500;font-size:14px">Google Services</div><div style="font-size:12px;color:var(--text-soft)">Sync, connect &amp; status actions</div></div>
+            <div><div style="font-weight:500;font-size:14px">Google + Apps Script</div><div style="font-size:12px;color:var(--text-soft)">Sheet URL, script URL, Drive, and status checks</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
@@ -596,6 +612,13 @@
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#5AC8FA;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🧪</div>
             <div><div style="font-weight:500;font-size:14px">Connection Checker</div><div style="font-size:12px;color:var(--text-soft)">Diagnostics only (no config editing)</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+        </div>
+        <div class="settings-cat-item" onclick="openSettingsCat('google')" style="border-bottom:none">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:9px;background:#4285F4;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🔗</div>
+            <div><div style="font-weight:500;font-size:14px">Integrations</div><div style="font-size:12px;color:var(--text-soft)">Google Sheets, Apps Script, Drive, Calendar</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>

@@ -2010,6 +2010,12 @@ function renderSettings() {
   const lastBackup = localStorage.getItem(lsKey('last-backup')) || 'Never';
   const buEl = document.getElementById('backup-last-time');
   if (buEl) buEl.textContent = lastBackup;
+  const healthSync = document.getElementById('settings-health-last-sync');
+  if (healthSync) healthSync.textContent = lastSync;
+  const healthBackup = document.getElementById('settings-health-last-backup');
+  if (healthBackup) healthBackup.textContent = lastBackup;
+  const healthBookings = document.getElementById('settings-health-bookings');
+  if (healthBookings) healthBookings.textContent = bookings.length + ' loaded';
   renderSettingsPlanUsageCard();
   setTimeout(updateNotifStatus, 100);
 }
