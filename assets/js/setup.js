@@ -119,12 +119,12 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
       <div id="setup-header">
         <div id="setup-icon">🏡</div>
         <div>
-          <div id="setup-title">${createMode ? 'Add Property' : (editMode ? 'Property Configuration' : 'Welcome — Add Your Property')}</div>
+          <div id="setup-title">${createMode ? 'Add Property' : (editMode ? 'Property Configuration' : 'Welcome — Set Up Your Property')}</div>
           <div id="setup-desc">${createMode
             ? 'Create another property profile. It will become your active property after save.'
             : (editMode
                 ? 'Update your property details. Changes take effect immediately.'
-                : 'Start with the basics now. You can connect Google services later in Settings when you are ready.')
+                : 'Fill in your property details to get started. You can edit these any time in Settings → Property → Property Configuration.')
           }</div>
         </div>
       </div>
@@ -299,7 +299,6 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
             placeholder="primary"
             value="${ea(integ.calendarId || 'primary')}">
         </div>
-        </details>
 
         <!-- ── Error area ── -->
         <div id="setup-errors" role="alert" aria-live="assertive" style="display:none"></div>

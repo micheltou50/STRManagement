@@ -429,38 +429,7 @@ function getDriveFolderId() {
 }
 
 function getDriveClientId() {
-  const local = localStorage.getItem('gh-gdrive-client-id') || '';
-  if (local) return local;
-  const shared = getSharedIntegrationConfig();
-  return (shared && shared.gDriveClientId) || '';
-}
-
-function getSharedIntegrationConfig() {
-  try {
-    const raw = localStorage.getItem(SHARED_INTEGRATIONS_CACHE_KEY);
-    if (!raw) return null;
-    const json = JSON.parse(raw);
-    if (!json || typeof json !== 'object') return null;
-    return {
-      sheetCsvUrl: String(json.sheetCsvUrl || '').trim(),
-      scriptUrl: String(json.scriptUrl || '').trim(),
-      gDriveClientId: String(json.gDriveClientId || '').trim(),
-      updatedAt: json.updatedAt || null
-    };
-  } catch (e) {
-    return null;
-  }
-}
-
-function saveSharedIntegrationConfig(config) {
-  if (!config || typeof config !== 'object') return;
-  const safe = {
-    sheetCsvUrl: String(config.sheetCsvUrl || '').trim(),
-    scriptUrl: String(config.scriptUrl || '').trim(),
-    gDriveClientId: String(config.gDriveClientId || '').trim(),
-    updatedAt: config.updatedAt || new Date().toISOString()
-  };
-  localStorage.setItem(SHARED_INTEGRATIONS_CACHE_KEY, JSON.stringify(safe));
+  return localStorage.getItem('gh-gdrive-client-id') || '';
 }
 
 function getPropertyConfigGaps() {
@@ -481,9 +450,9 @@ function getPropertyConfigGaps() {
   if (!sheetLooksValid) {
     gaps.push({
       key: 'sheetCsvUrl',
-      severity: 'warning',
+      severity: 'critical',
       label: 'Google Sheet CSV URL missing or invalid',
-      detail: 'Cloud booking sync is not connected yet. You can add this later.'
+      detail: 'Bookings pull/sync from Sheets will not work.'
     });
   }
 
@@ -494,9 +463,9 @@ function getPropertyConfigGaps() {
   if (!scriptLooksValid) {
     gaps.push({
       key: 'scriptUrl',
-      severity: 'warning',
+      severity: 'critical',
       label: 'Apps Script URL missing or invalid',
-      detail: 'Cloud sync and automations are not connected yet. You can add this later.'
+      detail: 'Push/sync actions, email notifications, and server-side automations will fail.'
     });
   }
 

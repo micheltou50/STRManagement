@@ -686,87 +686,6 @@ function showBanner(msg, type) {
   bannerTimer = setTimeout(() => { banner.style.display = 'none'; }, tone.ms);
 }
 
-let _connSummaryTimer = null;
-function refreshConnectionSummarySoon() {
-  clearTimeout(_connSummaryTimer);
-  _connSummaryTimer = setTimeout(() => {
-    if (typeof renderConnectionSummary === 'function') renderConnectionSummary();
-  }, 120);
-}
-
-function _buildConnectionSummaryRow(icon, label, statusText, tone, detail) {
-  const tones = {
-    ok: { bg: '#EDF7ED', color: '#2E7D32' },
-    warn: { bg: '#FFF4E5', color: '#B9652C' },
-    bad: { bg: '#FDECEA', color: '#B24747' }
-  };
-  const t = tones[tone] || tones.warn;
-  return `
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--warm);border-radius:10px;background:#FFF">
-      <div style="min-width:0;flex:1">
-        <div style="font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px"><span>${icon}</span><span>${escHtml(label)}</span></div>
-        ${detail ? `<div style="font-size:11px;color:var(--text-soft);margin-top:3px">${escHtml(detail)}</div>` : ''}
-      </div>
-      <div style="flex-shrink:0;font-size:11px;font-weight:700;padding:4px 8px;border-radius:999px;background:${t.bg};color:${t.color};text-transform:uppercase;letter-spacing:0.4px">${escHtml(statusText)}</div>
-    </div>
-  `;
-}
-
-function renderConnectionSummary() {
-  const host = document.getElementById('conn-summary-list');
-  if (!host) return;
-
-  const gaps = (typeof getPropertyConfigGaps === 'function') ? getPropertyConfigGaps() : [];
-  const missingPropertySetup = gaps.length;
-  const sheetUrl = String((typeof getPropertySheetCsvUrl === 'function' ? getPropertySheetCsvUrl() : '') || '').trim();
-  const scriptUrl = String((typeof getCurrentScriptURL === 'function' ? getCurrentScriptURL() : '') || '').trim();
-  const cloudConnected = typeof hasCloudSyncConfigured === 'function' ? hasCloudSyncConfigured() : false;
-  const driveClientId = String((typeof getDriveClientId === 'function' ? getDriveClientId() : localStorage.getItem('gh-gdrive-client-id')) || '').trim();
-  const driveFolderId = String((typeof getDriveFolderId === 'function' ? getDriveFolderId() : localStorage.getItem('gh-drive-folder-id')) || '').trim();
-  const driveToken = String(localStorage.getItem('gh-drive-token') || '').trim();
-  const notifSupported = ('Notification' in window);
-  const notifPerm = notifSupported ? Notification.permission : 'unsupported';
-  const notifSub = typeof getOwnerSub === 'function' ? getOwnerSub() : null;
-  const upcomingOpenCleans = cleans.filter(c => !c.cleaner && !c.cleanerConfirmed && !c.done && !c.cleanerDeclined).length;
-
-  const rows = [];
-  rows.push(missingPropertySetup
-    ? _buildConnectionSummaryRow('🏠', 'Property setup', 'Needs attention', 'bad', `${missingPropertySetup} setup item${missingPropertySetup > 1 ? 's are' : ' is'} missing`)
-    : _buildConnectionSummaryRow('🏠', 'Property setup', 'Connected', 'ok', 'Core property and integration settings are present'));
-
-  if (cloudConnected) {
-    rows.push(_buildConnectionSummaryRow('☁️', 'Cloud sync (Sheet / Script)', 'Connected', 'ok', 'Bookings and AppData can sync with Google services'));
-  } else if (!sheetUrl && !scriptUrl) {
-    rows.push(_buildConnectionSummaryRow('☁️', 'Cloud sync (Sheet / Script)', 'Optional / not connected', 'warn', 'Add Google Sheet + Apps Script URLs when you want cloud sync'));
-  } else {
-    rows.push(_buildConnectionSummaryRow('☁️', 'Cloud sync (Sheet / Script)', 'Needs attention', 'bad', 'One or more sync URLs are missing or invalid'));
-  }
-
-  if (driveToken) {
-    rows.push(_buildConnectionSummaryRow('📁', 'Google Drive', 'Connected', 'ok', 'Receipt uploads and backups are available'));
-  } else if (driveClientId) {
-    rows.push(_buildConnectionSummaryRow('📁', 'Google Drive', 'Optional / not connected', 'warn', driveFolderId ? 'Client ID is saved; connect Drive to upload receipts' : 'Client ID is saved; add folder ID and connect to finish setup'));
-  } else {
-    rows.push(_buildConnectionSummaryRow('📁', 'Google Drive', 'Needs attention', 'bad', 'Add a Google Drive Client ID to enable Drive uploads/backups'));
-  }
-
-  if (!notifSupported) {
-    rows.push(_buildConnectionSummaryRow('🔔', 'Notifications', 'Needs attention', 'bad', 'This browser does not support push notifications'));
-  } else if (notifPerm === 'granted' && notifSub) {
-    rows.push(_buildConnectionSummaryRow('🔔', 'Notifications', 'Connected', 'ok', 'This device can receive booking and cleaner alerts'));
-  } else if (notifPerm === 'denied') {
-    rows.push(_buildConnectionSummaryRow('🔔', 'Notifications', 'Needs attention', 'bad', 'Notifications are blocked in browser/device settings'));
-  } else {
-    rows.push(_buildConnectionSummaryRow('🔔', 'Notifications', 'Optional / not connected', 'warn', 'Enable notifications on this device for alerts'));
-  }
-
-  rows.push(upcomingOpenCleans > 0
-    ? _buildConnectionSummaryRow('🧹', 'Cleaner assignments', 'Needs attention', 'bad', `${upcomingOpenCleans} upcoming clean${upcomingOpenCleans > 1 ? 's' : ''} still need an assigned cleaner`)
-    : _buildConnectionSummaryRow('🧹', 'Cleaner assignments', 'Connected', 'ok', 'Upcoming cleans are assigned or already confirmed'));
-
-  host.innerHTML = rows.join('');
-}
-
 function isCleanerPerson(person) {
   const role = String((person && person.role) || '').trim().toLowerCase();
   return !role || role === 'cleaner';
@@ -2191,10 +2110,8 @@ function populateSelects() {
     return isFuture && (cleanerState === 'unassigned' || cleanerState === 'declined');
   });
   const cleanOpts = '<option value="">Select booking...</option>' + unnotified.map(b=>`<option value="${b.id}">${b.name} (${fmt(b.checkin)})</option>`).join('');
-  const cleanSelect = document.getElementById('clean-booking-select');
-  const noteSelect = document.getElementById('note-booking-select');
-  if (cleanSelect) cleanSelect.innerHTML = cleanOpts;
-  if (noteSelect) noteSelect.innerHTML = allOpts;
+  document.getElementById('clean-booking-select').innerHTML = cleanOpts;
+  document.getElementById('note-booking-select').innerHTML = allOpts;
   populateCleanerSelect();
 }
 
@@ -2874,7 +2791,7 @@ function saveScriptURL() {
   const input = document.getElementById('settings-script-url');
   if (!input) return;
   const url = input.value.trim();
-  if (!url) { showBanner('⚠ Could not save: Apps Script URL is empty', 'warn'); return; }
+  if (!url) return;
   persistScriptUrl(url); // writes to both legacy key AND config (from config.js)
   const el = document.getElementById('script-url-confirm');
   if (el) { el.style.display = 'block'; setTimeout(() => el.style.display = 'none', 2000); }
@@ -2984,7 +2901,7 @@ function saveGDriveClientId() {
   const input = document.getElementById('gdrive-client-id');
   if (!input) return;
   const id = input.value.trim();
-  if (!id) { showBanner('⚠ Could not save: Google Drive Client ID is empty', 'warn'); return; }
+  if (!id) return;
   localStorage.setItem('gh-gdrive-client-id', id);
   const el = document.getElementById('gdrive-client-confirm');
   if (el) { el.style.display = 'block'; setTimeout(() => el.style.display = 'none', 2000); }
