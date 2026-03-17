@@ -153,6 +153,19 @@
       <div class="stat-card"><div class="stat-val" id="stat-revenue">$0</div><div class="stat-label">This Month</div></div>
     </div>
 
+    <div class="card">
+      <div class="card-title">📈 Owner Insights</div>
+      <div id="dashboard-insights-content" style="font-size:13px;color:var(--text-soft)">No insight data yet.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🗓 This Week</div>
+      <div id="dashboard-week-content" style="font-size:13px;color:var(--text-soft)">No week activity yet.</div>
+    </div>
+
+    <div id="dashboard-product-guidance"></div>
+    <div id="dashboard-plan-nudges"></div>
+
     <div id="dashboard-alerts"></div>
 
     <div class="card dashboard-calendar">
@@ -229,7 +242,7 @@
   <div class="modal-overlay" id="notify-modal">
     <div class="modal">
       <div class="modal-drag-zone"><div class="modal-handle"></div></div>
-      <div style="font-family:'DM Serif Display',serif;font-size:20px;margin-bottom:4px">Notify Cleaner</div>
+      <div id="notify-modal-title" style="font-family:'DM Serif Display',serif;font-size:20px;margin-bottom:4px">Notify Cleaner</div>
       <div style="font-size:12px;color:var(--text-soft);margin-bottom:16px" id="notify-clean-info"></div>
 
       <label>Message</label>
@@ -502,14 +515,14 @@
         <div class="settings-cat-item" onclick="openSettingsCat('property')">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#1E3A2F;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🏠</div>
-            <div><div style="font-weight:500;font-size:14px">Property</div><div style="font-size:12px;color:var(--text-soft)">Configuration, team &amp; messaging</div></div>
+            <div><div style="font-weight:500;font-size:14px">Property</div><div style="font-size:12px;color:var(--text-soft)">Details, contacts, messaging, and setup</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
         <div class="settings-cat-item" onclick="openSettingsCat('cleaner')">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#34C759;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🧹</div>
-            <div><div style="font-weight:500;font-size:14px">Team Access</div><div style="font-size:12px;color:var(--text-soft)">Cleaner links & permissions</div></div>
+            <div><div style="font-weight:500;font-size:14px">Team</div><div style="font-size:12px;color:var(--text-soft)">Cleaner access links and permissions</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
@@ -529,23 +542,12 @@
         </div>
       </div>
 
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Finance</div>
-      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
-        <div class="settings-cat-item" onclick="openSettingsCat('finance')" style="border-bottom:none">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#FF3B30;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">💰</div>
-            <div><div style="font-weight:500;font-size:14px">Finance</div><div style="font-size:12px;color:var(--text-soft)">Expenses, invoices & clients</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-      </div>
-
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Cloud & AI</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Integrations</div>
       <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
         <div class="settings-cat-item" onclick="openSettingsCat('google')">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#4285F4;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🔗</div>
-            <div><div style="font-weight:500;font-size:14px">Google Services</div><div style="font-size:12px;color:var(--text-soft)">Sync, connect &amp; status actions</div></div>
+            <div><div style="font-weight:500;font-size:14px">Google + Apps Script</div><div style="font-size:12px;color:var(--text-soft)">Sheet URL, script URL, Drive, and status checks</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
@@ -553,6 +555,17 @@
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#AF52DE;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🤖</div>
             <div><div style="font-weight:500;font-size:14px">AI Tools</div><div style="font-size:12px;color:var(--text-soft)">Smart pricing, booking import</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+        </div>
+      </div>
+
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Finance</div>
+      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
+        <div class="settings-cat-item" onclick="openSettingsCat('finance')" style="border-bottom:none">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:9px;background:#FF3B30;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">💰</div>
+            <div><div style="font-weight:500;font-size:14px">Finance</div><div style="font-size:12px;color:var(--text-soft)">Expenses, invoices & clients</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
@@ -602,6 +615,13 @@
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#5AC8FA;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🧪</div>
             <div><div style="font-weight:500;font-size:14px">Connection Checker</div><div style="font-size:12px;color:var(--text-soft)">Diagnostics only (no config editing)</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+        </div>
+        <div class="settings-cat-item" onclick="openSettingsCat('google')" style="border-bottom:none">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:9px;background:#4285F4;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🔗</div>
+            <div><div style="font-weight:500;font-size:14px">Integrations</div><div style="font-size:12px;color:var(--text-soft)">Google Sheets, Apps Script, Drive, Calendar</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
