@@ -280,7 +280,7 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
 
         <div class="ss-row">
           <div class="ss-field">
-            <label class="ss-lbl" for="s-gdrive-client-id">Google OAuth Client ID</label>
+            <label class="ss-lbl" for="s-gdrive-client-id">Google Drive Client ID (Web app)</label>
             <input type="text" id="s-gdrive-client-id" class="ss-inp"
               placeholder="xxxxx.apps.googleusercontent.com"
               value="${ea(localStorage.getItem('gh-gdrive-client-id') || '')}">

@@ -588,11 +588,9 @@ async function syncFromSheets(manual = false) {
       const isCancelled = sheetStatus.includes('cancel');
       console.log(`[CSV Row ${i}] name="${name}" status_col=[${col.status}] raw="${p[col.status]}" isCancelled:${isCancelled}`);
 
-      // Preserve local data by matching on name+checkin (more reliable than name alone)
-      const existingB = bookings.find(b => 
-        b.checkin === checkin &&
-        b.name && b.name.toLowerCase() === name.toLowerCase()
-      );
+      // Preserve local data by matching on stable identity fields.
+      const importProbe = { name, checkin, checkout, confirmCode };
+      const existingB = bookings.find(b => getBookingIdentityKey(b) === getBookingIdentityKey(importProbe));
       const finalMgmtFeeRaw = mgmtFeeRaw || (existingB ? existingB.mgmtFeeRaw : 0);
       imported.push({
         id: existingB ? existingB.id : (Date.now() + i),
@@ -611,15 +609,18 @@ async function syncFromSheets(manual = false) {
     // Check for duplicates in sheet data before deduplicating
     const sheetKeyCounts = {};
     imported.forEach(b => {
-      const key = (b.name + '|' + b.checkin).toLowerCase();
+      const key = getBookingIdentityKey(b);
       sheetKeyCounts[key] = (sheetKeyCounts[key] || 0) + 1;
     });
     const sheetDupes = Object.entries(sheetKeyCounts)
       .filter(([k, count]) => count > 1)
-      .map(([k]) => { const [name, checkin] = k.split('|'); return { name, checkin }; });
+      .map(([k]) => {
+        const [name, checkin, checkout] = k.split('|');
+        return { name, checkin, checkout };
+      });
 
     if (sheetDupes.length) {
-      const dupeList = sheetDupes.map(d => `• ${d.name} (check-in ${d.checkin})`).join('\n');
+      const dupeList = sheetDupes.map(d => `• ${d.name} (check-in ${d.checkin}${d.checkout ? `, check-out ${d.checkout}` : ''})`).join('\n');
       const confirmed = await showAppModal({
         title: '⚠️ Duplicate Bookings in Sheet',
         msg: `${sheetDupes.length} duplicate row${sheetDupes.length > 1 ? 's' : ''} found in your Google Sheet:\n\n${dupeList}\n\nContinue? First occurrence kept — please delete duplicates from the sheet afterwards.`,
@@ -646,11 +647,11 @@ function finishSync(imported, skipped, manual) {
   // Find bookings that existed before sync but are gone or cancelled now
   // so we can delete their calendar events
   const token = getDriveToken();
-  const existingKeysBeforeSync = new Set(bookings.map(b => (b.name + '|' + b.checkin).toLowerCase()));
-  const importedKeys = new Set(imported.map(b => (b.name + '|' + b.checkin).toLowerCase()));
+  const existingKeysBeforeSync = new Set(bookings.map(b => getBookingIdentityKey(b)));
+  const importedKeys = new Set(imported.map(b => getBookingIdentityKey(b)));
 
   const orphanedCalEvents = bookings
-    .filter(b => b.gcalEventId && !importedKeys.has((b.name + '|' + b.checkin).toLowerCase()))
+    .filter(b => b.gcalEventId && !importedKeys.has(getBookingIdentityKey(b)))
     .map(b => b.gcalEventId);
 
   // Also delete calendar events for bookings now marked cancelled in the import
@@ -674,7 +675,7 @@ function finishSync(imported, skipped, manual) {
   // Bookings added in-app are pushed to sheet immediately and return on next sync
   const seen = new Set();
   const merged = imported.filter(b => {
-    const key = (b.name + '|' + b.checkin).toLowerCase();
+    const key = getBookingIdentityKey(b);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -684,7 +685,7 @@ function finishSync(imported, skipped, manual) {
 
   let autoAssignedCount = 0;
   bookings.forEach(b => {
-    const key = (b.name + '|' + b.checkin).toLowerCase();
+    const key = getBookingIdentityKey(b);
     if (!existingKeysBeforeSync.has(key) && _maybeAutoAssignPreferredCleaner(b, 'sheet-sync')) autoAssignedCount++;
   });
 
@@ -2480,8 +2481,8 @@ function saveEdit(id) {
   b.cleaningFee = Number(document.getElementById('e-cleaningfee').value)||0;
   const mgmtPct = Number(document.getElementById('e-mgmtfee').value)||0;
   b.mgmtFeeRaw  = mgmtPct;
-  // mgmtFee dollar, mgmtPayout, netPayout calculated by sheet — keep existing values
-  b.status      = getStatus(b.checkin);
+  // Keep existing lifecycle status; avoid date-only status flips during edit.
+  if (!b.status) b.status = 'upcoming';
   save();
   pushToSheet('update', b);
   updateBookingInCalendar(b);
@@ -2774,6 +2775,15 @@ function parseCSVLine(line){
   }
   result.push(current.trim()); return result;
 }
+function getBookingIdentityKey(booking) {
+  if (!booking) return '';
+  const name = String(booking.name || '').trim().toLowerCase();
+  const checkin = String(booking.checkin || '').trim();
+  const checkout = String(booking.checkout || '').trim();
+  const confirmCode = String(booking.confirmCode || '').trim().toLowerCase();
+  return [name, checkin, checkout, confirmCode].join('|');
+}
+
 function fmt(dateStr){
   if (!dateStr) return '';
   const d=new Date(dateStr+'T00:00:00');
@@ -2959,7 +2969,7 @@ function saveCleaningFee(bookingId) {
 // ── PUSH ALL EXPENSES TO SHEET ───────────────────────────────────────────────
 async function smartSyncExpenses() {
   if (!_acquireLock(_actionLocks, 'smartSyncExpenses')) return;
-  const scriptUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+  const scriptUrl = (getCurrentScriptURL() || '').trim();
   if (!scriptUrl || !scriptUrl.includes('script.google.com')) {
     showBanner('⚠ Set your Apps Script URL in Settings → Google Sheets first', 'warn'); _releaseLock(_actionLocks, 'smartSyncExpenses'); return;
   }
@@ -4764,7 +4774,7 @@ function connectGoogleDrive() {
   if (!_acquireLock(_actionLocks, 'connectGoogleDrive')) return;
   const clientId = String((typeof getDriveClientId === 'function' ? getDriveClientId() : localStorage.getItem('gh-gdrive-client-id')) || '').trim();
   if (!clientId) {
-    showBanner('⚠ Enter your Google OAuth Client ID in Settings → Google Drive first','warn');
+    showBanner('⚠ Enter your Google Drive Client ID in Settings → Google Drive first','warn');
     _releaseLock(_actionLocks, 'connectGoogleDrive');
     return;
   }
@@ -4777,7 +4787,7 @@ function connectGoogleDrive() {
   // Show user the exact URI they need to register
   const statusEl = document.getElementById('gdrive-status');
   if (statusEl) statusEl.innerHTML = `<span style="color:var(--amber)">⚠ Make sure this exact URL is in your Authorised redirect URIs:<br><strong style="word-break:break-all">${redirectUri}</strong></span>`;
-  showBanner('⟳ Opening Google sign-in. If it fails, check the redirect URI shown in Settings.', 'info');
+  showBanner('⟳ Opening Google connection flow. If it fails, check the redirect URI shown in Settings.', 'info');
 
   setTimeout(() => { window.location.href = url; }, 1500);
   setTimeout(() => _releaseLock(_actionLocks, 'connectGoogleDrive'), 5000);
@@ -4800,8 +4810,8 @@ function connectGoogleDrive() {
     const params = new URLSearchParams(hash.substring(1));
     const err = params.get('error') || 'unknown_error';
     const reason = err === 'access_denied'
-      ? 'Google sign-in was cancelled. You can try again anytime in Settings.'
-      : 'Google did not complete the connection (' + err + '). Check Client ID and redirect URI.';
+      ? 'Google Drive connection was cancelled. You can try again anytime in Settings.'
+      : 'Google did not complete the Drive connection (' + err + '). Check Client ID and redirect URI.';
     history.replaceState(null, '', window.location.pathname);
     showBanner('⚠ Google Drive connect failed: ' + reason, 'warn');
   }
@@ -5294,7 +5304,7 @@ async function saveExpenseEdit() {
   }
 
   savePropertyData();
-  const scriptUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+  const scriptUrl = (getCurrentScriptURL() || '').trim();
   if (scriptUrl && scriptUrl.includes('script.google.com')) {
     const eForSheet = Object.assign({}, e); delete eForSheet.photo; delete eForSheet._mediaType;
     fetch(scriptUrl, {
@@ -5566,9 +5576,9 @@ function renderStorageViewer() {
 })();
 
 // Clear expenses cache only if the script URL has changed since last load
-const _scriptConfigured = !!localStorage.getItem('gh-script-url');
+const _currentScriptUrl = (getCurrentScriptURL() || '').trim();
+const _scriptConfigured = !!_currentScriptUrl;
 const _lastScriptUrl = localStorage.getItem(lsKey('last-script-url'));
-const _currentScriptUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
 if (_scriptConfigured && _lastScriptUrl !== _currentScriptUrl) {
   localStorage.removeItem(lsKey('expenses'));
   expenses = [];
@@ -5722,11 +5732,11 @@ async function pullAppData(manual = false) {
     const d = json.data;
     let restored = [];
 
-    if (d.cleaners && Array.isArray(d.cleaners) && d.cleaners.length > 0) {
+    if (Array.isArray(d.cleaners)) {
       localStorage.setItem(lsKey('cleaners'), JSON.stringify(d.cleaners));
       restored.push(d.cleaners.length + ' cleaners');
     }
-    if (d.cleans && Array.isArray(d.cleans) && d.cleans.length > 0) {
+    if (Array.isArray(d.cleans)) {
       // Merge: prefer local confirmed/declined/done states over Sheet (in case Sheet is stale)
       const localCleans = JSON.parse(localStorage.getItem(lsKey('cleans')) || '[]');
       const merged = d.cleans.map(sheetClean => {
@@ -5740,10 +5750,6 @@ async function pullAppData(manual = false) {
           });
         }
         return sheetClean;
-      });
-      // Also keep any local cleans not yet on the Sheet
-      localCleans.forEach(lc => {
-        if (!merged.find(m => String(m.id) === String(lc.id))) merged.push(lc);
       });
       cleans.length = 0;
       merged.forEach(c => cleans.push(c));
@@ -5764,7 +5770,7 @@ async function pullAppData(manual = false) {
       localStorage.setItem(lsKey('notes'), JSON.stringify(notes));
       restored.push(d.notes.length + ' notes');
     }
-    if (d.inventory && Array.isArray(d.inventory) && d.inventory.length > 0) {
+    if (Array.isArray(d.inventory)) {
       inventory.length = 0;
       d.inventory.forEach(i => inventory.push(i));
       localStorage.setItem(lsKey('inventory'), JSON.stringify(inventory));
@@ -5830,7 +5836,7 @@ if (isCleanerMode()) {
 
 // Auto-prompt Drive connect if client ID saved but no token yet
 setTimeout(() => {
-  const clientId = localStorage.getItem('gh-gdrive-client-id');
+  const clientId = getDriveClientId();
   const token = localStorage.getItem('gh-drive-token');
   const dismissed = localStorage.getItem('gh-drive-connect-dismissed');
   if (clientId && !token && !dismissed) {
@@ -5847,7 +5853,7 @@ setTimeout(() => {
 }, 3000);
 // Verify Google Drive token on load — prompts reconnect if expired
 if (localStorage.getItem('gh-drive-token')) setTimeout(() => verifyDriveToken(), 2000);
-else if (localStorage.getItem('gh-gdrive-client-id')) {
+else if (getDriveClientId()) {
   // Client ID configured but not connected — prompt once per session
   if (!sessionStorage.getItem('gh-drive-prompt-shown')) {
     sessionStorage.setItem('gh-drive-prompt-shown', '1');
@@ -6983,7 +6989,7 @@ function applyEmailTemplate(type, vars) {
   return { subject, html, text: bodyText };
 }
 async function sendCleanerEmail({ cleanerName, cleanerEmail, guestName, checkin, checkout, cleanerLink, cleanDate, type }) {
-  const scriptUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+  const scriptUrl = (getCurrentScriptURL() || '').trim();
   if (!cleanerEmail) return { ok: false, reason: 'no-email' };
   const emailType = type || 'assignment';
   const { subject, html, text } = applyEmailTemplate(emailType, {
@@ -7028,29 +7034,6 @@ async function debugCSVColumns() {
   } catch(e) {
     el.textContent = 'Error: ' + e.message;
   }
-}
-
-function renderPropertySwitcher() {
-  const sel = document.getElementById('property-switcher-select');
-  if (!sel) return;
-  const list = getAllProperties();
-  const activeId = getActivePropertyId();
-  sel.innerHTML = list.map(p => `<option value="${escHtml(p.propertyId)}" ${p.propertyId === activeId ? 'selected' : ''}>${escHtml(p.name || p.propertyId)}</option>`).join('');
-  const active = getActivePropertyConfig();
-  const label = document.getElementById('active-property-name');
-  if (label) label.textContent = active.name || 'Property';
-}
-
-function switchActiveProperty(id) {
-  if (!id) return;
-  const ok = setActivePropertyId(id);
-  if (!ok) {
-    showBanner('⚠ Could not switch property', 'warn');
-    return;
-  }
-  initPropertyUI();
-  if (typeof renderAll === 'function') renderAll();
-  showBanner('✓ Switched to ' + getCurrentPropertyName(), 'ok');
 }
 
 function _setConnectionCheckResult(id, status, msg) {

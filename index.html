@@ -978,7 +978,7 @@
           <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:6px">Push to Sheet</div>
           <button class="btn-primary" onclick="pushAllAppData()" id="push-appdata-btn">⬆ Push App Data to Sheet</button>
           <div id="push-appdata-result" style="display:none;margin-top:8px;font-size:12px;padding:8px;border-radius:8px"></div>
-          <button class="btn-secondary" onclick="chooseGoogleAccount()" style="margin-top:8px;margin-bottom:6px">① Sign in / Switch Account</button>
+          <button class="btn-secondary" onclick="chooseGoogleAccount()" style="margin-top:8px;margin-bottom:6px">① Connect / Switch Google Session</button>
           <button class="btn-primary" onclick="syncToSheet()" style="background:var(--amber)">② Push All Bookings</button>
           <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--warm)">
           <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:6px">Debug</div>
@@ -1008,14 +1008,14 @@
       <div class="settings-back" onclick="closeSettingsPanel()">‹ Google Services</div>
       <div class="card" style="margin-bottom:10px">
         <div class="card-title">📁 Connect Google Drive</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-bottom:10px">OAuth Client ID and Drive folder ID are managed in <strong>Property Configuration</strong>.</div>
+        <div style="font-size:12px;color:var(--text-soft);margin-bottom:10px">Drive connection settings (Client ID + folder) are managed in <strong>Property Configuration</strong>.</div>
         <button class="btn-secondary" onclick="reopenPropertySetup()">✏️ Open Property Configuration</button>
         <div style="margin-top:10px">
           <button class="btn-primary" onclick="connectGoogleDrive()" id="gdrive-connect-btn">🔗 Connect Google Drive & Calendar</button>
           <div id="gdrive-status" style="font-size:12px;margin-top:6px;color:var(--text-soft)"></div>
         </div>
         <div style="margin-top:10px;padding:10px;background:var(--mist);border-radius:var(--radius-sm);font-size:11px;color:var(--text-soft);line-height:1.6">
-          <strong>Setup:</strong><br>1. console.cloud.google.com<br>2. Create project → Enable Drive API<br>3. OAuth consent → External<br>4. Credentials → OAuth 2.0 Client ID (Web app)<br>5. Add your Netlify URL as authorised origin<br>6. Paste Client ID above
+          <strong>Setup:</strong><br>1. console.cloud.google.com<br>2. Create project → Enable Drive API<br>3. Consent screen → External (if needed)<br>4. Credentials → OAuth 2.0 Client ID (Web app)<br>5. Add your Netlify URL as authorised origin<br>6. Paste the Client ID in Property Configuration
         </div>
       </div>
       <div class="card" style="margin-bottom:10px">

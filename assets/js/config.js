@@ -473,7 +473,7 @@ function getPropertyConfigGaps() {
     gaps.push({
       key: 'gdriveClientId',
       severity: 'warning',
-      label: 'Google Drive OAuth Client ID missing',
+      label: 'Google Drive integration not configured',
       detail: 'Receipt uploads and Drive backup features require a Drive connection.'
     });
   } else if (!driveFolderId) {
