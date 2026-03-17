@@ -713,3 +713,160 @@ label {
   .stat-val { font-size: 22px; }
   .nav-btn .icon { width: 38px; height: 38px; }
 }
+
+/* ── 2026 phase 6: premium mobile polish (visual-only) ─────────────────── */
+.section-stack {
+  gap: 14px;
+}
+
+.card {
+  border-radius: 20px;
+}
+
+#section-dashboard .dashboard-hero {
+  padding: 18px;
+}
+
+#section-dashboard .dashboard-hero .card-title,
+#section-dashboard .dashboard-next-checkin .card-title,
+#section-dashboard .dashboard-next-clean .card-title {
+  font-size: 10px;
+  letter-spacing: 0.9px;
+}
+
+#section-bookings .section-heading,
+#section-cleaning .section-heading,
+#section-settings .section-heading {
+  margin-top: 2px;
+}
+
+#bookings-list .card,
+#cleaning-list .card {
+  margin-bottom: 10px;
+}
+
+.attention-summary {
+  position: relative;
+  overflow: hidden;
+}
+
+.attention-summary::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #d18f44, #b96e25);
+}
+
+.booking-attention-summary {
+  background: linear-gradient(180deg, #fffdf7 0%, #fff8ef 100%) !important;
+}
+
+.cleaning-snapshot {
+  background: linear-gradient(180deg, #fbfffc 0%, #f3faf6 100%) !important;
+}
+
+#section-cleaning #clean-add-card {
+  border: 1px solid #d5e6dd;
+  box-shadow: 0 10px 22px rgba(28, 65, 49, 0.08);
+}
+
+#section-cleaning #clean-add-card .btn-primary {
+  margin-top: 8px;
+}
+
+#settings-menu > .card,
+#settings-cat-property > .card,
+#settings-cat-cleaner > .card,
+#settings-cat-finance > .card,
+#settings-cat-google > .card {
+  border-radius: 18px;
+}
+
+#conn-summary-list > div {
+  border-radius: 12px !important;
+}
+
+.cleaner-content {
+  background: linear-gradient(180deg, #eef5f1 0%, #f5faf7 100%);
+}
+
+#cleaner-cleans-new .clean-job-card {
+  border-left-color: #d99a4a;
+  background: #fffaf2;
+}
+
+#cleaner-cleans-upcoming .clean-job-card {
+  border-left-color: #2b7054;
+  background: #f6fcf8;
+}
+
+#cleaner-cleans-new > div[style*='text-align:center'],
+#cleaner-cleans-upcoming > div[style*='text-align:center'] {
+  background: #ffffff;
+  border: 1px solid #dfe9e3;
+  border-radius: 16px;
+}
+
+#cleaner-refresh-btn,
+#cleaner-notif-btn {
+  min-height: 34px;
+}
+
+/* ── 2026 phase 6b: action-first mobile hierarchy ───────────────────────── */
+.quick-action-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.quick-action-row .btn-primary,
+.quick-action-row .btn-secondary {
+  min-height: 42px;
+  font-size: 13px;
+  margin: 0;
+  padding: 10px 8px;
+}
+
+#settings-quick-actions {
+  border: 1px solid #d8e6df;
+  background: linear-gradient(180deg, #f8fcfa 0%, #ffffff 100%);
+}
+
+.attention-summary .quick-action-row .btn-primary {
+  box-shadow: 0 6px 12px rgba(30, 90, 67, 0.18);
+}
+
+.mini-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.mini-status-chip.chip-new {
+  background: #fff2df;
+  color: #9a5c13;
+}
+
+.mini-status-chip.chip-upcoming {
+  background: #e9f7ee;
+  color: #1f6a48;
+}
+
+#cleaner-quick-summary {
+  border: 1px solid #dbe8e1;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fcfa 100%);
+}
+
+@media (max-width: 380px) {
+  .quick-action-row {
+    grid-template-columns: 1fr;
+  }
+}

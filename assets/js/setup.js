@@ -73,6 +73,7 @@ function _setupShowOverlay(editMode, createMode) {
 }
 
 function _setupBuildOverlay(editMode, createMode, onDone) {
+  const onboardingMode = !editMode && !createMode;
   const cfg   = createMode ? _setupBlankConfig() : getActivePropertyConfig();
   const stats = cfg.property    || {};
   const integ = cfg.integrations || {};
@@ -248,11 +249,16 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
           </div>
         </div>
 
-        <!-- ══ SECTION: GOOGLE ══ -->
-        <div class="ss-label">Google Integration</div>
+        <!-- ══ SECTION: GOOGLE / ADVANCED ══ -->
+        <div class="ss-label">${onboardingMode ? 'Optional Integrations' : 'Google Integration'}</div>
+
+        ${onboardingMode ? `<div class="ss-hint" style="margin-bottom:10px">You can start using the app without this. Connect Google later for cloud sync, receipts, and backups.</div>` : ''}
+
+        <details ${onboardingMode ? '' : 'open'} style="margin-bottom:8px">
+          <summary style="cursor:pointer;font-weight:600;font-size:13px;color:var(--forest);margin-bottom:10px">${onboardingMode ? 'Connect Google services later (optional)' : 'Integration settings'}</summary>
 
         <div class="ss-field" style="margin-bottom:14px">
-          <label class="ss-lbl" for="s-sheet-url">Google Sheet CSV URL <span class="ss-req" aria-hidden="true">*</span></label>
+          <label class="ss-lbl" for="s-sheet-url">Google Sheet CSV URL ${onboardingMode ? '<span class="ss-opt">(optional now)</span>' : '<span class="ss-req" aria-hidden="true">*</span>'}</label>
           <input type="url" id="s-sheet-url" class="ss-inp"
             placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?…&output=csv"
             value="${pre('sheetCsvUrl', integ.sheetCsvUrl || '')}">
@@ -263,7 +269,7 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
         </div>
 
         <div class="ss-field" style="margin-bottom:4px">
-          <label class="ss-lbl" for="s-script-url">Apps Script URL <span class="ss-req" aria-hidden="true">*</span></label>
+          <label class="ss-lbl" for="s-script-url">Apps Script URL ${onboardingMode ? '<span class="ss-opt">(optional now)</span>' : '<span class="ss-req" aria-hidden="true">*</span>'}</label>
           <input type="url" id="s-script-url" class="ss-inp"
             placeholder="https://script.google.com/macros/s/…/exec"
             value="${pre('scriptUrl', integ.scriptUrl || '')}">
@@ -316,6 +322,8 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
   const form    = overlay.querySelector('#setup-form');
   const saveBtn = overlay.querySelector('#setup-save');
   const errEl   = overlay.querySelector('#setup-errors');
+
+  overlay.dataset.onboardingMode = onboardingMode ? '1' : '0';
 
   const doSubmit = (e) => {
     if (e) e.preventDefault();
@@ -404,6 +412,7 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
 function _setupValidate(overlay) {
   const v  = id => (overlay.querySelector('#' + id) || {}).value || '';
   const errors = [];
+  const onboardingMode = overlay && overlay.dataset && overlay.dataset.onboardingMode === '1';
 
   const name      = v('s-name').trim();
   const suburb    = v('s-suburb').trim();
@@ -424,25 +433,26 @@ function _setupValidate(overlay) {
   if (!guests || guests < 1)  errors.push('Max guests must be at least 1.');
   if (isNaN(baths) || baths < 0) errors.push('Bathrooms cannot be negative.');
 
-  if (!email) {
-    errors.push('Owner email is required.');
-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     errors.push('Owner email doesn\'t look valid (e.g. you@example.com).');
   }
+  if (!onboardingMode && !email) {
+    errors.push('Owner email is required.');
+  }
 
-  if (!sheetUrl) {
+  if (!onboardingMode && !sheetUrl) {
     errors.push('Google Sheet CSV URL is required.');
-  } else if (!sheetUrl.toLowerCase().includes('docs.google.com/spreadsheets')) {
+  } else if (sheetUrl && !sheetUrl.toLowerCase().includes('docs.google.com/spreadsheets')) {
     errors.push('Google Sheet URL should start with docs.google.com/spreadsheets…');
-  } else if (!sheetUrl.includes('output=csv')) {
+  } else if (sheetUrl && !sheetUrl.includes('output=csv')) {
     errors.push('Google Sheet URL should end in &output=csv — publish as CSV first.');
   }
 
-  if (!scriptUrl) {
+  if (!onboardingMode && !scriptUrl) {
     errors.push('Apps Script URL is required.');
-  } else if (!scriptUrl.toLowerCase().includes('script.google.com/macros')) {
+  } else if (scriptUrl && !scriptUrl.toLowerCase().includes('script.google.com/macros')) {
     errors.push('Apps Script URL should contain script.google.com/macros.');
-  } else if (!scriptUrl.endsWith('/exec')) {
+  } else if (scriptUrl && !scriptUrl.endsWith('/exec')) {
     errors.push('Apps Script URL should end in /exec (the deployed web-app URL).');
   }
 
