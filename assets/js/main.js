@@ -90,6 +90,7 @@ function updateNotifStatus() {
     if (el) { el.textContent = '⚪ Notifications not yet enabled on this device.'; el.style.background = 'var(--warm)'; el.style.color = 'var(--text-soft)'; }
     if (menuRow) menuRow.textContent = 'Tap to set up';
   }
+  if (typeof refreshConnectionSummarySoon === 'function') refreshConnectionSummarySoon();
 }
 
 async function subscribeToPush(role, cleanerId) {
@@ -265,6 +266,225 @@ let calYear  = new Date().getFullYear();
 let calMonth = new Date().getMonth();
 
 const _appDataTimers = {};
+const _actionLocks = Object.create(null);
+let _pullAppDataInFlight = false;
+let _pushAllAppDataInFlight = false;
+let _pendingUiRefresh = false;
+
+function _acquireLock(map, key) {
+  if (map[key]) return false;
+  map[key] = true;
+  return true;
+}
+function _releaseLock(map, key) {
+  delete map[key];
+}
+
+function _hasOpenModal() {
+  const modal = document.getElementById('modal');
+  const detail = document.getElementById('detail-modal');
+  const isOpen = (el) => !!(el && el.style && el.style.display !== 'none' && el.style.display !== '');
+  return isOpen(modal) || isOpen(detail);
+}
+
+function _isUserEditingField() {
+  const el = document.activeElement;
+  if (!el) return false;
+  if (el.isContentEditable) return true;
+  const tag = String(el.tagName || '').toLowerCase();
+  return tag === 'input' || tag === 'textarea' || tag === 'select';
+}
+
+function _normalizeBookingCleanState() {
+  let cleansChanged = false;
+  let bookingsChanged = false;
+
+  cleans.forEach(c => {
+    if (c && !c.bookingId && c.guestName && c.date) {
+      const match = bookings.find(b => _normName(b.name) === _normName(c.guestName) && String(b.checkout || '').slice(0, 10) === String(c.date || '').slice(0, 10));
+      if (match) {
+        c.bookingId = match.id;
+        cleansChanged = true;
+      }
+    }
+  });
+
+  bookings.forEach(b => {
+    const st = getBookingCleanerState(b);
+    const shouldConfirmed = st.key === 'confirmed' || st.key === 'done';
+    if (!!b.cleanerConfirmed !== shouldConfirmed) {
+      b.cleanerConfirmed = shouldConfirmed;
+      bookingsChanged = true;
+    }
+  });
+
+  if (cleansChanged) localStorage.setItem(lsKey('cleans'), JSON.stringify(cleans));
+  if (bookingsChanged) localStorage.setItem(lsKey('bookings'), JSON.stringify(bookings));
+  return cleansChanged || bookingsChanged;
+}
+
+function _refreshAfterDataChange(manual) {
+  if (!manual && (_hasOpenModal() || _isUserEditingField())) {
+    _pendingUiRefresh = true;
+    return;
+  }
+  _pendingUiRefresh = false;
+  renderAll();
+}
+
+function _flushPendingUiRefresh() {
+  if (!_pendingUiRefresh) return;
+  if (_hasOpenModal() || _isUserEditingField()) return;
+  _pendingUiRefresh = false;
+  render();
+}
+
+function _loadCleanerAutomationState() {
+  const raw = loadJSON(lsKey('cleaner-automation')) || {};
+  return {
+    lastCleanerId: raw.lastCleanerId || null,
+    freq: raw.freq && typeof raw.freq === 'object' ? raw.freq : {}
+  };
+}
+
+function _saveCleanerAutomationState(state) {
+  localStorage.setItem(lsKey('cleaner-automation'), JSON.stringify({
+    lastCleanerId: state.lastCleanerId || null,
+    freq: state.freq && typeof state.freq === 'object' ? state.freq : {}
+  }));
+}
+
+function _cleanerUsageKey(cleanerObj) {
+  if (!cleanerObj) return '';
+  if (cleanerObj.id !== undefined && cleanerObj.id !== null) return 'id:' + String(cleanerObj.id);
+  const name = _normName(cleanerObj.name || '');
+  return name ? 'name:' + name : '';
+}
+
+function _findCleanerByUsageKey(key) {
+  const all = loadCleaners().filter(c => isCleanerPerson(c));
+  if (!key) return null;
+  if (String(key).startsWith('id:')) {
+    const id = String(key).slice(3);
+    return all.find(c => String(c.id) === id) || null;
+  }
+  if (String(key).startsWith('name:')) {
+    const name = String(key).slice(5);
+    return all.find(c => _normName(c.name) === name) || null;
+  }
+  return null;
+}
+
+function _recordCleanerAssignmentUsage(cleanerObj) {
+  if (!cleanerObj) return;
+  const st = _loadCleanerAutomationState();
+  const usageKey = _cleanerUsageKey(cleanerObj);
+  if (!usageKey) return;
+  st.lastCleanerId = cleanerObj.id !== undefined ? cleanerObj.id : st.lastCleanerId;
+  st.freq[usageKey] = Number(st.freq[usageKey] || 0) + 1;
+  _saveCleanerAutomationState(st);
+  if (cleanerObj.name) localStorage.setItem(lsKey('last-cleaner'), cleanerObj.name);
+}
+
+function getPreferredCleaner() {
+  const all = loadCleaners().filter(c => isCleanerPerson(c));
+  if (!all.length) return null;
+  const st = _loadCleanerAutomationState();
+  if (st.lastCleanerId !== null && st.lastCleanerId !== undefined) {
+    const byLastId = all.find(c => String(c.id) === String(st.lastCleanerId));
+    if (byLastId) return byLastId;
+  }
+  const legacyName = String(localStorage.getItem(lsKey('last-cleaner')) || '').trim();
+  if (legacyName) {
+    const byLegacy = all.find(c => _normName(c.name) === _normName(legacyName));
+    if (byLegacy) return byLegacy;
+  }
+  const topKey = Object.entries(st.freq)
+    .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))[0]?.[0];
+  if (topKey) {
+    const byFreq = _findCleanerByUsageKey(topKey);
+    if (byFreq) return byFreq;
+  }
+  return all[0] || null;
+}
+
+function _getSuggestedCleanerForBooking(booking) {
+  const matched = booking ? _findMatchingCleanForBooking(booking) : null;
+  if (matched && matched.cleanerId) {
+    const byMatched = loadCleaners().find(c => String(c.id) === String(matched.cleanerId));
+    if (byMatched) return byMatched;
+  }
+  return getPreferredCleaner();
+}
+
+function _maybeAutoAssignPreferredCleaner(booking, reason) {
+  if (!booking || booking.status === 'cancelled') return false;
+  if (!booking.checkout || new Date(booking.checkout) < new Date()) return false;
+  const state = getBookingCleanerState(booking);
+  if (state.key !== 'unassigned') return false;
+  const preferred = getPreferredCleaner();
+  if (!preferred) return false;
+  const newClean = {
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    bookingId: booking.id,
+    guestName: booking.name,
+    cleaner: preferred.name,
+    cleanerId: preferred.id,
+    date: booking.checkout,
+    done: false,
+    notified: false,
+    cleanerDeclined: false,
+    cleanerConfirmed: false,
+    autoAssigned: true,
+    autoAssignReason: reason || 'preferred-cleaner'
+  };
+  cleans.push(newClean);
+  booking.cleanerConfirmed = false;
+  _recordCleanerAssignmentUsage(preferred);
+  return true;
+}
+
+async function quickAssignLastCleaner(bookingId) {
+  const lockKey = 'quickAssign:' + String(bookingId);
+  if (!_acquireLock(_actionLocks, lockKey)) return;
+  try {
+    const booking = bookings.find(b => b.id === bookingId);
+    if (!booking) return;
+    const preferred = _getSuggestedCleanerForBooking(booking);
+    if (!preferred) {
+      showBanner('⚠ No preferred cleaner yet. Assign once from booking details first.', 'warn');
+      return;
+    }
+    const matched = _findMatchingCleanForBooking(booking, booking.checkout);
+    const existingIdx = matched ? cleans.findIndex(c => c.id === matched.id) : -1;
+    const prev = existingIdx >= 0 ? cleans[existingIdx] : null;
+    const keepConfirmed = !!(prev && prev.cleanerConfirmed && String(prev.cleanerId) === String(preferred.id) && String(prev.date) === String(booking.checkout));
+    const newClean = {
+      id: prev ? prev.id : Date.now(),
+      bookingId: booking.id,
+      guestName: booking.name,
+      cleaner: preferred.name,
+      cleanerId: preferred.id,
+      date: booking.checkout,
+      done: !!(prev && prev.done),
+      notified: !!(prev && prev.notified),
+      cleanerDeclined: false,
+      cleanerConfirmed: keepConfirmed
+    };
+    if (existingIdx >= 0) cleans[existingIdx] = newClean;
+    else cleans.push(newClean);
+    booking.cleanerConfirmed = !!newClean.cleanerConfirmed;
+    _recordCleanerAssignmentUsage(preferred);
+    _normalizeBookingCleanState();
+    save();
+    pushAppData('cleans', cleans);
+    renderBookings();
+    if (currentSection === 'cleaning') renderCleaning();
+    showBanner('✓ Quick assigned to ' + preferred.name, 'ok');
+  } finally {
+    _releaseLock(_actionLocks, lockKey);
+  }
+}
 
 function save() {
   localStorage.setItem(lsKey('bookings'), JSON.stringify(bookings));
@@ -415,7 +635,7 @@ async function syncFromSheets(manual = false) {
     finishSync(imported, skipped, manual);
   } catch(e) {
     console.error('[Glenhaven] Sync error:', e);
-    showBanner('⚠ Sync failed: ' + (e.message || 'network error'), 'warn');
+    if (manual) showBanner('⚠ Sync failed: ' + (e.message || 'network error'), 'warn');
   } finally {
     _syncInProgress = false;
   }
@@ -426,6 +646,7 @@ function finishSync(imported, skipped, manual) {
   // Find bookings that existed before sync but are gone or cancelled now
   // so we can delete their calendar events
   const token = getDriveToken();
+  const existingKeysBeforeSync = new Set(bookings.map(b => (b.name + '|' + b.checkin).toLowerCase()));
   const importedKeys = new Set(imported.map(b => (b.name + '|' + b.checkin).toLowerCase()));
 
   const orphanedCalEvents = bookings
@@ -461,16 +682,25 @@ function finishSync(imported, skipped, manual) {
   bookings.splice(0, bookings.length, ...merged);
   console.log('[Glenhaven] finishSync — imported:', imported.length, 'merged:', bookings.length);
 
+  let autoAssignedCount = 0;
+  bookings.forEach(b => {
+    const key = (b.name + '|' + b.checkin).toLowerCase();
+    if (!existingKeysBeforeSync.has(key) && _maybeAutoAssignPreferredCleaner(b, 'sheet-sync')) autoAssignedCount++;
+  });
+
   // Clear gcalEventId from cancelled bookings so they don't get re-deleted next sync
   bookings.forEach(b => { if (b.status === 'cancelled') b.gcalEventId = null; });
 
+  _normalizeBookingCleanState();
+
   save();
+  if (autoAssignedCount > 0) pushAppData('cleans', cleans);
   const syncTime = new Date().toLocaleString('en-AU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
   localStorage.setItem(lsKey('last-sync'), syncTime);
-  renderAll();
+  _refreshAfterDataChange(manual);
   const calMsg = toDeleteFromCal.length ? ` · ${toDeleteFromCal.length} calendar event${toDeleteFromCal.length > 1 ? 's' : ''} removed` : '';
   const cancelledCount = imported.filter(b => b.status === 'cancelled').length;
-  showBanner('✓ Synced — ' + bookings.length + ' bookings' + (cancelledCount ? ` · ${cancelledCount} cancelled` : '') + (skipped ? ` (${skipped} skipped)` : '') + calMsg, 'ok');
+  if (manual) showBanner('✓ Synced — ' + bookings.length + ' bookings' + (cancelledCount ? ` · ${cancelledCount} cancelled` : '') + (skipped ? ` (${skipped} skipped)` : '') + (autoAssignedCount ? ` · ${autoAssignedCount} auto-assigned` : '') + calMsg, 'ok');
   if (manual) syncNewBookingsToCalendar();
 }
 
@@ -492,6 +722,7 @@ function showBanner(msg, type) {
   banner.style.background = tone.bg;
   banner.style.display = 'flex';
   text.textContent = msg;
+  if (typeof refreshConnectionSummarySoon === 'function') refreshConnectionSummarySoon();
   clearTimeout(bannerTimer);
   bannerTimer = setTimeout(() => { banner.style.display = 'none'; }, tone.ms);
 }
@@ -555,19 +786,47 @@ function showSection(name) {
   const fab = document.querySelector('.fab');
   if (fab) fab.style.display = (name === 'dashboard' || name === 'bookings') ? 'flex' : 'none';
   // Only render what's needed for this section
-  if (name === 'dashboard') { renderDashboard(); return; }
-  if (name === 'bookings') {
+  if (name === 'dashboard') {
+    renderDashboard();
+  } else if (name === 'bookings') {
     document.querySelectorAll('#section-bookings .tab-row .tab').forEach(t => t.classList.remove('active'));
     const activeTab = document.querySelector(`#section-bookings .tab-row .tab[onclick*="${bookingFilter}"]`);
     if (activeTab) activeTab.classList.add('active');
-    renderBookings(); return;
+    renderBookings();
+  } else if (name === 'cleaning') {
+    renderCleaning();
+    populateSelects();
+  } else if (name === 'revenue') {
+    renderRevenue();
+  } else if (name === 'management') {
+    renderManagement();
+  } else if (name === 'notes') {
+    renderNotes();
+    populateSelects();
+  } else if (name === 'property') {
+    renderProperty();
+  } else if (name === 'settings') {
+    renderSettings();
   }
-  if (name === 'cleaning') { renderCleaning(); populateSelects(); return; }
-  if (name === 'revenue') { renderRevenue(); return; }
-  if (name === 'management') { renderManagement(); return; }
-  if (name === 'notes') { renderNotes(); populateSelects(); return; }
-  if (name === 'property') { renderProperty(); return; }
-  if (name === 'settings') { renderSettings(); return; }
+  setTimeout(_flushPendingUiRefresh, 0);
+}
+
+function jumpToCleaningActionNeeded() {
+  showSection('cleaning');
+  cleanFilter = 'action';
+  renderCleaning();
+  document.querySelectorAll('#section-cleaning .tab-row .tab').forEach((t, i) => t.classList.toggle('active', i === 1));
+}
+
+function jumpToScheduleClean() {
+  showSection('cleaning');
+  cleanFilter = 'upcoming';
+  renderCleaning();
+  document.querySelectorAll('#section-cleaning .tab-row .tab').forEach((t, i) => t.classList.toggle('active', i === 0));
+  setTimeout(() => {
+    const card = document.getElementById('clean-add-card');
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 80);
 }
 
 // ── RENDER ────────────────────────────────────────────────────────────────
@@ -617,44 +876,8 @@ function renderAll() {
 }
 
 function renderDashboard() {
-  const PLAN_LIMITS = {
-    free: { properties: 1, bookings: 30, cleaners: 2 },
-    pro:  { properties: 999, bookings: 9999, cleaners: 999 }
-  };
-  const renderPlanNudges = (usage, plan) => {
-    const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.free;
-    const nudgeEl = document.getElementById('dashboard-plan-nudges');
-    const lines = getPlanWarningLines(usage, limits);
-    const usageSummary = `<div style="font-size:12px;color:var(--text-soft)">Plan: <strong style="color:var(--forest)">${plan === 'pro' ? 'Pro' : 'Free'}</strong> · Usage: ${usage.propertyCount} properties, ${usage.bookingCount} bookings, ${usage.cleanerCount} cleaners.</div>`;
-
-    if (nudgeEl) {
-      nudgeEl.innerHTML = lines.length
-        ? `<div class="card" style="border-left:3px solid var(--amber)"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--amber);margin-bottom:6px">⭐ Growth</div>${lines.map(t => `<div style="font-size:12px;color:var(--text-soft);margin-bottom:4px">${t}</div>`).join('')}<div style="font-size:12px;color:var(--text-soft);margin-top:6px">Pro plan options are coming soon for growing portfolios.</div></div>`
-        : `<div class="card" style="border-left:3px solid var(--moss)"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--moss);margin-bottom:6px">⭐ Plan Status</div>${usageSummary}<div style="font-size:12px;color:var(--text-soft);margin-top:6px">You’re operating comfortably on the current plan.</div></div>`;
-    }
-  };
-  const renderOnboardingGuidance = (usage) => {
-    const el = document.getElementById('dashboard-product-guidance');
-    if (!el) return;
-    const noBookings = usage.bookingCount === 0;
-    const noCleaners = usage.cleanerCount === 0;
-    const pendingCleans = cleans.filter(c => !c.done && !c.cleanerDeclined);
-    const hasAwaitingCleans = pendingCleans.length > 0;
-    if (!noBookings && !noCleaners && hasAwaitingCleans) {
-      el.innerHTML = '';
-      return;
-    }
-    const steps = [];
-    if (noBookings) steps.push('Add your first booking to unlock revenue and weekly insights.');
-    if (!noBookings && noCleaners) steps.push('Add a cleaner in Settings → Property → Team so assignments are easier.');
-    if (!noBookings && !noCleaners && !hasAwaitingCleans) steps.push('Review your Cleaning tab and schedule the next clean if needed.');
-    el.innerHTML = `<div class="card" style="border-left:3px solid var(--forest)"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--forest);margin-bottom:6px">🚀 Quick Start</div>${steps.map(s => `<div style="font-size:12px;color:var(--text-soft);margin-bottom:4px">• ${s}</div>`).join('')}</div>`;
-  };
-
-  const planState = getPlanStateLite();
-  const usageSnapshot = getUsageSnapshotLite();
-
-  document.getElementById('stat-bookings').textContent = bookings.filter(b => b.status !== 'cancelled').length;
+  const statBookings = document.getElementById('stat-bookings');
+  if (statBookings) statBookings.textContent = bookings.filter(b => b.status !== 'cancelled').length;
   renderCalendar();
   updateCalStats();
 
@@ -782,19 +1005,21 @@ function renderDashboard() {
 
   const upcoming = [...bookings].filter(b => b.status !== 'cancelled' && new Date(b.checkin) >= now).sort((a,b) => new Date(a.checkin)-new Date(b.checkin));
   const nc = document.getElementById('next-checkin-content');
-  if (upcoming.length > 0) {
-    const b = upcoming[0];
-    nc.innerHTML = `<div class="booking-item" style="border:none;padding:0">
-      ${platformIcon(b.platform, 42)}
-      <div class="booking-info">
-        <div class="booking-name">${b.name}</div>
-        <div class="booking-dates">${fmt(b.checkin)} → ${fmt(b.checkout)}</div>
-        <div class="booking-guests">${b.guests} guests · ${b.nights} night${b.nights!==1?'s':''}</div>
-      </div>
-      <div class="booking-right"><div class="booking-amount">$${Number(b.hostPayout||0).toLocaleString()}</div></div>
-    </div>`;
-  } else {
-    nc.innerHTML = '<div style="color:var(--text-soft);font-size:13px;">No upcoming bookings</div>';
+  if (nc) {
+    if (upcoming.length > 0) {
+      const b = upcoming[0];
+      nc.innerHTML = `<div class="booking-item" style="border:none;padding:0">
+        ${platformIcon(b.platform, 42)}
+        <div class="booking-info">
+          <div class="booking-name">${b.name}</div>
+          <div class="booking-dates">${fmt(b.checkin)} → ${fmt(b.checkout)}</div>
+          <div class="booking-guests">${b.guests} guests · ${b.nights} night${b.nights!==1?'s':''}</div>
+        </div>
+        <div class="booking-right"><div class="booking-amount">$${Number(b.hostPayout||0).toLocaleString()}</div></div>
+      </div>`;
+    } else {
+      nc.innerHTML = '<div style="color:var(--text-soft);font-size:13px;">No upcoming bookings</div>';
+    }
   }
 
   const localNow = new Date();
@@ -805,11 +1030,13 @@ function renderDashboard() {
     .filter(c => !c.done && c.date && c.date >= todayStr)
     .map(c => ({ date: c.date, name: c.cleaner, sub: 'After ' + (c.guestName||'') }));
   const fromBookings = bookings
-    .filter(b => b.cleanerConfirmed && b.checkout && b.checkout >= todayStr)
-    .filter(b => !cleans.some(c => (c.bookingId === b.id || c.guestName === b.name) && !c.done))
-    .map(b => {
-      const cl = cleans.find(c => c.bookingId === b.id || c.guestName === b.name);
-      return { date: cl ? cl.date : b.checkout, name: cl ? cl.cleaner : '—', sub: 'After ' + b.name };
+    .filter(b => b.checkout && b.checkout >= todayStr)
+    .map(b => ({ booking: b, state: getBookingCleanerState(b) }))
+    .filter(({ state }) => state.key === 'confirmed' || state.key === 'done')
+    .filter(({ state }) => !state.clean || !!state.clean.done)
+    .map(({ booking, state }) => {
+      const cl = state.clean;
+      return { date: cl ? cl.date : booking.checkout, name: cl ? cl.cleaner : '—', sub: 'After ' + booking.name };
     });
   const allNextCleans = [...fromCleans, ...fromBookings]
     .filter((v,i,a) => a.findIndex(x=>x.sub===v.sub)===i) // dedupe by guest
@@ -837,7 +1064,7 @@ function renderDashboard() {
   </div>`;
   if (alertsEl) alertsEl.innerHTML = alertsHtml;
 
-  if (nextClean.length > 0) {
+  if (ncc && nextClean.length > 0) {
     const c = nextClean[0];
     const days = Math.ceil((new Date(c.date) - localNow) / 86400000);
     const urgClass = days<=0?'urgent':days<=1?'urgent':days<=3?'soon':'ok';
@@ -847,7 +1074,7 @@ function renderDashboard() {
       <div style="font-size:12px;color:var(--text-soft)">${c.sub} · ${fmt(c.date)}</div></div>
       <div class="clean-urgency ${urgClass}">${urgText}</div>
     </div>`;
-  } else {
+  } else if (ncc) {
     ncc.innerHTML = '<div style="color:var(--text-soft);font-size:13px;">No cleans scheduled</div>';
   }
 }
@@ -868,15 +1095,18 @@ function updateCalStats() {
     return b.status !== 'cancelled' && d.getMonth()===calMonth && d.getFullYear()===calYear;
   }).reduce((s,b) => s+Number(b.hostPayout||0), 0);
   const occ = Math.round((bookedDays/daysInMonth)*100);
-  document.getElementById('stat-occupancy').textContent = occ + '%';
-  document.getElementById('stat-revenue').textContent = '$' + monthRev.toLocaleString();
+  const occEl = document.getElementById('stat-occupancy');
+  const revEl = document.getElementById('stat-revenue');
+  if (occEl) occEl.textContent = occ + '%';
+  if (revEl) revEl.textContent = '$' + monthRev.toLocaleString();
   const o2 = document.getElementById('stat-occupancy2');
   if (o2) o2.textContent = occ + '%';
 }
 
 function renderCalendar() {
   const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  document.getElementById('cal-title').textContent = months[calMonth] + ' ' + calYear;
+  const calTitle = document.getElementById('cal-title');
+  if (calTitle) calTitle.textContent = months[calMonth] + ' ' + calYear;
 
   // Tag each day: start = checkin, end = checkout, mid = in between
   const starts = new Set(), ends = new Set(), mids = new Set();
@@ -931,15 +1161,36 @@ function renderBookings(filter) {
     return;
   }
   const sorted = [...filtered].sort((a,b)=>new Date(a.checkin)-new Date(b.checkin));
-  list.innerHTML = sorted.map(b => {
+  const upcomingActive = bookings.filter(b => b.status !== 'cancelled' && new Date(b.checkout) >= new Date());
+  const assignmentGaps = upcomingActive.filter(b => getBookingCleanerState(b).key === 'unassigned').length;
+  const declinedGaps = upcomingActive.filter(b => getBookingCleanerState(b).key === 'declined').length;
+  const summaryCard = (bookingFilter === 'upcoming' || bookingFilter === 'all')
+    ? `<div class="card attention-summary booking-attention-summary" style="margin-bottom:10px;padding:12px 14px;background:#FFFCF5;border:1px solid #F3E5C5">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:6px">Today’s cleaner coverage</div>
+      <div style="font-size:13px;color:var(--text)">⚠️ <strong>${assignmentGaps}</strong> booking${assignmentGaps === 1 ? '' : 's'} still need cleaner assignment${declinedGaps ? ` · <strong>${declinedGaps}</strong> declined` : ''}.</div>
+      <div style="font-size:11px;color:var(--text-soft);margin-top:4px">Tip: use <strong>Cleaning → Action Needed</strong> to quickly fix gaps.</div>
+      <div class="quick-action-row" style="margin-top:10px">
+        <button class="btn-primary" onclick="jumpToCleaningActionNeeded()">Review Action Needed</button>
+        <button class="btn-secondary" onclick="jumpToScheduleClean()">Schedule Clean</button>
+      </div>
+    </div>`
+    : '';
+  list.innerHTML = summaryCard + sorted.map(b => {
     const isCancelled = b.status === 'cancelled';
     const isHosting = !isCancelled && new Date(b.checkin)<=new Date() && new Date(b.checkout)>=new Date();
     const isPast = !isCancelled && new Date(b.checkout)<new Date();
     const statusClass = isCancelled ? 'status-cancelled' : isHosting ? 'status-upcoming' : isPast ? 'status-completed' : 'status-upcoming';
     const statusLabel = isCancelled ? '✕ Cancelled' : isHosting ? '🏡 Hosting' : isPast ? 'Past' : 'Upcoming';
-    const matchingClean = _findMatchingCleanForBooking(b);
-    const awaiting = isAwaitingCleanerResponse(matchingClean);
-    const awaitingMeta = awaiting ? getAwaitingResponseMeta(matchingClean) : null;
+    const cleanerState = getBookingCleanerState(b);
+    const preferred = _getSuggestedCleanerForBooking(b);
+    const canQuickAssign = !isCancelled && !!preferred && (cleanerState.key === 'unassigned' || cleanerState.key === 'declined');
+    const cleanerBadge = isCancelled
+      ? ''
+      : cleanerState.tone === 'ok'
+      ? `<div style="font-size:10px;color:var(--moss);margin-top:2px">🧹 ${escHtml(cleanerState.label)}</div>`
+      : cleanerState.tone === 'bad'
+      ? `<div style="font-size:10px;color:var(--red);margin-top:2px">🧹 ${escHtml(cleanerState.label)}</div>`
+      : `<div style="font-size:10px;color:var(--amber);margin-top:2px">🧹 ${escHtml(cleanerState.label)}</div>`;
     return `
     <div class="card" onclick="showDetail(${b.id})" style="cursor:pointer${isCancelled?';opacity:0.6':''}" data-booking-id="${b.id}">
       <div class="booking-item" style="border:none;padding:0" data-booking-id="${b.id}">
@@ -952,13 +1203,10 @@ function renderBookings(filter) {
         <div class="booking-right">
           <div class="booking-amount" style="${isCancelled?'text-decoration:line-through;color:var(--text-soft)':''}">$${Number(b.hostPayout||0).toLocaleString()}</div>
           <div class="booking-status ${statusClass}">${statusLabel}</div>
-          ${!isCancelled ? (b.cleanerConfirmed
-            ? '<div style="font-size:10px;color:var(--moss);margin-top:2px">🧹 ✓</div>'
-            : awaiting
-            ? `<div style="font-size:10px;color:${awaitingMeta && awaitingMeta.isOverdue ? 'var(--red)' : 'var(--amber)'};margin-top:2px">⏳ ${awaitingMeta && awaitingMeta.isOverdue ? 'Follow up' : 'Awaiting reply'}</div>`
-            : '<div style="font-size:10px;color:var(--amber);margin-top:2px">🧹 Pending</div>') : ''}
+          ${cleanerBadge}
         </div>
       </div>
+      ${canQuickAssign ? `<div style="margin-top:8px"><button onclick="event.stopPropagation(); quickAssignLastCleaner(${b.id});" class="btn-secondary" style="width:100%">⚡ Assign to last cleaner (${escHtml(preferred.name || 'Cleaner')})</button></div>` : ''}
     </div>`;
   }).join('');
   animateList('#bookings-list');
@@ -974,6 +1222,21 @@ function renderCleaning() {
   const list = document.getElementById('cleaning-list');
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];
+  const upcomingBookingCount = bookings.filter(b => b.status !== 'cancelled' && new Date(b.checkout) >= now).length;
+  const upcomingCleanCount = cleans.filter(c => !c.done && !c.cleanerDeclined && c.date >= todayStr).length;
+  const pendingAssignCount = bookings.filter(b => {
+    if (b.status === 'cancelled' || new Date(b.checkout) < now) return false;
+    const st = getBookingCleanerState(b).key;
+    return st === 'unassigned' || st === 'declined';
+  }).length;
+  const summary = `<div class="card attention-summary cleaning-snapshot" style="margin-bottom:10px;padding:12px 14px;background:#F8FBF9">
+    <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:6px">Cleaning snapshot</div>
+    <div style="font-size:13px;color:var(--text)">Upcoming bookings: <strong>${upcomingBookingCount}</strong> · Scheduled cleans: <strong>${upcomingCleanCount}</strong> · Action needed: <strong>${pendingAssignCount}</strong></div>
+    <div class="quick-action-row" style="margin-top:10px">
+      <button class="btn-primary" onclick="jumpToCleaningActionNeeded()">Open Action Needed</button>
+      <button class="btn-secondary" onclick="jumpToScheduleClean()">Schedule</button>
+    </div>
+  </div>`;
 
   function cleanCard(c, b, extra) {
     const days = Math.ceil((new Date(c.date) - now) / 86400000);
@@ -985,16 +1248,12 @@ function renderCleaning() {
       ? '<span style="font-size:11px;font-weight:600;color:var(--red);background:#FDECEA;padding:3px 9px;border-radius:20px">❌ Declined</span>'
       : c.cleanerConfirmed
       ? '<span style="font-size:11px;font-weight:600;color:var(--moss);background:#EDF7ED;padding:3px 9px;border-radius:20px">✓ Accepted</span>'
-      : '<span style="font-size:11px;font-weight:600;color:var(--amber);background:#FFF5E6;padding:3px 9px;border-radius:20px">⏳ Pending</span>';
-    const awaitingMeta = isAwaitingCleanerResponse(c, now) ? getAwaitingResponseMeta(c, now) : null;
-    const waitingChip = awaitingMeta
-      ? `<span style="font-size:11px;font-weight:600;color:${awaitingMeta.isOverdue ? 'var(--red)' : 'var(--amber)'};background:${awaitingMeta.isOverdue ? '#FDECEA' : '#FFF5E6'};padding:3px 9px;border-radius:20px">${awaitingMeta.isOverdue ? '⚠️ Follow up' : '⌛ ' + awaitingMeta.waitedLabel}</span>`
-      : '';
+      : '<span style="font-size:11px;font-weight:600;color:var(--amber);background:#FFF5E6;padding:3px 9px;border-radius:20px">⏳ Awaiting response</span>';
     return `<div style="padding:14px 0;border-bottom:1px solid var(--warm)">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
         <div>
           <div style="font-weight:600;font-size:14px">${escHtml(b ? b.name : (c.guestName || '—'))}</div>
-          <div style="font-size:12px;color:var(--text-soft);margin-top:2px">🧹 ${escHtml(c.cleaner || '—')} · ${escHtml(fmt(c.date))}</div>
+          <div style="font-size:12px;color:var(--text-soft);margin-top:2px">🧹 ${escHtml(c.cleaner || 'Not assigned yet')} · ${escHtml(fmt(c.date))}</div>
           ${b ? `<div style="font-size:12px;color:var(--text-soft)">Checkout: ${escHtml(fmt(b.checkout))}</div>` : ''}
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
@@ -1013,10 +1272,10 @@ function renderCleaning() {
       .filter(c => !c.done && !c.cleanerDeclined && c.date >= todayStr)
       .sort((a, b) => a.date.localeCompare(b.date));
     if (!upcoming.length) {
-      list.innerHTML = '<div style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">🧹</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">No upcoming cleans</div><div style="font-size:12px;color:var(--text-soft)">Assign a cleaner to a booking to get started</div></div>';
+      list.innerHTML = summary + '<div style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">🧹</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">No upcoming cleans</div><div style="font-size:12px;color:var(--text-soft)">Assign a cleaner to a booking to get started</div></div>';
       return;
     }
-    list.innerHTML = upcoming.map(c => {
+    list.innerHTML = summary + upcoming.map(c => {
       const b = bookings.find(bk => bk.id === c.bookingId || bk.name === c.guestName);
       const extra = `<div style="display:flex;gap:8px">
         <button onclick="openNotifyModal(${c.id})" style="flex:1;background:var(--forest-light);color:var(--sage);border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">💬 SMS</button>
@@ -1029,18 +1288,19 @@ function renderCleaning() {
 
   // ── ACTION: declined + unassigned bookings ────────────────────────────────
   if (cleanFilter === 'action') {
-    const awaiting = cleans
-      .filter(c => isAwaitingCleanerResponse(c, now))
-      .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
-    const declined = cleans.filter(c => c.cleanerDeclined);
-    const unassigned = bookings.filter(b => {
-      const isFuture = new Date(b.checkout) >= now;
-      const hasClean = cleans.some(c => c.bookingId === b.id || c.guestName === b.name);
-      return isFuture && !hasClean;
-    }).sort((a, b) => new Date(a.checkout) - new Date(b.checkout));
+    const actionable = bookings
+      .filter(b => b.status !== 'cancelled' && new Date(b.checkout) >= now)
+      .map(b => ({ booking: b, state: getBookingCleanerState(b) }));
+    const declined = actionable
+      .filter(x => x.state.key === 'declined')
+      .sort((a, b) => String(a.state.clean?.date || a.booking.checkout).localeCompare(String(b.state.clean?.date || b.booking.checkout)));
+    const unassigned = actionable
+      .filter(x => x.state.key === 'unassigned')
+      .map(x => x.booking)
+      .sort((a, b) => new Date(a.checkout) - new Date(b.checkout));
 
-    if (!awaiting.length && !declined.length && !unassigned.length) {
-      list.innerHTML = '<div style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">✅</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">All good!</div><div style="font-size:12px;color:var(--text-soft)">No action needed</div></div>';
+    if (!declined.length && !unassigned.length) {
+      list.innerHTML = summary + '<div style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">✅</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">All good!</div><div style="font-size:12px;color:var(--text-soft)">No action needed</div></div>';
       return;
     }
 
@@ -1058,11 +1318,14 @@ function renderCleaning() {
       }).join('');
     }
     if (declined.length) {
-      html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--red);margin-top:${awaiting.length?'16px':'0'};margin-bottom:4px">❌ Declined — needs reassigning</div>`;
-      html += declined.sort((a,b) => a.date.localeCompare(b.date)).map(c => {
-        const b = bookings.find(bk => bk.id === c.bookingId || bk.name === c.guestName);
-        const extra = `<button onclick="reassignClean(${c.id})" style="width:100%;background:var(--forest);color:white;border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">↺ Reassign Cleaner</button>`;
-        return cleanCard(c, b, extra);
+      html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--red);margin-bottom:4px">❌ Declined — needs reassigning</div>`;
+      html += declined.map(({ booking, state }) => {
+        const c = state.clean;
+        const preferred = _getSuggestedCleanerForBooking(booking);
+        const extra = c
+          ? `<div style="display:flex;gap:8px"><button onclick="reassignClean(${c.id})" style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">↺ Reassign Cleaner</button>${preferred ? `<button onclick="quickAssignLastCleaner(${booking.id})" style="flex:1;background:var(--mist);color:var(--text);border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">⚡ Assign Last</button>` : ''}</div>`
+          : '';
+        return cleanCard(c || { date: booking.checkout, cleaner: '', guestName: booking.name, cleanerDeclined: true }, booking, extra);
       }).join('');
     }
     if (unassigned.length) {
@@ -1070,6 +1333,7 @@ function renderCleaning() {
       html += unassigned.map(b => {
         const days = Math.ceil((new Date(b.checkout) - now) / 86400000);
         const urgClass = days <= 3 ? 'urgent' : days <= 7 ? 'soon' : 'ok';
+        const preferred = _getSuggestedCleanerForBooking(b);
         return `<div style="padding:14px 0;border-bottom:1px solid var(--warm)">
           <div style="display:flex;align-items:center;justify-content:space-between">
             <div>
@@ -1078,10 +1342,11 @@ function renderCleaning() {
             </div>
             <div class="clean-urgency ${urgClass}">No cleaner</div>
           </div>
+          ${preferred ? `<div style="margin-top:8px"><button onclick="quickAssignLastCleaner(${b.id})" style="width:100%;background:var(--mist);color:var(--text);border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">⚡ Assign to last cleaner (${escHtml(preferred.name || 'Cleaner')})</button></div>` : ''}
         </div>`;
       }).join('');
     }
-    list.innerHTML = html;
+    list.innerHTML = summary + html;
     return;
   }
 
@@ -1091,10 +1356,10 @@ function renderCleaning() {
       .filter(c => c.done)
       .sort((a, b) => b.date.localeCompare(a.date));
     if (!done.length) {
-      list.innerHTML = '<div style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">🧹</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">No completed cleans yet</div></div>';
+      list.innerHTML = summary + '<div style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">🧹</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">No completed cleans yet</div></div>';
       return;
     }
-    list.innerHTML = done.map(c => {
+    list.innerHTML = summary + done.map(c => {
       const b = bookings.find(bk => bk.id === c.bookingId || bk.name === c.guestName);
       return cleanCard(c, b, '');
     }).join('');
@@ -2010,13 +2275,8 @@ function renderSettings() {
   const lastBackup = localStorage.getItem(lsKey('last-backup')) || 'Never';
   const buEl = document.getElementById('backup-last-time');
   if (buEl) buEl.textContent = lastBackup;
-  const healthSync = document.getElementById('settings-health-last-sync');
-  if (healthSync) healthSync.textContent = lastSync;
-  const healthBackup = document.getElementById('settings-health-last-backup');
-  if (healthBackup) healthBackup.textContent = lastBackup;
-  const healthBookings = document.getElementById('settings-health-bookings');
-  if (healthBookings) healthBookings.textContent = bookings.length + ' loaded';
-  renderSettingsPlanUsageCard();
+  renderHostProfileRow();
+  renderConnectionSummary();
   setTimeout(updateNotifStatus, 100);
 }
 
@@ -2026,9 +2286,8 @@ function populateSelects() {
   const now = new Date();
   const unnotified = bookings.filter(b => {
     const isFuture = new Date(b.checkout) >= now;
-    const hasClean = cleans.some(c => c.guestName === b.name || c.bookingId === b.id);
-    const isConfirmed = b.cleanerConfirmed;
-    return isFuture && !hasClean && !isConfirmed;
+    const cleanerState = getBookingCleanerState(b).key;
+    return isFuture && (cleanerState === 'unassigned' || cleanerState === 'declined');
   });
   const cleanOpts = '<option value="">Select booking...</option>' + unnotified.map(b=>`<option value="${b.id}">${b.name} (${fmt(b.checkin)})</option>`).join('');
   document.getElementById('clean-booking-select').innerHTML = cleanOpts;
@@ -2060,28 +2319,13 @@ function _findMatchingCleanForBooking(booking, preferredDate) {
   return null;
 }
 
-function isAwaitingCleanerResponse(clean, now = new Date()) {
-  if (!clean || clean.done || clean.cleanerDeclined || clean.cleanerConfirmed) return false;
-  if (!clean.cleaner && !clean.cleanerId) return false;
-  const todayStr = now.toISOString().split('T')[0];
-  return String(clean.date || '') >= todayStr;
-}
-
-function getAwaitingResponseMeta(clean, now = new Date()) {
-  const assignedAtRaw = clean && clean.assignedAt ? clean.assignedAt : '';
-  const assignedAt = assignedAtRaw ? new Date(assignedAtRaw) : null;
-  const hasAssignedAt = !!(assignedAt && !Number.isNaN(assignedAt.getTime()));
-  const waitedHours = hasAssignedAt ? Math.max(0, Math.floor((now - assignedAt) / 3600000)) : null;
-  const daysToClean = clean && clean.date ? Math.ceil((new Date(clean.date) - now) / 86400000) : null;
-  const isOverdue = (waitedHours !== null && waitedHours >= 24) || (daysToClean !== null && daysToClean <= 1);
-  const waitedLabel = waitedHours === null
-    ? 'Awaiting response'
-    : waitedHours < 1
-    ? 'Waiting <1h'
-    : waitedHours < 24
-    ? `Waiting ${waitedHours}h`
-    : `Waiting ${Math.floor(waitedHours / 24)}d`;
-  return { hasAssignedAt, waitedHours, daysToClean, isOverdue, waitedLabel };
+function getBookingCleanerState(booking) {
+  const clean = _findMatchingCleanForBooking(booking);
+  if (!clean) return { key: 'unassigned', label: 'Needs cleaner assignment', tone: 'warn' };
+  if (clean.done) return { key: 'done', label: 'Clean completed', tone: 'ok', clean };
+  if (clean.cleanerDeclined) return { key: 'declined', label: 'Cleaner declined — reassign needed', tone: 'bad', clean };
+  if (clean.cleanerConfirmed) return { key: 'confirmed', label: 'Cleaner confirmed', tone: 'ok', clean };
+  return { key: 'pending', label: 'Assigned — awaiting cleaner response', tone: 'warn', clean };
 }
 
 // ── BOOKING DETAIL ────────────────────────────────────────────────────────
@@ -2090,6 +2334,7 @@ function showDetail(id) {
   if (!b) return;
   const bn = notes.filter(n=>n.bookingId===id);
   const matchedClean = _findMatchingCleanForBooking(b);
+  const cleanerState = getBookingCleanerState(b);
   const bc = matchedClean ? [matchedClean] : [];
   document.getElementById('detail-content').innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
@@ -2123,6 +2368,7 @@ function showDetail(id) {
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-title">Cleaner</div>
+      <div style="font-size:12px;margin-bottom:8px;color:${cleanerState.tone==='ok'?'var(--moss)':cleanerState.tone==='bad'?'var(--red)':'var(--amber)'}">🧹 ${escHtml(cleanerState.label)}</div>
       <div class="toggle-wrap">
         <div>
           <div style="font-weight:500;font-size:14px">Cleaner Confirmed</div>
@@ -2136,13 +2382,15 @@ function showDetail(id) {
         ${(()=>{
           const cls = loadCleaners().filter(c => isCleanerPerson(c));
           const assigned = bc[0];
+          const suggested = _getSuggestedCleanerForBooking(b);
           if (!cls.length) return '<div style="font-size:12px;color:var(--text-soft)">No cleaners set up yet — add in Settings → Property &amp; People</div>';
           return `<select id="detail-assign-cleaner" style="margin-bottom:8px">
             <option value="">— Not assigned —</option>
-            ${cls.map(c=>`<option value="${c.id}" ${assigned&&String(assigned.cleanerId)===String(c.id)?'selected':''}>${c.name}</option>`).join('')}
+            ${cls.map(c=>`<option value="${c.id}" ${(assigned&&String(assigned.cleanerId)===String(c.id))||(!assigned&&suggested&&String(suggested.id)===String(c.id))?'selected':''}>${c.name}</option>`).join('')}
           </select>
+          ${!assigned && suggested ? `<div style="font-size:11px;color:var(--text-soft);margin:-2px 0 8px 0">Suggested: ${escHtml(suggested.name || '')}</div>` : ''}
           <input type="date" id="detail-assign-date" value="${assigned?assigned.date:b.checkout}" style="margin-bottom:8px">
-          <button onclick="assignCleanerToBooking(${b.id})" class="btn-primary" style="width:100%">💾 Save Assignment</button>`;
+          <button onclick="assignCleanerToBooking(${b.id})" class="btn-primary" style="width:100%" id="detail-assign-btn">💾 Save Assignment</button>`;
         })()}
       </div>
       ${b.status==='completed'?`
@@ -2287,7 +2535,12 @@ function addBooking() {
     netPayout:0,
     cleanerConfirmed:false, status:document.getElementById('b-status').value, _local:true
   };
-  bookings.push(newB); save(); pushToSheet('add', newB); closeModal(); render();
+  bookings.push(newB);
+  const autoAssigned = _maybeAutoAssignPreferredCleaner(newB, 'booking-create');
+  _normalizeBookingCleanState();
+  save();
+  if (autoAssigned) pushAppData('cleans', cleans);
+  pushToSheet('add', newB); closeModal(); render();
   showBanner('✅ Booking added', 'ok');
   pushBookingToCalendar(newB);
 }
@@ -2331,20 +2584,25 @@ function updateCleanerLearning(cleanerObj, assignmentSource) {
 }
 
 function addClean() {
+  if (!_acquireLock(_actionLocks, 'addClean')) return;
   const bookingId=Number(document.getElementById('clean-booking-select').value);
   const selectEl = document.getElementById('clean-name-select');
   const cleaner = selectEl ? selectEl.value.trim() : document.getElementById('clean-name').value.trim();
   const date=document.getElementById('clean-date').value;
-  if (!bookingId||!cleaner||!date){showBanner('⚠ Please fill all fields','warn');return;}
+  if (!bookingId||!cleaner||!date){showBanner('⚠ Please fill all fields','warn'); _releaseLock(_actionLocks, 'addClean'); return;}
+  localStorage.setItem(lsKey('last-cleaner'), cleaner);
   const booking=bookings.find(b=>b.id===bookingId);
-  if (!booking) { showBanner('⚠ Booking not found — it may have been deleted', 'warn'); return; }
+  if (!booking) { showBanner('⚠ Booking not found — it may have been deleted', 'warn'); _releaseLock(_actionLocks, 'addClean'); return; }
   // Find cleaner ID from the saved cleaners list
   const cleanerObj = loadCleaners().find(c => c.name === cleaner);
   const cleanerId = cleanerObj ? cleanerObj.id : null;
   if (cleanerObj) updateCleanerLearning(cleanerObj, 'manual');
   const newClean = {id:Date.now(), bookingId, guestName:booking.name, cleaner, cleanerId, date, done:false, notified:false, cleanerConfirmed:false, assignedAt:new Date().toISOString()};
   cleans.push(newClean);
+  booking.cleanerConfirmed = false;
+  if (cleanerObj) _recordCleanerAssignmentUsage(cleanerObj);
   save();
+  pushAppData('cleans', cleans);
   showBanner('✅ Clean scheduled for ' + newClean.date, 'ok');
   // Prompt to send SMS — only mark notified if user confirms
   showAppModal({ title: '💬 Send SMS?', msg: `Notify ${cleaner} about this booking now?`, confirmText: 'Send SMS', cancelText: 'Later' })
@@ -2355,13 +2613,17 @@ function addClean() {
         cleanFilter = 'upcoming';
         document.querySelectorAll('#section-cleaning .tab-row .tab').forEach((t,i) => t.classList.toggle('active', i===0));
         renderCleaning();
+        renderBookings();
         openNotifyModal(newClean.id);
       } else {
         cleanFilter = 'upcoming';
         document.querySelectorAll('#section-cleaning .tab-row .tab').forEach((t,i) => t.classList.toggle('active', i===0));
         renderCleaning();
+        renderBookings();
       }
-    });
+    })
+    .catch(() => {})
+    .finally(() => _releaseLock(_actionLocks, 'addClean'));
   populateSelects();
 }
 function toggleClean(id) {
@@ -2696,22 +2958,25 @@ function saveCleaningFee(bookingId) {
 
 // ── PUSH ALL EXPENSES TO SHEET ───────────────────────────────────────────────
 async function smartSyncExpenses() {
+  if (!_acquireLock(_actionLocks, 'smartSyncExpenses')) return;
   const scriptUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
   if (!scriptUrl || !scriptUrl.includes('script.google.com')) {
-    showBanner('⚠ Set your Apps Script URL in Settings → Google Sheets first', 'warn'); return;
+    showBanner('⚠ Set your Apps Script URL in Settings → Google Sheets first', 'warn'); _releaseLock(_actionLocks, 'smartSyncExpenses'); return;
   }
-  if (!expenses.length) { showBanner('⚠ No expenses to sync', 'warn'); return; }
+  if (!expenses.length) { showBanner('⚠ No expenses to sync', 'warn'); _releaseLock(_actionLocks, 'smartSyncExpenses'); return; }
 
   const resultEl = document.getElementById('push-expenses-result');
-  resultEl.style.display = 'block';
-  resultEl.style.background = '#FFF8E1'; resultEl.style.color = '#E65100';
+  if (resultEl) {
+    resultEl.style.display = 'block';
+    resultEl.style.background = '#FFF8E1'; resultEl.style.color = '#E65100';
+  }
 
   let ok = 0, failed = 0;
   const total = expenses.length;
 
   for (let i = 0; i < expenses.length; i++) {
     const e = expenses[i];
-    resultEl.textContent = '⟳ Syncing ' + (i + 1) + ' / ' + total + '...';
+    if (resultEl) resultEl.textContent = '⟳ Syncing ' + (i + 1) + ' / ' + total + '...';
     try {
       const expForSheet = {
         date:        e.date||'',
@@ -2733,10 +2998,13 @@ async function smartSyncExpenses() {
     } catch(err) { failed++; }
   }
 
-  resultEl.style.background = ok ? '#E8F5E9' : '#FDECEA';
-  resultEl.style.color = ok ? '#2E7D32' : '#C0392B';
-  resultEl.textContent = (ok ? '✅' : '✗') + ' ' + ok + ' synced' + (failed ? ', ' + failed + ' failed' : '');
+  if (resultEl) {
+    resultEl.style.background = ok ? '#E8F5E9' : '#FDECEA';
+    resultEl.style.color = ok ? '#2E7D32' : '#C0392B';
+    resultEl.textContent = (ok ? '✅' : '✗') + ' ' + ok + ' synced' + (failed ? ', ' + failed + ' failed' : '');
+  }
   showBanner(ok ? '✅ ' + ok + ' expenses synced to sheet' : '⚠ Sync had ' + failed + ' failures', ok ? 'ok' : 'warn');
+  _releaseLock(_actionLocks, 'smartSyncExpenses');
 }
 
 function saveScriptURL() {
@@ -2750,6 +3018,7 @@ function saveScriptURL() {
   showBanner('✓ Settings saved: Apps Script URL', 'ok');
 }
 async function testScriptConnection() {
+  if (!_acquireLock(_actionLocks, 'testScriptConnection')) return;
   const checkerOpen = document.getElementById('settings-panel-connection-checker')?.style.display !== 'none';
   const resultId = checkerOpen ? 'conn-script-result' : 'script-test-result';
   _setConnectionCheckResult(resultId, 'loading', 'Checking Apps Script endpoint…');
@@ -2757,10 +3026,14 @@ async function testScriptConnection() {
   const scriptUrl = (getCurrentScriptURL() || '').trim();
   if (!scriptUrl) {
     _setConnectionCheckResult(resultId, 'fail', '❌ Missing configuration: Apps Script URL is not set.');
+    showBanner('⚠ Missing setup: add your Apps Script URL first', 'warn');
+    _releaseLock(_actionLocks, 'testScriptConnection');
     return;
   }
   if (!scriptUrl.toLowerCase().includes('script.google.com/macros') || !scriptUrl.endsWith('/exec')) {
     _setConnectionCheckResult(resultId, 'fail', '❌ Invalid URL: expected a deployed Apps Script /exec URL.');
+    showBanner('⚠ Apps Script URL looks invalid. Paste the deployed /exec URL.', 'warn');
+    _releaseLock(_actionLocks, 'testScriptConnection');
     return;
   }
 
@@ -2773,8 +3046,12 @@ async function testScriptConnection() {
     if (!ok) throw new Error((json && (json.error || json.status)) || 'Unexpected response');
 
     _setConnectionCheckResult(resultId, 'ok', '✅ Connected: Apps Script responded to a safe test action.');
+    showBanner('✓ Test successful: Apps Script is connected', 'ok');
   } catch(e) {
     _setConnectionCheckResult(resultId, 'fail', '❌ Failed: Apps Script test request did not succeed. ' + e.message);
+    showBanner('⚠ Test failed: could not reach Apps Script. Check URL and deployment access.', 'warn');
+  } finally {
+    _releaseLock(_actionLocks, 'testScriptConnection');
   }
 }
 function saveBankDetails() {
@@ -2861,6 +3138,233 @@ function saveApiKey() {
 }
 function getApiKey() {
   return localStorage.getItem('gh-api-key') || '';
+}
+
+// ── HOST IDENTITY + SAFE HOST SETTINGS SYNC (Phase 1 foundation) ─────────────
+const HOST_PROFILE_KEY = 'gh-host-profile';
+const HOST_SETTINGS_SCHEMA_VERSION = 1;
+
+function getHostProfile() {
+  try {
+    const raw = localStorage.getItem(HOST_PROFILE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (!p || typeof p !== 'object') return null;
+    if (!p.hostId) return null;
+    return p;
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveHostProfile(profile) {
+  if (!profile || !profile.hostId) return;
+  localStorage.setItem(HOST_PROFILE_KEY, JSON.stringify(profile));
+}
+
+function buildSafeHostSettingsPayload(hostProfile) {
+  return {
+    version: HOST_SETTINGS_SCHEMA_VERSION,
+    savedAt: new Date().toISOString(),
+    hostId: hostProfile.hostId,
+    activePropertyId: (typeof getActivePropertyId === 'function') ? getActivePropertyId() : null,
+    properties: (typeof getAllProperties === 'function') ? getAllProperties() : [],
+    ui: {
+      smsTemplate: localStorage.getItem(lsKey('sms-template')) || '',
+      expenseCats: localStorage.getItem(lsKey('expense-cats')) || '',
+      invoiceSettings: localStorage.getItem(lsKey('invoice-settings')) || ''
+    },
+    integrations: {
+      gDriveClientId: localStorage.getItem('gh-gdrive-client-id') || ''
+    },
+    // Sensitive values intentionally excluded from host-linked payload:
+    // - drive tokens
+    // - API keys
+    // - Gemini keys
+    // - push subscriptions
+  };
+}
+
+async function pushSafeHostSettings() {
+  const host = getHostProfile();
+  if (!host || !host.hostId) return false;
+  const key = 'hostSettings::' + host.hostId;
+  const payload = buildSafeHostSettingsPayload(host);
+  return await pushAppDataNow(key, payload);
+}
+
+function restoreSafeHostSettingsPayload(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  let changed = false;
+
+  if (Array.isArray(payload.properties) && payload.properties.length && typeof saveAllProperties === 'function') {
+    saveAllProperties(payload.properties);
+    changed = true;
+  }
+
+  if (payload.activePropertyId && typeof setActivePropertyId === 'function') {
+    setActivePropertyId(payload.activePropertyId);
+    changed = true;
+  }
+
+  if (payload.ui && typeof payload.ui === 'object') {
+    if (typeof payload.ui.smsTemplate === 'string' && payload.ui.smsTemplate) {
+      localStorage.setItem(lsKey('sms-template'), payload.ui.smsTemplate);
+      changed = true;
+    }
+    if (typeof payload.ui.expenseCats === 'string' && payload.ui.expenseCats) {
+      localStorage.setItem(lsKey('expense-cats'), payload.ui.expenseCats);
+      changed = true;
+    }
+    if (typeof payload.ui.invoiceSettings === 'string' && payload.ui.invoiceSettings) {
+      localStorage.setItem(lsKey('invoice-settings'), payload.ui.invoiceSettings);
+      changed = true;
+    }
+  }
+
+  if (payload.integrations && typeof payload.integrations === 'object') {
+    const id = String(payload.integrations.gDriveClientId || '').trim();
+    if (id) {
+      localStorage.setItem('gh-gdrive-client-id', id);
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+async function ensureHostIdentityAndRestore() {
+  const scriptUrl = (getCurrentScriptURL() || '').trim();
+  let host = getHostProfile();
+
+  // Try to seed identity from existing owner config first.
+  if (!host) {
+    const ownerName = ((getPropertyConfig().owner || {}).name || '').trim();
+    const ownerEmail = ((getPropertyConfig().owner || {}).email || '').trim();
+    if (ownerName || ownerEmail) {
+      const base = (ownerEmail || ownerName || 'host').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || ('host-' + Date.now());
+      host = { hostId: base, name: ownerName || 'Host', email: ownerEmail || '', createdAt: new Date().toISOString() };
+      saveHostProfile(host);
+    }
+  }
+
+  // Beginner-friendly prompt once, non-blocking if skipped.
+  if (!host) {
+    const entered = await showAppModal({
+      title: '👋 Welcome',
+      msg: 'What should we call you? We\'ll use this to restore your non-sensitive settings on this device.',
+      confirmText: 'Continue',
+      cancelText: 'Skip',
+      hasInput: true,
+      inputPlaceholder: 'Your name',
+      inputType: 'text'
+    });
+    if (entered && String(entered).trim()) {
+      const name = String(entered).trim();
+      const hostId = ('host-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) + '-' + Date.now().toString().slice(-6)).slice(0, 48);
+      host = { hostId, name, email: '', createdAt: new Date().toISOString() };
+      saveHostProfile(host);
+      showBanner('✓ Host profile created', 'ok');
+    }
+  }
+
+  if (!host || !host.hostId) return;
+  if (!(scriptUrl && scriptUrl.includes('script.google.com'))) return;
+
+  try {
+    const resp = await fetch(scriptUrl + '?action=getAppData');
+    if (!resp.ok) return;
+    const json = await resp.json();
+    if (!json || !json.success || !json.data) return;
+    const d = json.data || {};
+
+    // Phase 3: cache centrally managed/shared integration defaults (if provided
+    // by backend AppData) so hosts don't always need to paste technical URLs.
+    if (d.sharedIntegrations && typeof saveSharedIntegrationConfig === 'function') {
+      saveSharedIntegrationConfig(d.sharedIntegrations);
+    }
+
+    const remoteHost = d.hostProfile && typeof d.hostProfile === 'object' ? d.hostProfile : null;
+    if (!getHostProfile() && remoteHost && remoteHost.hostId) {
+      saveHostProfile(remoteHost);
+      host = remoteHost;
+    }
+
+    const directKey = 'hostSettings::' + host.hostId;
+    const payload = d[directKey] || null;
+    if (payload) {
+      const changed = restoreSafeHostSettingsPayload(payload);
+      if (changed) {
+        migrateConfigFromLegacySettings();
+        initPropertyUI();
+        render();
+        showBanner('✓ Restored host settings', 'ok');
+      }
+    }
+
+    // Push current safe host profile/settings so new device/local wipe can recover.
+    pushAppData('hostProfile', host);
+    pushSafeHostSettings();
+  } catch (e) {
+    console.warn('host identity restore failed:', e);
+  }
+
+  renderHostProfileRow();
+}
+
+function renderHostProfileRow() {
+  const row = document.getElementById('host-profile-row');
+  if (!row) return;
+  const host = getHostProfile();
+  if (!host) {
+    row.textContent = 'Set your host name';
+    return;
+  }
+  const bits = [host.name || 'Host'];
+  if (host.email) bits.push(host.email);
+  row.textContent = bits.join(' · ');
+}
+
+async function manageHostIdentity() {
+  const existing = getHostProfile() || {};
+  const name = await showAppModal({
+    title: 'Host Profile',
+    msg: 'Enter your host name. We use this to restore non-sensitive settings.',
+    confirmText: 'Save',
+    cancelText: 'Cancel',
+    hasInput: true,
+    inputPlaceholder: 'Your name',
+    inputDefault: existing.name || '',
+    inputType: 'text'
+  });
+  if (name === null) return;
+  const cleanName = String(name || '').trim();
+  if (!cleanName) {
+    showBanner('⚠ Host name is required', 'warn');
+    return;
+  }
+  const email = await showAppModal({
+    title: 'Host Email (optional)',
+    msg: 'Add an email so your profile is easier to recognize across devices.',
+    confirmText: 'Save',
+    cancelText: 'Skip',
+    hasInput: true,
+    inputPlaceholder: 'you@example.com',
+    inputDefault: existing.email || '',
+    inputType: 'email'
+  });
+  const hostId = existing.hostId || ('host-' + cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) + '-' + Date.now().toString().slice(-6));
+  const profile = {
+    hostId,
+    name: cleanName,
+    email: String(email || '').trim(),
+    createdAt: existing.createdAt || new Date().toISOString()
+  };
+  saveHostProfile(profile);
+  renderHostProfileRow();
+  const pushed = await pushAppDataNow('hostProfile', profile);
+  await pushSafeHostSettings();
+  showBanner(pushed ? '✓ Host profile saved' : '✓ Host saved locally (cloud sync pending)', pushed ? 'ok' : 'warn');
 }
 function saveInvoiceDetails() {
   ['name','company','abn','acn','email','address'].forEach(k => {
@@ -4257,9 +4761,11 @@ async function verifyDriveToken() {
 }
 
 function connectGoogleDrive() {
-  const clientId = localStorage.getItem('gh-gdrive-client-id');
+  if (!_acquireLock(_actionLocks, 'connectGoogleDrive')) return;
+  const clientId = String((typeof getDriveClientId === 'function' ? getDriveClientId() : localStorage.getItem('gh-gdrive-client-id')) || '').trim();
   if (!clientId) {
     showBanner('⚠ Enter your Google OAuth Client ID in Settings → Google Drive first','warn');
+    _releaseLock(_actionLocks, 'connectGoogleDrive');
     return;
   }
   // Use exact current page URL (no hash, no query string)
@@ -4271,8 +4777,10 @@ function connectGoogleDrive() {
   // Show user the exact URI they need to register
   const statusEl = document.getElementById('gdrive-status');
   if (statusEl) statusEl.innerHTML = `<span style="color:var(--amber)">⚠ Make sure this exact URL is in your Authorised redirect URIs:<br><strong style="word-break:break-all">${redirectUri}</strong></span>`;
+  showBanner('⟳ Opening Google sign-in. If it fails, check the redirect URI shown in Settings.', 'info');
 
   setTimeout(() => { window.location.href = url; }, 1500);
+  setTimeout(() => _releaseLock(_actionLocks, 'connectGoogleDrive'), 5000);
 }
 
 // Handle OAuth token from redirect
@@ -4288,6 +4796,14 @@ function connectGoogleDrive() {
       history.replaceState(null, '', window.location.pathname);
       showBanner('✓ Google Drive connected', 'ok');
     }
+  } else if (hash.includes('error=')) {
+    const params = new URLSearchParams(hash.substring(1));
+    const err = params.get('error') || 'unknown_error';
+    const reason = err === 'access_denied'
+      ? 'Google sign-in was cancelled. You can try again anytime in Settings.'
+      : 'Google did not complete the connection (' + err + '). Check Client ID and redirect URI.';
+    history.replaceState(null, '', window.location.pathname);
+    showBanner('⚠ Google Drive connect failed: ' + reason, 'warn');
   }
 })();
 
@@ -5099,11 +5615,13 @@ async function pushAppDataNow(key, data) {
 }
 
 async function pushAllAppData() {
+  if (_pushAllAppDataInFlight) return;
+  _pushAllAppDataInFlight = true;
   const url = getScriptURL();
-  if (!url) { showBanner('⚠ No script URL configured', 'warn'); return; }
+  if (!url) { showBanner('⚠ No script URL configured', 'warn'); _pushAllAppDataInFlight = false; return; }
   const btn = document.getElementById('push-appdata-btn');
   const result = document.getElementById('push-appdata-result');
-  btn.textContent = 'Pushing…'; btn.disabled = true;
+  if (btn) { btn.textContent = 'Pushing…'; btn.disabled = true; }
   const keys = {
     cleaners:    loadCleaners(),
     cleans:      cleans,
@@ -5127,20 +5645,32 @@ async function pushAllAppData() {
       errors.push(key + ': network error');
     }
   }
-  btn.textContent = '⬆ Push App Data to Sheet'; btn.disabled = false;
+  if (btn) { btn.textContent = '⬆ Push App Data to Sheet'; btn.disabled = false; }
   if (errors.length) {
-    result.style.display = 'block';
-    result.style.background = '#FDECEA'; result.style.color = 'var(--red)';
-    result.textContent = '⚠ Some failed: ' + errors.join(', ');
+    if (result) {
+      result.style.display = 'block';
+      result.style.background = '#FDECEA'; result.style.color = 'var(--red)';
+      result.textContent = '⚠ Some failed: ' + errors.join(', ');
+    }
+    showBanner('⚠ Push completed with errors. Review AppData result details.', 'warn');
   } else {
-    result.style.display = 'block';
-    result.style.background = '#EDF7ED'; result.style.color = 'var(--moss)';
-    result.textContent = '✓ All data pushed to Sheet successfully';
-    setTimeout(() => result.style.display = 'none', 4000);
+    if (result) {
+      result.style.display = 'block';
+      result.style.background = '#EDF7ED'; result.style.color = 'var(--moss)';
+      result.textContent = '✓ All data pushed to Sheet successfully';
+    }
+    showBanner('✓ Push complete: local app data saved to Sheet', 'ok');
+    if (result) setTimeout(() => result.style.display = 'none', 4000);
   }
+  _pushAllAppDataInFlight = false;
 }
 
 async function pullAppData(manual = false) {
+  if (_pullAppDataInFlight) {
+    if (manual) showBanner('⟳ Pull already in progress. Please wait…', 'info');
+    return;
+  }
+  _pullAppDataInFlight = true;
   const url = getScriptURL();
   const btn = document.getElementById('pull-appdata-btn');
   const resultEl = document.getElementById('pull-appdata-result');
@@ -5154,7 +5684,11 @@ async function pullAppData(manual = false) {
   }
 
   if (!url) {
-    if (manual) showResult('❌ No Apps Script URL configured.', false);
+    if (manual) {
+      showResult('❌ No Apps Script URL configured.', false);
+      showBanner('⚠ Missing setup: add your Apps Script URL before pulling data', 'warn');
+    }
+    _pullAppDataInFlight = false;
     return;
   }
 
@@ -5164,16 +5698,24 @@ async function pullAppData(manual = false) {
   try {
     const resp = await fetch(url + '?action=getAppData');
     if (!resp.ok) {
-      if (manual) showResult('❌ Server error: ' + resp.status + ' ' + resp.statusText, false);
+      if (manual) {
+        showResult('❌ Server error: ' + resp.status + ' ' + resp.statusText, false);
+        showBanner('⚠ Pull failed: server returned ' + resp.status, 'warn');
+      }
       if (btn) { btn.disabled = false; btn.textContent = '↻ Pull App Data from Sheet'; }
+      _pullAppDataInFlight = false;
       return;
     }
     const json = await resp.json();
     console.log('pullAppData response:', JSON.stringify(json).substring(0, 300));
 
     if (!json.success || !json.data) {
-      if (manual) showResult('❌ Sheet returned: ' + JSON.stringify(json).substring(0, 100), false);
+      if (manual) {
+        showResult('❌ Sheet returned: ' + JSON.stringify(json).substring(0, 100), false);
+        showBanner('⚠ Pull failed: Apps Script returned an unexpected response', 'warn');
+      }
       if (btn) { btn.disabled = false; btn.textContent = '↻ Pull App Data from Sheet'; }
+      _pullAppDataInFlight = false;
       return;
     }
 
@@ -5242,24 +5784,37 @@ async function pullAppData(manual = false) {
       localStorage.setItem(lsKey('push-subs'), JSON.stringify(merged));
     }
 
-    renderAll();
+    _normalizeBookingCleanState();
+    _refreshAfterDataChange(manual);
     if (manual) {
       if (restored.length > 0) {
         showResult('✓ Restored: ' + restored.join(', '), true);
+        showBanner('✓ Pull complete: restored ' + restored.join(', '), 'ok');
       } else {
         showResult('⚠️ Connected but no data found in AppData tab. Keys present: ' + Object.keys(d).join(', '), false);
+        showBanner('⚠ Pull completed but no AppData keys were found to restore', 'warn');
       }
-    } else {
-      showBanner('✓ App data synced from Sheet', 'ok');
     }
   } catch(e) {
     console.error('pullAppData error:', e);
-    if (manual) showResult('❌ Error: ' + e.message, false);
+    if (manual) {
+      showResult('❌ Error: ' + e.message, false);
+      showBanner('⚠ Pull failed: ' + (e.message || 'network error'), 'warn');
+    }
   }
   if (btn) { btn.disabled = false; btn.textContent = '↻ Pull App Data from Sheet'; }
+  _pullAppDataInFlight = false;
 }
 
 // Render immediately from localStorage, then sync in background
+function hasCloudSyncConfigured() {
+  const sheetUrl = (typeof getPropertySheetCsvUrl === 'function' ? getPropertySheetCsvUrl() : '').trim();
+  const scriptUrl = (typeof getCurrentScriptURL === 'function' ? getCurrentScriptURL() : '').trim();
+  const sheetOk = !!sheetUrl && sheetUrl.toLowerCase().includes('docs.google.com/spreadsheets') && sheetUrl.includes('output=csv');
+  const scriptOk = !!scriptUrl && scriptUrl.toLowerCase().includes('script.google.com/macros') && scriptUrl.endsWith('/exec');
+  return sheetOk && scriptOk;
+}
+
 render();
 if (isCleanerMode()) {
   // Cleaner mode — only pull AppData (cleans, inventory, cleaners). Skip bookings CSV + expenses.
@@ -5267,7 +5822,7 @@ if (isCleanerMode()) {
 } else if (hasValidPropertyConfig()) {
   // Guard: do not sync on a fresh install before setup completes, which would
   // fire with Glenhaven's default URLs from DEFAULT_PROPERTY_CONFIG.
-  syncFromSheets();
+  if (hasCloudSyncConfigured()) syncFromSheets();
   if (_scriptConfigured) setTimeout(() => pullExpensesFromSheet(), 1200);
   if (_scriptConfigured) setTimeout(() => pullAppData(), 1800);
 }
@@ -5316,24 +5871,35 @@ document.addEventListener('visibilitychange', () => {
     const now = Date.now();
     if (now - _lastVisibilitySync > 5 * 60 * 1000) {
       _lastVisibilitySync = now;
-      syncFromSheets(); // silent background sync
+      if (hasCloudSyncConfigured()) syncFromSheets(); // silent background sync
     }
     // Always pull AppData on focus to get latest cleaner states
     if (!isCleanerMode()) pullAppData();
+
+    // Keep host-linked safe settings fresh (non-secrets only).
+    pushSafeHostSettings();
+    setTimeout(_flushPendingUiRefresh, 120);
   }
 });
-window.addEventListener('pageshow', (e) => { if (e.persisted && hasValidPropertyConfig()) syncFromSheets(); });
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted && hasValidPropertyConfig() && hasCloudSyncConfigured()) syncFromSheets();
+  setTimeout(_flushPendingUiRefresh, 120);
+});
 
 // Auto-refresh cleaner app when it comes back into focus or on interval
 if (isCleanerMode()) {
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) pullAppData();
+    if (!document.hidden) {
+      pullAppData();
+      setTimeout(_flushPendingUiRefresh, 120);
+    }
   });
   setInterval(() => { if (!document.hidden) pullAppData(); }, 60000);
 } else {
   // Owner app — pull AppData every 30 seconds to catch cleaner updates.
   // Guard: no polling until setup is complete.
   setInterval(() => { if (!document.hidden && hasValidPropertyConfig()) pullAppData(); }, 30000);
+  setInterval(() => { if (!document.hidden && hasValidPropertyConfig()) pushSafeHostSettings(); }, 120000);
 }
 
 // ── FEEL & GESTURES ───────────────────────────────────────────────────────────
@@ -5686,8 +6252,10 @@ let cleanerTab = 'cleans';
 function switchCleanerTab(tab) {
   cleanerTab = tab;
   ['cleans','inventory'].forEach(t => {
-    document.getElementById('ctab-' + t).classList.toggle('active', t === tab);
-    document.getElementById('cleaner-' + t + '-view').style.display = t === tab ? 'block' : 'none';
+    const tabBtn = document.getElementById('ctab-' + t);
+    const viewEl = document.getElementById('cleaner-' + t + '-view');
+    if (tabBtn) tabBtn.classList.toggle('active', t === tab);
+    if (viewEl) viewEl.style.display = t === tab ? 'block' : 'none';
   });
 }
 
@@ -5703,6 +6271,8 @@ function switchCleanerCleanTab(tab) {
       btn.style.color = t === tab ? 'var(--forest)' : 'var(--text-soft)';
       btn.style.fontWeight = t === tab ? '700' : '600';
       btn.style.borderBottomColor = t === tab ? 'var(--forest)' : 'transparent';
+      btn.style.background = t === tab ? 'rgba(31,90,67,0.08)' : 'transparent';
+      btn.style.borderRadius = '10px 10px 0 0';
     }
     if (el) el.style.display = t === tab ? '' : 'none';
   });
@@ -5727,6 +6297,26 @@ function renderCleanerCleans() {
   // Badges on both tabs
   const newCount = relevant.filter(c => !c.cleanerConfirmed && !c.cleanerDeclined).length;
   const upcomingCount = relevant.filter(c => c.cleanerConfirmed && !c.cleanerDeclined).length;
+  const cleanerView = document.getElementById('cleaner-cleans-view');
+  if (cleanerView) {
+    let quick = document.getElementById('cleaner-quick-summary');
+    if (!quick) {
+      quick = document.createElement('div');
+      quick.id = 'cleaner-quick-summary';
+      quick.className = 'card';
+      quick.style.marginBottom = '10px';
+      const upcomingEl = document.getElementById('cleaner-cleans-upcoming');
+      cleanerView.insertBefore(quick, upcomingEl || null);
+    }
+    quick.innerHTML = `
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.55px;color:var(--text-soft);margin-bottom:6px">Your jobs today</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div class="mini-status-chip chip-new">New: <strong>${newCount}</strong></div>
+        <div class="mini-status-chip chip-upcoming">Upcoming: <strong>${upcomingCount}</strong></div>
+      </div>
+      <div style="font-size:11px;color:var(--text-soft);margin-top:7px">${newCount > 0 ? 'Start in New to accept/decline your latest jobs.' : 'No new responses needed right now.'}</div>
+    `;
+  }
   const newBadge = document.getElementById('csubtab-new-badge');
   const upBadge = document.getElementById('csubtab-upcoming-badge');
   const badgeStyle = 'border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700';
@@ -5794,6 +6384,7 @@ function renderCleanerCleans() {
         <div style="font-size:48px;margin-bottom:12px">✨</div>
         <div style="font-family:'DM Serif Display',serif;font-size:18px;color:var(--forest);margin-bottom:6px">Nothing new!</div>
         <div style="font-size:13px;color:var(--text-soft)">New assignments will appear here</div>
+        <div style="font-size:12px;color:var(--text-soft);margin-top:8px">If you were just assigned, tap <strong>↻ Refresh</strong>.</div>
       </div>`;
     } else {
       newEl.innerHTML = newCleans.map(c => {
@@ -5815,6 +6406,7 @@ function renderCleanerCleans() {
         <div style="font-size:48px;margin-bottom:12px">🗓</div>
         <div style="font-family:'DM Serif Display',serif;font-size:18px;color:var(--forest);margin-bottom:6px">No upcoming cleans</div>
         <div style="font-size:13px;color:var(--text-soft)">Cleans you've accepted will appear here</div>
+        <div style="font-size:12px;color:var(--text-soft);margin-top:8px">Accept a clean from the <strong>New</strong> tab first.</div>
       </div>`;
     } else {
       upcomingEl.innerHTML = upcomingCleans.map(c => {
@@ -5889,32 +6481,41 @@ function cleanerAdjustStock(id, delta) {
   savePropertyData(); renderCleanerInventory();
 }
 async function cleanerAccept(cleanId) {
+  const lockKey = 'cleanerAccept:' + String(cleanId);
+  if (!_acquireLock(_actionLocks, lockKey)) return;
   const c = cleans.find(cl => String(cl.id) === String(cleanId));
-  if (!c) return;
+  if (!c) { _releaseLock(_actionLocks, lockKey); return; }
   c.cleanerConfirmed = true;
   c.cleanerDeclined = false;
   // Also update booking so owner sees confirmed status in detail
   const b = bookings.find(bk => bk.id === c.bookingId || bk.name === c.guestName);
   if (b) b.cleanerConfirmed = true;
-  save();
-  pushAppData('cleans', cleans);
-  renderCleanerCleans();
-  showBanner('✓ Clean accepted!', 'ok');
-  // Push owner
-  const ownerSub = await getFreshOwnerSub();
-  if (ownerSub) {
-    sendPushToDevice(ownerSub,
-      '✅ Clean Confirmed',
-      `${c.cleaner} accepted the clean for ${c.guestName || 'guest'} on ${fmt(c.date)}`,
-      '/',
-      'accept-' + cleanId
-    );
+  try {
+    _normalizeBookingCleanState();
+    save();
+    pushAppData('cleans', cleans);
+    renderCleanerCleans();
+    showBanner('✓ Clean accepted!', 'ok');
+    // Push owner
+    const ownerSub = await getFreshOwnerSub();
+    if (ownerSub) {
+      sendPushToDevice(ownerSub,
+        '✅ Clean Confirmed',
+        `${c.cleaner} accepted the clean for ${c.guestName || 'guest'} on ${fmt(c.date)}`,
+        '/',
+        'accept-' + cleanId
+      );
+    }
+  } finally {
+    _releaseLock(_actionLocks, lockKey);
   }
 }
 
 async function cleanerDecline(cleanId) {
+  const lockKey = 'cleanerDecline:' + String(cleanId);
+  if (!_acquireLock(_actionLocks, lockKey)) return;
   const c = cleans.find(cl => String(cl.id) === String(cleanId));
-  if (!c) return;
+  if (!c) { _releaseLock(_actionLocks, lockKey); return; }
   const ok = await showAppModal({
     title: '❌ Decline Clean?',
     msg: 'Are you sure you want to decline this clean? The owner will be notified.',
@@ -5922,42 +6523,58 @@ async function cleanerDecline(cleanId) {
     confirmColor: 'var(--red)',
     cancelText: 'Cancel'
   });
-  if (!ok) return;
+  if (!ok) { _releaseLock(_actionLocks, lockKey); return; }
   c.cleanerDeclined = true;
   c.cleanerConfirmed = false;
-  save();
-  pushAppData('cleans', cleans); // push immediately
-  renderCleanerCleans();
-  showBanner('Clean declined', 'ok');
-  // Push owner
-  const ownerSub = await getFreshOwnerSub();
-  if (ownerSub) {
-    sendPushToDevice(ownerSub,
-      '❌ Clean Declined',
-      `${c.cleaner} cannot do the clean for ${c.guestName || 'guest'} on ${fmt(c.date)}. Reassign needed.`,
-      '/',
-      'decline-' + cleanId
-    );
+  const b = bookings.find(bk => bk.id === c.bookingId || bk.name === c.guestName);
+  if (b) b.cleanerConfirmed = false;
+  try {
+    _normalizeBookingCleanState();
+    save();
+    pushAppData('cleans', cleans); // push immediately
+    renderCleanerCleans();
+    showBanner('Clean declined', 'ok');
+    // Push owner
+    const ownerSub = await getFreshOwnerSub();
+    if (ownerSub) {
+      sendPushToDevice(ownerSub,
+        '❌ Clean Declined',
+        `${c.cleaner} cannot do the clean for ${c.guestName || 'guest'} on ${fmt(c.date)}. Reassign needed.`,
+        '/',
+        'decline-' + cleanId
+      );
+    }
+  } finally {
+    _releaseLock(_actionLocks, lockKey);
   }
 }
 
 async function cleanerMarkDone(cleanId) {
+  const lockKey = 'cleanerDone:' + String(cleanId);
+  if (!_acquireLock(_actionLocks, lockKey)) return;
   const c = cleans.find(cl => String(cl.id) === String(cleanId));
-  if (!c) return;
+  if (!c) { _releaseLock(_actionLocks, lockKey); return; }
   const ok = await showAppModal({ title: '✅ Mark Complete', msg: 'Mark this clean as completed?', confirmText: 'Yes, done!', cancelText: 'Not yet' });
-  if (!ok) return;
+  if (!ok) { _releaseLock(_actionLocks, lockKey); return; }
   c.done = true; c.cleanerConfirmed = true;
-  save(); pushAppData('cleans', cleans); renderCleanerCleans();
-  showBanner('✓ Clean marked as complete', 'ok');
-  // Push owner
-  const ownerSub = await getFreshOwnerSub();
-  if (ownerSub) {
-    sendPushToDevice(ownerSub,
-      '🏡 Clean Complete!',
-      `${c.cleaner} has finished the clean for ${c.guestName || 'guest'} on ${fmt(c.date)}`,
-      '/',
-      'done-' + cleanId
-    );
+  const b = bookings.find(bk => bk.id === c.bookingId || bk.name === c.guestName);
+  if (b) b.cleanerConfirmed = true;
+  try {
+    _normalizeBookingCleanState();
+    save(); pushAppData('cleans', cleans); renderCleanerCleans();
+    showBanner('✓ Clean marked as complete', 'ok');
+    // Push owner
+    const ownerSub = await getFreshOwnerSub();
+    if (ownerSub) {
+      sendPushToDevice(ownerSub,
+        '🏡 Clean Complete!',
+        `${c.cleaner} has finished the clean for ${c.guestName || 'guest'} on ${fmt(c.date)}`,
+        '/',
+        'done-' + cleanId
+      );
+    }
+  } finally {
+    _releaseLock(_actionLocks, lockKey);
   }
 }
 function renderCleanerView() {
@@ -5970,17 +6587,26 @@ function renderCleanerView() {
 }
 
 // ── ASSIGN CLEANER TO BOOKING (from detail modal) ─────────────────────────────
-async function assignCleanerToBooking(bookingId, assignmentSource = 'quick') {
-  const cleanerId = parseInt(document.getElementById('detail-assign-cleaner').value);
-  const date = document.getElementById('detail-assign-date').value;
-  if (!cleanerId || !date) { showBanner('⚠ Select a cleaner and date', 'warn'); return; }
+async function assignCleanerToBooking(bookingId) {
+  const lockKey = 'assignCleaner:' + String(bookingId);
+  if (!_acquireLock(_actionLocks, lockKey)) return;
+  const saveBtn = document.getElementById('detail-assign-btn');
+  if (saveBtn && saveBtn.disabled) { _releaseLock(_actionLocks, lockKey); return; }
+  const cleanerInput = document.getElementById('detail-assign-cleaner');
+  const dateInput = document.getElementById('detail-assign-date');
+  if (!cleanerInput || !dateInput) { _releaseLock(_actionLocks, lockKey); return; }
+  const cleanerId = parseInt(cleanerInput.value);
+  const date = dateInput.value;
+  if (!cleanerId || !date) { showBanner('⚠ Select a cleaner and date', 'warn'); _releaseLock(_actionLocks, lockKey); return; }
   const cleanerObj = loadCleaners().find(c => c.id === cleanerId);
-  if (!cleanerObj) { showBanner('⚠ Cleaner not found', 'warn'); return; }
+  if (!cleanerObj) { showBanner('⚠ Cleaner not found', 'warn'); _releaseLock(_actionLocks, lockKey); return; }
   const booking = bookings.find(b => b.id === bookingId);
-  if (!booking) return;
+  if (!booking) { _releaseLock(_actionLocks, lockKey); return; }
   const matched = _findMatchingCleanForBooking(booking, date);
   const existingIdx = matched ? cleans.findIndex(c => c.id === matched.id) : -1;
   const prev = existingIdx >= 0 ? cleans[existingIdx] : null;
+  const keepConfirmed = !!(prev && prev.cleanerConfirmed && String(prev.cleanerId) === String(cleanerObj.id) && String(prev.date) === String(date));
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
   const newClean = {
     id: prev ? prev.id : Date.now(),
     bookingId, guestName: booking.name,
@@ -5989,70 +6615,77 @@ async function assignCleanerToBooking(bookingId, assignmentSource = 'quick') {
     assignedAt: prev ? (prev.assignedAt || new Date().toISOString()) : new Date().toISOString(),
     done: !!(prev && prev.done),
     notified: !!(prev && prev.notified),
-    cleanerConfirmed: !!(prev && prev.cleanerConfirmed)
+    cleanerDeclined: false,
+    cleanerConfirmed: keepConfirmed
   };
   if (existingIdx >= 0) cleans[existingIdx] = newClean;
   else cleans.push(newClean);
 
-  updateCleanerLearning(cleanerObj, assignmentSource);
+  booking.cleanerConfirmed = !!newClean.cleanerConfirmed;
 
-  save();
-  const sharedSaved = await pushAppDataNow('cleans', cleans);
-  if (sharedSaved) {
-    showBanner('✓ Assigned to ' + cleanerObj.name + ' (synced)', 'ok');
-  } else {
-    showBanner('⚠ Assigned locally. Shared sync pending/retry required.', 'warn');
-  }
-  showDetail(bookingId);
-
-  // Pull latest pushSubs from Sheet (cleaner sub lives on cleaner's device)
   try {
-    const url = getCurrentScriptURL();
-    console.log('Fetching pushSubs from:', url);
-    if (url && url.includes('script.google.com')) {
-      const resp = await fetch(url + '?action=getAppData');
-      const json = await resp.json();
-      if (json.success && json.data && json.data.pushSubs) {
-        const local = getPushSubs();
-        const merged = {
-          owner: local.owner || json.data.pushSubs.owner,
-          cleaners: Object.assign({}, json.data.pushSubs.cleaners, local.cleaners)
-        };
-        localStorage.setItem(lsKey('push-subs'), JSON.stringify(merged));
-        console.log('Refreshed pushSubs. Cleaners:', Object.keys(merged.cleaners));
-      } else {
-        console.warn('getAppData response:', json);
-      }
+    _normalizeBookingCleanState();
+    _recordCleanerAssignmentUsage(cleanerObj);
+    save();
+    const sharedSaved = await pushAppDataNow('cleans', cleans);
+    if (sharedSaved) {
+      showBanner('✓ Assigned to ' + cleanerObj.name + (newClean.cleanerConfirmed ? ' (already confirmed)' : ' — awaiting cleaner response'), 'ok');
+    } else {
+      showBanner('⚠ Assigned locally. Shared sync pending/retry required.', 'warn');
     }
-  } catch(e) { console.warn('Could not refresh pushSubs:', e); }
+    showDetail(bookingId);
 
-  // Send push notification
-  const cleanerSub = getCleanerSub(cleanerObj.id);
-  console.log('Cleaner sub for id', cleanerObj.id, ':', cleanerSub ? 'found' : 'NOT FOUND');
-  if (cleanerSub) {
-    sendPushToDevice(cleanerSub,
-      '🏡 New Clean Assigned',
-      `${booking.name || 'Guest'} · ${fmt(date)}`,
-      cleanerLinkForId(cleanerObj),
-      'assign-' + bookingId
-    );
-  } else {
-    console.warn('No push subscription found for cleaner', cleanerObj.id, '— cleaner needs to enable notifications');
-  }
+    // Pull latest pushSubs from Sheet (cleaner sub lives on cleaner's device)
+    try {
+      const url = getCurrentScriptURL();
+      console.log('Fetching pushSubs from:', url);
+      if (url && url.includes('script.google.com')) {
+        const resp = await fetch(url + '?action=getAppData');
+        const json = await resp.json();
+        if (json.success && json.data && json.data.pushSubs) {
+          const local = getPushSubs();
+          const merged = {
+            owner: local.owner || json.data.pushSubs.owner,
+            cleaners: Object.assign({}, json.data.pushSubs.cleaners, local.cleaners)
+          };
+          localStorage.setItem(lsKey('push-subs'), JSON.stringify(merged));
+          console.log('Refreshed pushSubs. Cleaners:', Object.keys(merged.cleaners));
+        } else {
+          console.warn('getAppData response:', json);
+        }
+      }
+    } catch(e) { console.warn('Could not refresh pushSubs:', e); }
 
-  // Send email notification via Gmail/Apps Script (fires silently in background)
-  if (cleanerObj.email) {
-    sendCleanerEmail({
-      cleanerName: cleanerObj.name,
-      cleanerEmail: cleanerObj.email,
-      guestName: booking.name || 'Guest',
-      checkin: fmt(booking.checkin),
-      checkout: fmt(booking.checkout),
-      cleanerLink: cleanerLinkForId(cleanerObj)
-    }).then(result => {
-      if (result.ok) showBanner('✉️ Email sent to ' + cleanerObj.name, 'ok');
-      else if (result.reason !== 'no-key' && result.reason !== 'no-email') console.warn('Email failed:', result);
-    });
+    // Send push notification
+    const cleanerSub = getCleanerSub(cleanerObj.id);
+    console.log('Cleaner sub for id', cleanerObj.id, ':', cleanerSub ? 'found' : 'NOT FOUND');
+    if (cleanerSub) {
+      sendPushToDevice(cleanerSub,
+        '🏡 New Clean Assigned',
+        `${booking.name || 'Guest'} · ${fmt(date)}`,
+        cleanerLinkForId(cleanerObj),
+        'assign-' + bookingId
+      );
+    } else {
+      console.warn('No push subscription found for cleaner', cleanerObj.id, '— cleaner needs to enable notifications');
+    }
+
+    // Send email notification via Gmail/Apps Script (fires silently in background)
+    if (cleanerObj.email) {
+      sendCleanerEmail({
+        cleanerName: cleanerObj.name,
+        cleanerEmail: cleanerObj.email,
+        guestName: booking.name || 'Guest',
+        checkin: fmt(booking.checkin),
+        checkout: fmt(booking.checkout),
+        cleanerLink: cleanerLinkForId(cleanerObj)
+      }).then(result => {
+        if (result.ok) showBanner('✉️ Email sent to ' + cleanerObj.name, 'ok');
+        else if (result.reason !== 'no-key' && result.reason !== 'no-email') console.warn('Email failed:', result);
+      });
+    }
+  } finally {
+    _releaseLock(_actionLocks, lockKey);
   }
 }
 
@@ -6621,6 +7254,9 @@ function copyCleanerLinkById(id) {
 document.addEventListener('DOMContentLoaded', async () => {
   // Migrate single-property legacy config/keys into multi-property storage first.
   migrateConfigFromLegacySettings();
+
+  // Phase 1: identify host and attempt host-linked safe settings restore.
+  await ensureHostIdentityAndRestore();
 
   // Setup appears only when no valid active property config exists.
   await showSetupIfNeeded();

@@ -5,6 +5,7 @@
 const PROPERTY_CONFIG_KEY = 'gh-property-config'; // legacy single-property key
 const PROPERTIES_KEY = 'gh-properties';
 const ACTIVE_PROPERTY_ID_KEY = 'gh-active-property-id';
+const SHARED_INTEGRATIONS_CACHE_KEY = 'gh-shared-integrations-cache';
 
 // ── KEY NAMESPACING ────────────────────────────────────────────────────────────
 /**
@@ -351,6 +352,8 @@ function savePropertyConfig(updates) {
 function getCurrentScriptURL() {
   const cfg = getActivePropertyConfig();
   if (cfg.integrations && cfg.integrations.scriptUrl) return cfg.integrations.scriptUrl;
+  const shared = getSharedIntegrationConfig();
+  if (shared && shared.scriptUrl) return shared.scriptUrl;
   const legacy = localStorage.getItem('gh-script-url');
   if (legacy) return legacy;
   return (typeof DEFAULT_SCRIPT_URL !== 'undefined') ? DEFAULT_SCRIPT_URL : '';
@@ -359,6 +362,8 @@ function getCurrentScriptURL() {
 function getPropertySheetCsvUrl() {
   const cfg = getActivePropertyConfig();
   if (cfg.integrations && cfg.integrations.sheetCsvUrl) return cfg.integrations.sheetCsvUrl;
+  const shared = getSharedIntegrationConfig();
+  if (shared && shared.sheetCsvUrl) return shared.sheetCsvUrl;
   return (typeof SHEET_URL !== 'undefined') ? SHEET_URL : '';
 }
 
