@@ -5,6 +5,7 @@
 const PROPERTY_CONFIG_KEY = 'gh-property-config'; // legacy single-property key
 const PROPERTIES_KEY = 'gh-properties';
 const ACTIVE_PROPERTY_ID_KEY = 'gh-active-property-id';
+const SHARED_INTEGRATIONS_CACHE_KEY = 'gh-shared-integrations-cache';
 
 // ── KEY NAMESPACING ────────────────────────────────────────────────────────────
 /**
@@ -351,6 +352,8 @@ function savePropertyConfig(updates) {
 function getCurrentScriptURL() {
   const cfg = getActivePropertyConfig();
   if (cfg.integrations && cfg.integrations.scriptUrl) return cfg.integrations.scriptUrl;
+  const shared = getSharedIntegrationConfig();
+  if (shared && shared.scriptUrl) return shared.scriptUrl;
   const legacy = localStorage.getItem('gh-script-url');
   if (legacy) return legacy;
   return (typeof DEFAULT_SCRIPT_URL !== 'undefined') ? DEFAULT_SCRIPT_URL : '';
@@ -359,6 +362,8 @@ function getCurrentScriptURL() {
 function getPropertySheetCsvUrl() {
   const cfg = getActivePropertyConfig();
   if (cfg.integrations && cfg.integrations.sheetCsvUrl) return cfg.integrations.sheetCsvUrl;
+  const shared = getSharedIntegrationConfig();
+  if (shared && shared.sheetCsvUrl) return shared.sheetCsvUrl;
   return (typeof SHEET_URL !== 'undefined') ? SHEET_URL : '';
 }
 
@@ -421,6 +426,97 @@ function getDriveFolderId() {
   const c = getActivePropertyConfig();
   if (c.integrations && c.integrations.driveFolderId) return c.integrations.driveFolderId;
   return localStorage.getItem('gh-drive-folder-id') || null;
+}
+
+function getDriveClientId() {
+  const local = localStorage.getItem('gh-gdrive-client-id') || '';
+  if (local) return local;
+  const shared = getSharedIntegrationConfig();
+  return (shared && shared.gDriveClientId) || '';
+}
+
+function getSharedIntegrationConfig() {
+  try {
+    const raw = localStorage.getItem(SHARED_INTEGRATIONS_CACHE_KEY);
+    if (!raw) return null;
+    const json = JSON.parse(raw);
+    if (!json || typeof json !== 'object') return null;
+    return {
+      sheetCsvUrl: String(json.sheetCsvUrl || '').trim(),
+      scriptUrl: String(json.scriptUrl || '').trim(),
+      gDriveClientId: String(json.gDriveClientId || '').trim(),
+      updatedAt: json.updatedAt || null
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveSharedIntegrationConfig(config) {
+  if (!config || typeof config !== 'object') return;
+  const safe = {
+    sheetCsvUrl: String(config.sheetCsvUrl || '').trim(),
+    scriptUrl: String(config.scriptUrl || '').trim(),
+    gDriveClientId: String(config.gDriveClientId || '').trim(),
+    updatedAt: config.updatedAt || new Date().toISOString()
+  };
+  localStorage.setItem(SHARED_INTEGRATIONS_CACHE_KEY, JSON.stringify(safe));
+}
+
+function getPropertyConfigGaps() {
+  const cfg = getActivePropertyConfig() || {};
+  const integ = cfg.integrations || {};
+
+  const sheetCsvUrl = String(integ.sheetCsvUrl || '').trim();
+  const scriptUrl = String(integ.scriptUrl || '').trim();
+  const driveFolderId = String(getDriveFolderId() || '').trim();
+  const driveClientId = String(getDriveClientId() || '').trim();
+
+  const gaps = [];
+
+  const sheetLooksValid =
+    !!sheetCsvUrl
+    && sheetCsvUrl.toLowerCase().includes('docs.google.com/spreadsheets')
+    && sheetCsvUrl.includes('output=csv');
+  if (!sheetLooksValid) {
+    gaps.push({
+      key: 'sheetCsvUrl',
+      severity: 'warning',
+      label: 'Google Sheet CSV URL missing or invalid',
+      detail: 'Cloud booking sync is not connected yet. You can add this later.'
+    });
+  }
+
+  const scriptLooksValid =
+    !!scriptUrl
+    && scriptUrl.toLowerCase().includes('script.google.com/macros')
+    && scriptUrl.endsWith('/exec');
+  if (!scriptLooksValid) {
+    gaps.push({
+      key: 'scriptUrl',
+      severity: 'warning',
+      label: 'Apps Script URL missing or invalid',
+      detail: 'Cloud sync and automations are not connected yet. You can add this later.'
+    });
+  }
+
+  if (!driveClientId) {
+    gaps.push({
+      key: 'gdriveClientId',
+      severity: 'warning',
+      label: 'Google Drive OAuth Client ID missing',
+      detail: 'Receipt uploads and Drive backup features require a Drive connection.'
+    });
+  } else if (!driveFolderId) {
+    gaps.push({
+      key: 'driveFolderId',
+      severity: 'warning',
+      label: 'Google Drive folder ID missing',
+      detail: 'Drive uploads/backups may not target the expected folder until configured.'
+    });
+  }
+
+  return gaps;
 }
 
 function saveDriveFolderId(folderId) {
@@ -488,6 +584,7 @@ function initPropertyUI() {
   _setText('active-property-name', cfg.name);
 
   if (typeof renderPropertySwitcher === 'function') renderPropertySwitcher();
+  if (typeof renderSetupWarningBanner === 'function') renderSetupWarningBanner();
 }
 
 function _setText(id, value) {

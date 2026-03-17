@@ -73,6 +73,7 @@ function _setupShowOverlay(editMode, createMode) {
 }
 
 function _setupBuildOverlay(editMode, createMode, onDone) {
+  const onboardingMode = !editMode && !createMode;
   const cfg   = createMode ? _setupBlankConfig() : getActivePropertyConfig();
   const stats = cfg.property    || {};
   const integ = cfg.integrations || {};
@@ -118,12 +119,12 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
       <div id="setup-header">
         <div id="setup-icon">🏡</div>
         <div>
-          <div id="setup-title">${createMode ? 'Add Property' : (editMode ? 'Edit Property Configuration' : 'Welcome — Set Up Your Property')}</div>
+          <div id="setup-title">${createMode ? 'Add Property' : (editMode ? 'Property Configuration' : 'Welcome — Add Your Property')}</div>
           <div id="setup-desc">${createMode
             ? 'Create another property profile. It will become your active property after save.'
             : (editMode
                 ? 'Update your property details. Changes take effect immediately.'
-                : 'Fill in your property details to get started. You can edit these any time in Settings → Property Setup.')
+                : 'Start with the basics now. You can connect Google services later in Settings when you are ready.')
           }</div>
         </div>
       </div>
@@ -248,11 +249,16 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
           </div>
         </div>
 
-        <!-- ══ SECTION: GOOGLE ══ -->
-        <div class="ss-label">Google Integration</div>
+        <!-- ══ SECTION: GOOGLE / ADVANCED ══ -->
+        <div class="ss-label">${onboardingMode ? 'Optional Integrations' : 'Google Integration'}</div>
+
+        ${onboardingMode ? `<div class="ss-hint" style="margin-bottom:10px">You can start using the app without this. Connect Google later for cloud sync, receipts, and backups.</div>` : ''}
+
+        <details ${onboardingMode ? '' : 'open'} style="margin-bottom:8px">
+          <summary style="cursor:pointer;font-weight:600;font-size:13px;color:var(--forest);margin-bottom:10px">${onboardingMode ? 'Connect Google services later (optional)' : 'Integration settings'}</summary>
 
         <div class="ss-field" style="margin-bottom:14px">
-          <label class="ss-lbl" for="s-sheet-url">Google Sheet CSV URL <span class="ss-req" aria-hidden="true">*</span></label>
+          <label class="ss-lbl" for="s-sheet-url">Google Sheet CSV URL ${onboardingMode ? '<span class="ss-opt">(optional now)</span>' : '<span class="ss-req" aria-hidden="true">*</span>'}</label>
           <input type="url" id="s-sheet-url" class="ss-inp"
             placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?…&output=csv"
             value="${pre('sheetCsvUrl', integ.sheetCsvUrl || '')}">
@@ -263,7 +269,7 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
         </div>
 
         <div class="ss-field" style="margin-bottom:4px">
-          <label class="ss-lbl" for="s-script-url">Apps Script URL <span class="ss-req" aria-hidden="true">*</span></label>
+          <label class="ss-lbl" for="s-script-url">Apps Script URL ${onboardingMode ? '<span class="ss-opt">(optional now)</span>' : '<span class="ss-req" aria-hidden="true">*</span>'}</label>
           <input type="url" id="s-script-url" class="ss-inp"
             placeholder="https://script.google.com/macros/s/…/exec"
             value="${pre('scriptUrl', integ.scriptUrl || '')}">
@@ -271,6 +277,29 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
             In Apps Script: <strong>Deploy → Manage deployments → copy the /exec URL</strong>.
           </div>
         </div>
+
+        <div class="ss-row">
+          <div class="ss-field">
+            <label class="ss-lbl" for="s-gdrive-client-id">Google OAuth Client ID</label>
+            <input type="text" id="s-gdrive-client-id" class="ss-inp"
+              placeholder="xxxxx.apps.googleusercontent.com"
+              value="${ea(localStorage.getItem('gh-gdrive-client-id') || '')}">
+          </div>
+          <div class="ss-field">
+            <label class="ss-lbl" for="s-drive-folder-id">Drive Folder ID</label>
+            <input type="text" id="s-drive-folder-id" class="ss-inp"
+              placeholder="e.g. 1AbCdEf..."
+              value="${ea(integ.driveFolderId || '')}">
+          </div>
+        </div>
+
+        <div class="ss-field" style="margin-top:10px;margin-bottom:4px">
+          <label class="ss-lbl" for="s-calendar-id">Google Calendar ID</label>
+          <input type="text" id="s-calendar-id" class="ss-inp"
+            placeholder="primary"
+            value="${ea(integ.calendarId || 'primary')}">
+        </div>
+        </details>
 
         <!-- ── Error area ── -->
         <div id="setup-errors" role="alert" aria-live="assertive" style="display:none"></div>
@@ -294,6 +323,8 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
   const form    = overlay.querySelector('#setup-form');
   const saveBtn = overlay.querySelector('#setup-save');
   const errEl   = overlay.querySelector('#setup-errors');
+
+  overlay.dataset.onboardingMode = onboardingMode ? '1' : '0';
 
   const doSubmit = (e) => {
     if (e) e.preventDefault();
@@ -341,6 +372,8 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
     localStorage.setItem('gh-script-url', newCfg.integrations.scriptUrl);
     if (newCfg.owner.email) localStorage.setItem('gh-inv-email',  newCfg.owner.email);
     if (newCfg.owner.name)  localStorage.setItem('gh-inv-name',   newCfg.owner.name);
+    const driveClientId = (((overlay.querySelector('#s-gdrive-client-id') || {}).value) || '').trim();
+    if (driveClientId) localStorage.setItem('gh-gdrive-client-id', driveClientId);
 
     // Update DB adapter thunks pick up the new scriptUrl on the next call.
     // (No action needed — thunks call getCurrentScriptURL() at call time.)
@@ -380,6 +413,7 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
 function _setupValidate(overlay) {
   const v  = id => (overlay.querySelector('#' + id) || {}).value || '';
   const errors = [];
+  const onboardingMode = overlay && overlay.dataset && overlay.dataset.onboardingMode === '1';
 
   const name      = v('s-name').trim();
   const suburb    = v('s-suburb').trim();
@@ -390,6 +424,7 @@ function _setupValidate(overlay) {
   const email     = v('s-owner-email').trim();
   const sheetUrl  = v('s-sheet-url').trim();
   const scriptUrl = v('s-script-url').trim();
+  const driveFolderId = v('s-drive-folder-id').trim();
 
   if (!name)   errors.push('Property name is required.');
   if (!suburb) errors.push('Suburb / town is required.');
@@ -399,26 +434,31 @@ function _setupValidate(overlay) {
   if (!guests || guests < 1)  errors.push('Max guests must be at least 1.');
   if (isNaN(baths) || baths < 0) errors.push('Bathrooms cannot be negative.');
 
-  if (!email) {
-    errors.push('Owner email is required.');
-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     errors.push('Owner email doesn\'t look valid (e.g. you@example.com).');
   }
+  if (!onboardingMode && !email) {
+    errors.push('Owner email is required.');
+  }
 
-  if (!sheetUrl) {
+  if (!onboardingMode && !sheetUrl) {
     errors.push('Google Sheet CSV URL is required.');
-  } else if (!sheetUrl.toLowerCase().includes('docs.google.com/spreadsheets')) {
+  } else if (sheetUrl && !sheetUrl.toLowerCase().includes('docs.google.com/spreadsheets')) {
     errors.push('Google Sheet URL should start with docs.google.com/spreadsheets…');
-  } else if (!sheetUrl.includes('output=csv')) {
+  } else if (sheetUrl && !sheetUrl.includes('output=csv')) {
     errors.push('Google Sheet URL should end in &output=csv — publish as CSV first.');
   }
 
-  if (!scriptUrl) {
+  if (!onboardingMode && !scriptUrl) {
     errors.push('Apps Script URL is required.');
-  } else if (!scriptUrl.toLowerCase().includes('script.google.com/macros')) {
+  } else if (scriptUrl && !scriptUrl.toLowerCase().includes('script.google.com/macros')) {
     errors.push('Apps Script URL should contain script.google.com/macros.');
-  } else if (!scriptUrl.endsWith('/exec')) {
+  } else if (scriptUrl && !scriptUrl.endsWith('/exec')) {
     errors.push('Apps Script URL should end in /exec (the deployed web-app URL).');
+  }
+
+  if (driveFolderId && !/^[A-Za-z0-9_-]{10,}$/.test(driveFolderId)) {
+    errors.push('Drive Folder ID looks invalid. Paste the folder ID only (letters, numbers, _ or -).');
   }
 
   return errors;
@@ -485,8 +525,8 @@ function _setupBuildConfig(overlay, createMode) {
       vapidPublicKey:  _existingInteg.vapidPublicKey
                          || (typeof VAPID_PUBLIC_KEY !== 'undefined' ? VAPID_PUBLIC_KEY : ''),
       pushFunctionUrl: _existingInteg.pushFunctionUrl || '/.netlify/functions/send-push',
-      calendarId:      _existingInteg.calendarId      || 'primary',
-      driveFolderId:   _existingInteg.driveFolderId   || null,
+      calendarId:      v('s-calendar-id') || _existingInteg.calendarId || 'primary',
+      driveFolderId:   v('s-drive-folder-id') || _existingInteg.driveFolderId || null,
     },
 
     pricing: {
