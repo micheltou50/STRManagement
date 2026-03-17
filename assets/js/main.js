@@ -247,6 +247,88 @@ function renderSettingsPlanUsageCard() {
   planEl.innerHTML = `<div class="card" style="margin:0;border-left:3px solid ${lines.length ? 'var(--amber)' : 'var(--warm)'}"><div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:4px">Plan & Usage</div>${usageSummary}${lines.length ? `<div style="font-size:12px;color:var(--amber);margin-top:6px">${lines[0]}</div>` : `<div style="font-size:12px;color:var(--text-soft);margin-top:6px">You’re within the current plan guide.</div>`}</div>`;
 }
 
+
+function renderOnboardingGuidance(usageSnapshot) {
+  const el = document.getElementById('dashboard-product-guidance');
+  if (!el) return;
+  const usage = usageSnapshot || getUsageSnapshotLite();
+  const tips = [];
+  if (!usage.propertyCount) tips.push('Run Property Configuration to save your first property profile.');
+  if (!usage.bookingCount) tips.push('Add or sync bookings so dashboard forecasting can start.');
+  if (!usage.cleanerCount) tips.push('Add at least one cleaner in Settings → Property → Team.');
+  if (!tips.length) tips.push('Core setup is complete — keep integrations connected for reliable sync.');
+  el.innerHTML = `<div class="card" style="margin:0;border-left:3px solid var(--warm)"><div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:4px">Setup Guidance</div><div style="font-size:12px;color:var(--text-soft)">${tips[0]}</div></div>`;
+}
+
+function renderPlanNudges(usageSnapshot, planState) {
+  const el = document.getElementById('dashboard-plan-nudges');
+  if (!el) return;
+  const PLAN_LIMITS = {
+    free: { properties: 1, bookings: 30, cleaners: 2 },
+    pro:  { properties: 999, bookings: 9999, cleaners: 999 }
+  };
+  const plan = planState || getPlanStateLite();
+  const usage = usageSnapshot || getUsageSnapshotLite();
+  const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.free;
+  const lines = getPlanWarningLines(usage, limits);
+  el.innerHTML = lines.length
+    ? `<div class="card" style="margin:0;border-left:3px solid var(--amber)"><div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:4px">Plan Nudge</div><div style="font-size:12px;color:var(--amber)">${lines[0]}</div></div>`
+    : '';
+}
+
+function getConfiguredCalendarId() {
+  try {
+    const cfg = (typeof getPropertyConfig === 'function' ? getPropertyConfig() : null) || {};
+    const id = cfg.integrations && cfg.integrations.calendarId;
+    return String(id || 'primary').trim() || 'primary';
+  } catch (e) {
+    return 'primary';
+  }
+}
+
+function calendarEventsUrl(eventId) {
+  const calId = encodeURIComponent(getConfiguredCalendarId());
+  const base = 'https://www.googleapis.com/calendar/v3/calendars/' + calId + '/events';
+  return eventId ? (base + '/' + encodeURIComponent(eventId)) : base;
+}
+
+function renderConnectionSummary() {
+  const wrap = document.getElementById('conn-summary-list');
+  if (!wrap) return;
+
+  const sheetUrl = (typeof getPropertySheetCsvUrl === 'function' ? getPropertySheetCsvUrl() : '').trim();
+  const scriptUrl = (typeof getCurrentScriptURL === 'function' ? getCurrentScriptURL() : '').trim();
+  const token = getDriveToken();
+  const clientId = (typeof getDriveClientId === 'function' ? getDriveClientId() : localStorage.getItem('gh-gdrive-client-id') || '').trim();
+  const calendarId = getConfiguredCalendarId();
+
+  const sheetOk = !!sheetUrl && sheetUrl.includes('docs.google.com/spreadsheets') && sheetUrl.includes('output=csv');
+  const scriptOk = !!scriptUrl && scriptUrl.includes('script.google.com/macros') && scriptUrl.endsWith('/exec');
+  const driveOk = !!token;
+  const calendarOk = !!token && !!calendarId;
+
+  const row = (label, ok, detail) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--mist);border-radius:10px">
+      <div style="font-size:13px;color:var(--text)">${label}</div>
+      <div style="font-size:12px;color:${ok ? 'var(--moss)' : 'var(--amber)'}">${ok ? '✓ Connected' : '⚠ Not configured'}${detail ? ` · ${detail}` : ''}</div>
+    </div>`;
+
+  wrap.innerHTML = [
+    row('Google Sheets', sheetOk, sheetOk ? 'CSV URL saved' : 'Add sheet CSV URL'),
+    row('Apps Script', scriptOk, scriptOk ? 'Exec URL saved' : 'Add Apps Script /exec URL'),
+    row('Google Drive', driveOk, driveOk ? 'Token active' : (clientId ? 'Client ID set, connect required' : 'Missing Client ID')),
+    row('Google Calendar', calendarOk, calendarOk ? ('Calendar: ' + escHtml(calendarId)) : 'Connect Drive token first')
+  ].join('');
+}
+
+let _connectionSummaryTimer = null;
+function refreshConnectionSummarySoon() {
+  clearTimeout(_connectionSummaryTimer);
+  _connectionSummaryTimer = setTimeout(() => {
+    try { renderConnectionSummary(); } catch (e) { console.warn('renderConnectionSummary failed', e); }
+  }, 120);
+}
+
 // ── PLATFORM ICON ─────────────────────────────────────────────────────────
 function platformIcon(platform, size) {
   size = size || 40;
@@ -663,7 +745,7 @@ function finishSync(imported, skipped, manual) {
 
   if (token && toDeleteFromCal.length) {
     toDeleteFromCal.forEach(eventId => {
-      fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events/' + eventId, {
+      fetch(calendarEventsUrl(eventId), {
         method: 'DELETE',
         headers: { Authorization: 'Bearer ' + token }
       }).catch(() => {}); // silent — best effort
@@ -1001,10 +1083,14 @@ function renderDashboard() {
     <div style="font-size:12px;color:var(--text-soft)">🧹 Multi-clean days: ${multiCleansText}</div>`;
   }
 
+  const usageSnapshot = getUsageSnapshotLite();
+  const planState = getPlanStateLite();
   renderOnboardingGuidance(usageSnapshot);
   renderPlanNudges(usageSnapshot, planState);
 
-  const upcoming = [...bookings].filter(b => b.status !== 'cancelled' && new Date(b.checkin) >= now).sort((a,b) => new Date(a.checkin)-new Date(b.checkin));
+  const upcoming = [...bookings]
+    .filter(b => b.status !== 'cancelled' && b.checkin && new Date(String(b.checkin).slice(0, 10) + 'T00:00:00') >= todayStart)
+    .sort((a, b) => new Date(String(a.checkin).slice(0, 10) + 'T00:00:00') - new Date(String(b.checkin).slice(0, 10) + 'T00:00:00'));
   const nc = document.getElementById('next-checkin-content');
   if (nc) {
     if (upcoming.length > 0) {
@@ -2668,7 +2754,7 @@ async function deleteBooking(id) {
     if (!token) {
       showBanner('✅ Booking deleted — reconnect Google Drive to also remove calendar event', 'warn');
     } else {
-      fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events/' + deletedBooking.gcalEventId, {
+      fetch(calendarEventsUrl(deletedBooking.gcalEventId), {
         method: 'DELETE',
         headers: { Authorization: 'Bearer ' + token }
       }).then(res => {
@@ -4837,7 +4923,7 @@ async function pushBookingToCalendar(b) {
     colorId: '2'
   };
   try {
-    const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+    const res = await fetch(calendarEventsUrl(), {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
       body: JSON.stringify(event)
@@ -4872,7 +4958,7 @@ async function updateBookingInCalendar(b) {
     colorId: '2'
   };
   try {
-    const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events/' + b.gcalEventId, {
+    const res = await fetch(calendarEventsUrl(b.gcalEventId), {
       method: 'PUT',
       headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
       body: JSON.stringify(event)
@@ -4923,7 +5009,7 @@ Net: $${Number(b.netPayout||0).toFixed(2)}`,
     try {
       if (b.gcalEventId) {
         // Update existing — never duplicate
-        const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events/' + b.gcalEventId, {
+        const res = await fetch(calendarEventsUrl(b.gcalEventId), {
           method: 'PUT',
           headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
           body: JSON.stringify(event)
@@ -4932,7 +5018,7 @@ Net: $${Number(b.netPayout||0).toFixed(2)}`,
         else if (res.status === 404) {
           // Deleted from calendar — recreate
           b.gcalEventId = null;
-          const r2 = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+          const r2 = await fetch(calendarEventsUrl(), {
             method: 'POST',
             headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
             body: JSON.stringify(event)
@@ -4944,7 +5030,7 @@ Net: $${Number(b.netPayout||0).toFixed(2)}`,
         } else failed++;
       } else {
         // New booking — create
-        const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+        const res = await fetch(calendarEventsUrl(), {
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
           body: JSON.stringify(event)
