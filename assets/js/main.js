@@ -9,6 +9,34 @@ function escHtml(s) {
     .replace(/'/g, '&#39;');
 }
 
+
+function parseLocalDayStart(dateLike) {
+  const key = String(dateLike || '').slice(0, 10);
+  return key ? new Date(key + 'T00:00:00') : new Date('');
+}
+
+function isAwaitingCleanerResponse(clean, nowRef) {
+  if (!clean) return false;
+  if (!clean.cleaner && !clean.cleanerId) return false;
+  if (clean.done || clean.cleanerDeclined || clean.cleanerConfirmed) return false;
+  const now = nowRef instanceof Date ? nowRef : new Date();
+  const assignedAt = clean.assignedAt ? new Date(clean.assignedAt) : null;
+  const ageMs = assignedAt && !Number.isNaN(assignedAt.getTime()) ? (now.getTime() - assignedAt.getTime()) : 0;
+  return ageMs >= 0;
+}
+
+function getAwaitingResponseMeta(clean, nowRef) {
+  const now = nowRef instanceof Date ? nowRef : new Date();
+  const assignedAt = clean && clean.assignedAt ? new Date(clean.assignedAt) : null;
+  const ageMs = assignedAt && !Number.isNaN(assignedAt.getTime()) ? Math.max(0, now.getTime() - assignedAt.getTime()) : 0;
+  const ageHours = ageMs / 3600000;
+  return {
+    ageHours,
+    isOverdue: ageHours >= 24,
+    label: ageHours >= 24 ? `Awaiting ${Math.round(ageHours / 24)}d` : (ageHours >= 1 ? `Awaiting ${Math.round(ageHours)}h` : 'Awaiting reply')
+  };
+}
+
 // ── CONFIG ────────────────────────────────────────────────────────────────
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTlssTFmteUx1q3NkqRz2hAIqtJbt8OlRxl8VcX1x5gW6mI8W52n3xutATDO13qlRNoobKSsmVPciDR/pub?gid=0&single=true&output=csv";
 const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzM0wcdsUqK03faXxk2VqTAEqzno4GCAMzFYGrUXc4y1LKDwd8GbCKhNJruvbXJGhOflw/exec";
@@ -299,7 +327,8 @@ function renderConnectionSummary() {
   const sheetUrl = (typeof getPropertySheetCsvUrl === 'function' ? getPropertySheetCsvUrl() : '').trim();
   const scriptUrl = (typeof getCurrentScriptURL === 'function' ? getCurrentScriptURL() : '').trim();
   const token = getDriveToken();
-  const clientId = (typeof getDriveClientId === 'function' ? getDriveClientId() : localStorage.getItem('gh-gdrive-client-id') || '').trim();
+  const shared = (typeof getSharedIntegrationConfig === 'function' ? getSharedIntegrationConfig() : null) || {};
+  const clientId = String((typeof getDriveClientId === 'function' ? getDriveClientId() : localStorage.getItem('gh-gdrive-client-id') || '') || shared.gDriveClientId || shared.driveClientId || '').trim();
   const calendarId = getConfiguredCalendarId();
 
   const sheetOk = !!sheetUrl && sheetUrl.includes('docs.google.com/spreadsheets') && sheetUrl.includes('output=csv');
@@ -572,6 +601,7 @@ function save() {
   localStorage.setItem(lsKey('bookings'), JSON.stringify(bookings));
   localStorage.setItem(lsKey('cleans'),   JSON.stringify(cleans));
   localStorage.setItem(lsKey('notes'),    JSON.stringify(notes));
+  scheduleAppDataSave('bookings', bookings);
   scheduleAppDataSave('cleans', cleans);
   scheduleAppDataSave('notes',  notes);
 }
@@ -980,14 +1010,14 @@ function renderDashboard() {
   const safeDayLabel = (dateKey) => {
     const key = String(dateKey || '').slice(0, 10);
     if (!key) return '—';
-    const d = new Date(key + 'T00:00:00');
+    const d = parseLocalDayStart(key);
     return Number.isNaN(d.getTime()) ? key : d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
   };
 
   const activeBookings = bookings.filter(b => b.status !== 'cancelled');
-  const upcomingBookings = activeBookings.filter(b => new Date(b.checkin) >= todayStart);
-  const upcomingBookings7 = upcomingBookings.filter(b => new Date(b.checkin) < next7);
-  const upcomingBookings30 = upcomingBookings.filter(b => new Date(b.checkin) < next30);
+  const upcomingBookings = activeBookings.filter(b => parseLocalDayStart(b.checkin) >= todayStart);
+  const upcomingBookings7 = upcomingBookings.filter(b => parseLocalDayStart(b.checkin) < next7);
+  const upcomingBookings30 = upcomingBookings.filter(b => parseLocalDayStart(b.checkin) < next30);
   const upcomingRevenue7 = upcomingBookings7.reduce((sum, b) => sum + safeNum(b.hostPayout), 0);
   const upcomingRevenue30 = upcomingBookings30.reduce((sum, b) => sum + safeNum(b.hostPayout), 0);
   const upcomingPayoutEstimate = upcomingBookings.reduce((sum, b) => sum + safeNum(b.netPayout), 0);
@@ -1004,7 +1034,7 @@ function renderDashboard() {
     return co >= weekStart && co < weekEnd;
   });
 
-  const upcomingCleans = cleans.filter(c => !c.done && !c.cleanerDeclined && c.date && new Date(c.date) >= todayStart);
+  const upcomingCleans = cleans.filter(c => !c.done && !c.cleanerDeclined && c.date && parseLocalDayStart(c.date) >= todayStart);
   const cleansThisWeek = upcomingCleans.filter(c => {
     const d = new Date(c.date);
     return d >= weekStart && d < weekEnd;
@@ -1089,8 +1119,8 @@ function renderDashboard() {
   renderPlanNudges(usageSnapshot, planState);
 
   const upcoming = [...bookings]
-    .filter(b => b.status !== 'cancelled' && b.checkin && new Date(String(b.checkin).slice(0, 10) + 'T00:00:00') >= todayStart)
-    .sort((a, b) => new Date(String(a.checkin).slice(0, 10) + 'T00:00:00') - new Date(String(b.checkin).slice(0, 10) + 'T00:00:00'));
+    .filter(b => b.status !== 'cancelled' && b.checkin && parseLocalDayStart(b.checkin) >= todayStart)
+    .sort((a, b) => parseLocalDayStart(a.checkin) - parseLocalDayStart(b.checkin));
   const nc = document.getElementById('next-checkin-content');
   if (nc) {
     if (upcoming.length > 0) {
@@ -1336,6 +1366,10 @@ function renderCleaning() {
       : c.cleanerConfirmed
       ? '<span style="font-size:11px;font-weight:600;color:var(--moss);background:#EDF7ED;padding:3px 9px;border-radius:20px">✓ Accepted</span>'
       : '<span style="font-size:11px;font-weight:600;color:var(--amber);background:#FFF5E6;padding:3px 9px;border-radius:20px">⏳ Awaiting response</span>';
+    const waitingMeta = isAwaitingCleanerResponse(c, now) ? getAwaitingResponseMeta(c, now) : null;
+    const waitingChip = waitingMeta
+      ? `<span style="font-size:10px;color:var(--amber)">${escHtml(waitingMeta.label)}</span>`
+      : '';
     return `<div style="padding:14px 0;border-bottom:1px solid var(--warm)">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
         <div>
@@ -2364,6 +2398,11 @@ function renderSettings() {
   if (buEl) buEl.textContent = lastBackup;
   renderHostProfileRow();
   renderConnectionSummary();
+  const qaWrap = document.getElementById('settings-quick-actions');
+  const fixBtn = document.getElementById('settings-fix-setup-btn');
+  const setupGaps = (typeof getPropertyConfigGaps === 'function') ? getPropertyConfigGaps() : [];
+  if (qaWrap) qaWrap.style.display = setupGaps.length ? '' : 'none';
+  if (fixBtn) fixBtn.onclick = () => { openSettingsCat('property'); reopenPropertySetup(); };
   setTimeout(updateNotifStatus, 100);
 }
 
@@ -3330,6 +3369,7 @@ function restoreSafeHostSettingsPayload(payload) {
 }
 
 async function ensureHostIdentityAndRestore() {
+  if (isCleanerMode()) return;
   const scriptUrl = (getCurrentScriptURL() || '').trim();
   let host = getHostProfile();
 
@@ -4906,12 +4946,8 @@ function connectGoogleDrive() {
 
 
 // ── GOOGLE CALENDAR AUTO-SYNC ─────────────────────────────────────────────
-async function pushBookingToCalendar(b) {
-  if (b.gcalEventId) return; // already synced — skip
-  if (!b.checkin || !b.checkout || new Date(b.checkout) < new Date()) return; // past — skip
-  const token = getDriveToken();
-  if (!token) return;
-  const event = {
+function buildBookingCalendarEvent(b) {
+  return {
     summary: buildCalendarEventSummary(b.name),
     description: [
       (b.guests || '') + ' guests · ' + (b.nights || '') + ' nights',
@@ -4922,61 +4958,74 @@ async function pushBookingToCalendar(b) {
     end:   { date: b.checkout },
     colorId: '2'
   };
-  try {
-    const res = await fetch(calendarEventsUrl(), {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+}
+
+function isCalendarNotFoundStatus(status) {
+  return status === 404 || status === 410;
+}
+
+async function upsertBookingCalendarEvent(b, token) {
+  if (!b || !b.checkin || !b.checkout || new Date(b.checkout) < new Date()) return { skipped: true };
+  const authToken = token || getDriveToken();
+  if (!authToken) return { skipped: true };
+
+  const event = buildBookingCalendarEvent(b);
+
+  if (b.gcalEventId) {
+    const updateRes = await fetch(calendarEventsUrl(b.gcalEventId), {
+      method: 'PUT',
+      headers: { 'Authorization': 'Bearer ' + authToken, 'Content-Type': 'application/json' },
       body: JSON.stringify(event)
     });
-    if (res.ok) {
-      const data = await res.json();
-      b.gcalEventId = data.id;
-      save();
-    } else if (res.status === 401) {
-      showBanner('⚠ Google Calendar token expired — reconnect in Settings', 'warn');
-    } else {
-      const errData = await res.json().catch(()=>null);
-      const msg = errData?.error?.message || `HTTP ${res.status}`;
-      showBanner(`⚠ Calendar sync failed: ${msg}`, 'warn');
+    if (updateRes.ok) return { updated: true };
+    if (updateRes.status === 401) return { authError: true };
+    if (!isCalendarNotFoundStatus(updateRes.status)) {
+      return { failed: true, status: updateRes.status };
     }
-  } catch(e) {} // silent fail — calendar sync is non-critical
+    b.gcalEventId = null;
+  }
+
+  const createRes = await fetch(calendarEventsUrl(), {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + authToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify(event)
+  });
+  if (createRes.ok) {
+    const data = await createRes.json();
+    b.gcalEventId = data.id;
+    return { created: true };
+  }
+  if (createRes.status === 401) return { authError: true };
+  return { failed: true, status: createRes.status };
+}
+
+async function pushBookingToCalendar(bookingOrId) {
+  const b = (typeof bookingOrId === 'object' && bookingOrId)
+    ? bookingOrId
+    : bookings.find(x => String(x.id) === String(bookingOrId));
+  if (!b) return;
+  try {
+    const result = await upsertBookingCalendarEvent(b);
+    if (result.created || result.updated) save();
+    else if (result.authError) showBanner('⚠ Google Calendar token expired — reconnect in Settings', 'warn');
+  } catch(e) {}
 }
 
 async function updateBookingInCalendar(b) {
-  if (!b.gcalEventId) { await pushBookingToCalendar(b); return; }
-  const token = getDriveToken();
-  if (!token) return;
-  const event = {
-    summary: buildCalendarEventSummary(b.name),
-    description: [
-      (b.guests || '') + ' guests · ' + (b.nights || '') + ' nights',
-      b.platform || '',
-      b.netPayout ? 'Net: $' + Number(b.netPayout).toFixed(2) : ''
-    ].filter(Boolean).join('\n'),
-    start: { date: b.checkin },
-    end:   { date: b.checkout },
-    colorId: '2'
-  };
+  if (!b) return;
   try {
-    const res = await fetch(calendarEventsUrl(b.gcalEventId), {
-      method: 'PUT',
-      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify(event)
-    });
-    if (res.status === 401) showBanner('⚠ Google Calendar token expired — reconnect in Settings', 'warn');
-    if (res.status === 404) {
-      // Event was deleted from calendar — create fresh
-      b.gcalEventId = null;
-      await pushBookingToCalendar(b);
-    }
+    const result = await upsertBookingCalendarEvent(b);
+    if (result.created || result.updated) save();
+    else if (result.authError) showBanner('⚠ Google Calendar token expired — reconnect in Settings', 'warn');
   } catch(e) {}
 }
 
 async function syncNewBookingsToCalendar() {
   const token = getDriveToken();
   if (!token) return;
-  const toSync = bookings.filter(b => !b.gcalEventId && b.checkin && new Date(b.checkout) >= new Date());
-  for (const b of toSync) await pushBookingToCalendar(b);
+  const toSync = bookings.filter(b => b.checkin && new Date(b.checkout) >= new Date());
+  for (const b of toSync) await upsertBookingCalendarEvent(b, token);
+  save();
 }
 
 // ── GOOGLE CALENDAR SYNC ──────────────────────────────────────────────────
@@ -4998,49 +5047,16 @@ async function syncToGoogleCalendar() {
 
   let created = 0, updated = 0, failed = 0;
   for (const b of upcoming) {
-    const event = {
-      summary: buildCalendarEventSummary(b.name),
-      description: `${b.guests || ''} guests · ${b.nights || ''} nights · ${b.platform || ''}
-Net: $${Number(b.netPayout||0).toFixed(2)}`,
-      start: { date: b.checkin },
-      end:   { date: b.checkout },
-      colorId: '2'
-    };
     try {
-      if (b.gcalEventId) {
-        // Update existing — never duplicate
-        const res = await fetch(calendarEventsUrl(b.gcalEventId), {
-          method: 'PUT',
-          headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-          body: JSON.stringify(event)
-        });
-        if (res.ok) { updated++; }
-        else if (res.status === 404) {
-          // Deleted from calendar — recreate
-          b.gcalEventId = null;
-          const r2 = await fetch(calendarEventsUrl(), {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-            body: JSON.stringify(event)
-          });
-          if (r2.ok) { const d = await r2.json(); b.gcalEventId = d.id; created++; } else failed++;
-        } else if (res.status === 401) {
-          resultEl.style.background = '#FDECEA'; resultEl.style.color = '#C0392B';
-          resultEl.textContent = '✗ Token expired — reconnect Google Drive & Calendar'; return;
-        } else failed++;
-      } else {
-        // New booking — create
-        const res = await fetch(calendarEventsUrl(), {
-          method: 'POST',
-          headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-          body: JSON.stringify(event)
-        });
-        if (res.ok) { const d = await res.json(); b.gcalEventId = d.id; created++; }
-        else if (res.status === 401) {
-          resultEl.style.background = '#FDECEA'; resultEl.style.color = '#C0392B';
-          resultEl.textContent = '✗ Token expired — reconnect Google Drive & Calendar'; return;
-        } else failed++;
+      const result = await upsertBookingCalendarEvent(b, token);
+      if (result.authError) {
+        resultEl.style.background = '#FDECEA'; resultEl.style.color = '#C0392B';
+        resultEl.textContent = '✗ Token expired — reconnect Google Drive & Calendar';
+        return;
       }
+      if (result.created) created++;
+      else if (result.updated) updated++;
+      else if (result.failed) failed++;
     } catch(e) { failed++; }
     resultEl.textContent = '⟳ ' + (created + updated + failed) + ' / ' + upcoming.length + '...';
   }
@@ -5907,6 +5923,10 @@ function hasCloudSyncConfigured() {
   return sheetOk && scriptOk;
 }
 
+if (isCleanerMode()) {
+  if (isCleanerAuthed()) document.body.classList.add('cleaner-mode');
+  else document.body.classList.add('cleaner-pin-active');
+}
 render();
 if (isCleanerMode()) {
   // Cleaner mode — only pull AppData (cleans, inventory, cleaners). Skip bookings CSV + expenses.
@@ -6097,13 +6117,20 @@ function closeActionSheet() {
 function attachLongPress() {
   if (!getFx('longPress')) return;
 
+  const clearLP = () => clearTimeout(longPressTimer);
+
   // Booking items
   document.querySelectorAll('.booking-item').forEach(el => {
     if (el.dataset.lpAttached) return;
     el.dataset.lpAttached = '1';
     const id = parseInt(el.dataset.bookingId);
     if (!id) return;
-    el.addEventListener('touchstart', () => {
+    let startX = 0, startY = 0;
+    el.addEventListener('touchstart', e => {
+      if (!e.touches || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      startX = t.clientX; startY = t.clientY;
+      clearLP();
       longPressTimer = setTimeout(() => {
         const b = bookings.find(b => b.id === id);
         if (!b) return;
@@ -6113,11 +6140,15 @@ function attachLongPress() {
           { label: '📅 Push to Calendar',   fn: `() => pushBookingToCalendar(${id})` },
           { label: '🗑 Delete Booking',      fn: `() => deleteBooking(${id})`, destructive: true },
         ]);
-      }, 500);
+      }, 550);
     }, { passive:true });
-    el.addEventListener('touchend',    () => clearTimeout(longPressTimer));
-    el.addEventListener('touchcancel', () => clearTimeout(longPressTimer));
-    el.addEventListener('touchmove',   () => clearTimeout(longPressTimer), { passive:true });
+    el.addEventListener('touchend', clearLP, { passive:true });
+    el.addEventListener('touchcancel', clearLP, { passive:true });
+    el.addEventListener('touchmove', e => {
+      if (!e.touches || !e.touches.length) { clearLP(); return; }
+      const t = e.touches[0];
+      if (Math.abs(t.clientX - startX) > 8 || Math.abs(t.clientY - startY) > 8) clearLP();
+    }, { passive:true });
   });
 
   // Expense items
@@ -6126,19 +6157,28 @@ function attachLongPress() {
     el.dataset.lpAttached = '1';
     const id = parseInt(el.dataset.expenseId);
     if (!id) return;
-    el.addEventListener('touchstart', () => {
+    let startX = 0, startY = 0;
+    el.addEventListener('touchstart', e => {
+      if (!e.touches || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      startX = t.clientX; startY = t.clientY;
+      clearLP();
       longPressTimer = setTimeout(() => {
-        const e = expenses.find(e => e.id === id);
-        if (!e) return;
-        showActionSheet(e.merchant, [
+        const eItem = expenses.find(x => x.id === id);
+        if (!eItem) return;
+        showActionSheet(eItem.merchant, [
           { label: '✏️ Edit Expense',  fn: `() => openExpenseEdit(${id})` },
           { label: '🗑 Delete Expense', fn: `() => deleteExpense(${id})`, destructive: true },
         ]);
-      }, 500);
+      }, 550);
     }, { passive:true });
-    el.addEventListener('touchend',    () => clearTimeout(longPressTimer));
-    el.addEventListener('touchcancel', () => clearTimeout(longPressTimer));
-    el.addEventListener('touchmove',   () => clearTimeout(longPressTimer), { passive:true });
+    el.addEventListener('touchend', clearLP, { passive:true });
+    el.addEventListener('touchcancel', clearLP, { passive:true });
+    el.addEventListener('touchmove', e => {
+      if (!e.touches || !e.touches.length) { clearLP(); return; }
+      const t = e.touches[0];
+      if (Math.abs(t.clientX - startX) > 8 || Math.abs(t.clientY - startY) > 8) clearLP();
+    }, { passive:true });
   });
 }
 
@@ -7274,7 +7314,7 @@ function renderCleanerAccessList() {
 }
 function cleanerLinkForId(c) {
   const base = window.location.origin + window.location.pathname;
-  return c.pin ? base + '#cleaner/' + c.id + '/' + btoa(c.pin) : base + '#cleaner/' + c.id;
+  return c.pin ? (base + '?role=cleaner&id=' + encodeURIComponent(c.id) + '&p=' + encodeURIComponent(btoa(c.pin)) + '#cleaner/' + c.id + '/' + btoa(c.pin)) : (base + '?role=cleaner&id=' + encodeURIComponent(c.id) + '#cleaner/' + c.id);
 }
 function saveCleanerPinById(id) {
   const input = document.getElementById('pin-input-' + id);
