@@ -745,7 +745,7 @@ async function syncFromSheets(manual = false) {
       }
     }
 
-    finishSync(imported, skipped, manual);
+    await finishSync(imported, skipped, manual);
   } catch(e) {
     console.error('[Glenhaven] Sync error:', e);
     if (manual) showBanner('⚠ Sync failed: ' + (e.message || 'network error'), 'warn');
@@ -755,33 +755,68 @@ async function syncFromSheets(manual = false) {
 }
 
 // ── BANNER ────────────────────────────────────────────────────────────────
-function finishSync(imported, skipped, manual) {
+async function finishSync(imported, skipped, manual) {
   // Find bookings that existed before sync but are gone or cancelled now
   // so we can delete their calendar events
   const token = getDriveToken();
   const existingKeysBeforeSync = new Set(bookings.map(b => getBookingIdentityKey(b)));
+  const existingByKeyBeforeSync = new Map(bookings.map(b => [getBookingIdentityKey(b), b]));
   const importedKeys = new Set(imported.map(b => getBookingIdentityKey(b)));
 
   const orphanedCalEvents = bookings
     .filter(b => b.gcalEventId && !importedKeys.has(getBookingIdentityKey(b)))
     .map(b => b.gcalEventId);
 
-  // Also delete calendar events for bookings now marked cancelled in the import
-  const cancelledCalEvents = imported
-    .filter(b => b.gcalEventId && b.status === 'cancelled')
-    .map(b => b.gcalEventId);
+  const cancelledBookingsWithCalEvent = imported
+    .filter(b => b.gcalEventId && b.status === 'cancelled');
 
-  const toDeleteFromCal = [...new Set([...orphanedCalEvents, ...cancelledCalEvents])];
+  const toDeleteFromCal = [...new Set(orphanedCalEvents)];
 
   if (token && toDeleteFromCal.length) {
-    toDeleteFromCal.forEach(eventId => {
-      fetch(calendarEventsUrl(eventId), {
+    await Promise.all(toDeleteFromCal.map(eventId => {
+      return fetch(calendarEventsUrl(eventId), {
         method: 'DELETE',
         headers: { Authorization: 'Bearer ' + token }
       }).catch(() => {}); // silent — best effort
-    });
+    }));
     console.log('[Glenhaven] Removed ' + toDeleteFromCal.length + ' orphaned calendar event(s)');
   }
+
+  let cancelledDeletedCount = 0;
+  let cancelledAlreadyMissingCount = 0;
+  let cancelledDeleteFailedCount = 0;
+  for (const cancelledBooking of cancelledBookingsWithCalEvent) {
+    const result = await removeBookingCalendarEvent(cancelledBooking, {
+      token,
+      persistToSheet: true
+    });
+    if (result.deleted) cancelledDeletedCount++;
+    else if (result.alreadyMissing) cancelledAlreadyMissingCount++;
+    else if (result.failed) cancelledDeleteFailedCount++;
+  }
+
+  const cancellationNotifications = [];
+  const cancellationNoticeKeys = new Set();
+  imported.filter(b => b.status === 'cancelled').forEach(cancelledBooking => {
+    const key = getBookingIdentityKey(cancelledBooking);
+    const previous = existingByKeyBeforeSync.get(key);
+    if (!previous || previous.status === 'cancelled') return;
+    const relatedCleans = cleans.filter(c =>
+      String(c.bookingId) === String(previous.id) ||
+      (_normName(c.guestName) === _normName(previous.name) && String(c.date || '').slice(0, 10) === String(previous.checkout || '').slice(0, 10))
+    );
+    relatedCleans.forEach(clean => {
+      const cleanerObj = loadCleaners().find(p =>
+        (clean.cleanerId && String(p.id) === String(clean.cleanerId)) ||
+        (_normName(p.name) === _normName(clean.cleaner))
+      );
+      if (!cleanerObj) return;
+      const noticeKey = key + '::' + String(cleanerObj.id);
+      if (cancellationNoticeKeys.has(noticeKey)) return;
+      cancellationNoticeKeys.add(noticeKey);
+      cancellationNotifications.push({ booking: cancelledBooking, cleaner: cleanerObj });
+    });
+  });
 
   // Sheet is source of truth — use imported only, no local-only preservation
   // Bookings added in-app are pushed to sheet immediately and return on next sync
@@ -795,25 +830,63 @@ function finishSync(imported, skipped, manual) {
   bookings.splice(0, bookings.length, ...merged);
   console.log('[Glenhaven] finishSync — imported:', imported.length, 'merged:', bookings.length);
 
+  cleans = cleans.filter(c => {
+    const booking = bookings.find(b => String(b.id) === String(c.bookingId));
+    if (booking && booking.status === 'cancelled') return false;
+    if (!booking) {
+      const byGuestCancelled = bookings.find(b =>
+        b.status === 'cancelled' &&
+        _normName(b.name) === _normName(c.guestName) &&
+        String(b.checkout || '').slice(0, 10) === String(c.date || '').slice(0, 10)
+      );
+      if (byGuestCancelled) return false;
+    }
+    return true;
+  });
   let autoAssignedCount = 0;
   bookings.forEach(b => {
     const key = getBookingIdentityKey(b);
     if (!existingKeysBeforeSync.has(key) && _maybeAutoAssignPreferredCleaner(b, 'sheet-sync')) autoAssignedCount++;
   });
 
-  // Clear gcalEventId from cancelled bookings so they don't get re-deleted next sync
-  bookings.forEach(b => { if (b.status === 'cancelled') b.gcalEventId = null; });
-
   _normalizeBookingCleanState();
 
   save();
   if (autoAssignedCount > 0) pushAppData('cleans', cleans);
+
+  cancellationNotifications.forEach(({ booking, cleaner }) => {
+    const cleanerSub = getCleanerSub(cleaner.id);
+    if (cleanerSub) {
+      sendPushToDevice(
+        cleanerSub,
+        '❌ Booking Cancelled',
+        `${booking.name || 'Guest'} (${fmt(booking.checkin)} → ${fmt(booking.checkout)}) was cancelled.`,
+        cleanerLinkForId(cleaner),
+        'cancel-' + String(booking.id || getBookingIdentityKey(booking))
+      );
+    }
+    if (cleaner.email) {
+      sendCleanerEmail({
+        type: 'cancellation',
+        cleanerName: cleaner.name,
+        cleanerEmail: cleaner.email,
+        guestName: booking.name || 'Guest',
+        checkin: fmt(booking.checkin),
+        checkout: fmt(booking.checkout),
+        cleanDate: fmt(booking.checkout),
+        cleanerLink: cleanerLinkForId(cleaner)
+      }).catch(() => {});
+    }
+  });
+
   const syncTime = new Date().toLocaleString('en-AU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
   localStorage.setItem(lsKey('last-sync'), syncTime);
   _refreshAfterDataChange(manual);
-  const calMsg = toDeleteFromCal.length ? ` · ${toDeleteFromCal.length} calendar event${toDeleteFromCal.length > 1 ? 's' : ''} removed` : '';
+  const calRemovedCount = toDeleteFromCal.length + cancelledDeletedCount + cancelledAlreadyMissingCount;
+  const calMsg = calRemovedCount ? ` · ${calRemovedCount} calendar event${calRemovedCount > 1 ? 's' : ''} removed` : '';
   const cancelledCount = imported.filter(b => b.status === 'cancelled').length;
   if (manual) showBanner('✓ Synced — ' + bookings.length + ' bookings' + (cancelledCount ? ` · ${cancelledCount} cancelled` : '') + (skipped ? ` (${skipped} skipped)` : '') + (autoAssignedCount ? ` · ${autoAssignedCount} auto-assigned` : '') + calMsg, 'ok');
+  if (manual && cancelledDeleteFailedCount > 0) showBanner('⚠ ' + cancelledDeleteFailedCount + ' cancelled booking calendar event(s) could not be removed', 'warn');
   if (manual) syncNewBookingsToCalendar();
 }
 
@@ -2446,6 +2519,7 @@ function _findMatchingCleanForBooking(booking, preferredDate) {
 }
 
 function getBookingCleanerState(booking) {
+  if (booking && booking.status === 'cancelled') return { key: 'cancelled', label: 'Cancelled — no cleaner required', tone: 'ok' };
   const clean = _findMatchingCleanForBooking(booking);
   if (!clean) return { key: 'unassigned', label: 'Needs cleaner assignment', tone: 'warn' };
   if (clean.done) return { key: 'done', label: 'Clean completed', tone: 'ok', clean };
@@ -4162,7 +4236,7 @@ function addExpense(opts = {}) {
 
 async function saveExpenseToDriveAndSheet(exp) {
   const driveToken = getDriveToken();
-  const scriptUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+  const scriptUrl = (getScriptURL() || '').trim();
 
   // ── Upload to Drive first so we can include the link in the sheet row ──────
   let driveLink = null;
@@ -4627,7 +4701,7 @@ async function restoreBackup(fileId, dateLabel) {
 }
 
 async function pullExpensesFromSheet() {
-  const scriptUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+  const scriptUrl = (getScriptURL() || '').trim();
   if (!scriptUrl || !scriptUrl.includes('script.google.com')) {
     showBanner('⚠ Set your Apps Script URL in Settings → Google Sheets first', 'warn');
     return;
@@ -4642,6 +4716,8 @@ async function pullExpensesFromSheet() {
         // Each row: [date, merchant, description, category, amount, receiptNum, receiptType, driveLink]
         if (!row[0] || !row[1]) return; // skip empty rows
         const amount = parseFloat(String(row[4]||'').replace(/[^0-9.-]/g,'')) || 0;
+        const driveLink = String(row[7] || '').trim();
+        const hasHttpDriveLink = /^https?:\/\//i.test(driveLink);
         const rowDate = toISO(String(row[0] || '').trim()); // normalise once
         // Deduplicate by normalised date+merchant+amount (both sides now ISO)
         const exists = expenses.find(e =>
@@ -4656,14 +4732,14 @@ async function pullExpensesFromSheet() {
             amount,
             receiptNum: row[5] || '',
             receiptType: String(row[6] || '').toLowerCase().trim(),
-            driveLink: row[7] || null,
+            driveLink: hasHttpDriveLink ? driveLink : null,
             photo: null,
             awaitingReceipt: false
           });
           added++;
-        } else if (row[7] && row[7].startsWith('https://') && (!exists.driveLink || !exists.driveLink.startsWith('https://'))) {
+        } else if (hasHttpDriveLink && (!String(exists.driveLink || '').trim().match(/^https?:\/\//i))) {
           // Sheet has a valid URL but local is missing or broken — fix it, then leave it alone
-          exists.driveLink = row[7];
+          exists.driveLink = driveLink;
           linksUpdated++;
         }
       });
@@ -4964,8 +5040,47 @@ function isCalendarNotFoundStatus(status) {
   return status === 404 || status === 410;
 }
 
+async function persistBookingToSheetSourceOfTruth(booking) {
+  const url = getScriptURL();
+  if (!url || !booking) return { skipped: true };
+  try {
+    const json = await sheetPost(url, 'update', booking);
+    if (json && json.status === 'not_found') return sheetPost(url, 'add', booking);
+    return json;
+  } catch (e) {
+    return { failed: true, error: e };
+  }
+}
+
+async function removeBookingCalendarEvent(booking, opts = {}) {
+  if (!booking || !booking.gcalEventId) return { skipped: true };
+  const authToken = opts.token || getDriveToken();
+  if (!authToken) return { skipped: true };
+
+  const eventId = booking.gcalEventId;
+  let deleteRes;
+  try {
+    deleteRes = await fetch(calendarEventsUrl(eventId), {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer ' + authToken }
+    });
+  } catch (e) {
+    return { failed: true, networkError: true };
+  }
+
+  if (deleteRes.status === 401) return { authError: true };
+  if (!deleteRes.ok && !isCalendarNotFoundStatus(deleteRes.status)) {
+    return { failed: true, status: deleteRes.status };
+  }
+
+  booking.gcalEventId = null;
+  if (opts.persistToSheet) await persistBookingToSheetSourceOfTruth(booking);
+  return isCalendarNotFoundStatus(deleteRes.status) ? { alreadyMissing: true } : { deleted: true };
+}
+
 async function upsertBookingCalendarEvent(b, token) {
   if (!b || !b.checkin || !b.checkout || new Date(b.checkout) < new Date()) return { skipped: true };
+  if (b.status === 'cancelled') return removeBookingCalendarEvent(b, { token, persistToSheet: true });
   const authToken = token || getDriveToken();
   if (!authToken) return { skipped: true };
 
@@ -5006,7 +5121,7 @@ async function pushBookingToCalendar(bookingOrId) {
   if (!b) return;
   try {
     const result = await upsertBookingCalendarEvent(b);
-    if (result.created || result.updated) save();
+    if (result.created || result.updated || result.deleted || result.alreadyMissing) save();
     else if (result.authError) showBanner('⚠ Google Calendar token expired — reconnect in Settings', 'warn');
   } catch(e) {}
 }
@@ -5015,7 +5130,7 @@ async function updateBookingInCalendar(b) {
   if (!b) return;
   try {
     const result = await upsertBookingCalendarEvent(b);
-    if (result.created || result.updated) save();
+    if (result.created || result.updated || result.deleted || result.alreadyMissing) save();
     else if (result.authError) showBanner('⚠ Google Calendar token expired — reconnect in Settings', 'warn');
   } catch(e) {}
 }
@@ -5023,7 +5138,7 @@ async function updateBookingInCalendar(b) {
 async function syncNewBookingsToCalendar() {
   const token = getDriveToken();
   if (!token) return;
-  const toSync = bookings.filter(b => b.checkin && new Date(b.checkout) >= new Date());
+  const toSync = bookings.filter(b => b.status !== 'cancelled' && b.checkin && new Date(b.checkout) >= new Date());
   for (const b of toSync) await upsertBookingCalendarEvent(b, token);
   save();
 }
@@ -5040,7 +5155,7 @@ async function syncToGoogleCalendar() {
     return;
   }
 
-  const upcoming = bookings.filter(b => b.checkin && b.checkout && new Date(b.checkout) >= new Date());
+  const upcoming = bookings.filter(b => b.status !== 'cancelled' && b.checkin && b.checkout && new Date(b.checkout) >= new Date());
   if (!upcoming.length) { resultEl.textContent = '⚠ No upcoming bookings to sync'; return; }
 
   resultEl.textContent = '⟳ Syncing ' + upcoming.length + ' bookings...';
@@ -6727,10 +6842,10 @@ async function assignCleanerToBooking(bookingId) {
   const cleanerInput = document.getElementById('detail-assign-cleaner');
   const dateInput = document.getElementById('detail-assign-date');
   if (!cleanerInput || !dateInput) { _releaseLock(_actionLocks, lockKey); return; }
-  const cleanerId = parseInt(cleanerInput.value);
+  const cleanerId = String(cleanerInput.value || '').trim();
   const date = dateInput.value;
   if (!cleanerId || !date) { showBanner('⚠ Select a cleaner and date', 'warn'); _releaseLock(_actionLocks, lockKey); return; }
-  const cleanerObj = loadCleaners().find(c => c.id === cleanerId);
+  const cleanerObj = loadCleaners().find(c => String(c.id) === cleanerId);
   if (!cleanerObj) { showBanner('⚠ Cleaner not found', 'warn'); _releaseLock(_actionLocks, lockKey); return; }
   const booking = bookings.find(b => b.id === bookingId);
   if (!booking) { _releaseLock(_actionLocks, lockKey); return; }
@@ -6847,6 +6962,21 @@ Clean date: {{clean_date}}
 
 Tap the button below to open your app.`,
     color: '#E65100'
+  },
+  cancellation: {
+    subject: '❌ Booking cancelled — {{guest_name}}',
+    body: `Hi {{cleaner_name}},
+
+The booking for {{guest_name}} has been cancelled at Glenhaven.
+
+Original stay dates:
+Check-in: {{checkin}}
+Check-out: {{checkout}}
+
+No clean is required for this booking now.
+
+Tap the button below to open your app.`,
+    color: '#C0392B'
   }
 };
 
@@ -7115,23 +7245,19 @@ function applyEmailTemplate(type, vars) {
   return { subject, html, text: bodyText };
 }
 async function sendCleanerEmail({ cleanerName, cleanerEmail, guestName, checkin, checkout, cleanerLink, cleanDate, type }) {
-  const scriptUrl = (getCurrentScriptURL() || '').trim();
   if (!cleanerEmail) return { ok: false, reason: 'no-email' };
+  const scriptUrl = (getScriptURL() || '').trim();
+  if (!scriptUrl || !scriptUrl.includes('script.google.com')) return { ok: false, reason: 'no-script-url' };
   const emailType = type || 'assignment';
   const { subject, html, text } = applyEmailTemplate(emailType, {
-    cleanerName: cleanerName.split(' ')[0],
+    cleanerName: String(cleanerName || 'Cleaner').split(' ')[0],
     guestName, checkin, checkout,
     cleanDate: cleanDate || checkin,
     cleanerLink
   });
   try {
-    const resp = await fetch(scriptUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'sendEmail', to: cleanerEmail, subject, html, text })
-    });
-    const data = await resp.json();
-    return { ok: data.success, data };
+    const data = await DB.sendEmail(cleanerEmail, subject, html, text);
+    return { ok: !!(data && (data.success || data.status === 'ok')), data };
   } catch(e) {
     return { ok: false, reason: e.message };
   }
