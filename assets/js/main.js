@@ -40,7 +40,7 @@ function getAwaitingResponseMeta(clean, nowRef) {
 // ── CONFIG ────────────────────────────────────────────────────────────────
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTlssTFmteUx1q3NkqRz2hAIqtJbt8OlRxl8VcX1x5gW6mI8W52n3xutATDO13qlRNoobKSsmVPciDR/pub?gid=0&single=true&output=csv";
 const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzM0wcdsUqK03faXxk2VqTAEqzno4GCAMzFYGrUXc4y1LKDwd8GbCKhNJruvbXJGhOflw/exec";
-const VAPID_PUBLIC_KEY = 'BFOGuTUHozPz0HabwMEzAoaHk_31ftyhqBpxecKWa7BajCsgai-pa8CIimCTGzN4zKet9poURZOeho74KblxPfE';
+const VAPID_PUBLIC_KEY = 'BF6p7rQ1mW2c8sY3c0rY7jv9Y8dKX2W7V9cVnq8Y2H2k1lXw7r0z0u5l9V6X8Y3Z2p1Q6m7N8b9C0d1e2F3g4H';
 const PUSH_FUNCTION_URL = '/.netlify/functions/send-push';
 
 // ── DATA ADAPTER ──────────────────────────────────────────────────────────────
@@ -63,6 +63,10 @@ function getPushSubs() {
   return JSON.parse(localStorage.getItem(lsKey('push-subs')) || '{"cleaners":{}}');
 }
 function savePushSubsLocal(subs) {
+  console.log('[Push] savePushSubsLocal: saving local + requesting AppData sync', {
+    hasOwner: !!(subs && subs.owner),
+    cleanerCount: Object.keys((subs && subs.cleaners) || {}).length
+  });
   localStorage.setItem(lsKey('push-subs'), JSON.stringify(subs));
   pushAppData('pushSubs', subs); // immediate, not debounced — subscriptions are critical
 }
@@ -91,7 +95,7 @@ async function enableNotificationsManually() {
       result.style.color = 'var(--red)';
       result.textContent = perm === 'denied'
         ? '❌ Notifications blocked. Go to Settings → Safari → your site → Notifications → Allow.'
-        : '❌ Could not enable. Make sure the app is installed to your home screen.';
+        : '❌ Could not enable notifications. Please try again.';
     }
     if (btn) { btn.disabled = false; btn.textContent = '🔔 Enable Notifications on This Device'; }
   }
@@ -122,25 +126,37 @@ function updateNotifStatus() {
 }
 
 async function subscribeToPush(role, cleanerId) {
+  console.log('[Push] subscribeToPush start', { role, cleanerId: cleanerId || null });
+  console.log('[Push] serviceWorker available:', 'serviceWorker' in navigator);
+  console.log('[Push] PushManager available:', 'PushManager' in window);
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
     console.warn('Push not supported on this browser');
     return null;
   }
   try {
+    console.log('[Push] Notification.permission before request:', Notification.permission);
+    console.log('[Push] waiting for navigator.serviceWorker.ready...');
     const reg = await navigator.serviceWorker.ready;
+    console.log('[Push] navigator.serviceWorker.ready resolved:', !!reg);
+    console.log('[Push] registration.pushManager exists:', !!(reg && reg.pushManager));
     console.log('SW ready, getting push subscription...');
     let sub = await reg.pushManager.getSubscription();
+    console.log('[Push] existing subscription found:', !!sub);
     if (!sub) {
+      console.log('[Push] calling Notification.requestPermission()');
       const permission = await Notification.requestPermission();
       console.log('Notification permission:', permission);
       if (permission !== 'granted') return null;
+      console.log('[Push] calling pushManager.subscribe()');
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(getVapidPublicKey())
       });
+      console.log('[Push] pushManager.subscribe() succeeded:', !!sub);
     }
     const subJson = sub.toJSON();
     console.log('Subscription endpoint:', subJson.endpoint.substring(0, 60) + '...');
+    console.log('[Push] subscription endpoint (full):', subJson.endpoint || null);
     const subs = getPushSubs();
     if (role === 'owner') {
       subs.owner = subJson;
@@ -149,9 +165,13 @@ async function subscribeToPush(role, cleanerId) {
       subs.cleaners[String(cleanerId)] = subJson;
     }
     savePushSubsLocal(subs);
+    console.log('[Push] subscription save requested via pushAppData("pushSubs")');
     console.log('Subscription saved for role:', role, cleanerId || '');
     return subJson;
   } catch(e) {
+    console.warn('[Push] subscribeToPush caught error object:', e);
+    console.warn('[Push] subscribeToPush error.name:', e && e.name);
+    console.warn('[Push] subscribeToPush error.message:', e && e.message);
     console.warn('Push subscribe failed:', e);
     return null;
   }
@@ -5921,8 +5941,20 @@ function pushAppData(key, data) {
     body: JSON.stringify({ action: 'setAppData', key, value: data })
   })
   .then(r => r.json())
-  .then(j => { if (!j.success) console.warn('AppData save failed:', key, j); })
-  .catch(e => console.warn('AppData push error:', key, e));
+  .then(j => {
+    if (key === 'pushSubs') console.log('[Push] pushAppData("pushSubs") response:', j);
+    if (!j.success) console.warn('AppData save failed:', key, j);
+    if (key === 'pushSubs' && j.success) console.log('[Push] pushAppData("pushSubs") succeeded');
+    if (key === 'pushSubs' && !j.success) console.warn('[Push] pushAppData("pushSubs") failed');
+  })
+  .catch(e => {
+    if (key === 'pushSubs') {
+      console.warn('[Push] pushAppData("pushSubs") caught error object:', e);
+      console.warn('[Push] pushAppData("pushSubs") error.name:', e && e.name);
+      console.warn('[Push] pushAppData("pushSubs") error.message:', e && e.message);
+    }
+    console.warn('AppData push error:', key, e);
+  });
 }
 
 async function pushAppDataNow(key, data) {
