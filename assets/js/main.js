@@ -104,7 +104,6 @@ function savePushSubsLocal(subs) {
     hasOwner: !!(subs && subs.owner),
     cleanerCount: Object.keys((subs && subs.cleaners) || {}).length
   });
-  pushDebugLog('[Push] savePushSubsLocal: hasOwner=' + (!!(subs && subs.owner)) + ' cleanerCount=' + Object.keys((subs && subs.cleaners) || {}).length);
   localStorage.setItem(lsKey('push-subs'), JSON.stringify(subs));
   const saveResPromise = pushAppData('pushSubs', subs); // immediate, not debounced — subscriptions are critical
   if (saveResPromise && typeof saveResPromise.then === 'function') {
@@ -171,11 +170,8 @@ function updateNotifStatus() {
 
 async function subscribeToPush(role, cleanerId) {
   console.log('[Push] subscribeToPush start', { role, cleanerId: cleanerId || null });
-  pushDebugLog('[Push] subscribeToPush start role=' + role + ' cleanerId=' + (cleanerId || ''));
   console.log('[Push] serviceWorker available:', 'serviceWorker' in navigator);
-  pushDebugLog('[Push] serviceWorker available: ' + ('serviceWorker' in navigator));
   console.log('[Push] PushManager available:', 'PushManager' in window);
-  pushDebugLog('[Push] PushManager available: ' + ('PushManager' in window));
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
     console.warn('Push not supported on this browser');
     pushDebugLog('[Push] Push not supported on this browser');
@@ -183,44 +179,29 @@ async function subscribeToPush(role, cleanerId) {
   }
   try {
     console.log('[Push] Notification.permission before request:', Notification.permission);
-    pushDebugLog('[Push] Notification.permission before request: ' + Notification.permission);
     console.log('[Push] waiting for navigator.serviceWorker.ready...');
     const reg = await navigator.serviceWorker.ready;
     console.log('[Push] navigator.serviceWorker.ready resolved:', !!reg);
-    pushDebugLog('[Push] navigator.serviceWorker.ready resolved: ' + (!!reg));
     console.log('[Push] registration.pushManager exists:', !!(reg && reg.pushManager));
-    pushDebugLog('[Push] registration.pushManager exists: ' + (!!(reg && reg.pushManager)));
     console.log('SW ready, getting push subscription...');
     let sub = await reg.pushManager.getSubscription();
     console.log('[Push] existing subscription found:', !!sub);
-    pushDebugLog('[Push] existing subscription found: ' + (!!sub));
     if (!sub) {
       console.log('[Push] calling Notification.requestPermission()');
-      pushDebugLog('[Push] calling Notification.requestPermission()');
       const permission = await Notification.requestPermission();
       console.log('Notification permission:', permission);
       pushDebugLog('[Push] Notification.requestPermission() result: ' + permission);
       if (permission !== 'granted') return null;
       console.log('[Push] calling pushManager.subscribe()');
-      pushDebugLog('[Push] calling pushManager.subscribe()');
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(getVapidPublicKey())
       });
       console.log('[Push] pushManager.subscribe() succeeded:', !!sub);
-      pushDebugLog('[Push] pushManager.subscribe() succeeded: ' + (!!sub));
-      const subscribedJson = sub && typeof sub.toJSON === 'function' ? sub.toJSON() : null;
-      console.log('[Push] post-subscribe endpoint:', subscribedJson && subscribedJson.endpoint ? subscribedJson.endpoint : null);
-      pushDebugLog('[Push] post-subscribe endpoint: ' + (subscribedJson && subscribedJson.endpoint ? subscribedJson.endpoint : null));
-      console.log('[Push] post-subscribe object:', safePushStringify(subscribedJson || sub || null));
-      pushDebugLog('[Push] post-subscribe object: ' + safePushStringify(subscribedJson || sub || null));
     }
     const subJson = sub.toJSON();
     console.log('Subscription endpoint:', subJson.endpoint.substring(0, 60) + '...');
     console.log('[Push] subscription endpoint (full):', subJson.endpoint || null);
-    pushDebugLog('[Push] subscription endpoint (full): ' + (subJson.endpoint || null));
-    console.log('[Push] subscription object (safe stringify):', safePushStringify(subJson || null));
-    pushDebugLog('[Push] subscription object (safe stringify): ' + safePushStringify(subJson || null));
     const subs = getPushSubs();
     if (role === 'owner') {
       subs.owner = subJson;
@@ -229,21 +210,14 @@ async function subscribeToPush(role, cleanerId) {
       subs.cleaners[String(cleanerId)] = subJson;
     }
     console.log('[Push] before saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
-    pushDebugLog('[Push] before saving subscription role=' + role + ' endpoint=' + (subJson.endpoint || null));
     savePushSubsLocal(subs);
-    console.log('[Push] after saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
-    pushDebugLog('[Push] after saving subscription role=' + role + ' endpoint=' + (subJson.endpoint || null));
     console.log('[Push] subscription save requested via pushAppData("pushSubs")');
     console.log('Subscription saved for role:', role, cleanerId || '');
     return subJson;
   } catch(e) {
     console.warn('[Push] subscribeToPush caught error object:', e);
-    pushDebugBanner('[Push] subscribeToPush caught error object: ' + safePushStringify(e));
     console.warn('[Push] subscribeToPush error.name:', e && e.name);
-    pushDebugBanner('[Push] subscribeToPush error.name: ' + (e && e.name ? e.name : ''));
     console.warn('[Push] subscribeToPush error.message:', e && e.message);
-    pushDebugBanner('[Push] subscribeToPush error.message: ' + (e && e.message ? e.message : ''));
-    pushDebugLog('[Push] subscribeToPush error: ' + (e && e.name ? e.name : 'Error') + ' ' + (e && e.message ? e.message : ''));
     console.warn('Push subscribe failed:', e);
     pushDebugBanner('[Push] Push subscribe failed: ' + (e && e.message ? e.message : ''));
     return null;
@@ -254,9 +228,7 @@ async function sendPushToDevice(subscription, title, body, url, tag) {
   if (!subscription) { console.warn('sendPushToDevice called with no subscription'); return { ok: false, reason: 'no-subscription' }; }
   try {
     console.log('[Push] before sending push endpoint:', subscription && subscription.endpoint ? subscription.endpoint : null);
-    pushDebugLog('[Push] before sending push endpoint: ' + (subscription && subscription.endpoint ? subscription.endpoint : null));
-    console.log('[Push] before sending push subscription (safe stringify):', safePushStringify(subscription || null));
-    pushDebugLog('[Push] before sending push subscription (safe stringify): ' + safePushStringify(subscription || null));
+    console.log('[Push] before sending push subscription (safe stringify):', (() => { try { return JSON.stringify(subscription || null); } catch (_) { return '[unserializable-subscription]'; } })());
     console.log('Sending push "' + title + '" to endpoint:', subscription.endpoint.substring(0, 50) + '...');
     const res = await fetch(getPushFunctionUrl(), {
       method: 'POST',
@@ -6029,20 +6001,14 @@ function pushAppData(key, data) {
     if (!j.success) console.warn('AppData save failed:', key, j);
     if (key === 'pushSubs' && j.success) console.log('[Push] pushAppData("pushSubs") succeeded');
     if (key === 'pushSubs' && !j.success) console.warn('[Push] pushAppData("pushSubs") failed');
-    return j;
   })
   .catch(e => {
     if (key === 'pushSubs') {
       console.warn('[Push] pushAppData("pushSubs") caught error object:', e);
-      pushDebugBanner('[Push] pushAppData("pushSubs") caught error object: ' + safePushStringify(e));
       console.warn('[Push] pushAppData("pushSubs") error.name:', e && e.name);
-      pushDebugBanner('[Push] pushAppData("pushSubs") error.name: ' + (e && e.name ? e.name : ''));
       console.warn('[Push] pushAppData("pushSubs") error.message:', e && e.message);
-      pushDebugBanner('[Push] pushAppData("pushSubs") error.message: ' + (e && e.message ? e.message : ''));
     }
     console.warn('AppData push error:', key, e);
-    if (key === 'pushSubs') pushDebugBanner('[Push] AppData push error: ' + (e && e.message ? e.message : ''));
-    return null;
   });
 }
 
