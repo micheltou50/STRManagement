@@ -1479,7 +1479,7 @@ function renderCleaning() {
   const todayStr = now.toISOString().split('T')[0];
   const upcomingBookingCount = bookings.filter(b => b.status !== 'cancelled' && new Date(b.checkout) >= now).length;
   const upcomingCleanCount = cleans.filter(c => !c.done && !c.cleanerDeclined && c.date >= todayStr && !_isCleanLinkedToCancelledBooking(c)).length;
-  const pendingAwaitingCount = cleans.filter(c => c.date >= todayStr && isAwaitingCleanerResponse(c, now) && !_isCleanLinkedToCancelledBooking(c)).length;
+  const pendingAwaitingCount = cleans.filter(c => isAwaitingCleanerResponse(c, now) && !_isCleanLinkedToCancelledBooking(c)).length;
   const pendingAssignCount = bookings.filter(b => {
     if (b.status === 'cancelled' || new Date(b.checkout) < now) return false;
     const st = getBookingCleanerState(b).key;
@@ -1553,7 +1553,7 @@ function renderCleaning() {
       .filter(b => b.status !== 'cancelled' && new Date(b.checkout) >= now)
       .map(b => ({ booking: b, state: getBookingCleanerState(b) }));
     const awaiting = cleans
-      .filter(c => c.date >= todayStr && isAwaitingCleanerResponse(c, now) && !_isCleanLinkedToCancelledBooking(c))
+      .filter(c => isAwaitingCleanerResponse(c, now) && !_isCleanLinkedToCancelledBooking(c))
       .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
     const declined = actionable
       .filter(x => x.state.key === 'declined')
@@ -2615,8 +2615,6 @@ function showDetail(id) {
   const b = bookings.find(b=>b.id===id);
   if (!b) return;
   const isCancelled = b.status === 'cancelled';
-  const isPast = !isCancelled && new Date(b.checkout) < new Date();
-  const cleanerActionsDisabled = isCancelled || isPast;
   const bn = notes.filter(n=>n.bookingId===id);
   const matchedClean = _findMatchingCleanForBooking(b);
   const cleanerState = getBookingCleanerState(b);
@@ -2659,12 +2657,12 @@ function showDetail(id) {
           <div style="font-weight:500;font-size:14px">Cleaner Confirmed</div>
           <div style="font-size:12px;color:var(--text-soft)">${b.cleanerConfirmed?'✓ Confirmed':'Not yet confirmed'}</div>
         </div>
-        <button class="toggle ${b.cleanerConfirmed?'on':''}" onclick="toggleCleanerConfirmed(${b.id})" ${cleanerActionsDisabled ? 'disabled style="opacity:.45;cursor:not-allowed"' : ''}></button>
+        <button class="toggle ${b.cleanerConfirmed?'on':''}" onclick="toggleCleanerConfirmed(${b.id})" ${isCancelled ? 'disabled style="opacity:.45;cursor:not-allowed"' : ''}></button>
       </div>
       ${bc.map(c=>`<div style="font-size:12px;color:var(--text-soft);padding:4px 0">${c.cleaner} · ${fmt(c.date)}</div>`).join('')}
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--warm)">
         <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:8px">Assign Cleaner</div>
-        ${cleanerActionsDisabled ? '<div style="font-size:12px;color:var(--text-soft)">Past/cancelled booking — cleaner actions are disabled</div>' : (()=>{
+        ${isCancelled ? '<div style="font-size:12px;color:var(--text-soft)">Cancelled booking — cleaner actions are disabled</div>' : (()=>{
           const cls = loadCleaners().filter(c => isCleanerPerson(c));
           const assigned = bc[0];
           const suggested = _getSuggestedCleanerForBooking(b);
@@ -2777,8 +2775,8 @@ function saveEdit(id) {
 function toggleCleanerConfirmed(id) {
   const b = bookings.find(b=>b.id===id);
   if (!b) return;
-  if (b.status === 'cancelled' || new Date(b.checkout) < new Date()) {
-    showBanner('Past/cancelled booking — cleaner confirmation is disabled', 'warn');
+  if (b.status === 'cancelled') {
+    showBanner('Cancelled booking — cleaner confirmation is disabled', 'warn');
     return;
   }
   const next = !b.cleanerConfirmed;
@@ -6643,9 +6641,6 @@ function renderCleanerCleans() {
     if (c.done) return false;
     if (c.date < twoDaysAgo) return false;
     if (_isCleanLinkedToCancelledBooking(c)) return false;
-    const linkedBooking = bookings.find(b => String(b.id) === String(c.bookingId) || _normName(b.name) === _normName(c.guestName));
-    if (linkedBooking && new Date(linkedBooking.checkout) < new Date()) return false;
-    if (!linkedBooking && c.date < today) return false;
     if (cleaner) {
       return (c.cleanerId && String(c.cleanerId) === String(cleaner.id)) ||
              (!c.cleanerId && c.cleaner && c.cleaner === cleaner.name);
@@ -6961,7 +6956,7 @@ async function assignCleanerToBooking(bookingId) {
   if (!cleanerObj) { showBanner('⚠ Cleaner not found', 'warn'); _releaseLock(_actionLocks, lockKey); return; }
   const booking = bookings.find(b => b.id === bookingId);
   if (!booking) { _releaseLock(_actionLocks, lockKey); return; }
-  if (booking.status === 'cancelled' || new Date(booking.checkout) < new Date()) { showBanner('Past/cancelled booking — cleaner assignment is disabled', 'warn'); _releaseLock(_actionLocks, lockKey); return; }
+  if (booking.status === 'cancelled') { showBanner('Cancelled booking — cleaner assignment is disabled', 'warn'); _releaseLock(_actionLocks, lockKey); return; }
   const matched = _findMatchingCleanForBooking(booking, date);
   const existingIdx = matched ? cleans.findIndex(c => c.id === matched.id) : -1;
   const prev = existingIdx >= 0 ? cleans[existingIdx] : null;
@@ -7005,9 +7000,59 @@ async function assignCleanerToBooking(bookingId) {
     }
     showDetail(bookingId);
 
-    const notify = await _sendCleanerAssignmentNotifications(booking, cleanerObj, date, 'assign-' + bookingId);
-    if (notify.emailSent) showBanner('✉️ Email sent to ' + cleanerObj.name, 'ok');
-    if (!notify.pushSent && !notify.emailAttempted) {
+    // Pull latest pushSubs from Sheet (cleaner sub lives on cleaner's device)
+    try {
+      const url = getCurrentScriptURL();
+      console.log('Fetching pushSubs from:', url);
+      if (url && url.includes('script.google.com')) {
+        const resp = await fetch(url + '?action=getAppData');
+        const json = await resp.json();
+        if (json.success && json.data && json.data.pushSubs) {
+          const local = getPushSubs();
+          const merged = {
+            owner: json.data.pushSubs.owner || local.owner,
+            cleaners: Object.assign({}, local.cleaners, json.data.pushSubs.cleaners)
+          };
+          localStorage.setItem(lsKey('push-subs'), JSON.stringify(merged));
+          console.log('Refreshed pushSubs. Cleaners:', Object.keys(merged.cleaners));
+        } else {
+          console.warn('getAppData response:', json);
+        }
+      }
+    } catch(e) { console.warn('Could not refresh pushSubs:', e); }
+
+    // Send push notification
+    const cleanerSub = getCleanerSub(cleanerObj.id);
+    let pushSent = false;
+    console.log('Cleaner sub for id', cleanerObj.id, ':', cleanerSub ? 'found' : 'NOT FOUND');
+    if (cleanerSub) {
+      pushSent = true;
+      sendPushToDevice(cleanerSub,
+        '🏡 New Clean Assigned',
+        `${booking.name || 'Guest'} · ${fmt(date)}`,
+        cleanerLinkForId(cleanerObj),
+        'assign-' + bookingId
+      );
+    } else {
+      console.warn('No push subscription found for cleaner', cleanerObj.id, '— cleaner needs to enable notifications');
+    }
+
+    // Send email notification via Gmail/Apps Script (fires silently in background)
+    const cleanerEmail = String(cleanerObj.email || '').trim();
+    if (cleanerEmail) {
+      sendCleanerEmail({
+        cleanerName: cleanerObj.name,
+        cleanerEmail,
+        guestName: booking.name || 'Guest',
+        checkin: fmt(booking.checkin),
+        checkout: fmt(booking.checkout),
+        cleanerLink: cleanerLinkForId(cleanerObj)
+      }).then(result => {
+        if (result.ok) showBanner('✉️ Email sent to ' + cleanerObj.name, 'ok');
+        else if (result.reason !== 'no-key' && result.reason !== 'no-email') console.warn('Email failed:', result);
+      });
+    }
+    if (!cleanerEmail && !pushSent) {
       showBanner('⚠ Assigned, but no cleaner email or push subscription is configured', 'warn');
     }
   } finally {
