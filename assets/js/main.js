@@ -3850,6 +3850,9 @@ function loadCleaners() {
 function saveCleaners(list) {
   localStorage.setItem(lsKey('cleaners'), JSON.stringify(list));
   scheduleAppDataSave('cleaners', list);
+  if (typeof saveCleanersToCloud === 'function') {
+    saveCleanersToCloud(list).catch(e => console.warn('[StayOps] Cloud cleaner sync failed', e));
+  }
 }
 function addCleaner() {
   const name = document.getElementById('new-cleaner-name').value.trim();
@@ -7785,33 +7788,65 @@ function copyCleanerLinkById(id) {
     .catch(() => showBanner('⚠ Copy failed — select the link manually', 'warn'));
 }
 
-// Init on load
-document.addEventListener('DOMContentLoaded', async () => {
-  // Migrate single-property legacy config/keys into multi-property storage first.
+/**
+ * hydrateFromCloud — pulls cleaners and job statuses from Supabase into localStorage.
+ * Called after login and on app start when a session is already active.
+ */
+async function hydrateFromCloud() {
+  try {
+    const cloudCleaners = await loadCleanersFromCloud();
+    if (Array.isArray(cloudCleaners) && cloudCleaners.length) {
+      const localCleaners = loadJSON(lsKey('cleaners')) || [];
+      const merged = [...cloudCleaners];
+      localCleaners.forEach(local => {
+        const inCloud = cloudCleaners.find(c =>
+          c._cloudId === local._cloudId ||
+          (c.name === local.name && c.email === local.email)
+        );
+        if (!inCloud) merged.push(local);
+      });
+      localStorage.setItem(lsKey('cleaners'), JSON.stringify(merged));
+      console.log('[StayOps] Hydrated', merged.length, 'cleaners from cloud');
+    }
+    const cloudJobs = await loadCleaningJobsFromCloud();
+    if (Array.isArray(cloudJobs) && cloudJobs.length) {
+      const localCleans = loadJSON(lsKey('cleans')) || [];
+      cloudJobs.forEach(cloudJob => {
+        const local = localCleans.find(c =>
+          c._cloudId === cloudJob.id ||
+          (String(c.bookingId || c.guestName || '') === cloudJob.booking_ref &&
+           String(c.date || '').slice(0, 10) === String(cloudJob.clean_date || '').slice(0, 10))
+        );
+        if (local) {
+          local._cloudId         = cloudJob.id;
+          local.done             = cloudJob.status === 'done';
+          local.cleanerConfirmed = cloudJob.status === 'confirmed' || cloudJob.status === 'done';
+          local.cleanerDeclined  = cloudJob.status === 'declined';
+          local.assignedAt       = cloudJob.assigned_at  || local.assignedAt;
+          local.confirmedAt      = cloudJob.confirmed_at || local.confirmedAt;
+        }
+      });
+      localStorage.setItem(lsKey('cleans'), JSON.stringify(localCleans));
+      console.log('[StayOps] Hydrated cleaning job statuses from cloud');
+    }
+  } catch (e) {
+    console.warn('[StayOps] hydrateFromCloud error', e);
+  }
+}
+
+/**
+ * finishAppInit — runs standard app init after login or session restore.
+ */
+async function finishAppInit() {
   migrateConfigFromLegacySettings();
-
-  // Phase 1: identify host and attempt host-linked safe settings restore.
-  await ensureHostIdentityAndRestore();
-
-  // Setup appears only when no valid active property config exists.
-  await showSetupIfNeeded();
-
-  // Ensure mirrors/flags remain synced after setup or migration.
-  migrateConfigFromLegacySettings();
-
-  // Config is now valid — update DOM with property-specific values.
   initPropertyUI();
   renderPropertySwitcher();
-
   initFxSettings();
   attachButtonPress();
   attachModalHandleDrag();
-
-  // Modal backdrop-click listeners — must run after DOM is ready
   document.getElementById('modal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
   document.getElementById('detail-modal').addEventListener('click', function(e) { if (e.target === this) closeDetailModal(); });
   document.getElementById('notify-modal').addEventListener('click', function(e) { if (e.target === this) closeNotifyModal(); });
-  // Cleaner mode detection
   if (isCleanerMode()) {
     if (isCleanerAuthed()) {
       document.body.classList.add('cleaner-mode');
@@ -7819,7 +7854,51 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else {
       document.body.classList.add('cleaner-pin-active');
     }
+  } else {
+    await showSetupIfNeeded();
+    migrateConfigFromLegacySettings();
+    await initialAppLoad();
+    startAutoSync();
   }
+}
+
+// Init on load
+document.addEventListener('DOMContentLoaded', async () => {
+  // Cleaner mode bypasses host auth entirely
+  if (isCleanerMode()) {
+    migrateConfigFromLegacySettings();
+    initPropertyUI();
+    attachButtonPress();
+    attachModalHandleDrag();
+    document.getElementById('modal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
+    document.getElementById('detail-modal').addEventListener('click', function(e) { if (e.target === this) closeDetailModal(); });
+    document.getElementById('notify-modal').addEventListener('click', function(e) { if (e.target === this) closeNotifyModal(); });
+    if (isCleanerAuthed()) {
+      document.body.classList.add('cleaner-mode');
+      renderCleanerView();
+    } else {
+      document.body.classList.add('cleaner-pin-active');
+    }
+    return;
+  }
+
+  // Check for active Supabase session
+  let session = null;
+  if (typeof getSupabaseSession === 'function') {
+    session = await getSupabaseSession();
+  }
+
+  if (!session) {
+    // No session — show login screen and wait
+    if (typeof showLoginScreen === 'function') showLoginScreen();
+    return;
+  }
+
+  // Existing session — hydrate and start app
+  migrateConfigFromLegacySettings();
+  await ensureHostIdentityAndRestore();
+  if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
+  await finishAppInit();
 });
 
 // ── REPORT EXPORT ─────────────────────────────────────────────────────────────
