@@ -166,6 +166,7 @@ async function sendPushToDevice(subscription, title, body, url, tag) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subscription, title, body, url, tag })
     });
+    console.log('Push HTTP status:', res.status);
     const data = await res.json();
     console.log('Push function response:', data);
     if (data.expired) {
