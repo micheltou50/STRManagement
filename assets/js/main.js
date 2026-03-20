@@ -308,7 +308,7 @@ async function sendPushToDevice(subscription, title, body, url, tag) {
     pushDebugLog('[Push] send push response body: ' + safePushStringify(data));
     if (data === null) throw new Error('Invalid JSON from send-push function');
     console.log('Push function response:', data);
-    const ok = !!(res.ok && (data.success || data.status === 'ok'));
+    const ok = !!(res.ok && data.ok);
     if (data.expired) {
       const subs = getPushSubs();
       if (subs.owner && JSON.stringify(subs.owner) === JSON.stringify(subscription)) delete subs.owner;
