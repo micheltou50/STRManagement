@@ -59,6 +59,43 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
 }
 
+function safePushStringify(v) {
+  try { return JSON.stringify(v); } catch (_) { return '[unserializable]'; }
+}
+
+function pushDebugBanner(msg) {
+  if (!document || !document.body) return;
+  let el = document.getElementById('push-debug-banner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'push-debug-banner';
+    el.style.position = 'fixed';
+    el.style.left = '8px';
+    el.style.right = '8px';
+    el.style.bottom = '8px';
+    el.style.maxHeight = '35vh';
+    el.style.overflow = 'auto';
+    el.style.background = 'rgba(0,0,0,0.9)';
+    el.style.color = '#00ff7f';
+    el.style.fontSize = '11px';
+    el.style.lineHeight = '1.35';
+    el.style.padding = '8px';
+    el.style.borderRadius = '8px';
+    el.style.zIndex = '99999';
+    el.style.whiteSpace = 'pre-wrap';
+    el.style.boxShadow = '0 2px 12px rgba(0,0,0,0.35)';
+    document.body.appendChild(el);
+  }
+  const line = document.createElement('div');
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function pushDebugLog(msg) {
+  pushDebugBanner(msg);
+}
+
 function getPushSubs() {
   return JSON.parse(localStorage.getItem(lsKey('push-subs')) || '{"cleaners":{}}');
 }
@@ -68,7 +105,13 @@ function savePushSubsLocal(subs) {
     cleanerCount: Object.keys((subs && subs.cleaners) || {}).length
   });
   localStorage.setItem(lsKey('push-subs'), JSON.stringify(subs));
-  pushAppData('pushSubs', subs); // immediate, not debounced — subscriptions are critical
+  const saveResPromise = pushAppData('pushSubs', subs); // immediate, not debounced — subscriptions are critical
+  if (saveResPromise && typeof saveResPromise.then === 'function') {
+    saveResPromise.then(saveRes => {
+      console.log('[Push] pushAppData("pushSubs") response:', saveRes);
+      pushDebugLog('[Push] pushAppData("pushSubs") response: ' + safePushStringify(saveRes));
+    });
+  }
 }
 
 async function enableNotificationsManually() {
@@ -131,6 +174,7 @@ async function subscribeToPush(role, cleanerId) {
   console.log('[Push] PushManager available:', 'PushManager' in window);
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
     console.warn('Push not supported on this browser');
+    pushDebugLog('[Push] Push not supported on this browser');
     return null;
   }
   try {
@@ -146,6 +190,7 @@ async function subscribeToPush(role, cleanerId) {
       console.log('[Push] calling Notification.requestPermission()');
       const permission = await Notification.requestPermission();
       console.log('Notification permission:', permission);
+      pushDebugLog('[Push] Notification.requestPermission() result: ' + permission);
       if (permission !== 'granted') return null;
       console.log('[Push] calling pushManager.subscribe()');
       sub = await reg.pushManager.subscribe({
@@ -174,6 +219,7 @@ async function subscribeToPush(role, cleanerId) {
     console.warn('[Push] subscribeToPush error.name:', e && e.name);
     console.warn('[Push] subscribeToPush error.message:', e && e.message);
     console.warn('Push subscribe failed:', e);
+    pushDebugBanner('[Push] Push subscribe failed: ' + (e && e.message ? e.message : ''));
     return null;
   }
 }
@@ -189,8 +235,13 @@ async function sendPushToDevice(subscription, title, body, url, tag) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subscription, title, body, url, tag })
     });
+    console.log('[Push] send push HTTP status:', res.status);
+    pushDebugLog('[Push] send push HTTP status: ' + res.status);
     console.log('Push HTTP status:', res.status);
-    const data = await res.json();
+    const data = await res.json().catch(() => null);
+    console.log('[Push] send push response body:', data);
+    pushDebugLog('[Push] send push response body: ' + safePushStringify(data));
+    if (data === null) throw new Error('Invalid JSON from send-push function');
     console.log('Push function response:', data);
     const ok = !!(res.ok && (data.success || data.status === 'ok'));
     if (data.expired) {
@@ -204,6 +255,7 @@ async function sendPushToDevice(subscription, title, body, url, tag) {
     if (!ok) console.warn('Push send not successful:', data);
     return { ok, data };
   } catch(e) {
+    pushDebugLog('[Push] sendPushToDevice error: ' + (e && e.name ? e.name : 'Error') + ' ' + (e && e.message ? e.message : ''));
     console.warn('Push send failed:', e);
     return { ok: false, reason: e && e.message ? e.message : 'push-send-failed' };
   }
@@ -5938,7 +5990,7 @@ function scheduleAppDataSave(key, data) {
 function pushAppData(key, data) {
   const url = getScriptURL();
   if (!url) return;
-  fetch(url, {
+  return fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify({ action: 'setAppData', key, value: data })
