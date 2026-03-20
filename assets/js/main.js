@@ -91,7 +91,7 @@ async function enableNotificationsManually() {
       result.style.color = 'var(--red)';
       result.textContent = perm === 'denied'
         ? '❌ Notifications blocked. Go to Settings → Safari → your site → Notifications → Allow.'
-        : '❌ Could not enable. Make sure the app is installed to your home screen.';
+        : '❌ Could not enable notifications. Please try again.';
     }
     if (btn) { btn.disabled = false; btn.textContent = '🔔 Enable Notifications on This Device'; }
   }
