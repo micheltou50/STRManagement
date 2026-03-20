@@ -40,7 +40,7 @@ function getAwaitingResponseMeta(clean, nowRef) {
 // ── CONFIG ────────────────────────────────────────────────────────────────
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTlssTFmteUx1q3NkqRz2hAIqtJbt8OlRxl8VcX1x5gW6mI8W52n3xutATDO13qlRNoobKSsmVPciDR/pub?gid=0&single=true&output=csv";
 const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzM0wcdsUqK03faXxk2VqTAEqzno4GCAMzFYGrUXc4y1LKDwd8GbCKhNJruvbXJGhOflw/exec";
-const VAPID_PUBLIC_KEY = 'BFOGuTUHozPz0HabwMEzAoaHk_31ftyhqBpxecKWa7BajCsgai-pa8CIimCTGzN4zKet9poURZOeho74KblxPfE';
+const VAPID_PUBLIC_KEY = 'BMmV1jzuc20t-tnBIgOJRtcInYMXLi9fX4RdXIQWJob_cNGTg8t1hY6DO28rWueQoqcelSGREUPuRpv90XqbGcQ';
 const PUSH_FUNCTION_URL = '/.netlify/functions/send-push';
 
 // ── DATA ADAPTER ──────────────────────────────────────────────────────────────
@@ -59,12 +59,60 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
 }
 
+function safePushStringify(v) {
+  try { return JSON.stringify(v); } catch (_) { return '[unserializable]'; }
+}
+
+function pushDebugBanner(msg) {
+  if (!document || !document.body) return;
+  let el = document.getElementById('push-debug-banner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'push-debug-banner';
+    el.style.position = 'fixed';
+    el.style.left = '8px';
+    el.style.right = '8px';
+    el.style.bottom = '8px';
+    el.style.maxHeight = '35vh';
+    el.style.overflow = 'auto';
+    el.style.background = 'rgba(0,0,0,0.9)';
+    el.style.color = '#00ff7f';
+    el.style.fontSize = '11px';
+    el.style.lineHeight = '1.35';
+    el.style.padding = '8px';
+    el.style.borderRadius = '8px';
+    el.style.zIndex = '99999';
+    el.style.whiteSpace = 'pre-wrap';
+    el.style.boxShadow = '0 2px 12px rgba(0,0,0,0.35)';
+    document.body.appendChild(el);
+  }
+  const line = document.createElement('div');
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function pushDebugLog(msg) {
+  pushDebugBanner(msg);
+}
+
 function getPushSubs() {
   return JSON.parse(localStorage.getItem(lsKey('push-subs')) || '{"cleaners":{}}');
 }
 function savePushSubsLocal(subs) {
+  console.log('[Push] savePushSubsLocal: saving local + requesting AppData sync', {
+    hasOwner: !!(subs && subs.owner),
+    cleanerCount: Object.keys((subs && subs.cleaners) || {}).length
+  });
+  pushDebugLog('[Push] savePushSubsLocal: hasOwner=' + (!!(subs && subs.owner)) + ' cleanerCount=' + Object.keys((subs && subs.cleaners) || {}).length);
   localStorage.setItem(lsKey('push-subs'), JSON.stringify(subs));
-  pushAppData('pushSubs', subs); // immediate, not debounced — subscriptions are critical
+  const saveResPromise = pushAppData('pushSubs', subs); // immediate, not debounced — subscriptions are critical
+  if (saveResPromise && typeof saveResPromise.then === 'function') {
+    saveResPromise.then(saveRes => {
+      console.log('[Push] pushAppData("pushSubs") response:', saveRes);
+      pushDebugLog('[Push] pushAppData("pushSubs") response: ' + safePushStringify(saveRes));
+    });
+  }
 }
 
 async function enableNotificationsManually() {
@@ -91,9 +139,46 @@ async function enableNotificationsManually() {
       result.style.color = 'var(--red)';
       result.textContent = perm === 'denied'
         ? '❌ Notifications blocked. Go to Settings → Safari → your site → Notifications → Allow.'
-        : '❌ Could not enable. Make sure the app is installed to your home screen.';
+        : '❌ Could not enable notifications. Please try again.';
     }
     if (btn) { btn.disabled = false; btn.textContent = '🔔 Enable Notifications on This Device'; }
+  }
+}
+
+async function resetPushOnly() {
+  console.log('[Push] Reset Push Only started');
+  pushDebugBanner('[Push] Reset Push Only started');
+  const result = document.getElementById('notif-result');
+  try {
+    if (!('serviceWorker' in navigator)) throw new Error('serviceWorker unavailable');
+    const reg = await navigator.serviceWorker.ready;
+    const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
+    if (sub) {
+      const unsubscribed = await sub.unsubscribe();
+      console.log('[Push] Reset Push Only unsubscribe result:', unsubscribed);
+      pushDebugBanner('[Push] Reset Push Only unsubscribe result: ' + unsubscribed);
+    } else {
+      console.log('[Push] Reset Push Only: no existing subscription');
+      pushDebugBanner('[Push] Reset Push Only: no existing subscription');
+    }
+    localStorage.removeItem(lsKey('push-subs'));
+    localStorage.removeItem('gh-push-subs');
+    console.log('[Push] Reset Push Only complete');
+    pushDebugBanner('[Push] Reset Push Only complete');
+    if (result) {
+      result.style.display = 'block';
+      result.style.color = 'var(--moss)';
+      result.textContent = '✓ Reset Push Only complete';
+    }
+    if (typeof updateNotifStatus === 'function') updateNotifStatus();
+  } catch (e) {
+    console.warn('[Push] Reset Push Only failed:', e);
+    pushDebugBanner('[Push] Reset Push Only failed: ' + (e && e.message ? e.message : 'unknown error'));
+    if (result) {
+      result.style.display = 'block';
+      result.style.color = 'var(--red)';
+      result.textContent = '❌ Reset Push Only failed';
+    }
   }
 }
 
@@ -122,25 +207,57 @@ function updateNotifStatus() {
 }
 
 async function subscribeToPush(role, cleanerId) {
+  console.log('[Push] subscribeToPush start', { role, cleanerId: cleanerId || null });
+  pushDebugLog('[Push] subscribeToPush start role=' + role + ' cleanerId=' + (cleanerId || ''));
+  console.log('[Push] serviceWorker available:', 'serviceWorker' in navigator);
+  pushDebugLog('[Push] serviceWorker available: ' + ('serviceWorker' in navigator));
+  console.log('[Push] PushManager available:', 'PushManager' in window);
+  pushDebugLog('[Push] PushManager available: ' + ('PushManager' in window));
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
     console.warn('Push not supported on this browser');
+    pushDebugLog('[Push] Push not supported on this browser');
     return null;
   }
   try {
+    console.log('[Push] Notification.permission before request:', Notification.permission);
+    pushDebugLog('[Push] Notification.permission before request: ' + Notification.permission);
+    console.log('[Push] waiting for navigator.serviceWorker.ready...');
     const reg = await navigator.serviceWorker.ready;
+    console.log('[Push] navigator.serviceWorker.ready resolved:', !!reg);
+    pushDebugLog('[Push] navigator.serviceWorker.ready resolved: ' + (!!reg));
+    console.log('[Push] registration.pushManager exists:', !!(reg && reg.pushManager));
+    pushDebugLog('[Push] registration.pushManager exists: ' + (!!(reg && reg.pushManager)));
     console.log('SW ready, getting push subscription...');
     let sub = await reg.pushManager.getSubscription();
+    console.log('[Push] existing subscription found:', !!sub);
+    pushDebugLog('[Push] existing subscription found: ' + (!!sub));
     if (!sub) {
+      console.log('[Push] calling Notification.requestPermission()');
+      pushDebugLog('[Push] calling Notification.requestPermission()');
       const permission = await Notification.requestPermission();
       console.log('Notification permission:', permission);
+      pushDebugLog('[Push] Notification.requestPermission() result: ' + permission);
       if (permission !== 'granted') return null;
+      console.log('[Push] calling pushManager.subscribe()');
+      pushDebugLog('[Push] calling pushManager.subscribe()');
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(getVapidPublicKey())
       });
+      console.log('[Push] pushManager.subscribe() succeeded:', !!sub);
+      pushDebugLog('[Push] pushManager.subscribe() succeeded: ' + (!!sub));
+      const subscribedJson = sub && typeof sub.toJSON === 'function' ? sub.toJSON() : null;
+      console.log('[Push] post-subscribe endpoint:', subscribedJson && subscribedJson.endpoint ? subscribedJson.endpoint : null);
+      pushDebugLog('[Push] post-subscribe endpoint: ' + (subscribedJson && subscribedJson.endpoint ? subscribedJson.endpoint : null));
+      console.log('[Push] post-subscribe object:', safePushStringify(subscribedJson || sub || null));
+      pushDebugLog('[Push] post-subscribe object: ' + safePushStringify(subscribedJson || sub || null));
     }
     const subJson = sub.toJSON();
     console.log('Subscription endpoint:', subJson.endpoint.substring(0, 60) + '...');
+    console.log('[Push] subscription endpoint (full):', subJson.endpoint || null);
+    pushDebugLog('[Push] subscription endpoint (full): ' + (subJson.endpoint || null));
+    console.log('[Push] subscription object (safe stringify):', safePushStringify(subJson || null));
+    pushDebugLog('[Push] subscription object (safe stringify): ' + safePushStringify(subJson || null));
     const subs = getPushSubs();
     if (role === 'owner') {
       subs.owner = subJson;
@@ -148,11 +265,24 @@ async function subscribeToPush(role, cleanerId) {
       if (!subs.cleaners) subs.cleaners = {};
       subs.cleaners[String(cleanerId)] = subJson;
     }
+    console.log('[Push] before saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
+    pushDebugLog('[Push] before saving subscription role=' + role + ' endpoint=' + (subJson.endpoint || null));
     savePushSubsLocal(subs);
+    console.log('[Push] after saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
+    pushDebugLog('[Push] after saving subscription role=' + role + ' endpoint=' + (subJson.endpoint || null));
+    console.log('[Push] subscription save requested via pushAppData("pushSubs")');
     console.log('Subscription saved for role:', role, cleanerId || '');
     return subJson;
   } catch(e) {
+    console.warn('[Push] subscribeToPush caught error object:', e);
+    pushDebugBanner('[Push] subscribeToPush caught error object: ' + safePushStringify(e));
+    console.warn('[Push] subscribeToPush error.name:', e && e.name);
+    pushDebugBanner('[Push] subscribeToPush error.name: ' + (e && e.name ? e.name : ''));
+    console.warn('[Push] subscribeToPush error.message:', e && e.message);
+    pushDebugBanner('[Push] subscribeToPush error.message: ' + (e && e.message ? e.message : ''));
+    pushDebugLog('[Push] subscribeToPush error: ' + (e && e.name ? e.name : 'Error') + ' ' + (e && e.message ? e.message : ''));
     console.warn('Push subscribe failed:', e);
+    pushDebugBanner('[Push] Push subscribe failed: ' + (e && e.message ? e.message : ''));
     return null;
   }
 }
@@ -160,14 +290,23 @@ async function subscribeToPush(role, cleanerId) {
 async function sendPushToDevice(subscription, title, body, url, tag) {
   if (!subscription) { console.warn('sendPushToDevice called with no subscription'); return { ok: false, reason: 'no-subscription' }; }
   try {
+    console.log('[Push] before sending push endpoint:', subscription && subscription.endpoint ? subscription.endpoint : null);
+    pushDebugLog('[Push] before sending push endpoint: ' + (subscription && subscription.endpoint ? subscription.endpoint : null));
+    console.log('[Push] before sending push subscription (safe stringify):', safePushStringify(subscription || null));
+    pushDebugLog('[Push] before sending push subscription (safe stringify): ' + safePushStringify(subscription || null));
     console.log('Sending push "' + title + '" to endpoint:', subscription.endpoint.substring(0, 50) + '...');
     const res = await fetch(getPushFunctionUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subscription, title, body, url, tag })
     });
+    console.log('[Push] send push HTTP status:', res.status);
+    pushDebugLog('[Push] send push HTTP status: ' + res.status);
     console.log('Push HTTP status:', res.status);
-    const data = await res.json();
+    const data = await res.json().catch(() => null);
+    console.log('[Push] send push response body:', data);
+    pushDebugLog('[Push] send push response body: ' + safePushStringify(data));
+    if (data === null) throw new Error('Invalid JSON from send-push function');
     console.log('Push function response:', data);
     const ok = !!(res.ok && (data.success || data.status === 'ok'));
     if (data.expired) {
@@ -181,6 +320,7 @@ async function sendPushToDevice(subscription, title, body, url, tag) {
     if (!ok) console.warn('Push send not successful:', data);
     return { ok, data };
   } catch(e) {
+    pushDebugLog('[Push] sendPushToDevice error: ' + (e && e.name ? e.name : 'Error') + ' ' + (e && e.message ? e.message : ''));
     console.warn('Push send failed:', e);
     return { ok: false, reason: e && e.message ? e.message : 'push-send-failed' };
   }
@@ -5915,14 +6055,32 @@ function scheduleAppDataSave(key, data) {
 function pushAppData(key, data) {
   const url = getScriptURL();
   if (!url) return;
-  fetch(url, {
+  return fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify({ action: 'setAppData', key, value: data })
   })
   .then(r => r.json())
-  .then(j => { if (!j.success) console.warn('AppData save failed:', key, j); })
-  .catch(e => console.warn('AppData push error:', key, e));
+  .then(j => {
+    if (key === 'pushSubs') console.log('[Push] pushAppData("pushSubs") response:', j);
+    if (!j.success) console.warn('AppData save failed:', key, j);
+    if (key === 'pushSubs' && j.success) console.log('[Push] pushAppData("pushSubs") succeeded');
+    if (key === 'pushSubs' && !j.success) console.warn('[Push] pushAppData("pushSubs") failed');
+    return j;
+  })
+  .catch(e => {
+    if (key === 'pushSubs') {
+      console.warn('[Push] pushAppData("pushSubs") caught error object:', e);
+      pushDebugBanner('[Push] pushAppData("pushSubs") caught error object: ' + safePushStringify(e));
+      console.warn('[Push] pushAppData("pushSubs") error.name:', e && e.name);
+      pushDebugBanner('[Push] pushAppData("pushSubs") error.name: ' + (e && e.name ? e.name : ''));
+      console.warn('[Push] pushAppData("pushSubs") error.message:', e && e.message);
+      pushDebugBanner('[Push] pushAppData("pushSubs") error.message: ' + (e && e.message ? e.message : ''));
+    }
+    console.warn('AppData push error:', key, e);
+    if (key === 'pushSubs') pushDebugBanner('[Push] AppData push error: ' + (e && e.message ? e.message : ''));
+    return null;
+  });
 }
 
 async function pushAppDataNow(key, data) {

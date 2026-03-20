@@ -63,7 +63,7 @@ const DEFAULT_PROPERTY_CONFIG = {
   integrations: {
     sheetCsvUrl:     'https://docs.google.com/spreadsheets/d/e/2PACX-1vTlssTFmteUx1q3NkqRz2hAIqtJbt8OlRxl8VcX1x5gW6mI8W52n3xutATDO13qlRNoobKSsmVPciDR/pub?gid=0&single=true&output=csv',
     scriptUrl:       'https://script.google.com/macros/s/AKfycbzM0wcdsUqK03faXxk2VqTAEqzno4GCAMzFYGrUXc4y1LKDwd8GbCKhNJruvbXJGhOflw/exec',
-    vapidPublicKey:  'BFOGuTUHozPz0HabwMEzAoaHk_31ftyhqBpxecKWa7BajCsgai-pa8CIimCTGzN4zKet9poURZOeho74KblxPfE',
+    vapidPublicKey:  'BMmV1jzuc20t-tnBIgOJRtcInYMXLi9fX4RdXIQWJob_cNGTg8t1hY6DO28rWueQoqcelSGREUPuRpv90XqbGcQ',
     pushFunctionUrl: '/.netlify/functions/send-push',
     calendarId:      'primary',
     driveFolderId:   null,
