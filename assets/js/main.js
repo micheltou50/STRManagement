@@ -40,7 +40,7 @@ function getAwaitingResponseMeta(clean, nowRef) {
 // ── CONFIG ────────────────────────────────────────────────────────────────
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTlssTFmteUx1q3NkqRz2hAIqtJbt8OlRxl8VcX1x5gW6mI8W52n3xutATDO13qlRNoobKSsmVPciDR/pub?gid=0&single=true&output=csv";
 const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzM0wcdsUqK03faXxk2VqTAEqzno4GCAMzFYGrUXc4y1LKDwd8GbCKhNJruvbXJGhOflw/exec";
-const VAPID_PUBLIC_KEY = 'BFOGuTUHozPz0HabwMEzAoaHk_31ftyhqBpxecKWa7BajCsgai-pa8CIimCTGzN4zKet9poURZOeho74KblxPfE';
+const VAPID_PUBLIC_KEY = 'BF6p7rQ1mW2c8sY3c0rY7jv9Y8dKX2W7V9cVnq8Y2H2k1lXw7r0z0u5l9V6X8Y3Z2p1Q6m7N8b9C0d1e2F3g4H';
 const PUSH_FUNCTION_URL = '/.netlify/functions/send-push';
 
 // ── DATA ADAPTER ──────────────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ async function enableNotificationsManually() {
       result.style.color = 'var(--red)';
       result.textContent = perm === 'denied'
         ? '❌ Notifications blocked. Go to Settings → Safari → your site → Notifications → Allow.'
-        : '❌ Could not enable. Make sure the app is installed to your home screen.';
+        : '❌ Could not enable notifications. Please try again.';
     }
     if (btn) { btn.disabled = false; btn.textContent = '🔔 Enable Notifications on This Device'; }
   }
