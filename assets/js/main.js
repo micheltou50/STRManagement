@@ -40,7 +40,7 @@ function getAwaitingResponseMeta(clean, nowRef) {
 // ── CONFIG ────────────────────────────────────────────────────────────────
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTlssTFmteUx1q3NkqRz2hAIqtJbt8OlRxl8VcX1x5gW6mI8W52n3xutATDO13qlRNoobKSsmVPciDR/pub?gid=0&single=true&output=csv";
 const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzM0wcdsUqK03faXxk2VqTAEqzno4GCAMzFYGrUXc4y1LKDwd8GbCKhNJruvbXJGhOflw/exec";
-const VAPID_PUBLIC_KEY = 'BDBXdWP7pruSx5paKu4kgeXNuCgOVtW5eWiQjS5r0MpaWrklI1FrkdR4_X2-SJ7SX38i57__ajDT2hSdEb80iGw';
+const VAPID_PUBLIC_KEY = 'BO-fP_0TOY1foiCQtOZ40N7io1MAzoMUui6pmeHPJ3jLxbdNGh0SrRjxtvWVhuf4QKvf4q83eyS_wcICiS4cgc4';
 const PUSH_FUNCTION_URL = '/.netlify/functions/send-push';
 
 // ── DATA ADAPTER ──────────────────────────────────────────────────────────────
