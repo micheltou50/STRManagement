@@ -164,6 +164,7 @@ async function subscribeToPush(role, cleanerId) {
       if (!subs.cleaners) subs.cleaners = {};
       subs.cleaners[String(cleanerId)] = subJson;
     }
+    console.log('[Push] before saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
     savePushSubsLocal(subs);
     console.log('[Push] subscription save requested via pushAppData("pushSubs")');
     console.log('Subscription saved for role:', role, cleanerId || '');
@@ -180,6 +181,8 @@ async function subscribeToPush(role, cleanerId) {
 async function sendPushToDevice(subscription, title, body, url, tag) {
   if (!subscription) { console.warn('sendPushToDevice called with no subscription'); return { ok: false, reason: 'no-subscription' }; }
   try {
+    console.log('[Push] before sending push endpoint:', subscription && subscription.endpoint ? subscription.endpoint : null);
+    console.log('[Push] before sending push subscription (safe stringify):', (() => { try { return JSON.stringify(subscription || null); } catch (_) { return '[unserializable-subscription]'; } })());
     console.log('Sending push "' + title + '" to endpoint:', subscription.endpoint.substring(0, 50) + '...');
     const res = await fetch(getPushFunctionUrl(), {
       method: 'POST',
