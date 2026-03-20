@@ -153,14 +153,10 @@ async function subscribeToPush(role, cleanerId) {
         applicationServerKey: urlBase64ToUint8Array(getVapidPublicKey())
       });
       console.log('[Push] pushManager.subscribe() succeeded:', !!sub);
-      const subscribedJson = sub && typeof sub.toJSON === 'function' ? sub.toJSON() : null;
-      console.log('[Push] post-subscribe endpoint:', subscribedJson && subscribedJson.endpoint ? subscribedJson.endpoint : null);
-      console.log('[Push] post-subscribe object:', (() => { try { return JSON.stringify(subscribedJson || sub || null); } catch (_) { return '[unserializable-subscription]'; } })());
     }
     const subJson = sub.toJSON();
     console.log('Subscription endpoint:', subJson.endpoint.substring(0, 60) + '...');
     console.log('[Push] subscription endpoint (full):', subJson.endpoint || null);
-    console.log('[Push] subscription object (safe stringify):', (() => { try { return JSON.stringify(subJson || null); } catch (_) { return '[unserializable-subscription]'; } })());
     const subs = getPushSubs();
     if (role === 'owner') {
       subs.owner = subJson;
@@ -170,7 +166,6 @@ async function subscribeToPush(role, cleanerId) {
     }
     console.log('[Push] before saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
     savePushSubsLocal(subs);
-    console.log('[Push] after saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
     console.log('[Push] subscription save requested via pushAppData("pushSubs")');
     console.log('Subscription saved for role:', role, cleanerId || '');
     return subJson;
