@@ -82,6 +82,15 @@ exports.handler = async (event) => {
     const status = err.statusCode || 500;
     const expired = status === 404 || status === 410;
     const isWebPushConfigError = /vapid|subject|key/i.test(err && err.message ? err.message : '');
+    // Parse Apple/FCM error body so the client can see the real reason code
+    let apnsReason = null;
+    try {
+      if (err.body) {
+        const parsed = typeof err.body === 'string' ? JSON.parse(err.body) : err.body;
+        apnsReason = parsed.reason || parsed.error || null;
+      }
+    } catch (_) {}
+    console.error('[send-push] Push failed status=' + status + ' reason=' + apnsReason + ' msg=' + (err.message || ''));
     return {
       statusCode: status,
       headers: CORS,
@@ -89,6 +98,7 @@ exports.handler = async (event) => {
         ok: false,
         error: err.message || 'Push send failed',
         code: isWebPushConfigError ? 'WEBPUSH_CONFIG_ERROR' : 'PUSH_SEND_FAILED',
+        apnsReason,
         expired
       })
     };
