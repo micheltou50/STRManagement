@@ -163,6 +163,23 @@ async function resetPushOnly() {
     }
     localStorage.removeItem(lsKey('push-subs'));
     localStorage.removeItem('gh-push-subs');
+    // Also clear the stale subscription from the Sheet so getFreshOwnerSub()
+    // doesn't retrieve and re-use the old endpoint after a key rotation.
+    try {
+      const scriptUrl = (getScriptURL() || '').trim();
+      if (scriptUrl) {
+        await fetch(scriptUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({ action: 'setAppData', key: 'pushSubs', value: { cleaners: {} } })
+        });
+        console.log('[Push] Reset Push Only: cleared pushSubs from Sheet');
+        pushDebugBanner('[Push] Reset Push Only: cleared pushSubs from Sheet');
+      }
+    } catch (sheetErr) {
+      console.warn('[Push] Reset Push Only: could not clear pushSubs from Sheet:', sheetErr);
+      pushDebugBanner('[Push] Reset Push Only: Sheet clear failed (non-fatal): ' + (sheetErr && sheetErr.message ? sheetErr.message : ''));
+    }
     console.log('[Push] Reset Push Only complete');
     pushDebugBanner('[Push] Reset Push Only complete');
     if (result) {
