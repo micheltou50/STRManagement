@@ -836,6 +836,9 @@ function save() {
   scheduleAppDataSave('bookings', bookings);
   scheduleAppDataSave('cleans', cleans);
   scheduleAppDataSave('notes',  notes);
+  // Sync cleans and notes to Supabase (non-blocking)
+  if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
+  if (typeof saveNotesToCloud === 'function') saveNotesToCloud(notes).catch(() => {});
 }
 
 // ── GOOGLE SHEET PUSH (per-booking, now that access is Anyone) ───────────
@@ -4464,6 +4467,8 @@ function addExpense(opts = {}) {
   try { savePropertyData(); } catch(storageErr) {
     showBanner('⚠ Storage full — expense saved without photo', 'warn');
   }
+  // Sync to Supabase (non-blocking)
+  if (typeof saveExpenseToCloud === 'function') saveExpenseToCloud(exp).catch(() => {});
 
   // Try to upload photo to Drive and push to sheet
   const expWithPhoto = Object.assign({}, exp, { photo: photoForUpload, _mediaType: mediaTypeForUpload });
@@ -4718,6 +4723,8 @@ async function deleteExpense(id) {
   savePropertyData();
   renderExpenses();
   showBanner('✓ Expense deleted', 'ok');
+  // Sync deletion to Supabase (non-blocking)
+  if (exp && typeof deleteExpenseFromCloud === 'function') deleteExpenseFromCloud(exp).catch(() => {});
 
   // Delete from Google Sheet
   if (exp) {
@@ -5853,6 +5860,8 @@ function savePropertyData() {
   localStorage.setItem(lsKey('inventory'),   JSON.stringify(inventory));
   scheduleAppDataSave('inventory',    inventory);
   scheduleAppDataSave('maintenance',  maintenance);
+  // Sync to Supabase (non-blocking)
+  if (typeof saveInventoryToCloud === 'function') saveInventoryToCloud(inventory).catch(() => {});
 }
 
 // ── SCREENSHOT TO BOOKING ─────────────────────────────────────────────────
@@ -7791,50 +7800,7 @@ function copyCleanerLinkById(id) {
 }
 
 /**
- * hydrateFromCloud — pulls cleaners and job statuses from Supabase into localStorage.
- * Called after login and on app start when a session is already active.
- */
-async function hydrateFromCloud() {
-  try {
-    const cloudCleaners = await loadCleanersFromCloud();
-    if (Array.isArray(cloudCleaners) && cloudCleaners.length) {
-      const localCleaners = loadJSON(lsKey('cleaners')) || [];
-      const merged = [...cloudCleaners];
-      localCleaners.forEach(local => {
-        const inCloud = cloudCleaners.find(c =>
-          c._cloudId === local._cloudId ||
-          (c.name === local.name && c.email === local.email)
-        );
-        if (!inCloud) merged.push(local);
-      });
-      localStorage.setItem(lsKey('cleaners'), JSON.stringify(merged));
-      console.log('[StayOps] Hydrated', merged.length, 'cleaners from cloud');
-    }
-    const cloudJobs = await loadCleaningJobsFromCloud();
-    if (Array.isArray(cloudJobs) && cloudJobs.length) {
-      const localCleans = loadJSON(lsKey('cleans')) || [];
-      cloudJobs.forEach(cloudJob => {
-        const local = localCleans.find(c =>
-          c._cloudId === cloudJob.id ||
-          (String(c.bookingId || c.guestName || '') === cloudJob.booking_ref &&
-           String(c.date || '').slice(0, 10) === String(cloudJob.clean_date || '').slice(0, 10))
-        );
-        if (local) {
-          local._cloudId         = cloudJob.id;
-          local.done             = cloudJob.status === 'done';
-          local.cleanerConfirmed = cloudJob.status === 'confirmed' || cloudJob.status === 'done';
-          local.cleanerDeclined  = cloudJob.status === 'declined';
-          local.assignedAt       = cloudJob.assigned_at  || local.assignedAt;
-          local.confirmedAt      = cloudJob.confirmed_at || local.confirmedAt;
-        }
-      });
-      localStorage.setItem(lsKey('cleans'), JSON.stringify(localCleans));
-      console.log('[StayOps] Hydrated cleaning job statuses from cloud');
-    }
-  } catch (e) {
-    console.warn('[StayOps] hydrateFromCloud error', e);
-  }
-}
+// hydrateFromCloud and finishAppInit live in supabase.js
 
 /**
  * finishAppInit — runs standard app init after login or session restore.
@@ -7894,14 +7860,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  // Existing session — show loading screen, hydrate and start app
+  // Existing session — init app FIRST (establishes property/storage keys),
+  // THEN hydrate from cloud so data lands under the correct scoped keys.
   if (typeof showLoadingScreen === 'function') showLoadingScreen('Signing you in…');
   migrateConfigFromLegacySettings();
   await ensureHostIdentityAndRestore();
-  if (typeof setLoadingStatus === 'function') setLoadingStatus('Loading your team…');
-  if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
   if (typeof setLoadingStatus === 'function') setLoadingStatus('Starting app…');
   await finishAppInit();
+  if (typeof setLoadingStatus === 'function') setLoadingStatus('Loading your data…');
+  if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
   if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
   renderAll();
 });
