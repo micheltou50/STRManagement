@@ -356,6 +356,7 @@ async function handleLoginSubmit() {
   // Signed in — hydrate app from cloud then show it
   hideLoginScreen();
   if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
+  if (typeof renderAll === 'function') renderAll();
   if (typeof finishAppInit === 'function') await finishAppInit();
 }
 

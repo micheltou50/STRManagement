@@ -1807,6 +1807,7 @@ function markCleanerConfirmed(id) {
     c.cleanerConfirmed = true;
     save();
     pushAppData('cleans', cleans);
+    if (typeof saveCleaningJobToCloud === 'function') saveCleaningJobToCloud(c);
     showBanner('✅ Cleaner confirmed', 'ok');
     cleanFilter = 'upcoming';
     document.querySelectorAll('#section-cleaning .tab-row .tab').forEach((t,i) => t.classList.toggle('active', i===0));
@@ -2943,6 +2944,7 @@ function toggleCleanerConfirmed(id) {
   if (matchedClean) {
     matchedClean.cleanerConfirmed = next;
     if (!next) matchedClean.cleanerDeclined = false;
+    if (typeof saveCleaningJobToCloud === 'function') saveCleaningJobToCloud(matchedClean);
   }
   _normalizeBookingCleanState();
   save();
@@ -7063,6 +7065,7 @@ async function cleanerDecline(cleanId) {
     _normalizeBookingCleanState();
     save();
     pushAppData('cleans', cleans); // push immediately
+    if (typeof saveCleaningJobToCloud === 'function') saveCleaningJobToCloud(c);
     renderCleanerCleans();
     showBanner('Clean declined', 'ok');
     // Push owner
@@ -7093,6 +7096,7 @@ async function cleanerMarkDone(cleanId) {
   try {
     _normalizeBookingCleanState();
     save(); pushAppData('cleans', cleans); renderCleanerCleans();
+    if (typeof saveCleaningJobToCloud === 'function') saveCleaningJobToCloud(c);
     showBanner('✓ Clean marked as complete', 'ok');
     // Push owner
     const ownerSub = await getFreshOwnerSub();
