@@ -3902,7 +3902,7 @@ function openPropertySwitcherSheet() {
   if (list) {
     list.innerHTML = props.map(p => {
       const isActive = p.propertyId === activeId;
-      return '<div onclick="switchPropertyFromSheet('' + p.propertyId + '')" style="display:flex;align-items:center;justify-content:space-between;padding:14px 4px;border-bottom:1px solid var(--border);cursor:pointer">' +
+      return '<div onclick="switchPropertyFromSheet(\'' + p.propertyId + '\')" style="display:flex;align-items:center;justify-content:space-between;padding:14px 4px;border-bottom:1px solid var(--border);cursor:pointer">' +
         '<div style="font-weight:' + (isActive ? '600' : '400') + ';font-size:15px">' + escHtml(p.name || p.propertyId) + '</div>' +
         (isActive ? '<div style="color:var(--forest);font-size:13px">✓ Active</div>' : '') +
         '</div>';
