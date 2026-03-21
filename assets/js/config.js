@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   PROPERTY CONFIG — Glenhaven Property Manager (Product Version)
+   PROPERTY CONFIG — StayOps (Multi-Property Version)
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const PROPERTY_CONFIG_KEY = 'gh-property-config'; // legacy single-property key
@@ -339,11 +339,17 @@ function savePropertyConfig(updates) {
     localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, first.propertyId);
     localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(first)); // keep legacy shadow
     _syncLegacyMirrorsFromActive();
+    // Sync to cloud (non-blocking)
+    if (typeof saveHostConfigToCloud === 'function') saveHostConfigToCloud(first);
     return first;
   }
 
   const merged = updatePropertyConfig(activeId, updates || {});
-  if (merged) localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(merged)); // keep legacy shadow
+  if (merged) {
+    localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(merged)); // keep legacy shadow
+    // Sync to cloud (non-blocking)
+    if (typeof saveHostConfigToCloud === 'function') saveHostConfigToCloud(merged);
+  }
   return merged;
 }
 
@@ -536,7 +542,7 @@ function initPropertyUI() {
   const cfg = getActivePropertyConfig();
   const stats = getPropertyStats();
 
-  document.title = cfg.name + ' — Property Manager';
+  document.title = cfg.name + ' — StayOps';
 
   _setText('header-sub-title', getCurrentPropertySubtitle());
   _setText('prop-hero-name', cfg.name);
