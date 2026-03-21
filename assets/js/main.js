@@ -1807,6 +1807,7 @@ function markCleanerConfirmed(id) {
     c.cleanerConfirmed = true;
     save();
     pushAppData('cleans', cleans);
+    if (typeof saveCleaningJobToCloud === 'function') saveCleaningJobToCloud(c);
     showBanner('✅ Cleaner confirmed', 'ok');
     cleanFilter = 'upcoming';
     document.querySelectorAll('#section-cleaning .tab-row .tab').forEach((t,i) => t.classList.toggle('active', i===0));
@@ -2943,6 +2944,7 @@ function toggleCleanerConfirmed(id) {
   if (matchedClean) {
     matchedClean.cleanerConfirmed = next;
     if (!next) matchedClean.cleanerDeclined = false;
+    if (typeof saveCleaningJobToCloud === 'function') saveCleaningJobToCloud(matchedClean);
   }
   _normalizeBookingCleanState();
   save();
@@ -6228,10 +6230,8 @@ async function pullAppData(manual = false) {
     const d = json.data;
     let restored = [];
 
-    if (Array.isArray(d.cleaners)) {
-      localStorage.setItem(lsKey('cleaners'), JSON.stringify(d.cleaners));
-      restored.push(d.cleaners.length + ' cleaners');
-    }
+    // Cleaners are now managed by Supabase — skip AppData to prevent conflicts
+    // (cleaners are still written TO AppData so the 24hr reminder emails keep working)
     if (Array.isArray(d.cleans)) {
       // Merge: prefer local confirmed/declined/done states over Sheet (in case Sheet is stale)
       const localCleans = JSON.parse(localStorage.getItem(lsKey('cleans')) || '[]');
@@ -7065,6 +7065,7 @@ async function cleanerDecline(cleanId) {
     _normalizeBookingCleanState();
     save();
     pushAppData('cleans', cleans); // push immediately
+    if (typeof saveCleaningJobToCloud === 'function') saveCleaningJobToCloud(c);
     renderCleanerCleans();
     showBanner('Clean declined', 'ok');
     // Push owner
@@ -7095,6 +7096,7 @@ async function cleanerMarkDone(cleanId) {
   try {
     _normalizeBookingCleanState();
     save(); pushAppData('cleans', cleans); renderCleanerCleans();
+    if (typeof saveCleaningJobToCloud === 'function') saveCleaningJobToCloud(c);
     showBanner('✓ Clean marked as complete', 'ok');
     // Push owner
     const ownerSub = await getFreshOwnerSub();
@@ -7857,8 +7859,6 @@ async function finishAppInit() {
   } else {
     await showSetupIfNeeded();
     migrateConfigFromLegacySettings();
-    await initialAppLoad();
-    startAutoSync();
   }
 }
 
