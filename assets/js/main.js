@@ -6228,10 +6228,8 @@ async function pullAppData(manual = false) {
     const d = json.data;
     let restored = [];
 
-    if (Array.isArray(d.cleaners)) {
-      localStorage.setItem(lsKey('cleaners'), JSON.stringify(d.cleaners));
-      restored.push(d.cleaners.length + ' cleaners');
-    }
+    // Cleaners are now managed by Supabase — skip AppData to prevent conflicts
+    // (cleaners are still written TO AppData so the 24hr reminder emails keep working)
     if (Array.isArray(d.cleans)) {
       // Merge: prefer local confirmed/declined/done states over Sheet (in case Sheet is stale)
       const localCleans = JSON.parse(localStorage.getItem(lsKey('cleans')) || '[]');
