@@ -7942,11 +7942,6 @@ function populateOwnerReportPanel() {
     fyEl.value = currentFY;
   }
 
-  // Wire up the toggle visual
-  const toggleCb = document.getElementById('owner-report-auto-send');
-  if (toggleCb) {
-    toggleCb.onchange = () => _updateOwnerReportToggleUI(toggleCb.checked);
-  }
 }
 
 function _setVal(id, val) {
@@ -7957,10 +7952,8 @@ function _setVal(id, val) {
 function _updateOwnerReportToggleUI(on) {
   const track = document.getElementById('owner-report-auto-send-track');
   const thumb = document.getElementById('owner-report-auto-send-thumb');
-  const freqRow = document.getElementById('owner-report-freq-row');
   if (track) track.style.background = on ? 'var(--forest, #1E3A2F)' : 'var(--border, #C7C7CC)';
   if (thumb) thumb.style.transform  = on ? 'translateX(18px)' : 'translateX(0)';
-  if (freqRow) freqRow.style.display = on ? '' : 'none';
 }
 
 /**
@@ -8047,9 +8040,11 @@ async function sendOwnerReport() {
       pdfBase64: pdfB64,
       fileName,
     };
+    // Apps Script rejects CORS preflight on application/json — use text/plain
+    // to send as a simple request. Apps Script reads e.postData.contents regardless.
     const res  = await fetch(scriptUrl, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain' },
       body:    JSON.stringify(payload),
     });
     const json = await res.json().catch(() => ({}));

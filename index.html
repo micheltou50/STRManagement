@@ -811,9 +811,9 @@
             <div style="font-size:12px;color:var(--text-soft)">App will prompt you when a report is due</div>
           </div>
           <label style="position:relative;display:inline-block;width:44px;height:26px;flex-shrink:0">
-            <input type="checkbox" id="owner-report-auto-send" style="opacity:0;width:0;height:0">
-            <span onclick="document.getElementById('owner-report-auto-send').click()" style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:26px;transition:.3s" id="owner-report-auto-send-track"></span>
-            <span id="owner-report-auto-send-thumb" style="position:absolute;content:'';height:20px;width:20px;left:3px;bottom:3px;background:white;border-radius:50%;transition:.3s;pointer-events:none"></span>
+            <input type="checkbox" id="owner-report-auto-send" style="opacity:0;width:0;height:0" onchange="_updateOwnerReportToggleUI(this.checked)">
+            <span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:26px;transition:.3s" id="owner-report-auto-send-track"></span>
+            <span id="owner-report-auto-send-thumb" style="position:absolute;height:20px;width:20px;left:3px;bottom:3px;background:white;border-radius:50%;transition:.3s;pointer-events:none"></span>
           </label>
         </div>
         <div id="owner-report-freq-row">
