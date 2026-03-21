@@ -166,6 +166,7 @@ async function loadCleanersFromCloud() {
       email:    c.email  || '',
       phone:    c.phone  || '',
       role:     c.role   || 'Cleaner',
+      pin:      c.pin    || '',
       active:   c.active !== false
     }));
   } catch (e) {
@@ -193,6 +194,7 @@ async function saveCleanersToCloud(cleanerList) {
         email:     c.email  || '',
         phone:     c.phone  || '',
         role:      c.role   || 'Cleaner',
+        pin:       c.pin    || '',
         active:    c.active !== false
       };
       if (c._cloudId) {
