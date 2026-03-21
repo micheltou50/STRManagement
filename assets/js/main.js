@@ -3598,6 +3598,11 @@ function saveGDriveClientId() {
   const el = document.getElementById('gdrive-client-confirm');
   if (el) { el.style.display = 'block'; setTimeout(() => el.style.display = 'none', 2000); }
   showBanner('✓ Settings saved: Google Drive Client ID', 'ok');
+  // Sync to Supabase
+  if (typeof savePropertyToCloud === 'function') {
+    const cfg = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : {};
+    savePropertyToCloud(cfg).catch(() => {});
+  }
 }
 function saveApiKey() {
   const key = document.getElementById('settings-api-key').value.trim();
@@ -3607,6 +3612,11 @@ function saveApiKey() {
   el.style.display = 'block';
   setTimeout(() => el.style.display = 'none', 2000);
   showBanner('✓ Settings saved: API key', 'ok');
+  // Sync to Supabase
+  if (typeof savePropertyToCloud === 'function') {
+    const cfg = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : {};
+    savePropertyToCloud(cfg).catch(() => {});
+  }
 }
 function getApiKey() {
   return localStorage.getItem('gh-api-key') || '';

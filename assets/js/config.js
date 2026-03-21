@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   PROPERTY CONFIG — StayOps (Multi-Property Version)
+   PROPERTY CONFIG — Glenhaven Property Manager (Product Version)
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const PROPERTY_CONFIG_KEY = 'gh-property-config'; // legacy single-property key
@@ -339,17 +339,11 @@ function savePropertyConfig(updates) {
     localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, first.propertyId);
     localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(first)); // keep legacy shadow
     _syncLegacyMirrorsFromActive();
-    // Sync to cloud (non-blocking)
-    if (typeof saveHostConfigToCloud === 'function') saveHostConfigToCloud(first);
     return first;
   }
 
   const merged = updatePropertyConfig(activeId, updates || {});
-  if (merged) {
-    localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(merged)); // keep legacy shadow
-    // Sync to cloud (non-blocking)
-    if (typeof saveHostConfigToCloud === 'function') saveHostConfigToCloud(merged);
-  }
+  if (merged) localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(merged)); // keep legacy shadow
   return merged;
 }
 
@@ -497,6 +491,11 @@ function getPropertyConfigGaps() {
 function saveDriveFolderId(folderId) {
   localStorage.setItem('gh-drive-folder-id', folderId);
   savePropertyConfig({ integrations: { driveFolderId: folderId } });
+  // Sync to Supabase
+  if (typeof savePropertyToCloud === 'function') {
+    const cfg = getActivePropertyConfig();
+    savePropertyToCloud(cfg).catch(() => {});
+  }
 }
 
 function persistScriptUrl(url) {
@@ -542,7 +541,7 @@ function initPropertyUI() {
   const cfg = getActivePropertyConfig();
   const stats = getPropertyStats();
 
-  document.title = cfg.name + ' — StayOps';
+  document.title = cfg.name + ' — Property Manager';
 
   _setText('header-sub-title', getCurrentPropertySubtitle());
   _setText('prop-hero-name', cfg.name);

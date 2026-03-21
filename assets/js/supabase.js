@@ -95,23 +95,30 @@ async function savePropertyToCloud(cfg) {
     const user = await getCurrentSupabaseUser();
     if (!user || !cfg) return null;
     const payload = {
-      user_id:      user.id,
-      name:         cfg.name         || '',
-      address:      cfg.address      || '',
-      suburb:       cfg.suburb       || '',
-      state:        cfg.state        || '',
-      country:      cfg.country      || 'Australia',
-      region:       cfg.region       || '',
-      tagline:      (cfg.branding && cfg.branding.tagline) || '',
-      bedrooms:     (cfg.property && cfg.property.bedrooms)  || 0,
-      bathrooms:    (cfg.property && cfg.property.bathrooms) || 0,
-      max_guests:   (cfg.property && cfg.property.maxGuests) || 0,
-      property_type:(cfg.property && cfg.property.type)      || 'house',
-      timezone:     'Australia/Sydney',
-      sheets_url:   (cfg.integrations && cfg.integrations.sheetCsvUrl) || '',
-      script_url:   (cfg.integrations && cfg.integrations.scriptUrl)   || '',
-      base_rate:    (cfg.pricing && cfg.pricing.baseRate) || 0,
-      updated_at:   new Date().toISOString()
+      user_id:          user.id,
+      name:             cfg.name         || '',
+      address:          cfg.address      || '',
+      suburb:           cfg.suburb       || '',
+      state:            cfg.state        || '',
+      country:          cfg.country      || 'Australia',
+      region:           cfg.region       || '',
+      tagline:          (cfg.branding && cfg.branding.tagline) || '',
+      bedrooms:         (cfg.property && cfg.property.bedrooms)  || 0,
+      bathrooms:        (cfg.property && cfg.property.bathrooms) || 0,
+      max_guests:       (cfg.property && cfg.property.maxGuests) || 0,
+      property_type:    (cfg.property && cfg.property.type)      || 'house',
+      timezone:         'Australia/Sydney',
+      sheets_url:       (cfg.integrations && cfg.integrations.sheetCsvUrl) || '',
+      script_url:       (cfg.integrations && cfg.integrations.scriptUrl)   || '',
+      base_rate:        (cfg.pricing && cfg.pricing.baseRate) || 0,
+      calendar_id:      (cfg.integrations && cfg.integrations.calendarId)  || 'primary',
+      vapid_public_key: (cfg.integrations && cfg.integrations.vapidPublicKey) || '',
+      // Drive — read from localStorage as these aren't in the config object
+      drive_client_id:  localStorage.getItem('gh-gdrive-client-id') || '',
+      drive_folder_id:  localStorage.getItem('gh-drive-folder-id')  || '',
+      // API key
+      anthropic_api_key: localStorage.getItem('gh-api-key') || '',
+      updated_at:       new Date().toISOString()
     };
     const { data, error } = await window._sb
       .from('properties')
@@ -568,12 +575,20 @@ async function hydrateFromCloud() {
           type:      cloudProp.property_type || 'house'
         },
         integrations: {
-          sheetCsvUrl: cloudProp.sheets_url || existingCfg.integrations && existingCfg.integrations.sheetCsvUrl,
-          scriptUrl:   cloudProp.script_url || existingCfg.integrations && existingCfg.integrations.scriptUrl
+          sheetCsvUrl:    cloudProp.sheets_url  || existingCfg.integrations && existingCfg.integrations.sheetCsvUrl,
+          scriptUrl:      cloudProp.script_url  || existingCfg.integrations && existingCfg.integrations.scriptUrl,
+          calendarId:     cloudProp.calendar_id || 'primary',
+          vapidPublicKey: cloudProp.vapid_public_key || existingCfg.integrations && existingCfg.integrations.vapidPublicKey
         },
         pricing: { baseRate: cloudProp.base_rate || existingCfg.pricing && existingCfg.pricing.baseRate }
       };
       if (typeof savePropertyConfig === 'function') savePropertyConfig(updates);
+
+      // Restore Drive and API settings to localStorage (not in config object)
+      if (cloudProp.drive_client_id) localStorage.setItem('gh-gdrive-client-id', cloudProp.drive_client_id);
+      if (cloudProp.drive_folder_id) localStorage.setItem('gh-drive-folder-id',  cloudProp.drive_folder_id);
+      if (cloudProp.anthropic_api_key) localStorage.setItem('gh-api-key', cloudProp.anthropic_api_key);
+
       console.log('[StayOps] Property config restored from cloud');
     }
 
@@ -591,10 +606,11 @@ async function migrateLocalDataToCloud() {
   console.log('[StayOps] Starting migration to cloud…');
 
   // Property config first (needed for property_id on other tables)
+  // Also captures Drive client ID, folder ID, and API key from localStorage
   const cfg = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : null;
   if (cfg) {
     await savePropertyToCloud(cfg);
-    console.log('[StayOps] ✓ Property config migrated');
+    console.log('[StayOps] ✓ Property config migrated (includes Drive + API settings)');
   }
 
   // Cleaners
