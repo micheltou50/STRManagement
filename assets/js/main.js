@@ -7855,8 +7855,6 @@ async function finishAppInit() {
   } else {
     await showSetupIfNeeded();
     migrateConfigFromLegacySettings();
-    await initialAppLoad();
-    startAutoSync();
   }
 }
 
