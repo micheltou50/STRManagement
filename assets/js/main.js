@@ -4547,7 +4547,13 @@ async function saveExpenseToDriveAndSheet(exp) {
             driveLink = 'https://drive.google.com/file/d/' + file.id + '/view';
             // Save link locally
             const saved = expenses.find(e => e.id === exp.id);
-            if (saved) { saved.driveLink = driveLink; savePropertyData(); renderExpenses(); }
+            if (saved) {
+              saved.driveLink = driveLink;
+              savePropertyData();
+              renderExpenses();
+              // Sync updated driveLink to Supabase
+              if (typeof saveExpenseToCloud === 'function') saveExpenseToCloud(saved).catch(() => {});
+            }
             showBanner('✓ Receipt saved to Google Drive', 'ok');
           } else {
             showBanner('⚠ Drive upload failed — no file ID returned', 'warn');

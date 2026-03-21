@@ -94,32 +94,46 @@ async function savePropertyToCloud(cfg) {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user || !cfg) return null;
-    const payload = {
-      user_id:          user.id,
-      name:             cfg.name         || '',
-      address:          cfg.address      || '',
-      suburb:           cfg.suburb       || '',
-      state:            cfg.state        || '',
-      country:          cfg.country      || 'Australia',
-      region:           cfg.region       || '',
-      tagline:          (cfg.branding && cfg.branding.tagline) || '',
-      bedrooms:         (cfg.property && cfg.property.bedrooms)  || 0,
-      bathrooms:        (cfg.property && cfg.property.bathrooms) || 0,
-      max_guests:       (cfg.property && cfg.property.maxGuests) || 0,
-      property_type:    (cfg.property && cfg.property.type)      || 'house',
-      timezone:         'Australia/Sydney',
-      sheets_url:       (cfg.integrations && cfg.integrations.sheetCsvUrl) || '',
-      script_url:       (cfg.integrations && cfg.integrations.scriptUrl)   || '',
-      base_rate:        (cfg.pricing && cfg.pricing.baseRate) || 0,
-      calendar_id:      (cfg.integrations && cfg.integrations.calendarId)  || 'primary',
-      vapid_public_key: (cfg.integrations && cfg.integrations.vapidPublicKey) || '',
-      // Drive — read from localStorage as these aren't in the config object
-      drive_client_id:  localStorage.getItem('gh-gdrive-client-id') || '',
-      drive_folder_id:  localStorage.getItem('gh-drive-folder-id')  || '',
-      // API key
-      anthropic_api_key: localStorage.getItem('gh-api-key') || '',
-      updated_at:       new Date().toISOString()
+
+    // Build payload — only include fields that have real values
+    // Never write empty strings — let the existing cloud value stand
+    const raw = {
+      user_id:           user.id,
+      name:              cfg.name         || null,
+      address:           cfg.address      || null,
+      suburb:            cfg.suburb       || null,
+      state:             cfg.state        || null,
+      country:           cfg.country      || null,
+      region:            cfg.region       || null,
+      tagline:           (cfg.branding && cfg.branding.tagline)       || null,
+      bedrooms:          (cfg.property && cfg.property.bedrooms)      || null,
+      bathrooms:         (cfg.property && cfg.property.bathrooms)     || null,
+      max_guests:        (cfg.property && cfg.property.maxGuests)     || null,
+      property_type:     (cfg.property && cfg.property.type)          || null,
+      timezone:          'Australia/Sydney',
+      sheets_url:        (cfg.integrations && cfg.integrations.sheetCsvUrl)   || null,
+      script_url:        (cfg.integrations && cfg.integrations.scriptUrl)     || null,
+      calendar_id:       (cfg.integrations && cfg.integrations.calendarId)    || null,
+      vapid_public_key:  (cfg.integrations && cfg.integrations.vapidPublicKey) || null,
+      base_rate:         (cfg.pricing && cfg.pricing.baseRate)         || null,
+      owner_name:        (cfg.owner && cfg.owner.name)                 || null,
+      owner_email:       (cfg.owner && cfg.owner.email)                || null,
+      owner_phone:       (cfg.owner && cfg.owner.phone)                || null,
+      drive_client_id:   localStorage.getItem('gh-gdrive-client-id')   || null,
+      drive_folder_id:   localStorage.getItem('gh-drive-folder-id')    || null,
+      anthropic_api_key: localStorage.getItem('gh-api-key')            || null,
+      // Use config's own updated_at if present so timestamp reflects when user actually saved
+      updated_at:        cfg.updated_at || new Date().toISOString()
     };
+
+    // Strip null values so we never overwrite real cloud data with nulls
+    const payload = Object.fromEntries(
+      Object.entries(raw).filter(([_, v]) => v !== null && v !== '')
+    );
+    // Always include user_id and updated_at even if stripped
+    payload.user_id    = user.id;
+    payload.updated_at = raw.updated_at;
+
     const { data, error } = await window._sb
       .from('properties')
       .upsert(payload, { onConflict: 'user_id' })
@@ -519,6 +533,8 @@ async function deleteInventoryItemFromCloud(item) {
  */
 async function hydrateFromCloud() {
   try {
+    // Set hydration flag — suppresses cloud writes and renders during hydration
+    window._stayOpsHydrating = true;
     console.log('[StayOps] hydrateFromCloud starting…');
 
     // 1. Cleaners — cloud is source of truth
@@ -528,7 +544,7 @@ async function hydrateFromCloud() {
       console.log('[StayOps] Hydrated', cloudCleaners.length, 'cleaners from cloud');
     }
 
-    // 2. Cleans — cloud status wins
+    // 2. Cleans — cloud is source of truth
     const cloudCleans = await loadCleansFromCloud();
     if (Array.isArray(cloudCleans) && cloudCleans.length) {
       localStorage.setItem(lsKey('cleans'), JSON.stringify(cloudCleans));
@@ -556,45 +572,71 @@ async function hydrateFromCloud() {
       console.log('[StayOps] Hydrated', cloudInventory.length, 'inventory items from cloud');
     }
 
-    // 6. Property config — if cloud has it, restore it
+    // 6. Property config — timestamp-based merge: newer wins
     const cloudProp = await loadPropertyFromCloud();
     if (cloudProp) {
       window._cloudPropertyId = cloudProp.id;
-      const existingCfg = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : {};
-      const updates = {
-        name:    cloudProp.name    || existingCfg.name,
-        suburb:  cloudProp.suburb  || existingCfg.suburb,
-        state:   cloudProp.state   || existingCfg.state,
-        region:  cloudProp.region  || existingCfg.region,
-        country: cloudProp.country || existingCfg.country,
-        branding: { tagline: cloudProp.tagline || '' },
-        property: {
-          bedrooms:  cloudProp.bedrooms  || existingCfg.property && existingCfg.property.bedrooms,
-          bathrooms: cloudProp.bathrooms || existingCfg.property && existingCfg.property.bathrooms,
-          maxGuests: cloudProp.max_guests || existingCfg.property && existingCfg.property.maxGuests,
-          type:      cloudProp.property_type || 'house'
-        },
-        integrations: {
-          sheetCsvUrl:    cloudProp.sheets_url  || existingCfg.integrations && existingCfg.integrations.sheetCsvUrl,
-          scriptUrl:      cloudProp.script_url  || existingCfg.integrations && existingCfg.integrations.scriptUrl,
-          calendarId:     cloudProp.calendar_id || 'primary',
-          vapidPublicKey: cloudProp.vapid_public_key || existingCfg.integrations && existingCfg.integrations.vapidPublicKey
-        },
-        pricing: { baseRate: cloudProp.base_rate || existingCfg.pricing && existingCfg.pricing.baseRate }
-      };
-      if (typeof savePropertyConfig === 'function') savePropertyConfig(updates);
 
-      // Restore Drive and API settings to localStorage (not in config object)
+      // Restore Drive and API settings to localStorage FIRST
+      // so renderConnectionSummary sees them when it runs
       if (cloudProp.drive_client_id) localStorage.setItem('gh-gdrive-client-id', cloudProp.drive_client_id);
       if (cloudProp.drive_folder_id) localStorage.setItem('gh-drive-folder-id',  cloudProp.drive_folder_id);
       if (cloudProp.anthropic_api_key) localStorage.setItem('gh-api-key', cloudProp.anthropic_api_key);
 
-      console.log('[StayOps] Property config restored from cloud');
+      const existingCfg = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : {};
+      const localUpdatedAt  = existingCfg.updated_at ? new Date(existingCfg.updated_at).getTime()  : 0;
+      const cloudUpdatedAt  = cloudProp.updated_at   ? new Date(cloudProp.updated_at).getTime()    : 0;
+
+      // Cloud wins if it's newer OR if local has no timestamp (fresh device)
+      if (cloudUpdatedAt >= localUpdatedAt) {
+        const updates = {
+          name:    cloudProp.name    || existingCfg.name,
+          address: cloudProp.address || existingCfg.address,
+          suburb:  cloudProp.suburb  || existingCfg.suburb,
+          state:   cloudProp.state   || existingCfg.state,
+          region:  cloudProp.region  || existingCfg.region,
+          country: cloudProp.country || existingCfg.country,
+          branding: {
+            tagline: cloudProp.tagline || (existingCfg.branding && existingCfg.branding.tagline) || ''
+          },
+          property: {
+            bedrooms:  cloudProp.bedrooms   || (existingCfg.property && existingCfg.property.bedrooms),
+            bathrooms: cloudProp.bathrooms  || (existingCfg.property && existingCfg.property.bathrooms),
+            maxGuests: cloudProp.max_guests || (existingCfg.property && existingCfg.property.maxGuests),
+            type:      cloudProp.property_type || (existingCfg.property && existingCfg.property.type) || 'house'
+          },
+          owner: {
+            name:  cloudProp.owner_name  || (existingCfg.owner && existingCfg.owner.name)  || '',
+            email: cloudProp.owner_email || (existingCfg.owner && existingCfg.owner.email) || '',
+            phone: cloudProp.owner_phone || (existingCfg.owner && existingCfg.owner.phone) || ''
+          },
+          integrations: {
+            sheetCsvUrl:    cloudProp.sheets_url      || (existingCfg.integrations && existingCfg.integrations.sheetCsvUrl),
+            scriptUrl:      cloudProp.script_url      || (existingCfg.integrations && existingCfg.integrations.scriptUrl),
+            calendarId:     cloudProp.calendar_id     || (existingCfg.integrations && existingCfg.integrations.calendarId) || 'primary',
+            vapidPublicKey: cloudProp.vapid_public_key || (existingCfg.integrations && existingCfg.integrations.vapidPublicKey),
+            driveFolderId:  cloudProp.drive_folder_id  || (existingCfg.integrations && existingCfg.integrations.driveFolderId)
+          },
+          pricing: {
+            baseRate: cloudProp.base_rate || (existingCfg.pricing && existingCfg.pricing.baseRate)
+          },
+          // Preserve the cloud timestamp so next merge comparison is accurate
+          updated_at: cloudProp.updated_at
+        };
+        // savePropertyConfig is called with hydrating=true so it won't trigger cloud write or render
+        if (typeof savePropertyConfig === 'function') savePropertyConfig(updates);
+        console.log('[StayOps] Property config: cloud wins (cloud newer or fresh device)');
+      } else {
+        console.log('[StayOps] Property config: local wins (local is newer)');
+      }
     }
 
     console.log('[StayOps] hydrateFromCloud complete');
   } catch (e) {
     console.warn('[StayOps] hydrateFromCloud error', e);
+  } finally {
+    // Always clear the hydration flag
+    window._stayOpsHydrating = false;
   }
 }
 

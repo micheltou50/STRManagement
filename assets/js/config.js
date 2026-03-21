@@ -335,15 +335,31 @@ function savePropertyConfig(updates) {
   if (!activeId || !getPropertyById(activeId)) {
     const first = _deepMerge(active, updates || {});
     first.propertyId = _normalisePropertyId(first.propertyId, first.name);
+    first.updated_at = new Date().toISOString();
     saveAllProperties([first]);
     localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, first.propertyId);
-    localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(first)); // keep legacy shadow
+    localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(first));
     _syncLegacyMirrorsFromActive();
+    // Only sync to cloud when not hydrating — during hydration cloud is already source of truth
+    if (!window._stayOpsHydrating && typeof saveHostConfigToCloud === 'function') {
+      saveHostConfigToCloud(first);
+    }
     return first;
   }
 
   const merged = updatePropertyConfig(activeId, updates || {});
-  if (merged) localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(merged)); // keep legacy shadow
+  if (merged) {
+    merged.updated_at = new Date().toISOString();
+    // Re-save with timestamp
+    const list = getAllProperties();
+    const idx = list.findIndex(p => p.propertyId === activeId || p.id === activeId);
+    if (idx !== -1) { list[idx] = merged; saveAllProperties(list); }
+    localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(merged));
+    // Only sync to cloud when not hydrating
+    if (!window._stayOpsHydrating && typeof saveHostConfigToCloud === 'function') {
+      saveHostConfigToCloud(merged);
+    }
+  }
   return merged;
 }
 
@@ -491,11 +507,6 @@ function getPropertyConfigGaps() {
 function saveDriveFolderId(folderId) {
   localStorage.setItem('gh-drive-folder-id', folderId);
   savePropertyConfig({ integrations: { driveFolderId: folderId } });
-  // Sync to Supabase
-  if (typeof savePropertyToCloud === 'function') {
-    const cfg = getActivePropertyConfig();
-    savePropertyToCloud(cfg).catch(() => {});
-  }
 }
 
 function persistScriptUrl(url) {
