@@ -7910,9 +7910,9 @@ function populateOwnerReportPanel() {
   _setVal('owner-report-subject', owner.reportEmailSubject || '');
   _setVal('owner-report-body',    owner.reportEmailBody    || '');
 
-  const autoSendCb = document.getElementById('owner-report-auto-send');
-  if (autoSendCb) autoSendCb.checked = !!owner.autoSendReport;
-  _updateOwnerReportToggleUI(!!owner.autoSendReport);
+  // Set state on the plain-div toggle (no checkbox)
+  window._ownerAutoSend = !!owner.autoSendReport;
+  _updateOwnerReportToggleUI(window._ownerAutoSend);
 
   const freqEl = document.getElementById('owner-report-frequency');
   if (freqEl) freqEl.value = owner.reportFrequency || 'monthly';
@@ -7950,10 +7950,15 @@ function _setVal(id, val) {
 }
 
 function _updateOwnerReportToggleUI(on) {
-  const track = document.getElementById('owner-report-auto-send-track');
-  const thumb = document.getElementById('owner-report-auto-send-thumb');
+  const track = document.getElementById('owner-autosend-toggle');
+  const thumb = document.getElementById('owner-autosend-thumb');
   if (track) track.style.background = on ? 'var(--forest, #1E3A2F)' : 'var(--border, #C7C7CC)';
   if (thumb) thumb.style.transform  = on ? 'translateX(18px)' : 'translateX(0)';
+}
+
+function ownerAutoSendToggle() {
+  window._ownerAutoSend = !window._ownerAutoSend;
+  _updateOwnerReportToggleUI(window._ownerAutoSend);
 }
 
 /**
@@ -7965,7 +7970,7 @@ function saveOwnerReportSettings() {
   const phone   = (document.getElementById('owner-report-phone')   || {}).value || '';
   const subject = (document.getElementById('owner-report-subject') || {}).value || '';
   const body    = (document.getElementById('owner-report-body')    || {}).value || '';
-  const autoSend = !!(document.getElementById('owner-report-auto-send') || {}).checked;
+  const autoSend = !!window._ownerAutoSend;
   const freq    = (document.getElementById('owner-report-frequency') || {}).value || 'monthly';
 
   // Preserve lastReportSentAt — don't overwrite it here

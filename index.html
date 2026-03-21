@@ -805,37 +805,35 @@
       <!-- Auto-Send -->
       <div class="card" style="margin-bottom:14px">
         <div class="card-title">🔄 Auto-Send</div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
           <div>
             <div style="font-weight:500;font-size:14px">Send automatically</div>
             <div style="font-size:12px;color:var(--text-soft)">App will prompt you when a report is due</div>
           </div>
-          <label style="position:relative;display:inline-block;width:44px;height:26px;flex-shrink:0">
-            <input type="checkbox" id="owner-report-auto-send" style="opacity:0;width:0;height:0" onchange="_updateOwnerReportToggleUI(this.checked)">
-            <span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:26px;transition:.3s" id="owner-report-auto-send-track"></span>
-            <span id="owner-report-auto-send-thumb" style="position:absolute;height:20px;width:20px;left:3px;bottom:3px;background:white;border-radius:50%;transition:.3s;pointer-events:none"></span>
-          </label>
+          <div id="owner-autosend-toggle"
+               onclick="ownerAutoSendToggle()"
+               style="width:44px;height:26px;border-radius:26px;background:var(--border);position:relative;cursor:pointer;flex-shrink:0;transition:background .25s">
+            <div id="owner-autosend-thumb"
+                 style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:white;transition:transform .25s;box-shadow:0 1px 3px rgba(0,0,0,.3)"></div>
+          </div>
         </div>
-        <div id="owner-report-freq-row">
-          <label>Frequency</label>
-          <select id="owner-report-frequency" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;background:var(--card-bg)">
-            <option value="monthly">Monthly</option>
-            <option value="quarterly">Quarterly</option>
-          </select>
-          <div style="font-size:11px;color:var(--text-soft);margin-top:4px" id="owner-report-last-sent-row"></div>
-        </div>
+        <label>Frequency</label>
+        <select id="owner-report-frequency" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;background:var(--card-bg)">
+          <option value="monthly">Monthly</option>
+          <option value="quarterly">Quarterly</option>
+        </select>
+        <div style="font-size:11px;color:var(--text-soft);margin-top:6px" id="owner-report-last-sent-row"></div>
       </div>
 
       <!-- Save + Send Now -->
-      <button class="btn-primary" onclick="saveOwnerReportSettings()" style="margin-bottom:10px">Save Settings</button>
+      <button class="btn-primary" onclick="saveOwnerReportSettings()" style="margin-bottom:14px;width:100%">Save Settings</button>
 
-      <div class="card" style="padding:14px 16px">
+      <div class="card" style="padding:14px 16px;margin-bottom:20px">
         <div style="font-weight:500;font-size:14px;margin-bottom:4px">📤 Send Report Now</div>
         <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Generates the current financial year PDF and emails it to the owner address above.</div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <select id="owner-report-send-fy" style="flex:1;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;background:var(--card-bg)"></select>
-          <button class="btn-primary" onclick="sendOwnerReport()" style="flex-shrink:0;white-space:nowrap" id="owner-report-send-btn">Send Report</button>
-        </div>
+        <label>Financial year</label>
+        <select id="owner-report-send-fy" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;background:var(--card-bg);margin-bottom:10px"></select>
+        <button class="btn-primary" onclick="sendOwnerReport()" style="width:100%" id="owner-report-send-btn">Send Report</button>
         <div id="owner-report-send-status" style="margin-top:8px;font-size:12px;color:var(--text-soft)"></div>
       </div>
     </div>
