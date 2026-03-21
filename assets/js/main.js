@@ -8038,18 +8038,21 @@ async function sendOwnerReport() {
 
     if (status) status.textContent = 'Sending email…';
 
-    // 3. Post to Apps Script — action=sendReport
+    // 3. POST to Apps Script — PDF base64 is too large for a URL query param
     const payload = {
-      action:      'sendReport',
-      to:          ownerEmail,
+      action:    'sendReport',
+      to:        ownerEmail,
       subject,
-      body:        bodyIntro,
-      pdfBase64:   pdfB64,
+      body:      bodyIntro,
+      pdfBase64: pdfB64,
       fileName,
     };
-    const url     = scriptUrl + '?action=sendReport&data=' + encodeURIComponent(JSON.stringify(payload));
-    const res     = await fetch(url);
-    const json    = await res.json().catch(() => ({}));
+    const res  = await fetch(scriptUrl, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
 
     if (json.success || json.status === 'ok') {
       // 4. Record timestamp
