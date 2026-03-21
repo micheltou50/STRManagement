@@ -116,9 +116,14 @@ async function savePropertyToCloud(cfg) {
       calendar_id:       (cfg.integrations && cfg.integrations.calendarId)    || null,
       vapid_public_key:  (cfg.integrations && cfg.integrations.vapidPublicKey) || null,
       base_rate:         (cfg.pricing && cfg.pricing.baseRate)         || null,
-      owner_name:        (cfg.owner && cfg.owner.name)                 || null,
-      owner_email:       (cfg.owner && cfg.owner.email)                || null,
-      owner_phone:       (cfg.owner && cfg.owner.phone)                || null,
+      owner_name:              (cfg.owner && cfg.owner.name)                 || null,
+      owner_email:             (cfg.owner && cfg.owner.email)                || null,
+      owner_phone:             (cfg.owner && cfg.owner.phone)                || null,
+      report_email_subject:    (cfg.owner && cfg.owner.reportEmailSubject)   || null,
+      report_email_body:       (cfg.owner && cfg.owner.reportEmailBody)      || null,
+      auto_send_report:        (cfg.owner && cfg.owner.autoSendReport != null) ? cfg.owner.autoSendReport : null,
+      report_frequency:        (cfg.owner && cfg.owner.reportFrequency)      || null,
+      last_report_sent_at:     (cfg.owner && cfg.owner.lastReportSentAt)     || null,
       drive_client_id:   localStorage.getItem('gh-gdrive-client-id')   || null,
       drive_folder_id:   localStorage.getItem('gh-drive-folder-id')    || null,
       anthropic_api_key: localStorage.getItem('gh-api-key')            || null,
@@ -608,7 +613,12 @@ async function hydrateFromCloud() {
           owner: {
             name:  cloudProp.owner_name  || (existingCfg.owner && existingCfg.owner.name)  || '',
             email: cloudProp.owner_email || (existingCfg.owner && existingCfg.owner.email) || '',
-            phone: cloudProp.owner_phone || (existingCfg.owner && existingCfg.owner.phone) || ''
+            phone: cloudProp.owner_phone || (existingCfg.owner && existingCfg.owner.phone) || '',
+            reportEmailSubject: cloudProp.report_email_subject || (existingCfg.owner && existingCfg.owner.reportEmailSubject) || '',
+            reportEmailBody:    cloudProp.report_email_body    || (existingCfg.owner && existingCfg.owner.reportEmailBody)    || '',
+            autoSendReport:     cloudProp.auto_send_report     != null ? cloudProp.auto_send_report : ((existingCfg.owner && existingCfg.owner.autoSendReport) || false),
+            reportFrequency:    cloudProp.report_frequency     || (existingCfg.owner && existingCfg.owner.reportFrequency)    || 'monthly',
+            lastReportSentAt:   cloudProp.last_report_sent_at  || (existingCfg.owner && existingCfg.owner.lastReportSentAt)   || null,
           },
           integrations: {
             sheetCsvUrl:    cloudProp.sheets_url      || (existingCfg.integrations && existingCfg.integrations.sheetCsvUrl),
@@ -778,6 +788,8 @@ async function handleLoginSubmit() {
   await hydrateFromCloud();
   hideLoadingScreen();
   if (typeof renderAll === 'function') renderAll();
+  // Prompt if an owner report is due
+  setTimeout(() => { if (typeof checkAutoSendReport === 'function') checkAutoSendReport(); }, 1500);
 }
 
 function toggleSignUp() {

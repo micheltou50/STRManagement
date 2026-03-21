@@ -2341,6 +2341,9 @@ function openSettingsPanel(panelId) {
   if (panelId === 'connection-checker') {
     resetConnectionCheckerResults();
   }
+  if (panelId === 'owner-report') {
+    populateOwnerReportPanel();
+  }
 }
 
 function renderPropertySwitcher() {
@@ -7887,11 +7890,235 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
   if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
   renderAll();
+  // Prompt if an owner report is due (non-blocking, runs after UI is visible)
+  setTimeout(checkAutoSendReport, 1500);
 });
 
+// ── OWNER REPORT ──────────────────────────────────────────────────────────────
+
+/**
+ * populateOwnerReportPanel — fills the owner-report panel with current config.
+ * Called by openSettingsPanel('owner-report').
+ */
+function populateOwnerReportPanel() {
+  const cfg = getActivePropertyConfig();
+  const owner = cfg.owner || {};
+
+  _setVal('owner-report-name',    owner.name  || '');
+  _setVal('owner-report-email',   owner.email || '');
+  _setVal('owner-report-phone',   owner.phone || '');
+  _setVal('owner-report-subject', owner.reportEmailSubject || '');
+  _setVal('owner-report-body',    owner.reportEmailBody    || '');
+
+  const autoSendCb = document.getElementById('owner-report-auto-send');
+  if (autoSendCb) autoSendCb.checked = !!owner.autoSendReport;
+  _updateOwnerReportToggleUI(!!owner.autoSendReport);
+
+  const freqEl = document.getElementById('owner-report-frequency');
+  if (freqEl) freqEl.value = owner.reportFrequency || 'monthly';
+
+  // Last-sent label
+  const lastSentEl = document.getElementById('owner-report-last-sent-row');
+  if (lastSentEl) {
+    if (owner.lastReportSentAt) {
+      const d = new Date(owner.lastReportSentAt);
+      lastSentEl.textContent = 'Last sent: ' + d.toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' });
+    } else {
+      lastSentEl.textContent = 'No report sent yet.';
+    }
+  }
+
+  // Populate FY picker
+  const fyEl = document.getElementById('owner-report-send-fy');
+  if (fyEl) {
+    const currentFY = reportFY;
+    fyEl.innerHTML = '';
+    for (let fy = currentFY; fy >= currentFY - 4; fy--) {
+      const opt = document.createElement('option');
+      opt.value = fy;
+      opt.textContent = fyLabel(fy);
+      fyEl.appendChild(opt);
+    }
+    fyEl.value = currentFY;
+  }
+
+  // Wire up the toggle visual
+  const toggleCb = document.getElementById('owner-report-auto-send');
+  if (toggleCb) {
+    toggleCb.onchange = () => _updateOwnerReportToggleUI(toggleCb.checked);
+  }
+}
+
+function _setVal(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.value = val;
+}
+
+function _updateOwnerReportToggleUI(on) {
+  const track = document.getElementById('owner-report-auto-send-track');
+  const thumb = document.getElementById('owner-report-auto-send-thumb');
+  const freqRow = document.getElementById('owner-report-freq-row');
+  if (track) track.style.background = on ? 'var(--forest, #1E3A2F)' : 'var(--border, #C7C7CC)';
+  if (thumb) thumb.style.transform  = on ? 'translateX(18px)' : 'translateX(0)';
+  if (freqRow) freqRow.style.display = on ? '' : 'none';
+}
+
+/**
+ * saveOwnerReportSettings — reads the panel fields and persists to config + Supabase.
+ */
+function saveOwnerReportSettings() {
+  const name    = (document.getElementById('owner-report-name')    || {}).value || '';
+  const email   = (document.getElementById('owner-report-email')   || {}).value || '';
+  const phone   = (document.getElementById('owner-report-phone')   || {}).value || '';
+  const subject = (document.getElementById('owner-report-subject') || {}).value || '';
+  const body    = (document.getElementById('owner-report-body')    || {}).value || '';
+  const autoSend = !!(document.getElementById('owner-report-auto-send') || {}).checked;
+  const freq    = (document.getElementById('owner-report-frequency') || {}).value || 'monthly';
+
+  // Preserve lastReportSentAt — don't overwrite it here
+  const existing = getActivePropertyConfig().owner || {};
+
+  savePropertyConfig({
+    owner: {
+      name,
+      email,
+      phone,
+      reportEmailSubject: subject,
+      reportEmailBody:    body,
+      autoSendReport:     autoSend,
+      reportFrequency:    freq,
+      lastReportSentAt:   existing.lastReportSentAt || null,
+    }
+  });
+
+  showBanner('✓ Owner & report settings saved', 'ok');
+}
+
+/**
+ * sendOwnerReport — generates the PDF for the chosen FY and emails it via Apps Script.
+ */
+async function sendOwnerReport() {
+  if (!window.jspdf) { showBanner('⟳ PDF library loading — try again in a moment', 'warn'); return; }
+
+  const cfg     = getActivePropertyConfig();
+  const owner   = cfg.owner || {};
+  const ownerEmail = owner.email || '';
+
+  if (!ownerEmail) {
+    showBanner('⚠ No owner email set — add one in Owner & Reports settings', 'warn');
+    return;
+  }
+
+  const scriptUrl = (getCurrentScriptURL() || '').trim();
+  if (!scriptUrl || !scriptUrl.includes('script.google.com')) {
+    showBanner('⚠ Apps Script URL not configured — check Settings → Integrations', 'warn');
+    return;
+  }
+
+  const fyEl = document.getElementById('owner-report-send-fy');
+  const fy   = fyEl ? Number(fyEl.value) : reportFY;
+
+  const btn    = document.getElementById('owner-report-send-btn');
+  const status = document.getElementById('owner-report-send-status');
+  if (btn)    { btn.disabled = true; btn.textContent = 'Sending…'; }
+  if (status) { status.style.color = 'var(--text-soft)'; status.textContent = 'Building PDF…'; }
+
+  try {
+    // 1. Build PDF and get base64 string
+    const doc      = _buildReportDoc(fy);
+    const pdfB64   = doc.output('datauristring').split(',')[1]; // base64 only
+    const fileName = `${getCurrentPropertyName().replace(/[^a-zA-Z0-9]/g,'-')}-${fyLabel(fy).replace(/\s/g,'_')}.pdf`;
+
+    // 2. Compose email
+    const propName = getCurrentPropertyName();
+    const defaultSubject = `${propName} — ${fyLabel(fy)} Performance Report`;
+    const subject  = (owner.reportEmailSubject || '').trim() || defaultSubject;
+    const bodyIntro = (owner.reportEmailBody || '').trim()
+      || `Hi${owner.name ? ' ' + owner.name.split(' ')[0] : ''},\n\nPlease find attached the ${fyLabel(fy)} financial performance report for ${propName}.\n\nKind regards`;
+
+    if (status) status.textContent = 'Sending email…';
+
+    // 3. Post to Apps Script — action=sendReport
+    const payload = {
+      action:      'sendReport',
+      to:          ownerEmail,
+      subject,
+      body:        bodyIntro,
+      pdfBase64:   pdfB64,
+      fileName,
+    };
+    const url     = scriptUrl + '?action=sendReport&data=' + encodeURIComponent(JSON.stringify(payload));
+    const res     = await fetch(url);
+    const json    = await res.json().catch(() => ({}));
+
+    if (json.success || json.status === 'ok') {
+      // 4. Record timestamp
+      const now = new Date().toISOString();
+      const existingOwner = getActivePropertyConfig().owner || {};
+      savePropertyConfig({ owner: { ...existingOwner, lastReportSentAt: now } });
+
+      if (status) { status.style.color = 'var(--forest)'; status.textContent = '✓ Report sent to ' + ownerEmail; }
+      showBanner('✅ Report emailed to ' + ownerEmail, 'ok');
+
+      // Refresh the last-sent label
+      const lastSentEl = document.getElementById('owner-report-last-sent-row');
+      if (lastSentEl) {
+        const d = new Date(now);
+        lastSentEl.textContent = 'Last sent: ' + d.toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' });
+      }
+    } else {
+      const errMsg = json.error || json.message || 'Unknown error';
+      if (status) { status.style.color = 'var(--red)'; status.textContent = '✗ Failed: ' + errMsg; }
+      showBanner('⚠ Report send failed — ' + errMsg, 'warn');
+    }
+  } catch (e) {
+    if (status) { status.style.color = 'var(--red)'; status.textContent = '✗ Error: ' + e.message; }
+    showBanner('⚠ Report send error — ' + e.message, 'warn');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Send Report'; }
+  }
+}
+
+/**
+ * checkAutoSendReport — called once after hydrateFromCloud + renderAll.
+ * If auto-send is on and a report is due, shows a non-intrusive prompt banner.
+ */
+function checkAutoSendReport() {
+  try {
+    const owner = (getActivePropertyConfig() || {}).owner || {};
+    if (!owner.autoSendReport || !owner.email) return;
+
+    const freq        = owner.reportFrequency || 'monthly';
+    const lastSent    = owner.lastReportSentAt ? new Date(owner.lastReportSentAt) : null;
+    const now         = new Date();
+    const daysSince   = lastSent ? Math.floor((now - lastSent) / 86400000) : Infinity;
+    const threshold   = freq === 'quarterly' ? 85 : 28; // ~1 month / ~3 months
+
+    if (daysSince < threshold) return;
+
+    // Determine which FY the due period belongs to
+    const dueMonth = lastSent
+      ? new Date(lastSent.getFullYear(), lastSent.getMonth() + (freq === 'quarterly' ? 3 : 1), 1)
+      : now;
+    const fy = dueMonth.getMonth() >= 6 ? dueMonth.getFullYear() : dueMonth.getFullYear() - 1;
+    const label = fyLabel(fy);
+
+    showBanner(
+      `📊 ${label} report ready — <a href="#" onclick="showSection('settings');openSettingsCat('property');setTimeout(()=>openSettingsPanel('owner-report'),60);return false;" style="color:inherit;font-weight:600">Send to owner ›</a>`,
+      'info',
+      12000
+    );
+  } catch (e) {
+    // Non-critical — silently ignore
+  }
+}
+
 // ── REPORT EXPORT ─────────────────────────────────────────────────────────────
-function exportReportPDF() {
-  if (!window.jspdf) { showBanner('⟳ PDF library loading, try again in a moment','warn'); return; }
+/**
+ * _buildReportDoc(fy) — shared PDF builder. Returns a jsPDF doc object.
+ * Used by both exportReportPDF() and sendOwnerReport().
+ */
+function _buildReportDoc(fy) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const FOREST = [30, 58, 47];
@@ -7907,13 +8134,13 @@ function exportReportPDF() {
   doc.setFontSize(16); doc.setFont('helvetica','bold');
   doc.text(getCurrentPropertyName() + ' — Performance Report', 10, 14);
   doc.setFontSize(9); doc.setFont('helvetica','normal');
-  doc.text(fyLabel(reportFY) + ' · Generated ' + new Date().toLocaleDateString('en-AU'), 200, 14, { align:'right' });
+  doc.text(fyLabel(fy) + ' · Generated ' + new Date().toLocaleDateString('en-AU'), 200, 14, { align:'right' });
   y = 30;
 
   // KPI row
   doc.setTextColor(...FOREST);
   doc.setFontSize(9); doc.setFont('helvetica','bold');
-  const months = fyMonths(reportFY);
+  const months = fyMonths(fy);
   const fmt2 = n => '$' + Number(n).toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0});
   function mdata(yr, mo) {
     const bs = bookings.filter(b => b.status !== 'cancelled' && (function(){ const d=new Date(b.checkin); return d.getFullYear()===yr&&d.getMonth()===mo; })());
@@ -7931,7 +8158,7 @@ function exportReportPDF() {
   const fyOcc = fyAvail ? (fyNights/fyAvail*100) : 0;
   const allExp = (JSON.parse(localStorage.getItem(lsKey('expenses'))||'[]')).filter(e => {
     const d=new Date(e.date); const mo=d.getMonth(); const yr=d.getFullYear();
-    return (yr===reportFY&&mo>=6)||(yr===reportFY+1&&mo<=5);
+    return (yr===fy&&mo>=6)||(yr===fy+1&&mo<=5);
   });
   const fyTotalExp = allExp.reduce((s,e)=>s+Number(e.amount||0),0);
   const fyNetInc = fyNet - fyTotalExp;
@@ -8042,8 +8269,15 @@ function exportReportPDF() {
     didDrawRow: data => { if (data.row.index===3) { data.row.cells.forEach(c => { c.styles.fontStyle='bold'; c.styles.fillColor=fyNetInc>=0?[220,236,220]:[254,226,226]; }); } }
   });
 
+  return doc;
+}
+
+function exportReportPDF() {
+  if (!window.jspdf) { showBanner('⟳ PDF library loading, try again in a moment','warn'); return; }
+  const doc = _buildReportDoc(reportFY);
   doc.save(`${getCurrentPropertyName()}-${fyLabel(reportFY).replace(' ','_')}.pdf`);
 }
+
 
 function exportReportCSV() {
   const months = fyMonths(reportFY);

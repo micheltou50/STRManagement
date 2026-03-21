@@ -58,6 +58,11 @@ const DEFAULT_PROPERTY_CONFIG = {
     name:  '',
     email: '',
     phone: '',
+    reportEmailSubject: '',
+    reportEmailBody:    '',
+    autoSendReport:     false,
+    reportFrequency:    'monthly',  // 'monthly' | 'quarterly'
+    lastReportSentAt:   null,
   },
 
   integrations: {
