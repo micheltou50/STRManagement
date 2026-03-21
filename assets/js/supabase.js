@@ -329,6 +329,44 @@ function hideLoginScreen() {
 }
 
 /**
+ * Show the loading screen with an optional status message.
+ */
+function showLoadingScreen(msg) {
+  const el = document.getElementById('stayops-loading-screen');
+  if (el) el.style.display = 'flex';
+  const status = document.getElementById('loading-status');
+  if (status) status.textContent = msg || 'Loading…';
+  const app = document.getElementById('main-content');
+  const nav = document.querySelector('.nav');
+  const hdr = document.querySelector('.header');
+  if (app) app.style.display = 'none';
+  if (nav) nav.style.display = 'none';
+  if (hdr) hdr.style.display = 'none';
+}
+
+/**
+ * Hide the loading screen and reveal the app.
+ */
+function hideLoadingScreen() {
+  const el = document.getElementById('stayops-loading-screen');
+  if (el) el.style.display = 'none';
+  const app = document.getElementById('main-content');
+  const nav = document.querySelector('.nav');
+  const hdr = document.querySelector('.header');
+  if (app) app.style.display = '';
+  if (nav) nav.style.display = '';
+  if (hdr) hdr.style.display = '';
+}
+
+/**
+ * Update the loading screen status text.
+ */
+function setLoadingStatus(msg) {
+  const status = document.getElementById('loading-status');
+  if (status) status.textContent = msg || '';
+}
+
+/**
  * Handle the login form submit.
  */
 async function handleLoginSubmit() {
@@ -353,11 +391,15 @@ async function handleLoginSubmit() {
     return;
   }
 
-  // Signed in — hydrate app from cloud then show it
+  // Signed in — show loading screen, hydrate, init, then reveal app
   hideLoginScreen();
+  showLoadingScreen('Signing you in…');
+  setLoadingStatus('Loading your team…');
   if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
-  if (typeof renderAll === 'function') renderAll();
+  setLoadingStatus('Starting app…');
   if (typeof finishAppInit === 'function') await finishAppInit();
+  hideLoadingScreen();
+  if (typeof renderAll === 'function') renderAll();
 }
 
 /**

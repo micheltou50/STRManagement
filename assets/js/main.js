@@ -7894,11 +7894,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  // Existing session — hydrate and start app
+  // Existing session — show loading screen, hydrate and start app
+  if (typeof showLoadingScreen === 'function') showLoadingScreen('Signing you in…');
   migrateConfigFromLegacySettings();
   await ensureHostIdentityAndRestore();
+  if (typeof setLoadingStatus === 'function') setLoadingStatus('Loading your team…');
   if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
+  if (typeof setLoadingStatus === 'function') setLoadingStatus('Starting app…');
   await finishAppInit();
+  if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
+  renderAll();
 });
 
 // ── REPORT EXPORT ─────────────────────────────────────────────────────────────
