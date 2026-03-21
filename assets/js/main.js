@@ -2344,6 +2344,9 @@ function openSettingsPanel(panelId) {
   if (panelId === 'owner-report') {
     populateOwnerReportPanel();
   }
+  if (panelId === 'host-profile') {
+    populateHostProfilePanel();
+  }
 }
 
 function renderPropertySwitcher() {
@@ -2696,21 +2699,26 @@ function renderPricingCalendar(data, bookedDates, startDate, endDate) {
   return html;
 }
 function renderSettings() {
-  const lastSync = localStorage.getItem(lsKey('last-sync')) || 'Never';
-  const lsEl = document.getElementById('settings-last-sync');
-  if (lsEl) lsEl.textContent = lastSync;
-  const bcEl = document.getElementById('settings-booking-count');
-  if (bcEl) bcEl.textContent = bookings.length + ' bookings loaded';
-  const lastBackup = localStorage.getItem(lsKey('last-backup')) || 'Never';
-  const buEl = document.getElementById('backup-last-time');
-  if (buEl) buEl.textContent = lastBackup;
   renderHostProfileRow();
   renderConnectionSummary();
+  // Quick actions — only show if setup has gaps
   const qaWrap = document.getElementById('settings-quick-actions');
   const fixBtn = document.getElementById('settings-fix-setup-btn');
   const setupGaps = (typeof getPropertyConfigGaps === 'function') ? getPropertyConfigGaps() : [];
   if (qaWrap) qaWrap.style.display = setupGaps.length ? '' : 'none';
   if (fixBtn) fixBtn.onclick = () => { openSettingsCat('property'); reopenPropertySetup(); };
+  // Team count on main menu
+  const teamMenuEl = document.getElementById('team-count-row-menu');
+  if (teamMenuEl) {
+    const cleaners = loadCleaners ? loadCleaners() : [];
+    teamMenuEl.textContent = cleaners.length ? cleaners.length + ' people' : 'Cleaners & contractors';
+  }
+  // Property switcher chevron — show if multiple properties
+  const chevron = document.getElementById('prop-switcher-chevron');
+  if (chevron) {
+    const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
+    chevron.style.display = props.length > 1 ? '' : 'none';
+  }
   setTimeout(updateNotifStatus, 100);
 }
 
@@ -3812,45 +3820,106 @@ function renderHostProfileRow() {
 }
 
 async function manageHostIdentity() {
+  // Legacy entry point — route to the new panel
+  openSettingsPanel('host-profile');
+}
+
+function populateHostProfilePanel() {
   const existing = getHostProfile() || {};
-  const name = await showAppModal({
-    title: 'Host Profile',
-    msg: 'Enter your host name. We use this to restore non-sensitive settings.',
-    confirmText: 'Save',
-    cancelText: 'Cancel',
-    hasInput: true,
-    inputPlaceholder: 'Your name',
-    inputDefault: existing.name || '',
-    inputType: 'text'
-  });
-  if (name === null) return;
-  const cleanName = String(name || '').trim();
-  if (!cleanName) {
-    showBanner('⚠ Host name is required', 'warn');
-    return;
-  }
-  const email = await showAppModal({
-    title: 'Host Email (optional)',
-    msg: 'Add an email so your profile is easier to recognize across devices.',
-    confirmText: 'Save',
-    cancelText: 'Skip',
-    hasInput: true,
-    inputPlaceholder: 'you@example.com',
-    inputDefault: existing.email || '',
-    inputType: 'email'
-  });
-  const hostId = existing.hostId || ('host-' + cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) + '-' + Date.now().toString().slice(-6));
+  const cfg = getActivePropertyConfig();
+  // Pre-populate from invoice details if host profile is empty
+  const invName    = localStorage.getItem(lsKey('inv-name'))    || '';
+  const invCompany = localStorage.getItem(lsKey('inv-company')) || '';
+  const invAbn     = localStorage.getItem(lsKey('inv-abn'))     || '';
+  const invAcn     = localStorage.getItem(lsKey('inv-acn'))     || '';
+  const invEmail   = localStorage.getItem(lsKey('inv-email'))   || '';
+  const invAddress = localStorage.getItem(lsKey('inv-address')) || '';
+
+  const _v = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+  _v('host-profile-name',    existing.name    || invName);
+  _v('host-profile-company', existing.company || invCompany);
+  _v('host-profile-abn',     existing.abn     || invAbn);
+  _v('host-profile-acn',     existing.acn     || invAcn);
+  _v('host-profile-email',   existing.email   || invEmail);
+  _v('host-profile-phone',   existing.phone   || '');
+  _v('host-profile-address', existing.address || invAddress);
+}
+
+async function saveHostProfilePanel() {
+  const _g = id => (document.getElementById(id) || {}).value?.trim() || '';
+  const name    = _g('host-profile-name');
+  if (!name) { showBanner('⚠ Name is required', 'warn'); return; }
   const profile = {
-    hostId,
-    name: cleanName,
-    email: String(email || '').trim(),
-    createdAt: existing.createdAt || new Date().toISOString()
+    ...(getHostProfile() || {}),
+    name,
+    company: _g('host-profile-company'),
+    abn:     _g('host-profile-abn'),
+    acn:     _g('host-profile-acn'),
+    email:   _g('host-profile-email'),
+    phone:   _g('host-profile-phone'),
+    address: _g('host-profile-address'),
+    updatedAt: new Date().toISOString(),
   };
+  if (!profile.hostId) {
+    profile.hostId = 'host-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) + '-' + Date.now().toString().slice(-6);
+    profile.createdAt = profile.updatedAt;
+  }
+  // Mirror to invoice-detail keys for backward compat
+  if (profile.name)    localStorage.setItem(lsKey('inv-name'),    profile.name);
+  if (profile.company) localStorage.setItem(lsKey('inv-company'), profile.company);
+  if (profile.abn)     localStorage.setItem(lsKey('inv-abn'),     profile.abn);
+  if (profile.acn)     localStorage.setItem(lsKey('inv-acn'),     profile.acn);
+  if (profile.email)   localStorage.setItem(lsKey('inv-email'),   profile.email);
+  if (profile.address) localStorage.setItem(lsKey('inv-address'), profile.address);
+
   saveHostProfile(profile);
   renderHostProfileRow();
   const pushed = await pushAppDataNow('hostProfile', profile);
   await pushSafeHostSettings();
-  showBanner(pushed ? '✓ Host profile saved' : '✓ Host saved locally (cloud sync pending)', pushed ? 'ok' : 'warn');
+  showBanner('✓ Host profile saved', 'ok');
+}
+
+function renderHostProfileRow() {
+  const row = document.getElementById('host-profile-row');
+  if (!row) return;
+  const host = getHostProfile();
+  if (!host || !host.name) {
+    row.textContent = 'Name, company, ABN, contact';
+    return;
+  }
+  const bits = [host.name];
+  if (host.company) bits.push(host.company);
+  if (host.abn) bits.push('ABN ' + host.abn);
+  row.textContent = bits.join(' · ');
+}
+
+// ── PROPERTY SWITCHER (header) ─────────────────────────────────
+function openPropertySwitcherSheet() {
+  const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
+  if (props.length <= 1) return; // nothing to switch to
+  const activeId = getActivePropertyId();
+  const list = document.getElementById('property-switcher-sheet-list');
+  if (list) {
+    list.innerHTML = props.map(p => {
+      const isActive = p.propertyId === activeId;
+      return '<div onclick="switchPropertyFromSheet('' + p.propertyId + '')" style="display:flex;align-items:center;justify-content:space-between;padding:14px 4px;border-bottom:1px solid var(--border);cursor:pointer">' +
+        '<div style="font-weight:' + (isActive ? '600' : '400') + ';font-size:15px">' + escHtml(p.name || p.propertyId) + '</div>' +
+        (isActive ? '<div style="color:var(--forest);font-size:13px">✓ Active</div>' : '') +
+        '</div>';
+    }).join('');
+  }
+  const sheet = document.getElementById('property-switcher-sheet');
+  if (sheet) sheet.style.display = 'flex';
+}
+
+function closePropertySwitcherSheet() {
+  const sheet = document.getElementById('property-switcher-sheet');
+  if (sheet) sheet.style.display = 'none';
+}
+
+function switchPropertyFromSheet(id) {
+  closePropertySwitcherSheet();
+  if (typeof switchActiveProperty === 'function') switchActiveProperty(id);
 }
 function saveInvoiceDetails() {
   ['name','company','abn','acn','email','address'].forEach(k => {
@@ -4342,7 +4411,7 @@ function renderExpenseAnalysis(data) {
   if (!hasAnything) html += '<div style="color:var(--forest);font-weight:600">✓ No issues found — your expenses look clean!</div>';
 
   html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-    <button onclick="showSection('settings');openSettingsCat('aitools');openSettingsPanel('ai-ignore')"
+    <button onclick="showSection('settings');openSettingsCat('advanced');openSettingsPanel('ai-ignore')"
       style="font-size:11px;color:var(--text-soft);background:none;border:none;cursor:pointer;text-decoration:underline">View ignore list</button>
     <button onclick="document.getElementById('expense-analysis-result').style.display='none'"
       style="font-size:12px;color:var(--text-soft);background:none;border:none;cursor:pointer">✕ Close</button>

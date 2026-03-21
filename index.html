@@ -200,7 +200,10 @@
   <div id="section-dashboard" class="section-stack">
     <div class="card dashboard-hero" style="background:var(--forest);color:white;position:relative;overflow:hidden">
       <div style="position:absolute;top:-20px;right:-20px;font-size:80px;opacity:0.08">🏠</div>
-      <div style="font-family:'DM Serif Display',serif;font-size:20px;color:white" id="prop-hero-name">Glenhaven</div>
+      <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="openPropertySwitcherSheet()" id="prop-hero-name-wrap">
+        <div style="font-family:'DM Serif Display',serif;font-size:20px;color:white" id="prop-hero-name">Glenhaven</div>
+        <div id="prop-switcher-chevron" style="color:rgba(255,255,255,0.6);font-size:14px;display:none">▾</div>
+      </div>
       <div style="font-size:12px;color:var(--sage);margin-top:2px" id="prop-hero-tagline">Katoomba, NSW · Blue Mountains</div>
       <div style="display:flex;gap:16px;margin-top:12px">
         <div style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:20px;color:white" id="prop-hero-beds">4</div><div style="font-size:10px;color:var(--stone);text-transform:uppercase">Beds</div></div>
@@ -560,32 +563,37 @@
          MAIN SETTINGS MENU
     ═══════════════════════════════════════════════════════ -->
     <div id="settings-menu">
+      <!-- Connection status strip -->
       <div class="card" style="margin-bottom:14px">
         <div class="card-title">🧭 Connection Status</div>
         <div id="conn-summary-list" style="display:flex;flex-direction:column;gap:8px"></div>
       </div>
 
-      <div class="card" id="settings-quick-actions" style="margin-bottom:14px">
+      <!-- Quick actions (only shown when setup has gaps) -->
+      <div class="card" id="settings-quick-actions" style="display:none;margin-bottom:14px">
         <div class="card-title">⚡ Quick Actions</div>
         <div class="quick-action-row">
           <button class="btn-primary" id="settings-fix-setup-btn" onclick="openSettingsCat('property');reopenPropertySetup()">Fix Property Setup</button>
-          <button class="btn-secondary" onclick="openSettingsCat('google')">Open Google &amp; Sync</button>
         </div>
       </div>
 
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:16px 4px 8px">Property</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:16px 4px 8px">Account</div>
       <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
-        <div class="settings-cat-item" onclick="openSettingsCat('property')">
+        <div class="settings-cat-item" onclick="openSettingsPanel('host-profile')" style="border-bottom:none">
           <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#1E3A2F;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🏠</div>
-            <div><div style="font-weight:500;font-size:14px">Property</div><div style="font-size:12px;color:var(--text-soft)">Details, contacts, messaging, and setup</div></div>
+            <div style="width:36px;height:36px;border-radius:9px;background:#5AC8FA;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">👤</div>
+            <div><div style="font-weight:500;font-size:14px">Host Profile</div><div style="font-size:12px;color:var(--text-soft)" id="host-profile-row">Name, company, ABN, contact</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
-        <div class="settings-cat-item" onclick="openSettingsCat('cleaner')">
+      </div>
+
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Property</div>
+      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
+        <div class="settings-cat-item" onclick="openSettingsCat('property')">
           <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#34C759;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🧹</div>
-            <div><div style="font-weight:500;font-size:14px">Team</div><div style="font-size:12px;color:var(--text-soft)">Cleaner access links and permissions</div></div>
+            <div style="width:36px;height:36px;border-radius:9px;background:#1E3A2F;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🏡</div>
+            <div><div style="font-weight:500;font-size:14px">Property</div><div style="font-size:12px;color:var(--text-soft)">Configuration & owner reports</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
@@ -596,28 +604,21 @@
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
-        <div class="settings-cat-item" onclick="manageHostIdentity()" style="border-bottom:none">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#5AC8FA;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">👤</div>
-            <div><div style="font-weight:500;font-size:14px">Host Profile</div><div style="font-size:12px;color:var(--text-soft)" id="host-profile-row">Set your host name</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
       </div>
 
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Integrations</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Team</div>
       <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
-        <div class="settings-cat-item" onclick="openSettingsCat('google')">
+        <div class="settings-cat-item" onclick="openSettingsCat('cleaner')">
           <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#4285F4;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🔗</div>
-            <div><div style="font-weight:500;font-size:14px">Google + Apps Script</div><div style="font-size:12px;color:var(--text-soft)">Sheet URL, script URL, Drive, and status checks</div></div>
+            <div style="width:36px;height:36px;border-radius:9px;background:#34C759;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">👥</div>
+            <div><div style="font-weight:500;font-size:14px">Team</div><div style="font-size:12px;color:var(--text-soft)" id="team-count-row-menu">Cleaners & contractors</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
-        <div class="settings-cat-item" onclick="openSettingsCat('aitools')" style="border-bottom:none">
+        <div class="settings-cat-item" onclick="openSettingsPanel('sms-template')" style="border-bottom:none">
           <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#AF52DE;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🤖</div>
-            <div><div style="font-weight:500;font-size:14px">AI Tools</div><div style="font-size:12px;color:var(--text-soft)">Smart pricing, booking import</div></div>
+            <div style="width:36px;height:36px;border-radius:9px;background:#5AC8FA;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📱</div>
+            <div><div style="font-weight:500;font-size:14px">SMS Template</div><div style="font-size:12px;color:var(--text-soft)">Cleaner notification message</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
@@ -628,7 +629,7 @@
         <div class="settings-cat-item" onclick="openSettingsCat('finance')" style="border-bottom:none">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#FF3B30;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">💰</div>
-            <div><div style="font-weight:500;font-size:14px">Finance</div><div style="font-size:12px;color:var(--text-soft)">Expenses, invoices & clients</div></div>
+            <div><div style="font-weight:500;font-size:14px">Finance</div><div style="font-size:12px;color:var(--text-soft)">Expenses & bank details</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
@@ -639,10 +640,15 @@
         <div class="settings-cat-item" onclick="openSettingsCat('advanced')" style="border-bottom:none">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#636366;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">⚙️</div>
-            <div><div style="font-weight:500;font-size:14px">Advanced</div><div style="font-size:12px;color:var(--text-soft)">App data, feel & gestures</div></div>
+            <div><div style="font-weight:500;font-size:14px">Advanced</div><div style="font-size:12px;color:var(--text-soft)">Integrations, AI tools, diagnostics</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
+      </div>
+
+      <!-- Sign out -->
+      <div style="margin-top:8px;margin-bottom:32px;text-align:center">
+        <button onclick="hostSignOut()" style="background:none;border:none;color:var(--text-soft);font-size:13px;cursor:pointer;padding:8px 16px">Sign out</button>
       </div>
     </div>
 
@@ -651,46 +657,14 @@
     ═══════════════════════════════════════════════════════ -->
     <div id="settings-cat-property" style="display:none">
       <div class="settings-back" onclick="closeSettingsCat()">‹ Settings</div>
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Property</div>
       <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
-        <div class="settings-cat-item" onclick="openSettingsPanel('property-switcher')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#AF52DE;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🏘️</div>
-            <div><div style="font-weight:500;font-size:14px">Active Property</div><div style="font-size:12px;color:var(--text-soft)" id="active-property-name">Glenhaven</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
         <div class="settings-cat-item" onclick="reopenPropertySetup()">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#1E3A2F;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🏡</div>
-            <div><div style="font-weight:500;font-size:14px">Property Configuration</div><div style="font-size:12px;color:var(--text-soft)">Name, location, contacts &amp; Google IDs</div></div>
+            <div><div style="font-weight:500;font-size:14px">Property Configuration</div><div style="font-size:12px;color:var(--text-soft)">Name, location, beds, Google IDs</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
-        <div class="settings-cat-item" onclick="openSettingsPanel('team')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#34C759;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">👥</div>
-            <div><div style="font-weight:500;font-size:14px">Team</div><div style="font-size:12px;color:var(--text-soft)" id="team-count-row">Cleaners & contractors</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-        <div class="settings-cat-item" onclick="openSettingsPanel('connection-checker')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#5AC8FA;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🧪</div>
-            <div><div style="font-weight:500;font-size:14px">Connection Checker</div><div style="font-size:12px;color:var(--text-soft)">Diagnostics only (no config editing)</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-        <div class="settings-cat-item" onclick="openSettingsCat('google')" style="border-bottom:none">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#4285F4;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🔗</div>
-            <div><div style="font-weight:500;font-size:14px">Integrations</div><div style="font-size:12px;color:var(--text-soft)">Google Sheets, Apps Script, Drive, Calendar</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-      </div>
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Owner</div>
-      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
         <div class="settings-cat-item" onclick="openSettingsPanel('owner-report')" style="border-bottom:none">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#FF9500;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📊</div>
@@ -699,21 +673,11 @@
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
       </div>
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Messaging</div>
-      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
-        <div class="settings-cat-item" onclick="openSettingsPanel('sms-template')" style="border-bottom:none">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#5AC8FA;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📱</div>
-            <div><div style="font-weight:500;font-size:14px">SMS Template</div><div style="font-size:12px;color:var(--text-soft)">Cleaner notification message</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-      </div>
     </div>
 
     <!-- PANEL: TEAM LIST -->
     <div id="settings-panel-team" style="display:none">
-      <div class="settings-back" onclick="closeSettingsPanel()">‹ Property</div>
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Team</div>
       <div id="team-list-container"></div>
       <div class="card" style="padding:0 16px;overflow:hidden">
         <div class="settings-cat-item" onclick="openSettingsPanel('add-person')" style="border-bottom:none">
@@ -839,6 +803,30 @@
     </div>
     <!-- /PANEL: OWNER & REPORTS -->
 
+    <!-- PANEL: HOST PROFILE -->
+    <div id="settings-panel-host-profile" style="display:none">
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Settings</div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-title">👤 Host Profile</div>
+        <label>Your name</label>
+        <input type="text" id="host-profile-name" placeholder="e.g. Michel">
+        <label>Company name</label>
+        <input type="text" id="host-profile-company" placeholder="e.g. Glenhaven Properties Pty Ltd">
+        <label>ABN</label>
+        <input type="text" id="host-profile-abn" placeholder="e.g. 12 345 678 901" inputmode="numeric">
+        <label>ACN <span style="font-size:11px;color:var(--text-soft);font-weight:400">(optional)</span></label>
+        <input type="text" id="host-profile-acn" placeholder="e.g. 123 456 789">
+        <label>Email</label>
+        <input type="email" id="host-profile-email" placeholder="e.g. you@example.com">
+        <label>Phone</label>
+        <input type="tel" id="host-profile-phone" placeholder="e.g. 0412 345 678">
+        <label>Address</label>
+        <input type="text" id="host-profile-address" placeholder="e.g. 123 Main St, Sydney NSW 2000">
+      </div>
+      <button class="btn-primary" onclick="saveHostProfilePanel()" style="width:100%">Save Profile</button>
+    </div>
+    <!-- /PANEL: HOST PROFILE -->
+
     <!-- PANEL: PROPERTY INFO -->
     <div id="settings-panel-property-info" style="display:none">
       <div class="settings-back" onclick="closeSettingsPanel()">‹ Property</div>
@@ -854,7 +842,7 @@
 
 
     <div id="settings-panel-connection-checker" style="display:none">
-      <div class="settings-back" onclick="closeSettingsPanel()">‹ Property</div>
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Advanced</div>
       <div class="card" style="margin-bottom:10px">
         <div class="card-title">🧪 Connection Checker</div>
         <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Run manual checks for your saved Google Sheet, Apps Script, and notifications/email configuration. No bookings or settings are modified.</div>
@@ -922,7 +910,7 @@
 
     <!-- PANEL: SMS TEMPLATE -->
     <div id="settings-panel-sms-template" style="display:none">
-      <div class="settings-back" onclick="closeSettingsPanel()">‹ Property</div>
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Team</div>
       <div class="card">
         <div class="card-title">📱 Cleaning Notification Message</div>
         <div style="font-size:12px;color:var(--text-soft);margin-bottom:8px">Sent to your cleaner when you tap <strong>Notify</strong>. Use placeholders to personalise:</div>
@@ -954,36 +942,18 @@
     ═══════════════════════════════════════════════════════ -->
     <div id="settings-cat-finance" style="display:none">
       <div class="settings-back" onclick="closeSettingsCat()">‹ Settings</div>
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Expenses</div>
       <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
-        <div class="settings-cat-item" onclick="openSettingsPanel('expense-cats')" style="border-bottom:none">
+        <div class="settings-cat-item" onclick="openSettingsPanel('expense-cats')">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#FF9500;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🏷️</div>
             <div><div style="font-weight:500;font-size:14px">Expense Categories</div><div style="font-size:12px;color:var(--text-soft)">Manage & rename categories</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
-      </div>
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Invoicing</div>
-      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
-        <div class="settings-cat-item" onclick="openSettingsPanel('invoice-details')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#5AC8FA;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🧾</div>
-            <div><div style="font-weight:500;font-size:14px">Your Invoice Details</div><div style="font-size:12px;color:var(--text-soft)">Name, ABN, address</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-        <div class="settings-cat-item" onclick="openSettingsPanel('bank-details')">
+        <div class="settings-cat-item" onclick="openSettingsPanel('bank-details')" style="border-bottom:none">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#34C759;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🏦</div>
             <div><div style="font-weight:500;font-size:14px">Bank Details</div><div style="font-size:12px;color:var(--text-soft)">BSB, account number</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-        <div class="settings-cat-item" onclick="openSettingsPanel('invoice-clients')" style="border-bottom:none">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#AF52DE;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">👥</div>
-            <div><div style="font-weight:500;font-size:14px">Clients</div><div style="font-size:12px;color:var(--text-soft)">Who you bill to</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
@@ -1007,30 +977,7 @@
     </div>
 
     <!-- PANEL: INVOICE DETAILS -->
-    <div id="settings-panel-invoice-details" style="display:none">
-      <div class="settings-back" onclick="closeSettingsPanel()">‹ Finance</div>
-      <div class="card">
-        <div class="card-title">🧾 Your Invoice Details</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-bottom:10px">Appears as the sender on all invoices.</div>
-        <label>Contact Name</label>
-        <input type="text" id="inv-name" placeholder="e.g. Michel Chaddy">
-        <label>Company Name</label>
-        <input type="text" id="inv-company" placeholder="e.g. Glenhaven Properties Pty Ltd">
-        <div class="form-row">
-          <div class="field"><label>ABN</label><input type="text" id="inv-abn" placeholder="12 345 678 901"></div>
-          <div class="field"><label>ACN</label><input type="text" id="inv-acn" placeholder="123 456 789"></div>
-        </div>
-        <label>Email</label>
-        <input type="email" id="inv-email" placeholder="e.g. hello@glenhaven.com.au">
-        <label>Address</label>
-        <input type="text" id="inv-address" placeholder="e.g. Katoomba NSW 2780">
-        <button class="btn-primary" onclick="saveInvoiceDetails()">Save Details</button>
-        <div id="inv-save-confirm" style="font-size:12px;color:var(--moss);margin-top:6px;display:none">✓ Saved</div>
-      </div>
-    </div>
-
-    <!-- PANEL: BANK DETAILS -->
-    <div id="settings-panel-bank-details" style="display:none">
+        <div id="settings-panel-bank-details" style="display:none">
       <div class="settings-back" onclick="closeSettingsPanel()">‹ Finance</div>
       <div class="card">
         <div class="card-title">🏦 Bank Details</div>
@@ -1049,86 +996,24 @@
     </div>
 
     <!-- PANEL: INVOICE CLIENTS -->
-    <div id="settings-panel-invoice-clients" style="display:none">
-      <div class="settings-back" onclick="closeSettingsPanel()">‹ Finance</div>
-      <div class="card">
-        <div class="card-title">👥 Invoice Clients</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Companies or individuals you invoice.</div>
-        <div id="clients-list" style="margin-bottom:12px"></div>
-        <div style="border-top:1px solid var(--warm);padding-top:12px;margin-top:4px">
-          <div style="font-weight:600;font-size:13px;margin-bottom:8px">Add Client</div>
-          <label>Client / Company Name</label>
-          <input type="text" id="new-client-name" placeholder="e.g. Airbnb Australia Pty Ltd">
-          <label>Contact Name (optional)</label>
-          <input type="text" id="new-client-contact" placeholder="e.g. Accounts Payable">
-          <label>Email (optional)</label>
-          <input type="email" id="new-client-email" placeholder="e.g. accounts@airbnb.com">
-          <label>Address (optional)</label>
-          <input type="text" id="new-client-address" placeholder="e.g. Sydney NSW 2000">
-          <button class="btn-primary" onclick="addClient()">Add Client</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ═══════════════════════════════════════════════════════
-         GOOGLE SERVICES SUB-SCREEN
-    ═══════════════════════════════════════════════════════ -->
-    <div id="settings-cat-google" style="display:none">
-      <div class="settings-back" onclick="closeSettingsCat()">‹ Settings</div>
-      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
-        <div class="settings-cat-item" onclick="openSettingsPanel('sheets')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#34C759;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📊</div>
-            <div><div style="font-weight:500;font-size:14px">Google Sheets</div><div style="font-size:12px;color:var(--text-soft)">Sync/pull/push &amp; status</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-        <div class="settings-cat-item" onclick="openSettingsPanel('drive')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#4285F4;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📁</div>
-            <div><div style="font-weight:500;font-size:14px">Google Drive</div><div style="font-size:12px;color:var(--text-soft)" id="gdrive-status-row">Connect, backup &amp; status</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-        <div class="settings-cat-item" onclick="openSettingsPanel('calendar')" style="border-bottom:none">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#1a73e8;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📅</div>
-            <div><div style="font-weight:500;font-size:14px">Google Calendar</div><div style="font-size:12px;color:var(--text-soft)">Push bookings as events</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-      </div>
-    </div>
-
     <!-- PANEL: GOOGLE SHEETS (all sheets-related in one place) -->
     <div id="settings-panel-sheets" style="display:none">
-      <div class="settings-back" onclick="closeSettingsPanel()">‹ Google Services</div>
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Advanced</div>
       <div class="card" style="margin-bottom:10px">
         <div class="card-title">📊 Bookings Sync</div>
         <div style="font-size:13px;color:var(--text-soft);margin-bottom:12px">Last synced: <span id="settings-last-sync">—</span></div>
         <div style="font-size:13px;color:var(--text-soft);margin-bottom:16px" id="settings-booking-count"></div>
         <button class="btn-primary" onclick="syncFromSheets(true)">↻ Pull Bookings from Sheet</button>
-        <button class="btn-secondary" onclick="pullAppData(true)" id="pull-appdata-btn" style="margin-top:8px">↻ Pull App Data from Sheet</button>
-        <div id="pull-appdata-result" style="display:none;margin-top:8px;font-size:12px;padding:8px;border-radius:8px"></div>
-        <div style="font-size:11px;color:var(--text-soft);margin-top:6px;line-height:1.5">Syncs cleaners, cleans, inventory &amp; notes from AppData tab.</div>
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--warm)">
-          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:6px">Push to Sheet</div>
-          <button class="btn-primary" onclick="pushAllAppData()" id="push-appdata-btn">⬆ Push App Data to Sheet</button>
-          <div id="push-appdata-result" style="display:none;margin-top:8px;font-size:12px;padding:8px;border-radius:8px"></div>
-          <button class="btn-secondary" onclick="chooseGoogleAccount()" style="margin-top:8px;margin-bottom:6px">① Connect / Switch Google Session</button>
-          <button class="btn-primary" onclick="syncToSheet()" style="background:var(--amber)">② Push All Bookings</button>
-          <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--warm)">
           <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:6px">Debug</div>
           <button class="btn-secondary" onclick="debugCSVColumns()" style="font-size:12px">🔍 Show CSV Column Layout</button>
           <div id="csv-debug-result" style="display:none;margin-top:8px;font-size:11px;font-family:monospace;background:#f4f4f4;padding:10px;border-radius:8px;word-break:break-all;line-height:1.8"></div>
-        </div>
         </div>
       </div>
       <div class="card" style="margin-bottom:10px">
         <div class="card-title">💰 Expenses Sync</div>
         <div style="font-size:12px;color:var(--text-soft);margin-bottom:10px">Only updates what's missing or changed.</div>
         <button class="btn-primary" onclick="smartSyncExpenses()" style="background:#5AC8FA;color:white">☁️ Sync Expenses to Sheet</button>
-        <button class="btn-secondary" onclick="migrateCategoriesInSheet()" style="margin-top:6px">🔄 Update Category Names</button>
         <div id="push-expenses-result" style="font-size:12px;margin-top:6px;display:none;padding:8px;border-radius:8px"></div>
       </div>
       <div class="card">
@@ -1142,7 +1027,7 @@
 
     <!-- PANEL: GOOGLE DRIVE (connect + receipts + backup all together) -->
     <div id="settings-panel-drive" style="display:none">
-      <div class="settings-back" onclick="closeSettingsPanel()">‹ Google Services</div>
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Advanced</div>
       <div class="card" style="margin-bottom:10px">
         <div class="card-title">📁 Connect Google Drive</div>
         <div style="font-size:12px;color:var(--text-soft);margin-bottom:10px">Drive connection settings (Client ID + folder) are managed in <strong>Property Configuration</strong>.</div>
@@ -1155,29 +1040,11 @@
           <strong>Setup:</strong><br>1. console.cloud.google.com<br>2. Create project → Enable Drive API<br>3. Consent screen → External (if needed)<br>4. Credentials → OAuth 2.0 Client ID (Web app)<br>5. Add your Netlify URL as authorised origin<br>6. Paste the Client ID in Property Configuration
         </div>
       </div>
-      <div class="card" style="margin-bottom:10px">
-        <div class="card-title">☁️ Backup to Google Drive</div>
-        <div style="font-size:13px;color:var(--text-soft);margin-bottom:4px;line-height:1.5">Saves everything to a <strong>Glenhaven Backups</strong> folder. Keeps the last 30 backups.</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-bottom:16px">Last backup: <span id="backup-last-time">Never</span></div>
-        <button class="btn-primary" onclick="saveBackup()" style="background:#34C759">☁️ Backup Now</button>
-        <div id="backup-result" style="font-size:12px;margin-top:8px;display:none;padding:8px;border-radius:8px"></div>
-      </div>
-      <div class="card" style="margin-bottom:10px">
-        <div class="card-title">⏰ Automatic Daily Backup</div>
-        <div style="font-size:13px;color:var(--text-soft);margin-bottom:12px;line-height:1.5">Runs at 3am daily via Apps Script.</div>
-        <div style="padding:10px 12px;background:var(--mist);border-radius:var(--radius-sm);font-size:12px;color:var(--text-soft);line-height:1.6"><strong>One-time setup:</strong><br>1. Open Apps Script editor<br>2. Select <strong>createDailyTrigger</strong><br>3. Click ▶ Run — grant permissions</div>
-      </div>
-      <div class="card">
-        <div class="card-title">🕐 Restore a Backup</div>
-        <div style="font-size:13px;color:var(--text-soft);margin-bottom:12px"><strong style="color:var(--red)">Replaces all current data.</strong></div>
-        <button class="btn-secondary" onclick="listBackups()">🔄 Load Backup List</button>
-        <div id="backup-list" style="margin-top:12px"></div>
-      </div>
     </div>
 
     <!-- PANEL: GOOGLE CALENDAR -->
     <div id="settings-panel-calendar" style="display:none">
-      <div class="settings-back" onclick="closeSettingsPanel()">‹ Google Services</div>
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Advanced</div>
       <div class="card">
         <div class="card-title">📅 Google Calendar</div>
         <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Push all bookings to Google Calendar as events. Uses the same Drive connection — connect Drive first.</div>
@@ -1186,40 +1053,9 @@
       </div>
     </div>
 
-    <!-- ═══════════════════════════════════════════════════════
-         AI TOOLS SUB-SCREEN
-    ═══════════════════════════════════════════════════════ -->
-    <div id="settings-cat-aitools" style="display:none" class="section-stack">
-      <div class="settings-back" onclick="closeSettingsCat()">‹ Settings</div>
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">AI Tools</div>
-      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
-        <div class="settings-cat-item" onclick="openSettingsPanel('ai-import')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#AF52DE;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📸</div>
-            <div><div style="font-weight:500;font-size:14px">AI Booking Import</div><div style="font-size:12px;color:var(--text-soft)">Screenshot → booking data</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-        <div class="settings-cat-item" onclick="openSettingsPanel('smart-pricing')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#FF9500;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📈</div>
-            <div><div style="font-weight:500;font-size:14px">Smart Pricing</div><div style="font-size:12px;color:var(--text-soft)">AI rate recommendations</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-        <div class="settings-cat-item" onclick="openSettingsPanel('ai-ignore')" style="border-bottom:none">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#636366;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🚫</div>
-            <div><div style="font-weight:500;font-size:14px">AI Ignore List</div><div style="font-size:12px;color:var(--text-soft)">Dismissed expense items</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-      </div>
-    </div>
-
     <!-- PANEL: AI BOOKING IMPORT -->
     <div id="settings-panel-ai-import" style="display:none">
-      <div class="settings-back" onclick="closeSettingsPanel()">‹ AI Tools</div>
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Advanced</div>
       <div class="card">
         <div class="card-title">📸 AI Booking Import</div>
         <div style="font-size:12px;color:var(--text-soft);margin-bottom:10px">Take a screenshot of an Airbnb or VRBO confirmation and the AI reads it and fills in all booking details automatically.</div>
@@ -1232,7 +1068,7 @@
 
     <!-- PANEL: SMART PRICING -->
     <div id="settings-panel-smart-pricing" style="display:none">
-      <div class="settings-back" onclick="closeSettingsPanel()">‹ AI Tools</div>
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Advanced</div>
       <div class="card">
         <div class="card-title">📈 Smart Pricing</div>
         <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">AI-powered nightly rate recommendations based on your booking history and local demand.</div>
@@ -1259,7 +1095,7 @@
 
     <!-- PANEL: AI IGNORE LIST -->
     <div id="settings-panel-ai-ignore" style="display:none">
-      <div class="settings-back" onclick="closeSettingsPanel()">‹ AI Tools</div>
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Advanced</div>
       <div class="card">
         <div class="card-title">🚫 AI Analysis Ignore List</div>
         <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Items you've dismissed. Claude won't flag these again.</div>
@@ -1273,18 +1109,73 @@
     ═══════════════════════════════════════════════════════ -->
     <div id="settings-cat-advanced" style="display:none">
       <div class="settings-back" onclick="closeSettingsCat()">‹ Settings</div>
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Data</div>
+
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Integrations</div>
       <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
-        <div class="settings-cat-item" onclick="openSettingsPanel('app-data')" style="border-bottom:none">
+        <div class="settings-cat-item" onclick="openSettingsPanel('sheets')">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:9px;background:#34C759;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📊</div>
+            <div><div style="font-weight:500;font-size:14px">Google Sheets</div><div style="font-size:12px;color:var(--text-soft)">Sheet URL, script URL &amp; sync</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+        </div>
+        <div class="settings-cat-item" onclick="openSettingsPanel('drive')">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:9px;background:#4285F4;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📁</div>
+            <div><div style="font-weight:500;font-size:14px">Google Drive</div><div style="font-size:12px;color:var(--text-soft)" id="gdrive-status-row">Receipt storage</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+        </div>
+        <div class="settings-cat-item" onclick="openSettingsPanel('calendar')">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:9px;background:#1a73e8;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📅</div>
+            <div><div style="font-weight:500;font-size:14px">Google Calendar</div><div style="font-size:12px;color:var(--text-soft)">Push bookings as events</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+        </div>
+        <div class="settings-cat-item" onclick="openSettingsPanel('connection-checker')" style="border-bottom:none">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:9px;background:#5AC8FA;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🧪</div>
+            <div><div style="font-weight:500;font-size:14px">Connection Checker</div><div style="font-size:12px;color:var(--text-soft)">Diagnostics only</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+        </div>
+      </div>
+
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">AI Tools</div>
+      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
+        <div class="settings-cat-item" onclick="openSettingsPanel('ai-import')">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:9px;background:#AF52DE;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📸</div>
+            <div><div style="font-weight:500;font-size:14px">AI Booking Import</div><div style="font-size:12px;color:var(--text-soft)">Screenshot → booking data</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+        </div>
+        <div class="settings-cat-item" onclick="openSettingsPanel('smart-pricing')">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:9px;background:#FF9500;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📈</div>
+            <div><div style="font-weight:500;font-size:14px">Smart Pricing</div><div style="font-size:12px;color:var(--text-soft)">AI rate recommendations</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+        </div>
+        <div class="settings-cat-item" onclick="openSettingsPanel('ai-ignore')" style="border-bottom:none">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:9px;background:#636366;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🚫</div>
+            <div><div style="font-weight:500;font-size:14px">AI Ignore List</div><div style="font-size:12px;color:var(--text-soft)">Dismissed expense items</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+        </div>
+      </div>
+
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">App</div>
+      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
+        <div class="settings-cat-item" onclick="openSettingsPanel('app-data')">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#636366;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🗄</div>
             <div><div style="font-weight:500;font-size:14px">App Data</div><div style="font-size:12px;color:var(--text-soft)">Reset, re-sync, local storage</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
-      </div>
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Experience</div>
-      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
         <div class="settings-cat-item" onclick="openSettingsPanel('feel')" style="border-bottom:none">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#FF9500;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">✨</div>
@@ -1295,7 +1186,7 @@
       </div>
     </div>
 
-    <!-- PANEL: APP DATA -->
+        <!-- PANEL: APP DATA -->
     <div id="settings-panel-app-data" style="display:none">
       <div class="settings-back" onclick="closeSettingsPanel()">‹ Advanced</div>
       <div class="card" style="margin-bottom:10px">
@@ -1556,6 +1447,17 @@
     <div style="display:flex;gap:10px">
       <button id="app-modal-cancel" onclick="appModalCancel()" style="flex:1;padding:11px;border:1.5px solid var(--stone);border-radius:10px;background:white;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Cancel</button>
       <button id="app-modal-confirm" onclick="appModalConfirm()" style="flex:1;padding:11px;border:none;border-radius:10px;background:var(--forest);color:white;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Confirm</button>
+    </div>
+  </div>
+
+  <!-- Property Switcher Sheet -->
+  <div id="property-switcher-sheet" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.4)" onclick="closePropertySwitcherSheet()">
+    <div onclick="event.stopPropagation()" style="position:absolute;bottom:0;left:0;right:0;background:var(--card-bg);border-radius:20px 20px 0 0;padding:16px;max-height:60vh;overflow-y:auto">
+      <div style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px"></div>
+      <div style="font-weight:600;font-size:15px;margin-bottom:12px;padding:0 4px">Properties</div>
+      <div id="property-switcher-sheet-list"></div>
+      <button onclick="openAddPropertySetup();closePropertySwitcherSheet()" style="width:100%;margin-top:8px;padding:14px;background:var(--mist);border:1.5px dashed var(--border);border-radius:var(--radius-sm);color:var(--forest);font-size:14px;font-weight:500;cursor:pointer">＋ Add Property</button>
+      <div style="height:env(safe-area-inset-bottom,16px)"></div>
     </div>
   </div>
 </div>
