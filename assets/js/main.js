@@ -833,9 +833,7 @@ function save() {
   localStorage.setItem(lsKey('bookings'), JSON.stringify(bookings));
   localStorage.setItem(lsKey('cleans'),   JSON.stringify(cleans));
   localStorage.setItem(lsKey('notes'),    JSON.stringify(notes));
-  scheduleAppDataSave('bookings', bookings);
-  scheduleAppDataSave('cleans', cleans);
-  scheduleAppDataSave('notes',  notes);
+  // AppData sheet sync removed — Supabase is now source of truth
   // Sync bookings, cleans and notes to Supabase (non-blocking)
   if (typeof saveBookingsToCloud === 'function') saveBookingsToCloud(bookings).catch(() => {});
   if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
@@ -3815,19 +3813,6 @@ async function ensureHostIdentityAndRestore() {
   renderHostProfileRow();
 }
 
-function renderHostProfileRow() {
-  const row = document.getElementById('host-profile-row');
-  if (!row) return;
-  const host = getHostProfile();
-  if (!host) {
-    row.textContent = 'Set your host name';
-    return;
-  }
-  const bits = [host.name || 'Host'];
-  if (host.email) bits.push(host.email);
-  row.textContent = bits.join(' · ');
-}
-
 async function manageHostIdentity() {
   // Legacy entry point — route to the new panel
   openSettingsPanel('host-profile');
@@ -3889,9 +3874,6 @@ async function saveHostProfilePanel() {
     saveHostConfigToSupabase(profile).catch(e => console.warn('[StayOps] host config sync failed', e));
   }
 
-  // Legacy AppData sync (Sheet)
-  const pushed = await pushAppDataNow('hostProfile', profile);
-  await pushSafeHostSettings();
   showBanner('✓ Host profile saved', 'ok');
 }
 
@@ -3915,13 +3897,17 @@ function openPropertySwitcherSheet() {
   const activeId = getActivePropertyId();
   const list = document.getElementById('property-switcher-sheet-list');
   if (list) {
-    list.innerHTML = props.map(p => {
+    const propRows = props.map(p => {
       const isActive = p.propertyId === activeId;
       return '<div onclick="switchPropertyFromSheet(\'' + p.propertyId + '\')" style="display:flex;align-items:center;justify-content:space-between;padding:14px 4px;border-bottom:1px solid var(--border);cursor:pointer">' +
         '<div style="font-weight:' + (isActive ? '600' : '400') + ';font-size:15px">' + escHtml(p.name || p.propertyId) + '</div>' +
         (isActive ? '<div style="color:var(--forest);font-size:13px">✓ Active</div>' : '') +
         '</div>';
     }).join('');
+    const addRow = '<div onclick="closePropertySwitcherSheet();openAddPropertySetup()" style="display:flex;align-items:center;gap:12px;padding:14px 4px;cursor:pointer;color:var(--forest)">' +
+      '<div style="width:28px;height:28px;border-radius:50%;background:var(--forest);color:white;display:flex;align-items:center;justify-content:center;font-size:18px">+</div>' +
+      '<div style="font-weight:600;font-size:15px">Add Property</div></div>';
+    list.innerHTML = propRows + addRow;
   }
   const sheet = document.getElementById('property-switcher-sheet');
   if (sheet) sheet.style.display = 'flex';
@@ -4593,14 +4579,14 @@ function addExpense(opts = {}) {
     if (addCard) addCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
     renderExpenses();
     if (!exp.photo) showBanner('✓ Expense saved', 'ok');
-    else if (!localStorage.getItem('gh-drive-token')) showBanner('⚠ Expense saved locally — connect Google Drive in Settings to save receipt', 'warn');
+    // receipt handled separately via Supabase Storage
     else showBanner('⟳ Uploading receipt...', 'info');
   }
   return exp;
 }
 
 async function saveExpenseToDriveAndSheet(exp) {
-  const driveToken = getDriveToken();
+  // driveToken no longer needed — receipts use Supabase Storage
   const scriptUrl = (getScriptURL() || '').trim();
 
   // ── Upload receipt to Supabase Storage ──────────────────────────────────────
@@ -5815,58 +5801,32 @@ async function saveExpenseEdit() {
 
   // Upload new receipt photo if one was selected
   if (editingExpensePhotoBase64) {
-    const driveToken = getDriveToken();
     const statusEl = document.getElementById('ee-upload-status');
-    if (!driveToken) {
-      statusEl.style.display = 'block';
-      statusEl.style.color = 'var(--amber)';
-      statusEl.textContent = '⚠ Connect Google Drive in Settings to upload receipts';
-      showBanner('Upload failed: Google Drive is not connected. Open Settings → Google Services → Drive.', 'warn');
-    } else {
-      statusEl.style.display = 'block';
-      statusEl.style.color = 'var(--text-soft)';
-      statusEl.textContent = '⟳ Uploading receipt...';
-      try {
-        const fakeExp = Object.assign({}, e, { photo: editingExpensePhotoBase64, _mediaType: editingExpenseMediaType });
-        const imgBlob = await receiptImageToPDF(fakeExp);
-        const fileName = generateReceiptFileName(e);
-        const folderId = await getOrCreateDriveFolder(driveToken);
-        const metadata = { name: fileName, mimeType: 'application/pdf', parents: folderId ? [folderId] : [] };
-        const form = new FormData();
-        form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-        form.append('file', imgBlob);
-        const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-          method: 'POST', headers: { Authorization: 'Bearer ' + driveToken }, body: form
-        });
-        if (res.status === 401 || res.status === 403) {
-          statusEl.style.color = 'var(--red)';
-          statusEl.textContent = '⚠ Upload failed — Drive permission expired. Reconnect Google Drive.';
-          showBanner('Upload failed: Google Drive permission expired. Reconnect in Settings.', 'warn');
-        } else if (res.ok) {
-          const file = await res.json();
-          if (file.id) {
-            await setDriveFilePublic(file.id, driveToken);
-            e.driveLink = 'https://drive.google.com/file/d/' + file.id + '/view';
-            statusEl.style.color = 'var(--moss)';
-            statusEl.textContent = '✓ Receipt uploaded';
-            showBanner('✓ Upload completed: receipt saved to Google Drive', 'ok');
-          } else {
-            statusEl.style.color = 'var(--red)';
-            statusEl.textContent = '⚠ Upload failed — Google Drive did not return a file ID';
-            showBanner('Upload failed: Google Drive did not return a file ID', 'warn');
-          }
+    statusEl.style.display = 'block';
+    statusEl.style.color = 'var(--text-soft)';
+    statusEl.textContent = '⟳ Uploading receipt...';
+    try {
+      const fakeExp = Object.assign({}, e, { photo: editingExpensePhotoBase64, _mediaType: editingExpenseMediaType });
+      const imgBlob = await receiptImageToPDF(fakeExp);
+      const fileName = generateReceiptFileName(e);
+      const file = new File([imgBlob], fileName, { type: 'application/pdf' });
+      if (typeof uploadReceiptToStorage === 'function') {
+        const url = await uploadReceiptToStorage(file, e.id);
+        if (url) {
+          e.driveLink = url;
+          statusEl.style.color = 'var(--moss)';
+          statusEl.textContent = '✓ Receipt uploaded';
+          showBanner('✓ Receipt saved', 'ok');
         } else {
-          const errData = await res.json().catch(() => ({}));
-          const msg = (errData.error && errData.error.message) || ('HTTP ' + res.status);
           statusEl.style.color = 'var(--red)';
-          statusEl.textContent = '⚠ Upload failed — expense saved without receipt';
-          showBanner('Upload failed: ' + msg, 'warn');
+          statusEl.textContent = '⚠ Upload failed';
+          showBanner('⚠ Receipt upload failed', 'warn');
         }
-      } catch(err) {
-        statusEl.style.color = 'var(--red)';
-        statusEl.textContent = '⚠ Upload failed: ' + err.message;
-        showBanner('Upload failed: network or Google Drive error (' + (err.message || 'unknown') + ')', 'warn');
       }
+    } catch(err) {
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '⚠ Upload failed: ' + err.message;
+      showBanner('⚠ Upload failed: ' + err.message, 'warn');
     }
   }
 
@@ -6427,7 +6387,7 @@ if (isCleanerMode()) {
   if (!cachedBookings.length && hasCloudSyncConfigured()) {
     syncFromSheets(); // one-time migration pull
   }
-  if (_scriptConfigured) setTimeout(() => pullExpensesFromSheet(), 1200);
+  // pullExpensesFromSheet removed — expenses load from Supabase via hydrateFromCloud
 }
 // Subscribe owner via manual button in Settings (iOS requires user gesture)
 
@@ -6479,11 +6439,8 @@ document.addEventListener('visibilitychange', () => {
         if (typeof renderAll === 'function') renderAll();
       });
     }
-    // Always pull AppData on focus to get latest cleaner states
-    if (!isCleanerMode()) pullAppData();
-
     // Keep host-linked safe settings fresh (non-secrets only).
-    pushSafeHostSettings();
+    if (!isCleanerMode()) pushSafeHostSettings();
     setTimeout(_flushPendingUiRefresh, 120);
   }
 });
@@ -8021,6 +7978,13 @@ function showOnboarding() {
 function hideOnboarding() {
   const el = document.getElementById('stayops-onboarding');
   if (el) el.style.display = 'none';
+  // Restore app chrome hidden by showOnboarding()
+  const app = document.getElementById('main-content');
+  const nav = document.querySelector('.nav');
+  const hdr = document.querySelector('.header');
+  if (app) app.style.display = '';
+  if (nav) nav.style.display = '';
+  if (hdr) hdr.style.display = '';
 }
 
 function _obGoToStep(step) {
@@ -8066,9 +8030,9 @@ function onboardStep1Next() {
   });
   localStorage.setItem('gh-setup-complete', '1');
 
-  // Sync to Supabase
-  if (!window._stayOpsHydrating && typeof saveHostConfigToCloud === 'function') {
-    saveHostConfigToCloud(getActivePropertyConfig());
+  // Sync property to Supabase
+  if (!window._stayOpsHydrating && typeof savePropertyToCloud === 'function') {
+    savePropertyToCloud(getActivePropertyConfig()).catch(() => {});
   }
 
   _obGoToStep(2);

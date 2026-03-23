@@ -886,8 +886,41 @@ async function saveBookingToCloud(booking) {
 }
 
 async function saveBookingsToCloud(bookingsList) {
-  if (!Array.isArray(bookingsList)) return;
-  for (const b of bookingsList) await saveBookingToCloud(b);
+  if (!Array.isArray(bookingsList) || !bookingsList.length) return;
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user) return;
+    const propertyId = await getCloudPropertyId();
+    const payload = bookingsList.map(b => ({
+      user_id:            user.id,
+      property_id:        propertyId || null,
+      local_id:           String(b.id),
+      checkin:            b.checkin   ? String(b.checkin).slice(0,10)   : null,
+      checkout:           b.checkout  ? String(b.checkout).slice(0,10)  : null,
+      nights:             b.nights    || null,
+      guest_name:         b.name      || '',
+      guests:             b.guests    || 1,
+      host_payout:        Number(b.hostPayout)  || 0,
+      cleaning_fee:       Number(b.cleaningFee) || 0,
+      mgmt_fee:           Number(b.mgmtFee)     || 0,
+      mgmt_fee_raw:       Number(b.mgmtFeeRaw)  || 0,
+      mgmt_payout:        Number(b.mgmtPayout)  || 0,
+      net_payout:         Number(b.netPayout)   || 0,
+      platform:           b.platform    || '',
+      confirmation_code:  b.confirmCode || null,
+      status:             b.status      || 'confirmed',
+      cleaner_confirmed:  b.cleanerConfirmed || false,
+      gcal_event_id:      b.gcalEventId || null,
+      source:             b.source      || 'sheet',
+      updated_at:         new Date().toISOString(),
+    }));
+    const { error } = await window._sb
+      .from('bookings')
+      .upsert(payload, { onConflict: 'local_id,user_id' });
+    if (error) console.warn('[StayOps] saveBookingsToCloud bulk upsert error', error);
+  } catch (e) {
+    console.warn('[StayOps] saveBookingsToCloud failed', e);
+  }
 }
 
 async function deleteBookingFromCloud(booking) {
