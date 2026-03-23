@@ -146,8 +146,8 @@
         <div id="ob-step2-error" style="font-size:12px;color:#FF3B30;min-height:18px;margin-top:8px"></div>
       </div>
 
-      <button onclick="onboardStep2Skip()" style="width:100%;margin-bottom:8px;padding:16px;background:white;color:var(--forest,#1E3A2F);border:none;border-radius:16px;font-size:16px;font-weight:700;cursor:pointer" id="ob-step2-continue" disabled>Continue →</button>
-      <button onclick="onboardStep2Skip()" style="width:100%;padding:14px;background:transparent;color:rgba(255,255,255,0.5);border:none;font-size:14px;cursor:pointer">Skip for now</button>
+      <button onclick="_obGoToStep(3)" style="width:100%;margin-bottom:8px;padding:16px;background:white;color:var(--forest,#1E3A2F);border:none;border-radius:16px;font-size:16px;font-weight:700;cursor:pointer" id="ob-step2-continue">Continue →</button>
+      <button onclick="_obGoToStep(3)" style="width:100%;padding:14px;background:transparent;color:rgba(255,255,255,0.5);border:none;font-size:14px;cursor:pointer">Skip for now</button>
     </div>
 
     <!-- STEP 3: Platforms -->
@@ -295,13 +295,13 @@
 
 <div class="header">
   <div class="header-top">
-    <div onclick="openPropertySwitcherSheet()" style="cursor:pointer;-webkit-tap-highlight-color:transparent">
+    <button onclick="openPropertySwitcherSheet()" style="background:none;border:none;padding:0;margin:0;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;color:inherit">
       <div style="display:flex;align-items:center;gap:6px">
         <h1 id="header-property-name">StayOps</h1>
-        <div id="prop-switcher-chevron-header" style="color:rgba(255,255,255,0.5);font-size:13px;margin-top:2px;display:none">▾</div>
+        <div id="prop-switcher-chevron-header" style="color:rgba(255,255,255,0.7);font-size:16px;margin-top:2px;display:none">▾</div>
       </div>
       <div class="header-sub" id="header-sub-title">Katoomba · NSW</div>
-    </div>
+    </button>
     <div class="today-badge" id="todayBadge"></div>
   </div>
 </div>
@@ -1307,7 +1307,7 @@
         <div class="settings-cat-item" onclick="openSettingsPanel('app-data')">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#636366;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🗄</div>
-            <div><div style="font-weight:500;font-size:14px">App Data</div><div style="font-size:12px;color:var(--text-soft)">Reset, re-sync, local storage</div></div>
+            <div><div style="font-weight:500;font-size:14px">App Data & Migration</div><div style="font-size:12px;color:var(--text-soft)">Migrate bookings to Supabase · Reset · Re-sync</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>

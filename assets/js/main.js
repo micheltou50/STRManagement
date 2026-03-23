@@ -106,7 +106,11 @@ function savePushSubsLocal(subs) {
   });
   pushDebugLog('[Push] savePushSubsLocal: hasOwner=' + (!!(subs && subs.owner)) + ' cleanerCount=' + Object.keys((subs && subs.cleaners) || {}).length);
   localStorage.setItem(lsKey('push-subs'), JSON.stringify(subs));
-  const saveResPromise = pushAppData('pushSubs', subs); // immediate, not debounced — subscriptions are critical
+  // Save push subs to Supabase app_config
+  if (typeof saveAppConfigToCloud === 'function') {
+    saveAppConfigToCloud({ push_subs: subs }).catch(() => {});
+  }
+  const saveResPromise = pushAppData('pushSubs', subs); // legacy Sheet backup
   if (saveResPromise && typeof saveResPromise.then === 'function') {
     saveResPromise.then(saveRes => {
       console.log('[Push] pushAppData("pushSubs") response:', saveRes);
@@ -817,7 +821,7 @@ async function quickAssignLastCleaner(bookingId) {
     _recordCleanerAssignmentUsage(preferred);
     _normalizeBookingCleanState();
     save();
-    pushAppData('cleans', cleans);
+    if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
     renderBookings();
     if (currentSection === 'cleaning') renderCleaning();
     showBanner('✓ Assigned to ' + preferred.name + (newClean.cleanerConfirmed ? ' (already confirmed)' : ' — awaiting cleaner response'), 'ok');
@@ -1076,7 +1080,7 @@ async function finishSync(imported, skipped, manual) {
   _normalizeBookingCleanState();
 
   save();
-  if (autoAssignedCount > 0 || prunedCancelledCleans > 0) pushAppData('cleans', cleans);
+  if (autoAssignedCount > 0 || prunedCancelledCleans > 0) if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
 
   try { await getFreshOwnerSub(); } catch(_) {}
   cancellationNotifications.forEach(({ booking, cleaner }) => {
@@ -1808,7 +1812,7 @@ function markCleanerConfirmed(id) {
   if (c) {
     c.cleanerConfirmed = true;
     save();
-    pushAppData('cleans', cleans);
+    if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
     if (typeof saveCleaningJobToCloud === 'function') saveCleaningJobToCloud(c);
     showBanner('✅ Cleaner confirmed', 'ok');
     cleanFilter = 'upcoming';
@@ -2966,7 +2970,7 @@ function toggleCleanerConfirmed(id) {
   }
   _normalizeBookingCleanState();
   save();
-  pushAppData('cleans', cleans);
+  if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
   showDetail(id);
   renderBookings();
   renderCleaning();
@@ -3017,7 +3021,7 @@ function addBooking() {
   const autoAssigned = _maybeAutoAssignPreferredCleaner(newB, 'booking-create');
   _normalizeBookingCleanState();
   save();
-  if (autoAssigned) pushAppData('cleans', cleans);
+  if (autoAssigned) if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
   pushToSheet('add', newB); closeModal(); render();
   showBanner('✅ Booking added', 'ok');
   pushBookingToCalendar(newB);
@@ -3080,7 +3084,7 @@ function addClean() {
   booking.cleanerConfirmed = false;
   if (cleanerObj) _recordCleanerAssignmentUsage(cleanerObj);
   save();
-  pushAppData('cleans', cleans);
+  if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
   showBanner('✅ Clean scheduled for ' + newClean.date, 'ok');
   // Prompt to send SMS — only mark notified if user confirms
   showAppModal({ title: '💬 Send SMS?', msg: `Notify ${cleaner} about this booking now?`, confirmText: 'Send SMS', cancelText: 'Later' })
@@ -4810,59 +4814,7 @@ async function deleteExpense(id) {
         .catch(() => showBanner('⚠ Deleted locally — sheet connection failed', 'warn'));
     }
 
-    // Move receipt to Superseded folder in Google Drive if a link exists
-    if (exp.driveLink) {
-      const token = getDriveToken();
-      if (!token) {
-        showBanner('⚠ Receipt not moved in Drive — connect Google Drive in Settings', 'warn');
-      } else {
-        const match = exp.driveLink.match(/\/d\/([^/]+)/);
-        if (match) {
-          const fileId = match[1];
-          // Get or create the Superseded folder, then move the file into it
-          (async () => {
-            try {
-              // Find or create Superseded folder
-              const q = encodeURIComponent("name='Superseded' and mimeType='application/vnd.google-apps.folder' and trashed=false");
-              const search = await fetch('https://www.googleapis.com/drive/v3/files?q=' + q, {
-                headers: { Authorization: 'Bearer ' + token }
-              });
-              if (search.status === 401) { showBanner('⚠ Receipt not moved — Google token expired, reconnect in Settings', 'warn'); return; }
-              const searchData = await search.json();
-              let supersededId = searchData.files && searchData.files.length > 0 ? searchData.files[0].id : null;
-              if (!supersededId) {
-                // Create it
-                const create = await fetch('https://www.googleapis.com/drive/v3/files', {
-                  method: 'POST',
-                  headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ name: 'Superseded', mimeType: 'application/vnd.google-apps.folder' })
-                });
-                if (!create.ok) { showBanner('⚠ Could not create Superseded folder in Drive', 'warn'); return; }
-                const createData = await create.json();
-                supersededId = createData.id;
-              }
-              // Get current parents of the file
-              const meta = await fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?fields=parents', {
-                headers: { Authorization: 'Bearer ' + token }
-              });
-              if (meta.status === 404) { showBanner('⚠ Receipt not found in Drive — may have already been moved', 'warn'); return; }
-              if (!meta.ok) { showBanner('⚠ Could not move receipt in Drive — error ' + meta.status, 'warn'); return; }
-              const metaData = await meta.json();
-              const currentParents = (metaData.parents || []).join(',');
-              // Move: add new parent, remove old ones
-              const move = await fetch(
-                `https://www.googleapis.com/drive/v3/files/${fileId}?addParents=${supersededId}&removeParents=${currentParents}`,
-                { method: 'PATCH', headers: { Authorization: 'Bearer ' + token } }
-              );
-              if (move.status === 401) showBanner('⚠ Receipt not moved — Google token expired, reconnect in Settings', 'warn');
-              else if (!move.ok) showBanner('⚠ Could not move receipt to Superseded — error ' + move.status, 'warn');
-            } catch(e) {
-              showBanner('⚠ Receipt not moved in Drive — network error', 'warn');
-            }
-          })();
-        }
-      }
-    }
+    // Receipt stored in Supabase Storage — no Drive cleanup needed
   }
 }
 
@@ -6457,15 +6409,32 @@ window.addEventListener('pageshow', (e) => {
 if (isCleanerMode()) {
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
-      pullAppData();
+      // Refresh cleans from Supabase for cleaner mode
+      if (typeof loadCleansFromCloud === 'function') {
+        loadCleansFromCloud().then(cloudCleans => {
+          if (Array.isArray(cloudCleans) && cloudCleans.length) {
+            localStorage.setItem(lsKey('cleans'), JSON.stringify(cloudCleans));
+            if (typeof renderCleanerView === 'function') renderCleanerView();
+          }
+        }).catch(() => {});
+      }
       setTimeout(_flushPendingUiRefresh, 120);
     }
   });
-  setInterval(() => { if (!document.hidden) pullAppData(); }, 60000);
 } else {
-  // Owner app — pull AppData every 30 seconds to catch cleaner updates.
-  // Guard: no polling until setup is complete.
-  setInterval(() => { if (!document.hidden && hasValidPropertyConfig()) pullAppData(); }, 30000);
+  // Owner app — poll Supabase every 60 seconds to catch cleaner updates.
+  setInterval(() => {
+    if (!document.hidden && hasValidPropertyConfig()) {
+      if (typeof loadCleansFromCloud === 'function') {
+        loadCleansFromCloud().then(cloudCleans => {
+          if (Array.isArray(cloudCleans) && cloudCleans.length) {
+            localStorage.setItem(lsKey('cleans'), JSON.stringify(cloudCleans));
+            if (typeof renderAll === 'function') renderAll();
+          }
+        }).catch(() => {});
+      }
+    }
+  }, 60000);
   setInterval(() => { if (!document.hidden && hasValidPropertyConfig()) pushSafeHostSettings(); }, 120000);
 }
 
@@ -7081,7 +7050,7 @@ async function cleanerAccept(cleanId) {
   try {
     _normalizeBookingCleanState();
     save();
-    pushAppData('cleans', cleans);
+    if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
     renderCleanerCleans();
     showBanner('✓ Clean accepted!', 'ok');
     // Push owner
@@ -7119,7 +7088,7 @@ async function cleanerDecline(cleanId) {
   try {
     _normalizeBookingCleanState();
     save();
-    pushAppData('cleans', cleans); // push immediately
+    if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {}); // push immediately
     if (typeof saveCleaningJobToCloud === 'function') saveCleaningJobToCloud(c);
     renderCleanerCleans();
     showBanner('Clean declined', 'ok');
@@ -7150,7 +7119,7 @@ async function cleanerMarkDone(cleanId) {
   if (b) b.cleanerConfirmed = true;
   try {
     _normalizeBookingCleanState();
-    save(); pushAppData('cleans', cleans); renderCleanerCleans();
+    save(); if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {}); renderCleanerCleans();
     if (typeof saveCleaningJobToCloud === 'function') saveCleaningJobToCloud(c);
     showBanner('✓ Clean marked as complete', 'ok');
     // Push owner
