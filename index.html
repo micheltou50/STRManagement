@@ -60,6 +60,127 @@
 </div>
 
 <!-- ══════════════════════════════════════════════════════════
+     STAYOPS ONBOARDING FLOW
+══════════════════════════════════════════════════════════ -->
+<div id="stayops-onboarding" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9998;background:var(--forest,#1E3A2F);flex-direction:column;overflow-y:auto;">
+
+  <!-- Progress bar -->
+  <div style="position:sticky;top:0;z-index:2;background:var(--forest,#1E3A2F);padding:20px 24px 0">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px">
+      <div style="font-family:'DM Serif Display',serif;font-size:22px;color:white">Stay<span style="color:var(--sage,#8FAF85);font-style:italic">Ops</span></div>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:24px">
+      <div class="onboard-step-dot active" id="onboard-dot-1"></div>
+      <div class="onboard-step-dot" id="onboard-dot-2"></div>
+      <div class="onboard-step-dot" id="onboard-dot-3"></div>
+    </div>
+  </div>
+
+  <div style="padding:0 24px 48px;flex:1">
+
+    <!-- STEP 1: Property Details -->
+    <div id="onboard-step-1">
+      <div style="font-family:'DM Serif Display',serif;font-size:28px;color:white;margin-bottom:8px">Your property</div>
+      <div style="font-size:14px;color:rgba(255,255,255,0.6);margin-bottom:28px">Tell us about the property you manage.</div>
+
+      <div style="background:white;border-radius:20px;padding:24px">
+        <div style="margin-bottom:16px">
+          <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Property Name *</label>
+          <input id="ob-prop-name" type="text" placeholder="e.g. Seaview Cottage" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-size:15px;outline:none" onfocus="this.style.borderColor='#1E3A2F'" onblur="this.style.borderColor='#E5E5EA'">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <div>
+            <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Suburb / Town *</label>
+            <input id="ob-suburb" type="text" placeholder="e.g. Byron Bay" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-size:15px;outline:none" onfocus="this.style.borderColor='#1E3A2F'" onblur="this.style.borderColor='#E5E5EA'">
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">State *</label>
+            <input id="ob-state" type="text" placeholder="e.g. NSW" maxlength="10" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-size:15px;outline:none" onfocus="this.style.borderColor='#1E3A2F'" onblur="this.style.borderColor='#E5E5EA'">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+          <div>
+            <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Bedrooms *</label>
+            <input id="ob-beds" type="number" min="1" max="20" placeholder="4" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-size:15px;outline:none" onfocus="this.style.borderColor='#1E3A2F'" onblur="this.style.borderColor='#E5E5EA'">
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Bathrooms *</label>
+            <input id="ob-baths" type="number" min="0" max="20" step="0.5" placeholder="2" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-size:15px;outline:none" onfocus="this.style.borderColor='#1E3A2F'" onblur="this.style.borderColor='#E5E5EA'">
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Max Guests *</label>
+            <input id="ob-guests" type="number" min="1" max="99" placeholder="8" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-size:15px;outline:none" onfocus="this.style.borderColor='#1E3A2F'" onblur="this.style.borderColor='#E5E5EA'">
+          </div>
+        </div>
+        <div style="margin-bottom:4px">
+          <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Property Type</label>
+          <select id="ob-type" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-size:15px;outline:none;background:white">
+            <option value="house">House</option>
+            <option value="apartment">Apartment</option>
+            <option value="villa">Villa</option>
+            <option value="cabin">Cabin</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div id="ob-step1-error" style="font-size:12px;color:#FF3B30;min-height:18px;margin-top:8px"></div>
+      </div>
+
+      <button onclick="onboardStep1Next()" style="width:100%;margin-top:16px;padding:16px;background:white;color:var(--forest,#1E3A2F);border:none;border-radius:16px;font-size:16px;font-weight:700;cursor:pointer">Continue →</button>
+    </div>
+
+    <!-- STEP 2: Connect Email -->
+    <div id="onboard-step-2" style="display:none">
+      <div style="font-family:'DM Serif Display',serif;font-size:28px;color:white;margin-bottom:8px">Connect your email</div>
+      <div style="font-size:14px;color:rgba(255,255,255,0.6);margin-bottom:28px">StayOps reads your booking emails automatically so you never have to enter a booking manually.</div>
+
+      <div style="background:white;border-radius:20px;padding:24px;margin-bottom:12px">
+        <button onclick="onboardConnectGoogle()" id="ob-connect-google" style="width:100%;padding:16px;background:#fff;border:1.5px solid #E5E5EA;border-radius:14px;font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:12px">
+          <img src="https://www.google.com/favicon.ico" width="20" height="20" style="border-radius:4px">
+          Connect Gmail
+        </button>
+        <button onclick="onboardConnectMicrosoft()" id="ob-connect-microsoft" style="width:100%;padding:16px;background:#fff;border:1.5px solid #E5E5EA;border-radius:14px;font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px">
+          <img src="https://www.microsoft.com/favicon.ico" width="20" height="20" style="border-radius:4px">
+          Connect Outlook / Hotmail
+        </button>
+        <div id="ob-email-connected" style="display:none;margin-top:16px;padding:14px;background:#EDF7ED;border-radius:12px;font-size:14px;color:#1E3A2F;font-weight:500;text-align:center"></div>
+        <div id="ob-step2-error" style="font-size:12px;color:#FF3B30;min-height:18px;margin-top:8px"></div>
+      </div>
+
+      <button onclick="onboardStep2Skip()" style="width:100%;margin-bottom:8px;padding:16px;background:white;color:var(--forest,#1E3A2F);border:none;border-radius:16px;font-size:16px;font-weight:700;cursor:pointer" id="ob-step2-continue" disabled>Continue →</button>
+      <button onclick="onboardStep2Skip()" style="width:100%;padding:14px;background:transparent;color:rgba(255,255,255,0.5);border:none;font-size:14px;cursor:pointer">Skip for now</button>
+    </div>
+
+    <!-- STEP 3: Platforms -->
+    <div id="onboard-step-3" style="display:none">
+      <div style="font-family:'DM Serif Display',serif;font-size:28px;color:white;margin-bottom:8px">Your platforms</div>
+      <div style="font-size:14px;color:rgba(255,255,255,0.6);margin-bottom:28px">Which platforms do you list on? Select all that apply.</div>
+
+      <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:24px">
+        <label id="ob-plat-airbnb" onclick="onboardTogglePlatform('airbnb')" style="display:flex;align-items:center;gap:16px;background:white;border-radius:16px;padding:18px 20px;cursor:pointer;border:2px solid transparent">
+          <div style="width:40px;height:40px;border-radius:12px;background:#FF5A5F;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🏠</div>
+          <div style="flex:1"><div style="font-weight:600;font-size:15px">Airbnb</div><div style="font-size:12px;color:#999">Short-term rental platform</div></div>
+          <div id="ob-check-airbnb" style="width:24px;height:24px;border-radius:50%;border:2px solid #E5E5EA;flex-shrink:0"></div>
+        </label>
+        <label id="ob-plat-vrbo" onclick="onboardTogglePlatform('vrbo')" style="display:flex;align-items:center;gap:16px;background:white;border-radius:16px;padding:18px 20px;cursor:pointer;border:2px solid transparent">
+          <div style="width:40px;height:40px;border-radius:12px;background:#1B468E;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🏡</div>
+          <div style="flex:1"><div style="font-weight:600;font-size:15px">VRBO</div><div style="font-size:12px;color:#999">Vacation rental platform</div></div>
+          <div id="ob-check-vrbo" style="width:24px;height:24px;border-radius:50%;border:2px solid #E5E5EA;flex-shrink:0"></div>
+        </label>
+        <label id="ob-plat-direct" onclick="onboardTogglePlatform('direct')" style="display:flex;align-items:center;gap:16px;background:white;border-radius:16px;padding:18px 20px;cursor:pointer;border:2px solid transparent">
+          <div style="width:40px;height:40px;border-radius:12px;background:#1E3A2F;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">📅</div>
+          <div style="flex:1"><div style="font-weight:600;font-size:15px">Direct Booking</div><div style="font-size:12px;color:#999">Bookings from your own website or clients</div></div>
+          <div id="ob-check-direct" style="width:24px;height:24px;border-radius:50%;border:2px solid #E5E5EA;flex-shrink:0"></div>
+        </label>
+      </div>
+
+      <div id="ob-step3-error" style="font-size:12px;color:#FF3B30;min-height:18px;margin-bottom:8px"></div>
+      <button onclick="onboardFinish()" style="width:100%;padding:16px;background:white;color:var(--forest,#1E3A2F);border:none;border-radius:16px;font-size:16px;font-weight:700;cursor:pointer">Get Started →</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
      STAYOPS LOADING SCREEN
 ══════════════════════════════════════════════════════════ -->
 <div id="stayops-loading-screen" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:var(--forest,#1E3A2F);flex-direction:column;align-items:center;justify-content:center;">
@@ -78,7 +199,18 @@
       0%, 100% { opacity: 0.3; transform: scale(0.8); }
       50% { opacity: 1; transform: scale(1.1); }
     }
-  </style>
+  
+  .onboard-step-dot {
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.25);
+    flex: 1;
+    transition: background 0.3s;
+  }
+  .onboard-step-dot.active {
+    background: white;
+  }
+</style>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════
@@ -1193,8 +1325,13 @@
     <div id="settings-panel-app-data" style="display:none">
       <div class="settings-back" onclick="closeSettingsPanel()">‹ Advanced</div>
       <div class="card" style="margin-bottom:10px">
+        <div class="card-title">☁️ Migrate Bookings to Supabase</div>
+        <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">One-time import of existing bookings from Google Sheet into Supabase. Safe to run multiple times.</div>
+        <button class="btn-primary" onclick="migrateSheetBookingsToSupabase()" style="background:#1E3A2F">↑ Migrate Sheet Bookings</button>
+      </div>
+      <div class="card" style="margin-bottom:10px">
         <div class="card-title">🔄 Reset & Re-sync</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Clears all locally cached data and pulls fresh from Google Sheets.</div>
+        <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Clears all locally cached data and pulls fresh from Supabase.</div>
         <button class="btn-secondary" onclick="clearCacheAndResync()" style="background:#FEF2F2;color:var(--red)">Clear Cache & Re-sync</button>
       </div>
       <div class="card">

@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   SETUP FLOW — Glenhaven Property Manager (Product Version)
+   SETUP FLOW — StayOps Property Manager
    ═══════════════════════════════════════════════════════════════════════════
 
    First-boot property configuration screen.
@@ -89,21 +89,11 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
   // ── Helper: should we pre-fill a default value?
   // In first-boot mode we leave Glenhaven defaults blank so the host types
   // their own values. In edit mode we always show whatever is saved.
-  const preGlenhaven = {
-    name:        'Glenhaven',
-    suburb:      'Katoomba',
-    state:       'NSW',
-    region:      'Blue Mountains',
-    tagline:     'Katoomba, NSW · Blue Mountains',
-    // Suppress Glenhaven's live URLs on first-boot so a new host cannot
-    // accidentally submit the form pointing at Glenhaven's real data.
-    sheetCsvUrl: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTlssTFmteUx1q3NkqRz2hAIqtJbt8OlRxl8VcX1x5gW6mI8W52n3xutATDO13qlRNoobKSsmVPciDR/pub?gid=0&single=true&output=csv',
-    scriptUrl:   'https://script.google.com/macros/s/AKfycbzM0wcdsUqK03faXxk2VqTAEqzno4GCAMzFYGrUXc4y1LKDwd8GbCKhNJruvbXJGhOflw/exec',
-  };
+  // pre() — in first-boot mode show saved value if present, otherwise empty.
+  // In edit mode always show saved value.
   const pre = (field, saved) => {
     if (editMode) return ea(saved);
-    // First-boot: suppress the Glenhaven default so the field appears empty.
-    return (saved && saved !== preGlenhaven[field]) ? ea(saved) : '';
+    return saved ? ea(saved) : '';
   };
 
   const overlay = document.createElement('div');

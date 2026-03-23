@@ -549,6 +549,13 @@ async function hydrateFromCloud() {
       console.log('[StayOps] Hydrated', cloudCleaners.length, 'cleaners from cloud');
     }
 
+    // 0. Bookings — primary source now Supabase (replaces Sheet CSV)
+    const cloudBookings = await loadBookingsFromCloud();
+    if (Array.isArray(cloudBookings) && cloudBookings.length) {
+      localStorage.setItem(lsKey('bookings'), JSON.stringify(cloudBookings));
+      console.log('[StayOps] Hydrated', cloudBookings.length, 'bookings from cloud');
+    }
+
     // 2. Cleans — cloud is source of truth
     const cloudCleans = await loadCleansFromCloud();
     if (Array.isArray(cloudCleans) && cloudCleans.length) {
@@ -641,6 +648,27 @@ async function hydrateFromCloud() {
       }
     }
 
+    // 7b. App config (push subs, templates, expense cats)
+    const cloudAppConfig = await loadAppConfigFromCloud();
+    if (cloudAppConfig) {
+      if (cloudAppConfig.sms_template) localStorage.setItem(lsKey('sms-template'), cloudAppConfig.sms_template);
+      if (cloudAppConfig.expense_cats) localStorage.setItem(lsKey('expense-cats'), JSON.stringify(cloudAppConfig.expense_cats));
+      if (cloudAppConfig.email_templates) localStorage.setItem(lsKey('email-tpl-cache'), JSON.stringify(cloudAppConfig.email_templates));
+      if (cloudAppConfig.push_subs) localStorage.setItem(lsKey('push-subs'), JSON.stringify(cloudAppConfig.push_subs));
+      console.log('[StayOps] Hydrated app config from cloud');
+    }
+
+    // 7. Host profile
+    const cloudHost = await loadHostConfigFromSupabase();
+    if (cloudHost && cloudHost.hostId) {
+      const existing = typeof getHostProfile === 'function' ? getHostProfile() : null;
+      // Cloud wins if local has no profile or cloud is more complete
+      if (!existing || cloudHost.name) {
+        if (typeof saveHostProfile === 'function') saveHostProfile(cloudHost);
+        console.log('[StayOps] Hydrated host profile from cloud');
+      }
+    }
+
     console.log('[StayOps] hydrateFromCloud complete');
   } catch (e) {
     console.warn('[StayOps] hydrateFromCloud error', e);
@@ -706,6 +734,247 @@ async function migrateLocalDataToCloud() {
   }
 
   console.log('[StayOps] Migration complete! Run hydrateFromCloud() on other devices.');
+}
+
+
+// ── HOST CONFIG ───────────────────────────────────────────────────────────────
+
+async function saveHostConfigToSupabase(profile) {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user || !profile) return null;
+
+    const payload = {
+      user_id:    user.id,
+      name:       profile.name     || null,
+      company:    profile.company  || null,
+      abn:        profile.abn      || null,
+      acn:        profile.acn      || null,
+      email:      profile.email    || null,
+      phone:      profile.phone    || null,
+      address:    profile.address  || null,
+      host_id:    profile.hostId   || null,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Strip nulls so we never overwrite real data with nulls
+    const clean = Object.fromEntries(
+      Object.entries(payload).filter(([_, v]) => v !== null && v !== '')
+    );
+    clean.user_id    = user.id;
+    clean.updated_at = payload.updated_at;
+
+    const { data, error } = await window._sb
+      .from('host_config')
+      .upsert(clean, { onConflict: 'user_id' })
+      .select()
+      .single();
+
+    if (error) { console.warn('[StayOps] saveHostConfigToSupabase error', error); return null; }
+    return data;
+  } catch (e) {
+    console.warn('[StayOps] saveHostConfigToSupabase failed', e);
+    return null;
+  }
+}
+
+async function loadHostConfigFromSupabase() {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user) return null;
+    const { data, error } = await window._sb
+      .from('host_config')
+      .select('*')
+      .eq('user_id', user.id)
+      .single();
+    if (error || !data) return null;
+    return {
+      hostId:   data.host_id   || null,
+      name:     data.name      || '',
+      company:  data.company   || '',
+      abn:      data.abn       || '',
+      acn:      data.acn       || '',
+      email:    data.email     || '',
+      phone:    data.phone     || '',
+      address:  data.address   || '',
+    };
+  } catch (e) {
+    console.warn('[StayOps] loadHostConfigFromSupabase failed', e);
+    return null;
+  }
+}
+
+
+// ── BOOKINGS ──────────────────────────────────────────────────────────────────
+
+async function loadBookingsFromCloud() {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user) return null;
+    const propertyId = await getCloudPropertyId();
+    let query = window._sb.from('bookings').select('*').eq('user_id', user.id);
+    if (propertyId) query = query.eq('property_id', propertyId);
+    const { data, error } = await query.order('checkin', { ascending: true });
+    if (error || !data) return null;
+    return data.map(b => ({
+      id:               b.local_id ? (isNaN(Number(b.local_id)) ? b.local_id : Number(b.local_id)) : b.id,
+      _cloudId:         b.id,
+      checkin:          b.checkin   || '',
+      checkout:         b.checkout  || '',
+      nights:           b.nights    || 0,
+      name:             b.guest_name || '',
+      guests:           b.guests    || 1,
+      hostPayout:       b.host_payout  || 0,
+      cleaningFee:      b.cleaning_fee || 0,
+      mgmtFee:          b.mgmt_fee     || 0,
+      mgmtFeeRaw:       b.mgmt_fee_raw || 0,
+      mgmtPayout:       b.mgmt_payout  || 0,
+      netPayout:        b.net_payout   || 0,
+      platform:         b.platform     || '',
+      confirmCode:      b.confirmation_code || '',
+      status:           b.status       || 'confirmed',
+      cleanerConfirmed: b.cleaner_confirmed || false,
+      gcalEventId:      b.gcal_event_id || null,
+      source:           b.source        || 'sheet',
+    }));
+  } catch (e) {
+    console.warn('[StayOps] loadBookingsFromCloud failed', e);
+    return null;
+  }
+}
+
+async function saveBookingToCloud(booking) {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user || !booking) return;
+    const propertyId = await getCloudPropertyId();
+    const payload = {
+      user_id:            user.id,
+      property_id:        propertyId || null,
+      local_id:           String(booking.id),
+      checkin:            booking.checkin   ? String(booking.checkin).slice(0,10)   : null,
+      checkout:           booking.checkout  ? String(booking.checkout).slice(0,10)  : null,
+      nights:             booking.nights    || null,
+      guest_name:         booking.name      || '',
+      guests:             booking.guests    || 1,
+      host_payout:        Number(booking.hostPayout)  || 0,
+      cleaning_fee:       Number(booking.cleaningFee) || 0,
+      mgmt_fee:           Number(booking.mgmtFee)     || 0,
+      mgmt_fee_raw:       Number(booking.mgmtFeeRaw)  || 0,
+      mgmt_payout:        Number(booking.mgmtPayout)  || 0,
+      net_payout:         Number(booking.netPayout)   || 0,
+      platform:           booking.platform    || '',
+      confirmation_code:  booking.confirmCode || null,
+      status:             booking.status      || 'confirmed',
+      cleaner_confirmed:  booking.cleanerConfirmed || false,
+      gcal_event_id:      booking.gcalEventId || null,
+      source:             booking.source      || 'sheet',
+      updated_at:         new Date().toISOString(),
+    };
+    if (booking._cloudId) {
+      await window._sb.from('bookings').upsert({ id: booking._cloudId, ...payload });
+    } else {
+      const { data } = await window._sb
+        .from('bookings')
+        .upsert(payload, { onConflict: 'local_id,user_id' })
+        .select().single();
+      if (data) booking._cloudId = data.id;
+    }
+  } catch (e) {
+    console.warn('[StayOps] saveBookingToCloud failed', e);
+  }
+}
+
+async function saveBookingsToCloud(bookingsList) {
+  if (!Array.isArray(bookingsList)) return;
+  for (const b of bookingsList) await saveBookingToCloud(b);
+}
+
+async function deleteBookingFromCloud(booking) {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user || !booking) return;
+    if (booking._cloudId) {
+      await window._sb.from('bookings').delete().eq('id', booking._cloudId);
+    } else {
+      await window._sb.from('bookings').delete()
+        .eq('user_id', user.id)
+        .eq('local_id', String(booking.id));
+    }
+  } catch (e) {
+    console.warn('[StayOps] deleteBookingFromCloud failed', e);
+  }
+}
+
+// ── RECEIPTS (Supabase Storage) ───────────────────────────────────────────────
+
+async function uploadReceiptToStorage(file, expenseId) {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user || !file) return null;
+    const propertyId = await getCloudPropertyId();
+    const ext = file.name ? file.name.split('.').pop() : 'pdf';
+    const path = `${user.id}/${propertyId || 'default'}/${expenseId || Date.now()}.${ext}`;
+    const { data, error } = await window._sb.storage
+      .from('receipts')
+      .upload(path, file, { upsert: true, contentType: file.type || 'application/pdf' });
+    if (error) { console.warn('[StayOps] Receipt upload error', error); return null; }
+    // Get public URL — storage is private so use signed URL (1 year expiry)
+    const { data: urlData } = await window._sb.storage
+      .from('receipts')
+      .createSignedUrl(path, 365 * 24 * 60 * 60);
+    return urlData?.signedUrl || null;
+  } catch (e) {
+    console.warn('[StayOps] uploadReceiptToStorage failed', e);
+    return null;
+  }
+}
+
+async function getReceiptUrl(expenseId, userId, propertyId) {
+  try {
+    const path = `${userId}/${propertyId || 'default'}/${expenseId}`;
+    const { data } = await window._sb.storage
+      .from('receipts')
+      .createSignedUrl(path, 60 * 60); // 1 hour
+    return data?.signedUrl || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// ── APP CONFIG (push subs, templates, expense cats) ───────────────────────────
+
+async function loadAppConfigFromCloud() {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user) return null;
+    const { data, error } = await window._sb
+      .from('app_config')
+      .select('*')
+      .eq('user_id', user.id)
+      .single();
+    if (error || !data) return null;
+    return data;
+  } catch (e) {
+    console.warn('[StayOps] loadAppConfigFromCloud failed', e);
+    return null;
+  }
+}
+
+async function saveAppConfigToCloud(patch) {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user) return;
+    const payload = {
+      user_id:    user.id,
+      updated_at: new Date().toISOString(),
+      ...patch,
+    };
+    await window._sb.from('app_config')
+      .upsert(payload, { onConflict: 'user_id' });
+  } catch (e) {
+    console.warn('[StayOps] saveAppConfigToCloud failed', e);
+  }
 }
 
 
@@ -787,6 +1056,13 @@ async function handleLoginSubmit() {
   setLoadingStatus('Loading your data…');
   await hydrateFromCloud();
   hideLoadingScreen();
+
+  // Check if onboarding is needed (new user)
+  if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) {
+    if (typeof showOnboarding === 'function') showOnboarding();
+    return;
+  }
+
   if (typeof renderAll === 'function') renderAll();
   // Prompt if an owner report is due
   setTimeout(() => { if (typeof checkAutoSendReport === 'function') checkAutoSendReport(); }, 1500);

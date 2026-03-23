@@ -561,10 +561,7 @@ function initPropertyUI() {
   const headerNameEl = document.getElementById('header-property-name');
   if (headerNameEl) headerNameEl.textContent = cfg.name || 'StayOps';
   const chevronHeader = document.getElementById('prop-switcher-chevron-header');
-  if (chevronHeader) {
-    const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
-    chevronHeader.style.display = props.length > 1 ? '' : 'none';
-  }
+  if (chevronHeader) chevronHeader.style.display = '';
 
   _setText('header-sub-title', getCurrentPropertySubtitle());
   _setText('prop-hero-name', cfg.name);

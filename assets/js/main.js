@@ -836,7 +836,8 @@ function save() {
   scheduleAppDataSave('bookings', bookings);
   scheduleAppDataSave('cleans', cleans);
   scheduleAppDataSave('notes',  notes);
-  // Sync cleans and notes to Supabase (non-blocking)
+  // Sync bookings, cleans and notes to Supabase (non-blocking)
+  if (typeof saveBookingsToCloud === 'function') saveBookingsToCloud(bookings).catch(() => {});
   if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
   if (typeof saveNotesToCloud === 'function') saveNotesToCloud(notes).catch(() => {});
 }
@@ -2411,7 +2412,7 @@ function renderExpenseCatSettings() {
 
 function updateExpenseCat(index, newName) {
   const cats = getExpenseCats();
-  if (newName.trim()) { cats[index] = newName.trim(); localStorage.setItem(lsKey('expense-cats'), JSON.stringify(cats)); populateExpenseCatSelect(); }
+  if (newName.trim()) { cats[index] = newName.trim(); localStorage.setItem(lsKey('expense-cats'), JSON.stringify(cats)); if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ expense_cats: cats }).catch(() => {}); populateExpenseCatSelect(); }
 }
 
 function addExpenseCat() {
@@ -2420,6 +2421,7 @@ function addExpenseCat() {
   const cats = getExpenseCats();
   cats.push(val);
   localStorage.setItem(lsKey('expense-cats'), JSON.stringify(cats));
+  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ expense_cats: cats }).catch(() => {});
   document.getElementById('new-expense-cat').value = '';
   renderExpenseCatSettings();
   populateExpenseCatSelect();
@@ -2432,6 +2434,7 @@ async function deleteExpenseCat(index) {
   if (!_okCat) return;
   cats.splice(index, 1);
   localStorage.setItem(lsKey('expense-cats'), JSON.stringify(cats));
+  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ expense_cats: cats }).catch(() => {});
   renderExpenseCatSettings();
   populateExpenseCatSelect();
 }
@@ -2717,11 +2720,11 @@ function renderSettings() {
   const headerName = document.getElementById('header-property-name');
   if (headerName) headerName.textContent = getCurrentPropertyName();
   const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
-  const showChevron = props.length > 1;
+  // Always show chevron — even with 1 property, tap opens sheet with Add Property
   const chevron = document.getElementById('prop-switcher-chevron');
-  if (chevron) chevron.style.display = showChevron ? '' : 'none';
+  if (chevron) chevron.style.display = '';
   const chevronHeader = document.getElementById('prop-switcher-chevron-header');
-  if (chevronHeader) chevronHeader.style.display = showChevron ? '' : 'none';
+  if (chevronHeader) chevronHeader.style.display = '';
   setTimeout(updateNotifStatus, 100);
 }
 
@@ -3428,6 +3431,9 @@ function saveSMSTemplate() {
   const val = document.getElementById('settings-sms-template');
   if (!val) return;
   localStorage.setItem(lsKey('sms-template'), val.value);
+  if (typeof saveAppConfigToCloud === 'function') {
+    saveAppConfigToCloud({ sms_template: val.value }).catch(() => {});
+  }
   showBanner('✓ SMS template saved', 'ok');
 }
 
@@ -3877,6 +3883,13 @@ async function saveHostProfilePanel() {
 
   saveHostProfile(profile);
   renderHostProfileRow();
+
+  // Sync to Supabase
+  if (typeof saveHostConfigToSupabase === 'function') {
+    saveHostConfigToSupabase(profile).catch(e => console.warn('[StayOps] host config sync failed', e));
+  }
+
+  // Legacy AppData sync (Sheet)
   const pushed = await pushAppDataNow('hostProfile', profile);
   await pushSafeHostSettings();
   showBanner('✓ Host profile saved', 'ok');
@@ -3899,7 +3912,6 @@ function renderHostProfileRow() {
 // ── PROPERTY SWITCHER (header) ─────────────────────────────────
 function openPropertySwitcherSheet() {
   const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
-  if (props.length <= 1) return; // nothing to switch to
   const activeId = getActivePropertyId();
   const list = document.getElementById('property-switcher-sheet-list');
   if (list) {
@@ -4591,55 +4603,32 @@ async function saveExpenseToDriveAndSheet(exp) {
   const driveToken = getDriveToken();
   const scriptUrl = (getScriptURL() || '').trim();
 
-  // ── Upload to Drive first so we can include the link in the sheet row ──────
+  // ── Upload receipt to Supabase Storage ──────────────────────────────────────
   let driveLink = null;
   if (exp.photo) {
-    if (!driveToken) {
-      showBanner('⚠ Connect Google Drive in Settings to save receipts to cloud', 'warn');
-    } else {
-      try {
-        showBanner('⟳ Uploading receipt to Google Drive...', 'info');
-        const imgBlob = await receiptImageToPDF(exp);
-        const fileName = generateReceiptFileName(exp);
-        const folderId = await getOrCreateDriveFolder(driveToken);
-        const metadata = { name: fileName, mimeType: 'application/pdf', parents: folderId ? [folderId] : [] };
-        const form = new FormData();
-        form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-        form.append('file', imgBlob);
-        const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-          method: 'POST',
-          headers: { Authorization: 'Bearer ' + driveToken },
-          body: form
-        });
-        if (res.status === 401) {
-          localStorage.removeItem('gh-drive-token');
-          localStorage.removeItem('gh-drive-token-expiry');
-          showBanner('⚠ Google Drive session expired — reconnect in Settings', 'warn');
-        } else if (res.ok) {
-          const file = await res.json();
-          if (file.id) {
-            await setDriveFilePublic(file.id, driveToken);
-            driveLink = 'https://drive.google.com/file/d/' + file.id + '/view';
-            // Save link locally
-            const saved = expenses.find(e => e.id === exp.id);
-            if (saved) {
-              saved.driveLink = driveLink;
-              savePropertyData();
-              renderExpenses();
-              // Sync updated driveLink to Supabase
-              if (typeof saveExpenseToCloud === 'function') saveExpenseToCloud(saved).catch(() => {});
-            }
-            showBanner('✓ Receipt saved to Google Drive', 'ok');
-          } else {
-            showBanner('⚠ Drive upload failed — no file ID returned', 'warn');
+    try {
+      showBanner('⟳ Uploading receipt...', 'info');
+      const imgBlob = await receiptImageToPDF(exp);
+      const fileName = generateReceiptFileName(exp);
+      const file = new File([imgBlob], fileName, { type: 'application/pdf' });
+      if (typeof uploadReceiptToStorage === 'function') {
+        const url = await uploadReceiptToStorage(file, exp.id);
+        if (url) {
+          driveLink = url;
+          const saved = expenses.find(e => e.id === exp.id);
+          if (saved) {
+            saved.driveLink = driveLink;
+            savePropertyData();
+            renderExpenses();
+            if (typeof saveExpenseToCloud === 'function') saveExpenseToCloud(saved).catch(() => {});
           }
+          showBanner('✓ Receipt uploaded', 'ok');
         } else {
-          const errData = await res.json().catch(() => ({}));
-          showBanner('⚠ Drive error ' + res.status + ': ' + ((errData.error && errData.error.message) || 'unknown'), 'warn');
+          showBanner('⚠ Receipt upload failed', 'warn');
         }
-      } catch(e) {
-        showBanner('⚠ Drive upload failed: ' + e.message, 'warn');
       }
+    } catch(e) {
+      showBanner('⚠ Receipt upload failed: ' + e.message, 'warn');
     }
   }
 
@@ -6432,11 +6421,13 @@ if (isCleanerMode()) {
   // Cleaner mode — only pull AppData (cleans, inventory, cleaners). Skip bookings CSV + expenses.
   pullAppData();
 } else if (hasValidPropertyConfig()) {
-  // Guard: do not sync on a fresh install before setup completes, which would
-  // fire with Glenhaven's default URLs from DEFAULT_PROPERTY_CONFIG.
-  if (hasCloudSyncConfigured()) syncFromSheets();
+  // Primary source is Supabase — loaded during hydrateFromCloud.
+  // Only fall back to Sheet sync if no bookings in Supabase yet.
+  const cachedBookings = JSON.parse(localStorage.getItem(lsKey('bookings')) || '[]');
+  if (!cachedBookings.length && hasCloudSyncConfigured()) {
+    syncFromSheets(); // one-time migration pull
+  }
   if (_scriptConfigured) setTimeout(() => pullExpensesFromSheet(), 1200);
-  if (_scriptConfigured) setTimeout(() => pullAppData(), 1800);
 }
 // Subscribe owner via manual button in Settings (iOS requires user gesture)
 
@@ -6483,7 +6474,10 @@ document.addEventListener('visibilitychange', () => {
     const now = Date.now();
     if (now - _lastVisibilitySync > 5 * 60 * 1000) {
       _lastVisibilitySync = now;
-      if (hasCloudSyncConfigured()) syncFromSheets(); // silent background sync
+      // Supabase is now the source — trigger a silent re-hydrate instead
+      if (typeof hydrateFromCloud === 'function') hydrateFromCloud().then(() => {
+        if (typeof renderAll === 'function') renderAll();
+      });
     }
     // Always pull AppData on focus to get latest cleaner states
     if (!isCleanerMode()) pullAppData();
@@ -6494,7 +6488,11 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 window.addEventListener('pageshow', (e) => {
-  if (e.persisted && hasValidPropertyConfig() && hasCloudSyncConfigured()) syncFromSheets();
+  if (e.persisted && hasValidPropertyConfig()) {
+    if (typeof hydrateFromCloud === 'function') hydrateFromCloud().then(() => {
+      if (typeof renderAll === 'function') renderAll();
+    });
+  }
   setTimeout(_flushPendingUiRefresh, 120);
 });
 
@@ -7921,6 +7919,22 @@ async function finishAppInit() {
 
 // Init on load
 document.addEventListener('DOMContentLoaded', async () => {
+  // Handle OAuth redirect back from Google/Microsoft
+  const urlParams = new URLSearchParams(window.location.search);
+  const oauthSuccess = urlParams.get('oauth_success');
+  const oauthEmail   = urlParams.get('oauth_email') || urlParams.get('email');
+  const oauthError   = urlParams.get('oauth_error');
+  if (oauthSuccess && oauthEmail) {
+    // Clean URL
+    window.history.replaceState({}, '', window.location.pathname);
+    // Show onboarding step 2 connected state after app loads
+    window._oauthConnected = { provider: oauthSuccess, email: decodeURIComponent(oauthEmail) };
+  }
+  if (oauthError) {
+    window.history.replaceState({}, '', window.location.pathname);
+    window._oauthError = decodeURIComponent(oauthError);
+  }
+
   // Cleaner mode bypasses host auth entirely
   if (isCleanerMode()) {
     migrateConfigFromLegacySettings();
@@ -7961,10 +7975,198 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (typeof setLoadingStatus === 'function') setLoadingStatus('Loading your data…');
   if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
   if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
+
+  // Check if onboarding is needed (new user on fresh device)
+  if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) {
+    if (typeof showOnboarding === 'function') {
+      showOnboarding();
+      // If returning from OAuth flow, jump to step 2 and show connected state
+      if (window._oauthConnected) {
+        _obGoToStep(2);
+        onboardEmailConnected(window._oauthConnected.provider, window._oauthConnected.email);
+        delete window._oauthConnected;
+      }
+      if (window._oauthError) {
+        _obGoToStep(2);
+        const errEl = document.getElementById('ob-step2-error');
+        if (errEl) errEl.textContent = '⚠ Connection failed: ' + window._oauthError;
+        delete window._oauthError;
+      }
+    }
+    return;
+  }
+
   renderAll();
   // Prompt if an owner report is due (non-blocking, runs after UI is visible)
   setTimeout(checkAutoSendReport, 1500);
 });
+
+
+// ── ONBOARDING FLOW ───────────────────────────────────────────────────────────
+
+const _OB_PLATFORMS = new Set();
+
+function showOnboarding() {
+  const el = document.getElementById('stayops-onboarding');
+  if (el) el.style.display = 'flex';
+  const app   = document.getElementById('main-content');
+  const nav   = document.querySelector('.nav');
+  const hdr   = document.querySelector('.header');
+  if (app) app.style.display = 'none';
+  if (nav) nav.style.display = 'none';
+  if (hdr) hdr.style.display = 'none';
+  _obGoToStep(1);
+}
+
+function hideOnboarding() {
+  const el = document.getElementById('stayops-onboarding');
+  if (el) el.style.display = 'none';
+}
+
+function _obGoToStep(step) {
+  [1, 2, 3].forEach(n => {
+    const s = document.getElementById('onboard-step-' + n);
+    const d = document.getElementById('onboard-dot-' + n);
+    if (s) s.style.display = n === step ? '' : 'none';
+    if (d) d.classList.toggle('active', n <= step);
+  });
+}
+
+// Step 1 — Property details
+function onboardStep1Next() {
+  const name   = (document.getElementById('ob-prop-name') || {}).value?.trim() || '';
+  const suburb = (document.getElementById('ob-suburb')    || {}).value?.trim() || '';
+  const state  = (document.getElementById('ob-state')     || {}).value?.trim() || '';
+  const beds   = parseFloat((document.getElementById('ob-beds')   || {}).value || '0');
+  const baths  = parseFloat((document.getElementById('ob-baths')  || {}).value || '0');
+  const guests = parseFloat((document.getElementById('ob-guests') || {}).value || '0');
+  const type   = (document.getElementById('ob-type') || {}).value || 'house';
+  const errEl  = document.getElementById('ob-step1-error');
+
+  const errors = [];
+  if (!name)        errors.push('Property name is required.');
+  if (!suburb)      errors.push('Suburb is required.');
+  if (!state)       errors.push('State is required.');
+  if (!beds || beds < 1)    errors.push('Bedrooms must be at least 1.');
+  if (isNaN(baths) || baths < 0) errors.push('Bathrooms cannot be negative.');
+  if (!guests || guests < 1) errors.push('Max guests must be at least 1.');
+
+  if (errors.length) {
+    if (errEl) errEl.textContent = errors[0];
+    return;
+  }
+  if (errEl) errEl.textContent = '';
+
+  // Save property config
+  savePropertyConfig({
+    name, suburb, state,
+    country: 'Australia',
+    property: { bedrooms: beds, bathrooms: baths, maxGuests: guests, type },
+    branding: { subtitle: suburb + ' · ' + state, tagline: suburb + ', ' + state },
+  });
+  localStorage.setItem('gh-setup-complete', '1');
+
+  // Sync to Supabase
+  if (!window._stayOpsHydrating && typeof saveHostConfigToCloud === 'function') {
+    saveHostConfigToCloud(getActivePropertyConfig());
+  }
+
+  _obGoToStep(2);
+}
+
+// Step 2 — Connect email
+async function onboardConnectGoogle() {
+  const user = await getCurrentSupabaseUser();
+  if (!user) { showBanner('⚠ Please sign in first', 'warn'); return; }
+  // Redirect to Netlify OAuth start function, passing user_id as state
+  window.location.href = '/.netlify/functions/gmail-oauth-start?state=' + encodeURIComponent(user.id);
+}
+
+async function onboardConnectMicrosoft() {
+  const user = await getCurrentSupabaseUser();
+  if (!user) { showBanner('⚠ Please sign in first', 'warn'); return; }
+  window.location.href = '/.netlify/functions/outlook-oauth-start?state=' + encodeURIComponent(user.id);
+}
+
+// Called by OAuth callback when connection succeeds
+function onboardEmailConnected(provider, email) {
+  const connectedEl = document.getElementById('ob-email-connected');
+  const continueBtn = document.getElementById('ob-step2-continue');
+  if (connectedEl) {
+    connectedEl.style.display = 'block';
+    connectedEl.textContent = '✓ ' + email + ' connected';
+  }
+  if (continueBtn) {
+    continueBtn.disabled = false;
+    continueBtn.onclick = () => _obGoToStep(3);
+  }
+  // Save provider to localStorage for now
+  localStorage.setItem('ob-email-provider', provider);
+  localStorage.setItem('ob-email-address', email);
+}
+
+function onboardStep2Skip() {
+  _obGoToStep(3);
+}
+
+// Step 3 — Platforms
+function onboardTogglePlatform(platform) {
+  if (_OB_PLATFORMS.has(platform)) {
+    _OB_PLATFORMS.delete(platform);
+  } else {
+    _OB_PLATFORMS.add(platform);
+  }
+  // Update UI
+  ['airbnb', 'vrbo', 'direct'].forEach(p => {
+    const label = document.getElementById('ob-plat-' + p);
+    const check = document.getElementById('ob-check-' + p);
+    const active = _OB_PLATFORMS.has(p);
+    if (label) label.style.borderColor = active ? 'var(--forest,#1E3A2F)' : 'transparent';
+    if (check) {
+      check.style.background  = active ? 'var(--forest,#1E3A2F)' : 'transparent';
+      check.style.borderColor = active ? 'var(--forest,#1E3A2F)' : '#E5E5EA';
+      check.innerHTML = active ? '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' : '';
+    }
+  });
+}
+
+async function onboardFinish() {
+  const errEl = document.getElementById('ob-step3-error');
+  if (_OB_PLATFORMS.size === 0) {
+    if (errEl) errEl.textContent = 'Please select at least one platform.';
+    return;
+  }
+  if (errEl) errEl.textContent = '';
+
+  // Save platforms to property config
+  const platforms = Array.from(_OB_PLATFORMS);
+  savePropertyConfig({ platforms });
+
+  // Save to Supabase
+  if (typeof savePropertyToCloud === 'function') {
+    await savePropertyToCloud(getActivePropertyConfig());
+  }
+
+  // Mark onboarding complete
+  localStorage.setItem('stayops-onboarding-complete', '1');
+
+  // Boot the app
+  hideOnboarding();
+  if (typeof showLoadingScreen === 'function') showLoadingScreen('Setting up your account…');
+  if (typeof finishAppInit === 'function') await finishAppInit();
+  if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
+  if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
+  if (typeof renderAll === 'function') renderAll();
+  setTimeout(() => { if (typeof checkAutoSendReport === 'function') checkAutoSendReport(); }, 1500);
+}
+
+// Check if onboarding is needed
+function isOnboardingComplete() {
+  return localStorage.getItem('stayops-onboarding-complete') === '1' ||
+         localStorage.getItem('gh-setup-complete') === '1';
+}
+
+// ── END ONBOARDING FLOW ───────────────────────────────────────────────────────
 
 // ── OWNER REPORT ──────────────────────────────────────────────────────────────
 
@@ -8188,6 +8390,37 @@ function checkAutoSendReport() {
   }
 }
 
+
+// ── ONE-TIME BOOKING MIGRATION ────────────────────────────────────────────────
+/**
+ * migrateSheetBookingsToSupabase — call once from console or Settings.
+ * Pulls bookings from Google Sheet CSV and writes them to Supabase bookings table.
+ * Safe to run multiple times — upserts on confirmation_code or guest+checkin.
+ */
+async function migrateSheetBookingsToSupabase() {
+  showBanner('⟳ Migrating bookings to Supabase...', 'info');
+  try {
+    const csv = await DB.fetchBookings();
+    const lines = csv.trim().split('\n').filter(l => l.trim());
+    if (lines.length < 2) throw new Error('No data in sheet');
+
+    // Parse CSV into booking objects (reuse existing parsed bookings array)
+    await syncFromSheets(false);
+
+    // Now save all to Supabase
+    if (typeof saveBookingsToCloud === 'function') {
+      await saveBookingsToCloud(bookings);
+    }
+
+    showBanner('✓ Migrated ' + bookings.length + ' bookings to Supabase', 'ok');
+    console.log('[StayOps] Migration complete —', bookings.length, 'bookings saved to Supabase');
+  } catch (e) {
+    showBanner('⚠ Migration failed: ' + e.message, 'warn');
+    console.error('[StayOps] Migration failed', e);
+  }
+}
+
+// ── END ONE-TIME BOOKING MIGRATION ───────────────────────────────────────────
 // ── REPORT EXPORT ─────────────────────────────────────────────────────────────
 /**
  * _buildReportDoc(fy) — shared PDF builder. Returns a jsPDF doc object.
