@@ -8095,8 +8095,20 @@ async function onboardFinish() {
 
 // Check if onboarding is needed
 function isOnboardingComplete() {
-  return localStorage.getItem('stayops-onboarding-complete') === '1' ||
-         localStorage.getItem('gh-setup-complete') === '1';
+  // Check all possible keys — new key, old key, and scoped variants
+  if (localStorage.getItem('stayops-onboarding-complete') === '1') return true;
+  if (localStorage.getItem('gh-setup-complete') === '1') return true;
+  // Check scoped key (lsKey adds property prefix)
+  try {
+    const scoped = lsKey('setup-complete');
+    if (localStorage.getItem(scoped) === '1') return true;
+  } catch(e) {}
+  // If any property config exists with a name, treat as complete
+  try {
+    const cfg = typeof getActivePropertyConfig === 'function' ? getActivePropertyConfig() : null;
+    if (cfg && cfg.name) return true;
+  } catch(e) {}
+  return false;
 }
 
 // ── END ONBOARDING FLOW ───────────────────────────────────────────────────────
