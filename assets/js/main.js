@@ -982,7 +982,7 @@ async function syncFromSheets(manual = false) {
 
     await finishSync(imported, skipped, manual);
   } catch(e) {
-    console.error('[Glenhaven] Sync error:', e);
+    console.error('[StayOps] Sync error:', e);
     if (manual) showBanner('⚠ Sync failed: ' + (e.message || 'network error'), 'warn');
   } finally {
     _syncInProgress = false;
@@ -1014,7 +1014,7 @@ async function finishSync(imported, skipped, manual) {
         headers: { Authorization: 'Bearer ' + token }
       }).catch(() => {}); // silent — best effort
     }));
-    console.log('[Glenhaven] Removed ' + toDeleteFromCal.length + ' orphaned calendar event(s)');
+    console.log('[StayOps] Removed ' + toDeleteFromCal.length + ' orphaned calendar event(s)');
   }
 
   let cancelledDeletedCount = 0;
@@ -1063,7 +1063,7 @@ async function finishSync(imported, skipped, manual) {
     return true;
   });
   bookings.splice(0, bookings.length, ...merged);
-  console.log('[Glenhaven] finishSync — imported:', imported.length, 'merged:', bookings.length);
+  console.log('[StayOps] finishSync — imported:', imported.length, 'merged:', bookings.length);
 
   const cleansBeforePrune = cleans.length;
   cleans = cleans.filter(c => !_isCleanLinkedToCancelledBooking(c));
@@ -2185,7 +2185,7 @@ function buildInvoicePDF(selected, client) {
   </style></head><body>
   <div class="header">
     <div>
-      <h1>${inv.company || inv.name || 'Glenhaven'}</h1>
+      <h1>${inv.company || inv.name || getCurrentPropertyName()}</h1>
       ${inv.name && inv.company ? `<div style="color:#666;margin-top:3px;font-size:13px">${inv.name}</div>` : ''}
       ${inv.abn ? `<div style="color:#666;font-size:12px">ABN: ${inv.abn}</div>` : ''}
       ${inv.acn ? `<div style="color:#666;font-size:12px">ACN: ${inv.acn}</div>` : ''}
@@ -2713,12 +2713,15 @@ function renderSettings() {
     const cleaners = loadCleaners ? loadCleaners() : [];
     teamMenuEl.textContent = cleaners.length ? cleaners.length + ' people' : 'Cleaners & contractors';
   }
-  // Property switcher chevron — show if multiple properties
+  // Header property name + chevron
+  const headerName = document.getElementById('header-property-name');
+  if (headerName) headerName.textContent = getCurrentPropertyName();
+  const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
+  const showChevron = props.length > 1;
   const chevron = document.getElementById('prop-switcher-chevron');
-  if (chevron) {
-    const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
-    chevron.style.display = props.length > 1 ? '' : 'none';
-  }
+  if (chevron) chevron.style.display = showChevron ? '' : 'none';
+  const chevronHeader = document.getElementById('prop-switcher-chevron-header');
+  if (chevronHeader) chevronHeader.style.display = showChevron ? '' : 'none';
   setTimeout(updateNotifStatus, 100);
 }
 
@@ -4234,7 +4237,7 @@ async function analyseExpenses() {
     ? `\n\nUSER'S IGNORE LIST — do NOT flag these items, the user has reviewed and accepted them:\n${ignoreList.map(i => `- [${i.type}] ${i.label}${i.reason ? ' (reason: ' + i.reason + ')' : ''}`).join('\n')}`
     : '';
 
-  const prompt = `You are an accountant reviewing Airbnb rental property expenses for Glenhaven, a 4-bedroom cottage in Katoomba NSW.
+  const prompt = `You are an accountant reviewing Airbnb rental property expenses for ${getCurrentPropertyName()}.
 
 Total expenses: A$${totalSpend.toFixed(2)} across ${expenses.length} items.
 By category: ${JSON.stringify(byCategory)}
@@ -7344,7 +7347,7 @@ const EMAIL_TEMPLATE_DEFAULTS = {
     subject: 'New clean assigned — {{guest_name}} ({{checkin}})',
     body: `Hi {{cleaner_name}},
 
-You've been assigned a new clean at Glenhaven.
+You've been assigned a new clean at ${getCurrentPropertyName()}.
 
 Guest: {{guest_name}}
 Check-in: {{checkin}}
@@ -7357,7 +7360,7 @@ Tap the button below to open your app and accept or decline.`,
     subject: '⏰ Reminder: Clean tomorrow — {{guest_name}}',
     body: `Hi {{cleaner_name}},
 
-Just a reminder — you have a clean tomorrow at Glenhaven.
+Just a reminder — you have a clean tomorrow at ${getCurrentPropertyName()}.
 
 Guest: {{guest_name}}
 Clean date: {{clean_date}}
@@ -7369,7 +7372,7 @@ Tap the button below to open your app.`,
     subject: '❌ Booking cancelled — {{guest_name}}',
     body: `Hi {{cleaner_name}},
 
-The booking for {{guest_name}} has been cancelled at Glenhaven.
+The booking for {{guest_name}} has been cancelled at ${getCurrentPropertyName()}.
 
 Original stay dates:
 Check-in: {{checkin}}
@@ -7386,10 +7389,10 @@ const EMAIL_TEMPLATE_PRESETS = {
   assignment: [
     {
       label: 'Friendly',
-      subject: 'New clean at Glenhaven — {{checkin}}',
+      subject: `New clean at ${getCurrentPropertyName()} — {{checkin}}`,
       body: `Hi {{cleaner_name}},
 
-You've been booked for a clean at Glenhaven! Here are the details:
+You've been booked for a clean at ${getCurrentPropertyName()}! Here are the details:
 
 Guest: {{guest_name}}
 Check-in: {{checkin}}
@@ -7405,7 +7408,7 @@ Thanks so much! 🙏`,
       subject: 'Clean assigned: {{guest_name}} checks out {{checkout}}',
       body: `Hi {{cleaner_name}},
 
-A new clean has been assigned to you at Glenhaven.
+A new clean has been assigned to you at ${getCurrentPropertyName()}.
 
 Guest: {{guest_name}}
 Check-in: {{checkin}}
@@ -7421,7 +7424,7 @@ Open your app to accept or decline.`,
       subject: '⏰ Tomorrow\'s clean — {{guest_name}}',
       body: `Hi {{cleaner_name}},
 
-Just a heads up — you have a clean tomorrow at Glenhaven after {{guest_name}} checks out.
+Just a heads up — you have a clean tomorrow at ${getCurrentPropertyName()} after {{guest_name}} checks out.
 
 Date: {{clean_date}}
 
@@ -7430,10 +7433,10 @@ Everything you need is in your app. See you there! 🏡`,
     },
     {
       label: 'Minimal',
-      subject: 'Reminder: Glenhaven clean tomorrow',
+      subject: `Reminder: ${getCurrentPropertyName()} clean tomorrow`,
       body: `Hi {{cleaner_name}},
 
-Quick reminder that your clean at Glenhaven is tomorrow.
+Quick reminder that your clean at ${getCurrentPropertyName()} is tomorrow.
 
 Guest: {{guest_name}}
 Date: {{clean_date}}
@@ -7606,7 +7609,7 @@ function updateEmailPreview(type) {
   if (previewEl) previewEl.innerHTML = `
     <div style="font-family:sans-serif;color:#1a1a1a">
       <div style="background:${color};padding:16px 20px;border-radius:8px 8px 0 0;margin:-16px -16px 16px">
-        <div style="color:white;font-size:16px;font-weight:700">🏡 Glenhaven</div>
+        <div style="color:white;font-size:16px;font-weight:700">🏡 ${getCurrentPropertyName()}</div>
       </div>
       ${bodyHtml}
       <div style="margin-top:16px">
@@ -7635,7 +7638,7 @@ function applyEmailTemplate(type, vars) {
     .join('');
   const html = `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;color:#1a1a1a">
     <div style="background:${color};padding:20px 24px;border-radius:10px 10px 0 0">
-      <h1 style="color:white;margin:0;font-size:20px">🏡 Glenhaven</h1>
+      <h1 style="color:white;margin:0;font-size:20px">🏡 ${getCurrentPropertyName()}</h1>
     </div>
     <div style="background:#f9f7f4;padding:24px;border-radius:0 0 10px 10px;border:1px solid #e8e0d8;border-top:none">
       ${bodyHtml}

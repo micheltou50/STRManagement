@@ -35,16 +35,16 @@ function lsKey(key) {
 // ── DEFAULTS ───────────────────────────────────────────────────────────────────
 const DEFAULT_PROPERTY_CONFIG = {
   propertyId: 'glenhaven',
-  name:       'Glenhaven',
-  address:    '21 Glencoe Road, Katoomba NSW 2780',
-  suburb:     'Katoomba',
+  name:       '',
+  address:    '',
+  suburb:     '',
   state:      'NSW',
-  region:     'Blue Mountains',
+  region:     '',
   country:    'Australia',
 
   branding: {
-    subtitle: 'Katoomba · NSW',
-    tagline:  'Katoomba, NSW · Blue Mountains',
+    subtitle: '',
+    tagline:  '',
   },
 
   property: {
@@ -76,7 +76,7 @@ const DEFAULT_PROPERTY_CONFIG = {
 
   pricing: {
     baseRate:        350,
-    locationContext: 'Katoomba, Blue Mountains, NSW, Australia',
+    locationContext: '',
     locationFactors: '',
     currency:        'AUD',
   },
@@ -558,6 +558,13 @@ function initPropertyUI() {
   const stats = getPropertyStats();
 
   document.title = cfg.name + ' — Property Manager';
+  const headerNameEl = document.getElementById('header-property-name');
+  if (headerNameEl) headerNameEl.textContent = cfg.name || 'StayOps';
+  const chevronHeader = document.getElementById('prop-switcher-chevron-header');
+  if (chevronHeader) {
+    const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
+    chevronHeader.style.display = props.length > 1 ? '' : 'none';
+  }
 
   _setText('header-sub-title', getCurrentPropertySubtitle());
   _setText('prop-hero-name', cfg.name);
