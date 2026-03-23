@@ -697,6 +697,8 @@ function _getSuggestedCleanerForBooking(booking) {
 function _maybeAutoAssignPreferredCleaner(booking, reason) {
   if (!booking || booking.status === 'cancelled') return false;
   if (!booking.checkout || new Date(booking.checkout) < new Date()) return false;
+  // Check auto-assign toggle — default ON
+  if (localStorage.getItem(lsKey('auto-assign-cleaner')) === 'off') return false;
   const state = getBookingCleanerState(booking);
   if (state.key !== 'unassigned') return false;
   const preferred = getPreferredCleaner();
@@ -2281,6 +2283,7 @@ function openSettingsPanel(panelId) {
   }
   if (panelId === 'team') {
     renderTeamList();
+    _renderAutoAssignToggle();
   }
   if (panelId === 'property-switcher') {
     renderPropertySwitcher();
@@ -3900,6 +3903,7 @@ function renderHostProfileRow() {
 
 // ── PROPERTY SWITCHER (header) ─────────────────────────────────
 function openPropertySwitcherSheet() {
+  console.log('[StayOps] openPropertySwitcherSheet called');
   const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
   const activeId = getActivePropertyId();
   const list = document.getElementById('property-switcher-sheet-list');
@@ -3917,7 +3921,9 @@ function openPropertySwitcherSheet() {
     list.innerHTML = propRows + addRow;
   }
   const sheet = document.getElementById('property-switcher-sheet');
-  if (sheet) sheet.style.display = 'flex';
+  if (!sheet) { console.error('[StayOps] property-switcher-sheet element not found'); return; }
+  sheet.style.display = 'flex';
+  console.log('[StayOps] Sheet shown:', sheet.style.display);
 }
 
 function closePropertySwitcherSheet() {
@@ -7117,6 +7123,34 @@ function renderCleanerView() {
 }
 
 // ── ASSIGN CLEANER TO BOOKING (from detail modal) ─────────────────────────────
+
+// ── AUTO-ASSIGN CLEANER TOGGLE ────────────────────────────────────────────────
+
+function getAutoAssignCleaner() {
+  return localStorage.getItem(lsKey('auto-assign-cleaner')) !== 'off';
+}
+
+function toggleAutoAssignCleaner() {
+  const current = getAutoAssignCleaner();
+  const newVal = !current;
+  localStorage.setItem(lsKey('auto-assign-cleaner'), newVal ? 'on' : 'off');
+  if (typeof saveAppConfigToCloud === 'function') {
+    saveAppConfigToCloud({ auto_assign_cleaner: newVal }).catch(() => {});
+  }
+  _renderAutoAssignToggle();
+  showBanner(newVal ? '✓ Auto-assign enabled' : '✓ Auto-assign disabled', 'ok');
+}
+
+function _renderAutoAssignToggle() {
+  const on = getAutoAssignCleaner();
+  const track = document.getElementById('auto-assign-toggle');
+  const thumb = document.getElementById('auto-assign-thumb');
+  if (track) track.style.background = on ? 'var(--forest)' : 'var(--border)';
+  if (thumb) thumb.style.transform = on ? 'translateX(18px)' : 'translateX(0)';
+}
+
+// ── END AUTO-ASSIGN TOGGLE ────────────────────────────────────────────────────
+
 async function assignCleanerToBooking(bookingId) {
   const lockKey = 'assignCleaner:' + String(bookingId);
   if (!_acquireLock(_actionLocks, lockKey)) return;
@@ -8317,23 +8351,17 @@ async function migrateSheetBookingsToSupabase() {
   showBanner('⟳ Migrating bookings to Supabase...', 'info');
   try {
     // Check we have a sheet URL
-    const sheetUrl = typeof getCurrentSheetCSVURL === 'function' ? getCurrentSheetCSVURL() : null;
+    // Use existing DB adapter which already knows the sheet URL
+    // syncFromSheets fetches CSV and populates module-level bookings array
+    const sheetUrl = typeof getPropertySheetCsvUrl === 'function' ? getPropertySheetCsvUrl() : '';
     if (!sheetUrl) throw new Error('No Google Sheet URL configured — set it in Settings → Property → Property Configuration');
 
-    // Fetch and parse the CSV
-    const resp = await fetch(sheetUrl);
-    if (!resp.ok) throw new Error('Could not fetch sheet: ' + resp.status);
-    const csv = await resp.text();
-    const lines = csv.trim().split('\n').filter(l => l.trim());
-    if (lines.length < 2) throw new Error('Sheet appears empty — no booking rows found');
-
-    // Use syncFromSheets to parse into the bookings array
     await syncFromSheets(false);
 
-    // Give it a moment to settle then save whatever is in the bookings array
-    await new Promise(r => setTimeout(r, 500));
+    // Wait for sync to complete and bookings array to be populated
+    await new Promise(r => setTimeout(r, 800));
 
-    if (!bookings || bookings.length === 0) throw new Error('No bookings parsed from sheet');
+    if (!bookings || bookings.length === 0) throw new Error('No bookings found after sync — check your Sheet URL is correct');
 
     if (typeof saveBookingsToCloud === 'function') {
       await saveBookingsToCloud(bookings);
