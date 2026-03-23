@@ -2949,6 +2949,7 @@ function saveEdit(id) {
   save();
   pushToSheet('update', b);
   updateBookingInCalendar(b);
+  if (typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(() => {});
   showBanner('✅ Booking saved & syncing...', 'ok');
   setTimeout(() => { closeDetailModal(); render(); }, 500);
 }
@@ -3023,6 +3024,7 @@ function addBooking() {
   save();
   if (autoAssigned) if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
   pushToSheet('add', newB); closeModal(); render();
+  if (typeof saveBookingToCloud === 'function') saveBookingToCloud(newB).catch(() => {});
   showBanner('✅ Booking added', 'ok');
   pushBookingToCalendar(newB);
 }
@@ -3447,6 +3449,7 @@ function saveCleaningFee(bookingId) {
   b.cleaningFee = Number(input.value) || 0;
   save();
   pushToSheet('update', b);
+  if (typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(() => {});
   showBanner('✓ Cleaning fee saved & synced', 'ok');
 }
 
@@ -6343,39 +6346,7 @@ if (isCleanerMode()) {
 }
 // Subscribe owner via manual button in Settings (iOS requires user gesture)
 
-// Auto-prompt Drive connect if client ID saved but no token yet
-setTimeout(() => {
-  const clientId = getDriveClientId();
-  const token = localStorage.getItem('gh-drive-token');
-  const dismissed = localStorage.getItem('gh-drive-connect-dismissed');
-  if (clientId && !token && !dismissed) {
-    showAppModal({
-      title: '📁 Connect Google Drive',
-      msg: 'Your Google Drive Client ID is saved but Drive isn\'t connected yet. Connect now to enable automatic receipt storage?',
-      confirmText: 'Connect Now',
-      cancelText: 'Later'
-    }).then(ok => {
-      if (ok) connectGoogleDrive();
-      else localStorage.setItem('gh-drive-connect-dismissed', '1');
-    });
-  }
-}, 3000);
-// Verify Google Drive token on load — prompts reconnect if expired
-if (localStorage.getItem('gh-drive-token')) setTimeout(() => verifyDriveToken(), 2000);
-else if (getDriveClientId()) {
-  // Client ID configured but not connected — prompt once per session
-  if (!sessionStorage.getItem('gh-drive-prompt-shown')) {
-    sessionStorage.setItem('gh-drive-prompt-shown', '1');
-    setTimeout(() => {
-      showAppModal({
-        title: '🔗 Connect Google Drive?',
-        msg: 'Google Drive lets you save receipts automatically. Connect now?',
-        confirmText: 'Connect Now',
-        cancelText: 'Later'
-      }).then(ok => { if (ok) connectGoogleDrive(); });
-    }, 3000);
-  }
-}
+// Google Drive prompts removed — receipts now use Supabase Storage
 // Safety net: re-render calendar after 100ms in case layout wasn't settled
 setTimeout(renderCalendar, 100);
 
@@ -8345,14 +8316,25 @@ function checkAutoSendReport() {
 async function migrateSheetBookingsToSupabase() {
   showBanner('⟳ Migrating bookings to Supabase...', 'info');
   try {
-    const csv = await DB.fetchBookings();
-    const lines = csv.trim().split('\n').filter(l => l.trim());
-    if (lines.length < 2) throw new Error('No data in sheet');
+    // Check we have a sheet URL
+    const sheetUrl = typeof getCurrentSheetCSVURL === 'function' ? getCurrentSheetCSVURL() : null;
+    if (!sheetUrl) throw new Error('No Google Sheet URL configured — set it in Settings → Property → Property Configuration');
 
-    // Parse CSV into booking objects (reuse existing parsed bookings array)
+    // Fetch and parse the CSV
+    const resp = await fetch(sheetUrl);
+    if (!resp.ok) throw new Error('Could not fetch sheet: ' + resp.status);
+    const csv = await resp.text();
+    const lines = csv.trim().split('\n').filter(l => l.trim());
+    if (lines.length < 2) throw new Error('Sheet appears empty — no booking rows found');
+
+    // Use syncFromSheets to parse into the bookings array
     await syncFromSheets(false);
 
-    // Now save all to Supabase
+    // Give it a moment to settle then save whatever is in the bookings array
+    await new Promise(r => setTimeout(r, 500));
+
+    if (!bookings || bookings.length === 0) throw new Error('No bookings parsed from sheet');
+
     if (typeof saveBookingsToCloud === 'function') {
       await saveBookingsToCloud(bookings);
     }
