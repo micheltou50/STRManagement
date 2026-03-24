@@ -332,46 +332,18 @@ function getPlanWarningLines(usage, planLimits) {
 
 function renderSettingsPlanUsageCard() {
   const planEl = document.getElementById('settings-plan-nudge');
-  if (!planEl) return;
-  const PLAN_LIMITS = {
-    free: { properties: 1, bookings: 30, cleaners: 2 },
-    pro:  { properties: 999, bookings: 9999, cleaners: 999 }
-  };
-  const plan = getPlanStateLite();
-  const usage = getUsageSnapshotLite();
-  const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.free;
-  const lines = getPlanWarningLines(usage, limits);
-  const usageSummary = `<div style="font-size:12px;color:var(--text-soft)">Plan: <strong style="color:var(--forest)">${plan === 'pro' ? 'Pro' : 'Free'}</strong> · Usage: ${usage.propertyCount} properties, ${usage.bookingCount} bookings, ${usage.cleanerCount} cleaners.</div>`;
-  planEl.innerHTML = `<div class="card" style="margin:0;border-left:3px solid ${lines.length ? 'var(--amber)' : 'var(--warm)'}"><div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:4px">Plan & Usage</div>${usageSummary}${lines.length ? `<div style="font-size:12px;color:var(--amber);margin-top:6px">${lines[0]}</div>` : `<div style="font-size:12px;color:var(--text-soft);margin-top:6px">You’re within the current plan guide.</div>`}</div>`;
+  if (planEl) planEl.innerHTML = '';
 }
 
 
 function renderOnboardingGuidance(usageSnapshot) {
   const el = document.getElementById('dashboard-product-guidance');
-  if (!el) return;
-  const usage = usageSnapshot || getUsageSnapshotLite();
-  const tips = [];
-  if (!usage.propertyCount) tips.push('Run Property Configuration to save your first property profile.');
-  if (!usage.bookingCount) tips.push('Add or sync bookings so dashboard forecasting can start.');
-  if (!usage.cleanerCount) tips.push('Add at least one cleaner in Settings → Property → Team.');
-  if (!tips.length) tips.push('Core setup is complete — keep integrations connected for reliable sync.');
-  el.innerHTML = `<div class="card" style="margin:0;border-left:3px solid var(--warm)"><div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:4px">Setup Guidance</div><div style="font-size:12px;color:var(--text-soft)">${tips[0]}</div></div>`;
+  if (el) el.innerHTML = '';
 }
 
 function renderPlanNudges(usageSnapshot, planState) {
   const el = document.getElementById('dashboard-plan-nudges');
-  if (!el) return;
-  const PLAN_LIMITS = {
-    free: { properties: 1, bookings: 30, cleaners: 2 },
-    pro:  { properties: 999, bookings: 9999, cleaners: 999 }
-  };
-  const plan = planState || getPlanStateLite();
-  const usage = usageSnapshot || getUsageSnapshotLite();
-  const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.free;
-  const lines = getPlanWarningLines(usage, limits);
-  el.innerHTML = lines.length
-    ? `<div class="card" style="margin:0;border-left:3px solid var(--amber)"><div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:4px">Plan Nudge</div><div style="font-size:12px;color:var(--amber)">${lines[0]}</div></div>`
-    : '';
+  if (el) el.innerHTML = '';
 }
 
 function getConfiguredCalendarId() {
@@ -393,12 +365,43 @@ function calendarEventsUrl(eventId) {
 function renderConnectionSummary() {
   const wrap = document.getElementById('conn-summary-list');
   if (!wrap) return;
-  // All data is now stored in Supabase — no external connections required.
+
+  const user = window._supabaseUser;
+  const feedUrl = user
+    ? window.location.origin + '/.netlify/functions/calendar-feed?uid=' + user.id
+    : '';
+
   wrap.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--mist);border-radius:10px">
       <div style="font-size:13px;color:var(--text)">Supabase</div>
       <div style="font-size:12px;color:var(--moss)">✓ Connected</div>
-    </div>`;
+    </div>
+    ${feedUrl ? `
+    <div style="padding:12px;background:var(--mist);border-radius:10px;margin-top:8px">
+      <div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:6px">📅 Calendar Feed</div>
+      <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.5">Subscribe to this URL in Apple Calendar, Google Calendar, or Outlook to auto-sync your bookings.</div>
+      <div style="display:flex;gap:6px">
+        <input id="calendar-feed-url" type="text" value="${escHtml(feedUrl)}" readonly
+          style="flex:1;font-size:11px;padding:8px 10px;border:1px solid var(--stone);border-radius:8px;background:white;font-family:monospace;color:var(--text);min-width:0"
+          onclick="this.select()">
+        <button onclick="copyCalendarFeedUrl()" id="copy-feed-btn"
+          style="background:var(--forest);color:white;border:none;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">Copy</button>
+      </div>
+    </div>` : ''}`
+  ;
+}
+
+function copyCalendarFeedUrl() {
+  const input = document.getElementById('calendar-feed-url');
+  const btn = document.getElementById('copy-feed-btn');
+  if (!input) return;
+  navigator.clipboard.writeText(input.value).then(() => {
+    if (btn) { btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = 'Copy'; }, 2000); }
+  }).catch(() => {
+    input.select();
+    document.execCommand('copy');
+    if (btn) { btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = 'Copy'; }, 2000); }
+  });
 }
 
 let _connectionSummaryTimer = null;
