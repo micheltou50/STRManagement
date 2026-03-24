@@ -19,8 +19,8 @@
   body { font-family:'DM Sans',sans-serif; background:var(--mist); color:var(--text); min-height:100vh; min-height:-webkit-fill-available; max-width:430px; margin:0 auto; -webkit-font-smoothing:antialiased; overflow-x:hidden; }
 
   .header { background:var(--forest); padding:52px 20px 20px; position:sticky; top:0; z-index:100; }
-  .header-top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
-  .header-top > button { min-width:0; flex:1 1 auto; }
+  .header-top { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .header-top > button { flex:1 1 auto; min-width:0; overflow:hidden; }
   .header h1 { font-family:'DM Serif Display',serif; font-size:26px; color:var(--white); line-height:1.1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .header h1 span { color:var(--sage); font-style:italic; }
   .header-sub { font-size:12px; color:var(--stone); margin-top:2px; letter-spacing:0.5px; text-transform:uppercase; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -503,6 +503,15 @@ body {
   background: rgba(255,255,255,0.18);
   border: 1px solid rgba(255,255,255,0.32);
   color: #ecfff6;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .card {

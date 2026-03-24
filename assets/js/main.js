@@ -7782,7 +7782,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (e) {
     console.error('[StayOps] Boot failed:', e);
   } finally {
-    if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
+    if (typeof showAppChrome === 'function') showAppChrome();
   }
 });
 
@@ -7947,7 +7947,7 @@ async function onboardFinish() {
   if (typeof showLoadingScreen === 'function') showLoadingScreen('Setting up your account…');
   if (typeof finishAppInit === 'function') await finishAppInit();
   if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
-  if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
+  if (typeof showAppChrome === 'function') showAppChrome();
   if (typeof renderAll === 'function') renderAll();
   setTimeout(() => { if (typeof checkAutoSendReport === 'function') checkAutoSendReport(); }, 1500);
 }
