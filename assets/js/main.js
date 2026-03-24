@@ -760,6 +760,10 @@ async function quickAssignLastCleaner(bookingId) {
     if (notify.emailSent) showBanner('✉️ Email sent to ' + preferred.name, 'ok');
     else if (!notify.pushSent && !notify.emailAttempted) showBanner('⚠ Assigned, but no cleaner email or push subscription is configured', 'warn');
   } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Assignment';
+    }
     _releaseLock(_actionLocks, lockKey);
   }
 }
@@ -1178,8 +1182,7 @@ function jumpToScheduleClean() {
 // ── RENDER ────────────────────────────────────────────────────────────────
 function render() {
   // Always update the date badge and shared state
-  const todayBadge = document.getElementById('todayBadge');
-  if (todayBadge) todayBadge.textContent = new Date().toLocaleDateString('en-AU',{day:'numeric',month:'short'});
+  renderHeaderDateBadge()
   // Set FAB visibility based on current section
   const fab = document.querySelector('.fab');
   const section = currentSection || 'dashboard';
@@ -1201,8 +1204,7 @@ function renderAll() {
     renderCleanerView();
     return;
   }
-  const todayBadge = document.getElementById('todayBadge');
-  if (todayBadge) todayBadge.textContent = new Date().toLocaleDateString('en-AU',{day:'numeric',month:'short'});
+  renderHeaderDateBadge()
   renderDashboard();
   renderBookings(); // always refresh booking list after sync
   populateSelects();
@@ -3256,6 +3258,17 @@ function fmt(dateStr){
   return d.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'});
 }
 
+function renderHeaderDateBadge() {
+  const todayBadge = document.getElementById('todayBadge');
+  if (todayBadge) {
+    todayBadge.textContent = new Date().toLocaleDateString('en-AU', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    });
+  }
+}
+
 // ── NOTIFY CLEANER ───────────────────────────────────────────────────────
 let notifyPhone = '';
 let currentNotifyCleanId = null;
@@ -3264,14 +3277,17 @@ function openNotifyModal(cleanId, mode = 'assign') {
   currentNotifyCleanId = cleanId;
   const c = cleans.find(c => c.id === cleanId);
   if (!c) return;
-  const b = bookings.find(b => b.id === c.bookingId);
+  const b = bookings.find(b => String(b.id) === String(c.bookingId))
+    || bookings.find(b => _normName(b.name) === _normName(c.guestName) && String(b.checkout || '').slice(0, 10) === String(c.date || '').slice(0, 10));
   const isReminder = String(mode || '') === 'reminder';
 
   // Build message
-  const checkin = b ? fmt(b.checkin) : 'TBC';
-  const checkout = b ? fmt(b.checkout) : fmt(c.date);
-  const guests = b ? b.guests : '?';
-  const nights = b ? b.nights : '?';
+  const checkinRaw = b ? (b.checkin || b.checkIn || b.startDate) : '';
+  const checkoutRaw = b ? (b.checkout || b.checkOut || b.endDate) : c.date;
+  const guestsRaw = b ? (b.guests ?? b.numGuests ?? b.guestCount) : null;
+  const checkin = checkinRaw ? fmt(checkinRaw) : 'TBC';
+  const checkout = checkoutRaw ? fmt(checkoutRaw) : 'TBC';
+  const guests = (guestsRaw !== null && guestsRaw !== undefined && String(guestsRaw).trim() !== '') ? guestsRaw : '?';
 
   // Use saved template or default
   const defaultTemplate = `Hi {cleanerFirstName}\n\nNew Booking - please see below\n\nCheck in: {checkin}\nCheck out: {checkout}\nName: {guestFirstName}\nNumber of guests: {guests}\n\nPlease let me know if you are available`;
@@ -7193,6 +7209,9 @@ async function assignCleanerToBooking(bookingId) {
     _normalizeBookingCleanState();
     _recordCleanerAssignmentUsage(cleanerObj);
     save();
+    if (typeof saveCleanToCloud === 'function') {
+      await saveCleanToCloud(newClean);
+    }
     const sharedSaved = await pushAppDataNow('cleans', cleans);
     if (sharedSaved) {
       showBanner('✓ Assigned to ' + cleanerObj.name + ' — awaiting cleaner response', 'ok');
@@ -7257,6 +7276,10 @@ async function assignCleanerToBooking(bookingId) {
       showBanner('⚠ Assigned, but no cleaner email or push subscription is configured', 'warn');
     }
   } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Assignment';
+    }
     _releaseLock(_actionLocks, lockKey);
   }
 }
@@ -7875,6 +7898,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
+  if (typeof showLoadingScreen === 'function') showLoadingScreen('Checking your session…');
+
   // Check for active Supabase session
   let session = null;
   if (typeof getSupabaseSession === 'function') {
@@ -7883,6 +7908,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (!session) {
     // No session — show login screen and wait
+    if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
     if (typeof showLoginScreen === 'function') showLoginScreen();
     return;
   }
