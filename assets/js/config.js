@@ -371,6 +371,21 @@ function savePropertyConfig(updates) {
 
 
 // ── ACCESSOR HELPERS ───────────────────────────────────────────────────────────
+
+/**
+ * getSharedIntegrationConfig — returns cached shared integration settings
+ * (syncUrl, sheetCsvUrl, etc.) from localStorage, or null if none.
+ */
+function getSharedIntegrationConfig() {
+  try {
+    const raw = localStorage.getItem(SHARED_INTEGRATIONS_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    console.warn('[Config] getSharedIntegrationConfig parse error', e);
+    return null;
+  }
+}
+
 function getCurrentScriptURL() {
   const cfg = getActivePropertyConfig();
   if (cfg.integrations && cfg.integrations.syncUrl) return cfg.integrations.syncUrl;
