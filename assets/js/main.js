@@ -3151,49 +3151,51 @@ async function deleteBooking(id) {
   const _okBk = await showAppModal({ title: 'Delete Booking', msg: 'Remove this booking? This cannot be undone.', confirmText: 'Delete', confirmColor: 'var(--red)' }); if (!_okBk) return;
   const deletedBooking = bookings.find(b=>b.id===id);
 
-  // Capture linked cleans and notes BEFORE filtering — needed for Supabase deletion
-  const orphanedCleans = cleans.filter(c => c.bookingId === id || (deletedBooking && c.guestName === deletedBooking.name));
-  const orphanedNotes = notes.filter(n => n.bookingId === id || (deletedBooking && n.guestName === deletedBooking.name));
+  // Plan (Bug 2): capture linked cleans/notes first, then after save() explicitly delete
+  // their Supabase rows by _cloudId or local_id+user_id to prevent orphan re-hydration.
+  const orphanedCleans = cleans.filter(c => String(c.bookingId) === String(id) || (deletedBooking && c.guestName === deletedBooking.name));
+  const orphanedNotes = notes.filter(n => String(n.bookingId) === String(id) || (deletedBooking && n.guestName === deletedBooking.name));
 
   bookings=bookings.filter(b=>b.id!==id);
-  cleans=cleans.filter(c=>c.bookingId!==id && !(deletedBooking && c.guestName===deletedBooking.name));
-  notes=notes.filter(n=>n.bookingId!==id && !(deletedBooking && n.guestName===deletedBooking.name));
+  cleans=cleans.filter(c=>String(c.bookingId)!==String(id) && !(deletedBooking && c.guestName===deletedBooking.name));
+  notes=notes.filter(n=>String(n.bookingId)!==String(id) && !(deletedBooking && n.guestName===deletedBooking.name));
   save();
 
   if (deletedBooking && typeof deleteBookingFromCloud === 'function') deleteBookingFromCloud(deletedBooking).catch(e => console.warn('[StayOps] Failed to delete booking from cloud', e));
 
-  // Delete orphaned cleans/notes from Supabase (non-blocking)
-  if (orphanedCleans.length || orphanedNotes.length) {
-    void (async () => {
-      const user = typeof getCurrentSupabaseUser === 'function' ? await getCurrentSupabaseUser() : null;
-      if (!(user && window._sb)) return;
-
-      if (orphanedCleans.length) {
-        for (const c of orphanedCleans) {
-          try {
-            if (c._cloudId) {
-              await window._sb.from('cleans').delete().eq('id', c._cloudId);
-            } else {
-              await window._sb.from('cleans').delete().eq('user_id', user.id).eq('local_id', String(c.id));
-            }
-          } catch (e) { console.warn('[StayOps] Failed to delete orphaned clean from cloud', e); }
-        }
-        console.log('[StayOps] Deleted', orphanedCleans.length, 'orphaned clean(s) from Supabase');
+  const user = typeof getCurrentSupabaseUser === 'function' ? await getCurrentSupabaseUser() : null;
+  if (user && window._sb) {
+    if (orphanedCleans.length) {
+      const cleanIds = orphanedCleans.map(c => c._cloudId || String(c.id));
+      console.log('[StayOps] Deleting orphaned cleans from Supabase:', cleanIds);
+      for (const c of orphanedCleans) {
+        try {
+          if (c._cloudId) {
+            await window._sb.from('cleans').delete().eq('id', c._cloudId);
+          } else {
+            await window._sb.from('cleans').delete()
+              .eq('user_id', user.id)
+              .eq('local_id', String(c.id));
+          }
+        } catch (e) { console.warn('[StayOps] Failed to delete orphaned clean from cloud', e); }
       }
+    }
 
-      if (orphanedNotes.length) {
-        for (const n of orphanedNotes) {
-          try {
-            if (n._cloudId) {
-              await window._sb.from('notes').delete().eq('id', n._cloudId);
-            } else {
-              await window._sb.from('notes').delete().eq('user_id', user.id).eq('local_id', String(n.id));
-            }
-          } catch (e) { console.warn('[StayOps] Failed to delete orphaned note from cloud', e); }
-        }
-        console.log('[StayOps] Deleted', orphanedNotes.length, 'orphaned note(s) from Supabase');
+    if (orphanedNotes.length) {
+      const noteIds = orphanedNotes.map(n => n._cloudId || String(n.id));
+      console.log('[StayOps] Deleting orphaned notes from Supabase:', noteIds);
+      for (const n of orphanedNotes) {
+        try {
+          if (n._cloudId) {
+            await window._sb.from('notes').delete().eq('id', n._cloudId);
+          } else {
+            await window._sb.from('notes').delete()
+              .eq('user_id', user.id)
+              .eq('local_id', String(n.id));
+          }
+        } catch (e) { console.warn('[StayOps] Failed to delete orphaned note from cloud', e); }
       }
-    })();
+    }
   }
 
   if (b) pushToSheet('delete', b);
@@ -7222,9 +7224,17 @@ async function assignCleanerToBooking(bookingId) {
   const booking = bookings.find(b => b.id === bookingId);
   if (!booking) { _releaseLock(_actionLocks, lockKey); return; }
   if (booking.status === 'cancelled') { showBanner('Cancelled booking — cleaner assignment is disabled', 'warn'); _releaseLock(_actionLocks, lockKey); return; }
+  // Plan (Bug 1): Reuse an existing clean's local/cloud IDs by bookingId during reassignment,
+  // so saveCleanToCloud upserts the same row instead of inserting duplicates.
   const matched = _findMatchingCleanForBooking(booking, date);
-  const existingIdx = matched ? cleans.findIndex(c => c.id === matched.id) : -1;
+  const existingByBookingIdx = cleans.findIndex(c => String(c.bookingId) === String(bookingId));
+  const existingIdx = matched ? cleans.findIndex(c => c.id === matched.id) : existingByBookingIdx;
   const prev = existingIdx >= 0 ? cleans[existingIdx] : null;
+  if (prev && String(prev.bookingId) === String(bookingId)) {
+    console.log('[StayOps] Reusing existing clean for booking:', bookingId);
+  } else {
+    console.log('[StayOps] Creating new clean for booking:', bookingId);
+  }
   const sameAssignment = !!(prev && String(prev.cleanerId) === String(cleanerObj.id) && String(prev.date || '').slice(0, 10) === String(date || '').slice(0, 10));
   if (sameAssignment) {
     booking.cleanerConfirmed = !!prev.cleanerConfirmed;
@@ -7238,6 +7248,7 @@ async function assignCleanerToBooking(bookingId) {
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
   const newClean = {
     id: prev ? prev.id : Date.now(),
+    _cloudId: prev ? prev._cloudId : undefined,
     bookingId, guestName: booking.name,
     cleaner: cleanerObj.name, cleanerId: cleanerObj.id,
     checkin: booking.checkin,
