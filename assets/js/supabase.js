@@ -1110,15 +1110,28 @@ async function saveAppConfigToCloud(patch) {
 
 // ── LOADING SCREEN ────────────────────────────────────────────────────────────
 
-function showLoginScreen() {
-  const el = document.getElementById('stayops-login-screen');
-  if (el) el.style.display = 'flex';
+function _setHostChromeVisibility(visible) {
   const app = document.getElementById('main-content');
   const nav = document.querySelector('.nav');
   const hdr = document.querySelector('.header');
-  if (app) app.style.display = 'none';
-  if (nav) nav.style.display = 'none';
-  if (hdr) hdr.style.display = 'none';
+  const display = visible ? '' : 'none';
+  if (app) app.style.display = display;
+  if (nav) nav.style.display = display;
+  if (hdr) hdr.style.display = display;
+}
+
+function _isVisible(el) {
+  return !!(el && el.style.display !== 'none');
+}
+
+function showLoginScreen() {
+  const loginEl = document.getElementById('stayops-login-screen');
+  const loadingEl = document.getElementById('stayops-loading-screen');
+  const onboardingEl = document.getElementById('stayops-onboarding');
+  if (loadingEl) loadingEl.style.display = 'none';
+  if (onboardingEl) onboardingEl.style.display = 'none';
+  if (loginEl) loginEl.style.display = 'flex';
+  _setHostChromeVisibility(false);
 }
 
 function hideLoginScreen() {
@@ -1128,26 +1141,21 @@ function hideLoginScreen() {
 
 function showLoadingScreen(msg) {
   const el = document.getElementById('stayops-loading-screen');
+  const loginEl = document.getElementById('stayops-login-screen');
+  if (loginEl) loginEl.style.display = 'none';
   if (el) el.style.display = 'flex';
   const status = document.getElementById('loading-status');
   if (status) status.textContent = msg || 'Loading…';
-  const app = document.getElementById('main-content');
-  const nav = document.querySelector('.nav');
-  const hdr = document.querySelector('.header');
-  if (app) app.style.display = 'none';
-  if (nav) nav.style.display = 'none';
-  if (hdr) hdr.style.display = 'none';
+  _setHostChromeVisibility(false);
 }
 
 function hideLoadingScreen() {
   const el = document.getElementById('stayops-loading-screen');
   if (el) el.style.display = 'none';
-  const app = document.getElementById('main-content');
-  const nav = document.querySelector('.nav');
-  const hdr = document.querySelector('.header');
-  if (app) app.style.display = '';
-  if (nav) nav.style.display = '';
-  if (hdr) hdr.style.display = '';
+  const loginEl = document.getElementById('stayops-login-screen');
+  const onboardingEl = document.getElementById('stayops-onboarding');
+  if (_isVisible(loginEl) || _isVisible(onboardingEl)) return;
+  _setHostChromeVisibility(true);
 }
 
 function setLoadingStatus(msg) {

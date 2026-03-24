@@ -19,11 +19,12 @@
   body { font-family:'DM Sans',sans-serif; background:var(--mist); color:var(--text); min-height:100vh; min-height:-webkit-fill-available; max-width:430px; margin:0 auto; -webkit-font-smoothing:antialiased; overflow-x:hidden; }
 
   .header { background:var(--forest); padding:52px 20px 20px; position:sticky; top:0; z-index:100; }
-  .header-top { display:flex; justify-content:space-between; align-items:flex-start; }
-  .header h1 { font-family:'DM Serif Display',serif; font-size:26px; color:var(--white); line-height:1.1; }
+  .header-top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+  .header-top > button { min-width:0; flex:1 1 auto; }
+  .header h1 { font-family:'DM Serif Display',serif; font-size:26px; color:var(--white); line-height:1.1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .header h1 span { color:var(--sage); font-style:italic; }
-  .header-sub { font-size:12px; color:var(--stone); margin-top:2px; letter-spacing:0.5px; text-transform:uppercase; }
-  .today-badge { background:var(--amber); color:white; font-size:11px; font-weight:600; padding:4px 10px; border-radius:20px; white-space:nowrap; }
+  .header-sub { font-size:12px; color:var(--stone); margin-top:2px; letter-spacing:0.5px; text-transform:uppercase; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .today-badge { background:var(--amber); color:white; font-size:11px; font-weight:600; padding:4px 10px; border-radius:20px; white-space:nowrap; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; min-height:24px; }
 
   .nav { display:flex; background:#fff; padding:6px 2px calc(14px + env(safe-area-inset-bottom)); gap:1px; border-top:1px solid #ede8e0; box-shadow:0 -4px 20px rgba(0,0,0,0.06); position:sticky; bottom:0; }
   .nav-btn { flex:1; background:none; border:none; color:var(--stone); font-family:'DM Sans',sans-serif; font-size:9px; font-weight:600; padding:4px 1px 0; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:3px; transition:all 0.2s; min-width:0; }

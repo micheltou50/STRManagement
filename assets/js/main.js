@@ -7731,8 +7731,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (!session) {
     // No session — show login screen and wait
     console.log('[StayOps] No session — showing login screen');
-    if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
     if (typeof showLoginScreen === 'function') showLoginScreen();
+    else if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
     return;
   }
 
