@@ -5,7 +5,6 @@
 const PROPERTY_CONFIG_KEY = 'gh-property-config'; // legacy single-property key
 const PROPERTIES_KEY = 'gh-properties';
 const ACTIVE_PROPERTY_ID_KEY = 'gh-active-property-id';
-const SHARED_INTEGRATIONS_CACHE_KEY = 'gh-shared-integrations-cache';
 
 // ── KEY NAMESPACING ────────────────────────────────────────────────────────────
 /**
@@ -66,9 +65,6 @@ const DEFAULT_PROPERTY_CONFIG = {
   },
 
   integrations: {
-    // CHANGE 2 PLAN: Remove Google service defaults after migration to Supabase.
-    sheetCsvUrl:     '',
-    syncUrl:       '',
     vapidPublicKey:  'BO-fP_0TOY1foiCQtOZ40N7io1MAzoMUui6pmeHPJ3jLxbdNGh0SrRjxtvWVhuf4QKvf4q83eyS_wcICiS4cgc4',
     pushFunctionUrl: '/.netlify/functions/send-push',
     calendarId:      'primary',
@@ -105,7 +101,7 @@ const _SCOPED_KEY_PREFIXES = [
   'gh-drive-connect-dismissed', 'gh-gdrive-client-id', 'gh-api-key', 'gh-gemini-key', 'gh-base-rate',
   'gh-cleaning-fee', 'gh-clients', 'gh-expense-cats', 'gh-invoice-settings', 'gh-sms-template',
   'gh-owner-email', 'gh-inv-', 'gh-bank-', 'gh-cleaner-authed-', 'gh-email-tpl-', 'gh-fx-',
-  'gh-ai-ignore', 'gh-script-url'
+  'gh-ai-ignore'
 ];
 
 (function patchLocalStorageForActiveProperty() {
@@ -293,14 +289,12 @@ function migrateLegacySinglePropertyConfig() {
 
   if (!source) {
     // Legacy fallback from older keys
-    const syncUrl = localStorage.getItem('gh-script-url') || '';
     const email = localStorage.getItem('gh-inv-email') || '';
     const ownerName = localStorage.getItem('gh-inv-name') || '';
     const baseRate = Number(localStorage.getItem('gh-base-rate') || 0) || 0;
-    if (syncUrl || email || ownerName || baseRate) {
+    if (email || ownerName || baseRate) {
       source = {
         owner: { email, name: ownerName },
-        integrations: { syncUrl },
         pricing: { baseRate: baseRate || 350 }
       };
     }
@@ -321,10 +315,8 @@ function migrateLegacySinglePropertyConfig() {
 // ── FIRST-BOOT DETECTION ───────────────────────────────────────────────────────
 function hasValidPropertyConfig() {
   if (localStorage.getItem('gh-setup-complete') === '1') return true;
-  if (localStorage.getItem('gh-script-url')) return true;
-
   const active = getActivePropertyConfig();
-  return !!(active && active.name && active.integrations && active.integrations.syncUrl);
+  return !!(active && active.name);
 }
 
 
@@ -372,37 +364,9 @@ function savePropertyConfig(updates) {
 
 // ── ACCESSOR HELPERS ───────────────────────────────────────────────────────────
 
-/**
- * getSharedIntegrationConfig — returns cached shared integration settings
- * (syncUrl, sheetCsvUrl, etc.) from localStorage, or null if none.
- */
-function getSharedIntegrationConfig() {
-  try {
-    const raw = localStorage.getItem(SHARED_INTEGRATIONS_CACHE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) {
-    console.warn('[Config] getSharedIntegrationConfig parse error', e);
-    return null;
-  }
-}
-
-function getCurrentScriptURL() {
-  const cfg = getActivePropertyConfig();
-  if (cfg.integrations && cfg.integrations.syncUrl) return cfg.integrations.syncUrl;
-  const shared = getSharedIntegrationConfig();
-  if (shared && shared.syncUrl) return shared.syncUrl;
-  const legacy = localStorage.getItem('gh-script-url');
-  if (legacy) return legacy;
-  return (typeof DEFAULT_SCRIPT_URL !== 'undefined') ? DEFAULT_SCRIPT_URL : '';
-}
-
-function getPropertySheetCsvUrl() {
-  const cfg = getActivePropertyConfig();
-  if (cfg.integrations && cfg.integrations.sheetCsvUrl) return cfg.integrations.sheetCsvUrl;
-  const shared = getSharedIntegrationConfig();
-  if (shared && shared.sheetCsvUrl) return shared.sheetCsvUrl;
-  return (typeof SHEET_URL !== 'undefined') ? SHEET_URL : '';
-}
+// Legacy Sheet/Script functions — stubbed out, Supabase is now the data backend.
+function getCurrentScriptURL() { return ''; }
+function getPropertySheetCsvUrl() { return ''; }
 
 function getCurrentPropertyName() {
   return getActivePropertyConfig().name || 'Property';
@@ -471,40 +435,10 @@ function getDriveClientId() {
 
 function getPropertyConfigGaps() {
   const cfg = getActivePropertyConfig() || {};
-  const integ = cfg.integrations || {};
-
-  const sheetCsvUrl = String(integ.sheetCsvUrl || '').trim();
-  const syncUrl = String(integ.syncUrl || '').trim();
   const driveFolderId = String(getDriveFolderId() || '').trim();
   const driveClientId = String(getDriveClientId() || '').trim();
 
   const gaps = [];
-
-  const sheetLooksValid =
-    !!sheetCsvUrl
-    && sheetCsvUrl.toLowerCase().includes('docs.google.com/spreadsheets')
-    && sheetCsvUrl.includes('output=csv');
-  if (!sheetLooksValid) {
-    gaps.push({
-      key: 'sheetCsvUrl',
-      severity: 'critical',
-      label: 'Google Sheet CSV URL missing or invalid',
-      detail: 'Bookings pull/sync from Sheets will not work.'
-    });
-  }
-
-  const scriptLooksValid =
-    !!syncUrl
-    && syncUrl.toLowerCase().includes('legacy-endpoint.invalid/macros')
-    && syncUrl.endsWith('/exec');
-  if (!scriptLooksValid) {
-    gaps.push({
-      key: 'syncUrl',
-      severity: 'critical',
-      label: 'Legacy Sync URL missing or invalid',
-      detail: 'Push/sync actions, email notifications, and server-side automations will fail.'
-    });
-  }
 
   if (!driveClientId) {
     gaps.push({
@@ -530,11 +464,8 @@ function saveDriveFolderId(storageKey) {
   savePropertyConfig({ integrations: { driveFolderId: storageKey } });
 }
 
-function persistScriptUrl(url) {
-  if (!url) return;
-  localStorage.setItem('gh-script-url', url);
-  savePropertyConfig({ integrations: { syncUrl: url } });
-}
+// Legacy — no-op, Supabase is now the data backend.
+function persistScriptUrl() {}
 
 
 // ── MIGRATION ──────────────────────────────────────────────────────────────────
@@ -548,13 +479,11 @@ function migrateConfigFromLegacySettings() {
   migrateLegacySinglePropertyConfig();
 
   const updates = { integrations: {}, owner: {} };
-  const syncUrl = localStorage.getItem('gh-script-url');
   const email = localStorage.getItem('gh-inv-email');
   const ownerName = localStorage.getItem('gh-inv-name');
   const storageKey = localStorage.getItem('gh-drive-folder-id');
   const baseRate = localStorage.getItem('gh-base-rate');
 
-  if (syncUrl)  updates.integrations.syncUrl = syncUrl;
   if (storageKey)   updates.integrations.driveFolderId = storageKey;
   if (email)      updates.owner.email = email;
   if (ownerName)  updates.owner.name = ownerName;
@@ -562,7 +491,6 @@ function migrateConfigFromLegacySettings() {
 
   savePropertyConfig(updates);
   localStorage.setItem(MIGRATION_FLAG, '1');
-  if (syncUrl) localStorage.setItem('gh-setup-complete', '1');
 
   _syncLegacyMirrorsFromActive();
 }
@@ -604,9 +532,8 @@ function _setText(id, value) {
 
 function _syncLegacyMirrorsFromActive() {
   const cfg = getActivePropertyConfig();
-  if (!cfg || !cfg.integrations) return;
+  if (!cfg) return;
 
-  if (cfg.integrations.syncUrl) localStorage.setItem('gh-script-url', cfg.integrations.syncUrl);
   if (cfg.owner && cfg.owner.email) localStorage.setItem('gh-inv-email', cfg.owner.email);
   if (cfg.owner && cfg.owner.name) localStorage.setItem('gh-inv-name', cfg.owner.name);
 

@@ -38,9 +38,9 @@ function getAwaitingResponseMeta(clean, nowRef) {
 }
 
 // ── CONFIG ────────────────────────────────────────────────────────────────
-// CHANGE 2 PLAN: Disable legacy Legacy Sheets / Legacy Sync defaults so only Supabase paths remain active.
-const SHEET_URL = "";
-const DEFAULT_SCRIPT_URL = "";
+// Legacy Sheet/Script constants — empty stubs, Supabase is now the data backend.
+const SHEET_URL = '';
+const DEFAULT_SCRIPT_URL = '';
 const VAPID_PUBLIC_KEY = 'BO-fP_0TOY1foiCQtOZ40N7io1MAzoMUui6pmeHPJ3jLxbdNGh0SrRjxtvWVhuf4QKvf4q83eyS_wcICiS4cgc4';
 const PUSH_FUNCTION_URL = '/.netlify/functions/send-push';
 
@@ -288,7 +288,7 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(e => console.warn('SW register failed:', e));
 }
 // Delegates to config.js — reads config first, then legacy key, then constant.
-function getScriptURL() { return getCurrentScriptURL(); }
+function getScriptURL() { return ''; } // Legacy — stubbed out
 
 // ── SHEET POST HELPER — all sheet calls use POST to avoid URL length limits ──
 function sheetPost() {}
@@ -394,15 +394,11 @@ function renderConnectionSummary() {
   const wrap = document.getElementById('conn-summary-list');
   if (!wrap) return;
 
-  const csvUrl = (typeof getPropertySheetCsvUrl === 'function' ? getPropertySheetCsvUrl() : '').trim();
-  const syncUrl = (typeof getCurrentScriptURL === 'function' ? getCurrentScriptURL() : '').trim();
   const token = getDriveToken();
-  const shared = (typeof getSharedIntegrationConfig === 'function' ? getSharedIntegrationConfig() : null) || {};
-  const clientId = String((typeof getDriveClientId === 'function' ? getDriveClientId() : localStorage.getItem('gh-gdrive-client-id') || '') || shared.gDriveClientId || shared.driveClientId || '').trim();
+  const shared = {};
+  const clientId = String((typeof getDriveClientId === 'function' ? getDriveClientId() : localStorage.getItem('gh-gdrive-client-id') || '') || '').trim();
   const calendarId = getConfiguredCalendarId();
 
-  const sheetOk = !!csvUrl && csvUrl.includes('docs.google.com/spreadsheets') && csvUrl.includes('output=csv');
-  const scriptOk = !!syncUrl && syncUrl.includes('legacy-endpoint.invalid/macros') && syncUrl.endsWith('/exec');
   const driveOk = !!token;
   const calendarOk = !!token && !!calendarId;
 
@@ -413,8 +409,6 @@ function renderConnectionSummary() {
     </div>`;
 
   wrap.innerHTML = [
-    row('Legacy Sheets', sheetOk, sheetOk ? 'CSV URL saved' : 'Add sheet CSV URL'),
-    row('Legacy Sync', scriptOk, scriptOk ? 'Exec URL saved' : 'Add Legacy Sync /exec URL'),
     row('Google Drive', driveOk, driveOk ? 'Token active' : (clientId ? 'Client ID set, connect required' : 'Missing Client ID')),
     row('Google Calendar', calendarOk, calendarOk ? ('Calendar: ' + escHtml(calendarId)) : 'Connect Drive token first')
   ].join('');
@@ -5994,18 +5988,10 @@ function renderStorageViewer() {
   if (changed) savePropertyData();
 })();
 
-// Clear expenses cache only if the script URL has changed since last load
-const _currentScriptUrl = (getCurrentScriptURL() || '').trim();
-const _scriptConfigured = !!_currentScriptUrl;
-const _lastScriptUrl = localStorage.getItem(lsKey('last-script-url'));
-if (_scriptConfigured && _lastScriptUrl !== _currentScriptUrl) {
-  localStorage.removeItem(lsKey('expenses'));
-  expenses = [];
-  localStorage.setItem(lsKey('last-script-url'), _currentScriptUrl);
-}
-
-// ── APP DATA SYNC (Sheet ↔ localStorage) ──────────────────────────────────────
-// Debounce timers — prevents hammering Sheet on rapid changes (e.g. stock taps)
+// ── APP DATA SYNC ────────────────────────────────────────────────────────────
+// Legacy Sheet sync functions — stubbed. getScriptURL() returns '' so these
+// all short-circuit, but we keep the function signatures because they're
+// called from many places (savePropertyData, saveCleaners, etc.).
 function scheduleAppDataSave(key, data) {
   const url = getScriptURL();
   if (!url) return; // no script URL configured yet
@@ -7499,30 +7485,8 @@ function resetConnectionCheckerResults() {
 }
 
 async function testSheetConnection() {
-  const csvUrl = (getPropertySheetCsvUrl() || '').trim();
-  if (!csvUrl) {
-    _setConnectionCheckResult('conn-sheet-result', 'fail', '❌ Missing configuration: Google Sheet CSV URL is not set.');
-    return;
-  }
-  if (!csvUrl.toLowerCase().includes('docs.google.com/spreadsheets') || !csvUrl.includes('output=csv')) {
-    _setConnectionCheckResult('conn-sheet-result', 'fail', '❌ Invalid URL: expected a published Legacy Sheets CSV URL ending with output=csv.');
-    return;
-  }
-
-  _setConnectionCheckResult('conn-sheet-result', 'loading', 'Checking Sheet URL…');
-  try {
-    const sep = csvUrl.includes('?') ? '&' : '?';
-    const res = await fetch(csvUrl + sep + 't=' + Date.now());
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const csv = await res.text();
-    const lines = csv.trim().split('\n').filter(l => l.trim());
-    if (!lines.length) throw new Error('No CSV rows returned');
-    const headers = parseCSVLine(lines[0]).filter(Boolean);
-    if (!headers.length) throw new Error('Could not parse CSV headers');
-    _setConnectionCheckResult('conn-sheet-result', 'ok', `✅ Connected: fetched CSV (${Math.max(lines.length - 1, 0)} data row${lines.length - 1 === 1 ? '' : 's'}).`);
-  } catch (e) {
-    _setConnectionCheckResult('conn-sheet-result', 'fail', '❌ Failed: could not fetch/parse the sheet CSV. ' + e.message);
-  }
+  // Legacy — Google Sheets no longer used, Supabase is the data backend.
+  _setConnectionCheckResult('conn-sheet-result', 'ok', '✅ Not required — data is stored in Supabase.');
 }
 
 
@@ -7531,21 +7495,18 @@ async function testNotificationConfig() {
 
   const ownerEmail = (getCurrentOwnerEmail() || '').trim();
   const pushFunctionUrl = (getPushFunctionUrl() || '').trim();
-  const syncUrl = (getCurrentScriptURL() || '').trim();
   const pushSupported = ('Notification' in window);
   const perm = pushSupported ? Notification.permission : 'unsupported';
   const ownerSub = getOwnerSub();
 
   const checks = [];
   if (ownerEmail) checks.push('Owner email configured');
-  if (syncUrl && syncUrl.toLowerCase().includes('legacy-endpoint.invalid/macros') && syncUrl.endsWith('/exec')) checks.push('Legacy Sync URL configured');
   if (pushFunctionUrl) checks.push('Push function URL configured');
   if (pushSupported) checks.push('Browser supports notifications');
   if (perm === 'granted' && ownerSub) checks.push('Push enabled on this device');
 
   const missing = [];
   if (!ownerEmail) missing.push('owner email missing');
-  if (!(syncUrl && syncUrl.toLowerCase().includes('legacy-endpoint.invalid/macros') && syncUrl.endsWith('/exec'))) missing.push('Legacy Sync URL invalid/missing');
   if (!pushFunctionUrl) missing.push('push function URL missing');
 
   const mode = 'configuration check only (no live send)';
