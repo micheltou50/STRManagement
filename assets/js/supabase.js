@@ -77,13 +77,15 @@ async function loadPropertyFromCloud() {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user) return null;
+    // Use .limit(1) instead of .single() — .single() throws on 0 or 2+ rows
     const { data, error } = await window._sb
       .from('properties')
       .select('*')
       .eq('user_id', user.id)
-      .single();
-    if (error || !data) return null;
-    return data;
+      .order('updated_at', { ascending: false })
+      .limit(1);
+    if (error || !data || !data.length) return null;
+    return data[0];
   } catch (e) {
     console.warn('[StayOps] loadPropertyFromCloud failed', e);
     return null;
@@ -786,17 +788,18 @@ async function loadHostConfigFromSupabase() {
       .from('host_config')
       .select('*')
       .eq('user_id', user.id)
-      .single();
-    if (error || !data) return null;
+      .limit(1);
+    if (error || !data || !data.length) return null;
+    const row = data[0];
     return {
-      hostId:   data.host_id   || null,
-      name:     data.name      || '',
-      company:  data.company   || '',
-      abn:      data.abn       || '',
-      acn:      data.acn       || '',
-      email:    data.email     || '',
-      phone:    data.phone     || '',
-      address:  data.address   || '',
+      hostId:   row.host_id   || null,
+      name:     row.name      || '',
+      company:  row.company   || '',
+      abn:      row.abn       || '',
+      acn:      row.acn       || '',
+      email:    row.email     || '',
+      phone:    row.phone     || '',
+      address:  row.address   || '',
     };
   } catch (e) {
     console.warn('[StayOps] loadHostConfigFromSupabase failed', e);
@@ -982,9 +985,9 @@ async function loadAppConfigFromCloud() {
       .from('app_config')
       .select('*')
       .eq('user_id', user.id)
-      .single();
-    if (error || !data) return null;
-    return data;
+      .limit(1);
+    if (error || !data || !data.length) return null;
+    return data[0];
   } catch (e) {
     console.warn('[StayOps] loadAppConfigFromCloud failed', e);
     return null;
@@ -1083,17 +1086,57 @@ async function handleLoginSubmit() {
   showLoadingScreen('Signing you in…');
 
   // ── Pre-flight: check Supabase for an existing property BEFORE finishAppInit ──
-  // On a fresh device localStorage is empty, so hasValidPropertyConfig() would
-  // return false and the setup overlay would block. Seeding from cloud prevents this.
+  // On a fresh device localStorage is empty, so hasValidPropertyConfig() and
+  // isOnboardingComplete() both fail. Seed from cloud so returning users skip setup.
   try {
-    const cloudProp = await loadPropertyFromCloud();
-    if (cloudProp && cloudProp.name) {
+    const _pfProp = await loadPropertyFromCloud();
+    if (_pfProp && _pfProp.name) {
       localStorage.setItem('gh-setup-complete', '1');
-      window._cloudPropertyId = cloudProp.id;
-      console.log('[StayOps] Login pre-flight: found cloud property "' + cloudProp.name + '" — skipping setup/onboarding');
+      window._cloudPropertyId = _pfProp.id;
+
+      // Seed property config into localStorage so getActivePropertyConfig().name works
+      window._stayOpsHydrating = true;
+      try {
+        if (typeof savePropertyConfig === 'function') {
+          savePropertyConfig({
+            name:    _pfProp.name,
+            suburb:  _pfProp.suburb  || '',
+            state:   _pfProp.state   || '',
+            region:  _pfProp.region  || '',
+            country: _pfProp.country || 'Australia',
+            branding: {
+              subtitle: [_pfProp.suburb, _pfProp.state].filter(Boolean).join(' · '),
+              tagline:  _pfProp.tagline || [_pfProp.suburb, _pfProp.state].filter(Boolean).join(', '),
+            },
+            property: {
+              bedrooms:  _pfProp.bedrooms   || 4,
+              maxGuests: _pfProp.max_guests  || 8,
+              bathrooms: _pfProp.bathrooms   || 2,
+              type:      _pfProp.property_type || 'house',
+            },
+            owner: {
+              name:  _pfProp.owner_name  || '',
+              email: _pfProp.owner_email || '',
+            },
+            integrations: {
+              sheetCsvUrl: _pfProp.sheets_url  || '',
+              scriptUrl:   _pfProp.script_url  || '',
+            },
+            pricing: {
+              baseRate: _pfProp.base_rate || 350,
+            },
+            updated_at: _pfProp.updated_at || new Date().toISOString(),
+          });
+        }
+      } finally {
+        window._stayOpsHydrating = false;
+      }
+
+      console.log('[StayOps] Login pre-flight: seeded cloud property "' + _pfProp.name + '" into localStorage');
     }
   } catch (e) {
     console.warn('[StayOps] Login pre-flight property check failed (non-fatal)', e);
+    window._stayOpsHydrating = false;
   }
 
   setLoadingStatus('Starting app…');
