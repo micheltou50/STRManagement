@@ -3027,7 +3027,14 @@ function addBooking() {
   save();
   if (autoAssigned) if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
   pushToSheet('add', newB); closeModal(); render();
-  if (typeof saveBookingToCloud === 'function') saveBookingToCloud(newB).catch(() => {});
+  if (typeof saveBookingToCloud === 'function') {
+    saveBookingToCloud(newB).then(() => {
+      console.log('[StayOps] Booking saved to Supabase');
+    }).catch(e => {
+      console.error('[StayOps] Failed to save booking to Supabase', e);
+      showBanner('⚠ Booking saved locally but cloud sync failed: ' + (e.message || 'unknown error'), 'warn');
+    });
+  }
   showBanner('✅ Booking added', 'ok');
   pushBookingToCalendar(newB);
 }
@@ -3902,6 +3909,7 @@ function renderHostProfileRow() {
 }
 
 // ── PROPERTY SWITCHER (header) ─────────────────────────────────
+let _propSwitcherOpenedAt = 0;
 function openPropertySwitcherSheet() {
   console.log('[StayOps] openPropertySwitcherSheet called');
   const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
@@ -3922,11 +3930,16 @@ function openPropertySwitcherSheet() {
   }
   const sheet = document.getElementById('property-switcher-sheet');
   if (!sheet) { console.error('[StayOps] property-switcher-sheet element not found'); return; }
+  _propSwitcherOpenedAt = Date.now();
   sheet.style.display = 'flex';
   console.log('[StayOps] Sheet shown:', sheet.style.display);
 }
 
 function closePropertySwitcherSheet() {
+  // Guard against ghost-click: on mobile, a tap on the header button can fire
+  // a second click event on the backdrop that now sits under the finger,
+  // immediately closing the sheet. Ignore close requests within 350ms of open.
+  if (Date.now() - _propSwitcherOpenedAt < 350) return;
   const sheet = document.getElementById('property-switcher-sheet');
   if (sheet) sheet.style.display = 'none';
 }
@@ -7900,6 +7913,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // THEN hydrate from cloud so data lands under the correct scoped keys.
   if (typeof showLoadingScreen === 'function') showLoadingScreen('Signing you in…');
   migrateConfigFromLegacySettings();
+  if (typeof setLoadingStatus === 'function') setLoadingStatus('Checking your account…');
+  if (typeof seedLocalConfigFromCloud === 'function') await seedLocalConfigFromCloud();
   await ensureHostIdentityAndRestore();
   if (typeof setLoadingStatus === 'function') setLoadingStatus('Starting app…');
   await finishAppInit();
@@ -8085,8 +8100,8 @@ async function onboardFinish() {
     await savePropertyToCloud(getActivePropertyConfig());
   }
 
-  // Mark onboarding complete
-  localStorage.setItem('stayops-onboarding-complete', '1');
+  // No localStorage flag needed — completion is determined by
+  // whether the user has a property record in Supabase
 
   // Boot the app
   hideOnboarding();
@@ -8100,15 +8115,9 @@ async function onboardFinish() {
 
 // Check if onboarding is needed
 function isOnboardingComplete() {
-  // Check all possible keys — new key, old key, and scoped variants
-  if (localStorage.getItem('stayops-onboarding-complete') === '1') return true;
-  if (localStorage.getItem('gh-setup-complete') === '1') return true;
-  // Check scoped key (lsKey adds property prefix)
-  try {
-    const scoped = lsKey('setup-complete');
-    if (localStorage.getItem(scoped) === '1') return true;
-  } catch(e) {}
-  // If any property config exists with a name, treat as complete
+  // Source of truth is Supabase — checked via the property config
+  // that was loaded during hydrateFromCloud() before this is called.
+  // If the user has a property with a name in Supabase, they're set up.
   try {
     const cfg = typeof getActivePropertyConfig === 'function' ? getActivePropertyConfig() : null;
     if (cfg && cfg.name) return true;
@@ -8350,19 +8359,23 @@ function checkAutoSendReport() {
 async function migrateSheetBookingsToSupabase() {
   showBanner('⟳ Migrating bookings to Supabase...', 'info');
   try {
-    // Check we have a sheet URL
-    // Use existing DB adapter which already knows the sheet URL
-    // syncFromSheets fetches CSV and populates module-level bookings array
     const sheetUrl = typeof getPropertySheetCsvUrl === 'function' ? getPropertySheetCsvUrl() : '';
     if (!sheetUrl) throw new Error('No Google Sheet URL configured — set it in Settings → Property → Property Configuration');
 
-    await syncFromSheets(false);
+    // Step 1: Ensure property record exists in Supabase BEFORE migrating bookings
+    // This guarantees bookings get a real property_id, not null
+    if (typeof savePropertyToCloud === 'function') {
+      await savePropertyToCloud(getActivePropertyConfig());
+      console.log('[StayOps] Property record ensured in Supabase');
+    }
 
-    // Wait for sync to complete and bookings array to be populated
+    // Step 2: Sync bookings from sheet into module-level bookings array
+    await syncFromSheets(false);
     await new Promise(r => setTimeout(r, 800));
 
     if (!bookings || bookings.length === 0) throw new Error('No bookings found after sync — check your Sheet URL is correct');
 
+    // Step 3: Save to Supabase
     if (typeof saveBookingsToCloud === 'function') {
       await saveBookingsToCloud(bookings);
     }

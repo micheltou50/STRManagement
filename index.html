@@ -1607,15 +1607,16 @@
     </div>
   </div>
 
-  <!-- Property Switcher Sheet -->
-  <div id="property-switcher-sheet" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.4)" onclick="closePropertySwitcherSheet()">
-    <div onclick="event.stopPropagation()" style="position:absolute;bottom:0;left:0;right:0;background:var(--card-bg);border-radius:20px 20px 0 0;padding:16px;max-height:60vh;overflow-y:auto">
-      <div style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px"></div>
-      <div style="font-weight:600;font-size:15px;margin-bottom:12px;padding:0 4px">Properties</div>
-      <div id="property-switcher-sheet-list"></div>
-      <button onclick="openAddPropertySetup();closePropertySwitcherSheet()" style="width:100%;margin-top:8px;padding:14px;background:var(--mist);border:1.5px dashed var(--border);border-radius:var(--radius-sm);color:var(--forest);font-size:14px;font-weight:500;cursor:pointer">＋ Add Property</button>
-      <div style="height:env(safe-area-inset-bottom,16px)"></div>
-    </div>
+</div>
+
+<!-- Property Switcher Sheet — direct child of body, NOT inside app-modal-overlay -->
+<div id="property-switcher-sheet" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.4)" onclick="closePropertySwitcherSheet()">
+  <div onclick="event.stopPropagation()" style="position:absolute;bottom:0;left:0;right:0;background:var(--card-bg);border-radius:20px 20px 0 0;padding:16px;max-height:60vh;overflow-y:auto">
+    <div style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px"></div>
+    <div style="font-weight:600;font-size:15px;margin-bottom:12px;padding:0 4px">Properties</div>
+    <div id="property-switcher-sheet-list"></div>
+    <button onclick="openAddPropertySetup();closePropertySwitcherSheet()" style="width:100%;margin-top:8px;padding:14px;background:var(--mist);border:1.5px dashed var(--border);border-radius:var(--radius-sm);color:var(--forest);font-size:14px;font-weight:500;cursor:pointer">＋ Add Property</button>
+    <div style="height:env(safe-area-inset-bottom,16px)"></div>
   </div>
 </div>
 
