@@ -146,7 +146,7 @@ async function seedLocalConfigFromCloud() {
           },
           integrations: {
             sheetCsvUrl:    cloudProp.sheets_url       || '',
-            scriptUrl:      cloudProp.script_url       || '',
+            syncUrl:      cloudProp.script_url       || '',
             calendarId:     cloudProp.calendar_id      || 'primary',
             vapidPublicKey: cloudProp.vapid_public_key || '',
             driveFolderId:  cloudProp.drive_folder_id  || null,
@@ -211,7 +211,7 @@ async function savePropertyToCloud(cfg) {
       property_type:     (cfg.property && cfg.property.type)          || null,
       timezone:          'Australia/Sydney',
       sheets_url:        (cfg.integrations && cfg.integrations.sheetCsvUrl)   || null,
-      script_url:        (cfg.integrations && cfg.integrations.scriptUrl)     || null,
+      script_url:        (cfg.integrations && cfg.integrations.syncUrl)     || null,
       calendar_id:       (cfg.integrations && cfg.integrations.calendarId)    || null,
       vapid_public_key:  (cfg.integrations && cfg.integrations.vapidPublicKey) || null,
       base_rate:         (cfg.pricing && cfg.pricing.baseRate)         || null,
@@ -728,7 +728,7 @@ async function hydrateFromCloud() {
           },
           integrations: {
             sheetCsvUrl:    cloudProp.sheets_url      || (existingCfg.integrations && existingCfg.integrations.sheetCsvUrl),
-            scriptUrl:      cloudProp.script_url      || (existingCfg.integrations && existingCfg.integrations.scriptUrl),
+            syncUrl:      cloudProp.script_url      || (existingCfg.integrations && existingCfg.integrations.syncUrl),
             calendarId:     cloudProp.calendar_id     || (existingCfg.integrations && existingCfg.integrations.calendarId) || 'primary',
             vapidPublicKey: cloudProp.vapid_public_key || (existingCfg.integrations && existingCfg.integrations.vapidPublicKey),
             driveFolderId:  cloudProp.drive_folder_id  || (existingCfg.integrations && existingCfg.integrations.driveFolderId)

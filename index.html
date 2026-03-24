@@ -1004,7 +1004,7 @@
       <div class="settings-back" onclick="closeSettingsPanel()">‹ Advanced</div>
       <div class="card" style="margin-bottom:10px">
         <div class="card-title">🧪 Connection Checker</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Run manual checks for your saved Google Sheet, Apps Script, and notifications/email configuration. No bookings or settings are modified.</div>
+        <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Run manual checks for your notifications/email configuration. No bookings or settings are modified.</div>
 
         <div style="display:flex;flex-direction:column;gap:10px">
           <button class="btn-secondary" onclick="testSheetConnection()">Test Sheet Connection</button>
@@ -1033,9 +1033,8 @@
       </div>
       <div class="card" style="margin-bottom:10px">
         <div class="card-title">✉️ Email Notifications</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Automatically emails your cleaner when you assign a clean, and again 24 hours before. Sent via Gmail through your Apps Script.</div>
+        <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Automatically emails your cleaner when you assign a clean, and again 24 hours before.</div>
         <div style="background:var(--mist);border-radius:var(--radius-sm);padding:12px;font-size:12px;color:var(--text-soft);line-height:1.6;margin-bottom:14px">
-          ✅ Uses your existing Apps Script connection<br>
           ✅ Sent from your Gmail account<br>
           ✅ Completely free<br>
           ⚙️ Add emails to cleaners in <strong>Settings → Property → Team</strong>
@@ -1155,62 +1154,6 @@
     </div>
 
     <!-- PANEL: INVOICE CLIENTS -->
-    <!-- PANEL: GOOGLE SHEETS (all sheets-related in one place) -->
-    <div id="settings-panel-sheets" style="display:none">
-      <div class="settings-back" onclick="closeSettingsPanel()">‹ Advanced</div>
-      <div class="card" style="margin-bottom:10px">
-        <div class="card-title">📊 Bookings Sync</div>
-        <div style="font-size:13px;color:var(--text-soft);margin-bottom:12px">Last synced: <span id="settings-last-sync">—</span></div>
-        <div style="font-size:13px;color:var(--text-soft);margin-bottom:16px" id="settings-booking-count"></div>
-        <button class="btn-primary" onclick="syncFromSheets(true)">↻ Pull Bookings from Sheet</button>
-        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--warm)">
-          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:6px">Debug</div>
-          <button class="btn-secondary" onclick="debugCSVColumns()" style="font-size:12px">🔍 Show CSV Column Layout</button>
-          <div id="csv-debug-result" style="display:none;margin-top:8px;font-size:11px;font-family:monospace;background:#f4f4f4;padding:10px;border-radius:8px;word-break:break-all;line-height:1.8"></div>
-        </div>
-      </div>
-      <div class="card" style="margin-bottom:10px">
-        <div class="card-title">💰 Expenses Sync</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-bottom:10px">Only updates what's missing or changed.</div>
-        <button class="btn-primary" onclick="smartSyncExpenses()" style="background:#5AC8FA;color:white">☁️ Sync Expenses to Sheet</button>
-        <div id="push-expenses-result" style="font-size:12px;margin-top:6px;display:none;padding:8px;border-radius:8px"></div>
-      </div>
-      <div class="card">
-        <div class="card-title">⚙️ Apps Script Connection</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-bottom:10px">URL editing now lives in <strong>Property Configuration</strong>. Use diagnostics here for status only.</div>
-        <button class="btn-secondary" onclick="testScriptConnection()" style="background:#E3F2FD;color:#1565C0">🔗 Test Connection</button>
-        <button class="btn-secondary" onclick="reopenPropertySetup()" style="margin-top:6px">✏️ Open Property Configuration</button>
-        <div id="script-test-result" style="font-size:12px;margin-top:6px;display:none;padding:8px;border-radius:8px"></div>
-      </div>
-    </div>
-
-    <!-- PANEL: GOOGLE DRIVE (connect + receipts + backup all together) -->
-    <div id="settings-panel-drive" style="display:none">
-      <div class="settings-back" onclick="closeSettingsPanel()">‹ Advanced</div>
-      <div class="card" style="margin-bottom:10px">
-        <div class="card-title">📁 Connect Google Drive</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-bottom:10px">Drive connection settings (Client ID + folder) are managed in <strong>Property Configuration</strong>.</div>
-        <button class="btn-secondary" onclick="reopenPropertySetup()">✏️ Open Property Configuration</button>
-        <div style="margin-top:10px">
-          <button class="btn-primary" onclick="connectGoogleDrive()" id="gdrive-connect-btn">🔗 Connect Google Drive & Calendar</button>
-          <div id="gdrive-status" style="font-size:12px;margin-top:6px;color:var(--text-soft)"></div>
-        </div>
-        <div style="margin-top:10px;padding:10px;background:var(--mist);border-radius:var(--radius-sm);font-size:11px;color:var(--text-soft);line-height:1.6">
-          <strong>Setup:</strong><br>1. console.cloud.google.com<br>2. Create project → Enable Drive API<br>3. Consent screen → External (if needed)<br>4. Credentials → OAuth 2.0 Client ID (Web app)<br>5. Add your Netlify URL as authorised origin<br>6. Paste the Client ID in Property Configuration
-        </div>
-      </div>
-    </div>
-
-    <!-- PANEL: GOOGLE CALENDAR -->
-    <div id="settings-panel-calendar" style="display:none">
-      <div class="settings-back" onclick="closeSettingsPanel()">‹ Advanced</div>
-      <div class="card">
-        <div class="card-title">📅 Google Calendar</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Push all bookings to Google Calendar as events. Uses the same Drive connection — connect Drive first.</div>
-        <button class="btn-primary" onclick="syncToGoogleCalendar()" style="background:#1a73e8">📅 Sync Bookings to Calendar</button>
-        <div id="gcal-sync-result" style="display:none;font-size:12px;margin-top:8px;padding:8px;border-radius:8px"></div>
-      </div>
-    </div>
 
     <!-- PANEL: AI BOOKING IMPORT -->
     <div id="settings-panel-ai-import" style="display:none">
@@ -1262,44 +1205,12 @@
         <button onclick="renderAIIgnoreList()" class="btn-secondary" style="margin-top:8px">↻ Refresh</button>
       </div>
     </div>
-
     <!-- ═══════════════════════════════════════════════════════
          ADVANCED SUB-SCREEN
     ═══════════════════════════════════════════════════════ -->
+    <!-- CHANGE 2 PLAN: Remove legacy Google service UI and keep only Supabase-relevant tools. -->
     <div id="settings-cat-advanced" style="display:none">
       <div class="settings-back" onclick="closeSettingsCat()">‹ Settings</div>
-
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Integrations</div>
-      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
-        <div class="settings-cat-item" onclick="openSettingsPanel('sheets')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#34C759;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📊</div>
-            <div><div style="font-weight:500;font-size:14px">Google Sheets</div><div style="font-size:12px;color:var(--text-soft)">Sheet URL, script URL &amp; sync</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-        <div class="settings-cat-item" onclick="openSettingsPanel('drive')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#4285F4;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📁</div>
-            <div><div style="font-weight:500;font-size:14px">Google Drive</div><div style="font-size:12px;color:var(--text-soft)" id="gdrive-status-row">Receipt storage</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-        <div class="settings-cat-item" onclick="openSettingsPanel('calendar')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#1a73e8;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📅</div>
-            <div><div style="font-weight:500;font-size:14px">Google Calendar</div><div style="font-size:12px;color:var(--text-soft)">Push bookings as events</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-        <div class="settings-cat-item" onclick="openSettingsPanel('connection-checker')" style="border-bottom:none">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:9px;background:#5AC8FA;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🧪</div>
-            <div><div style="font-weight:500;font-size:14px">Connection Checker</div><div style="font-size:12px;color:var(--text-soft)">Diagnostics only</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-      </div>
 
       <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">AI Tools</div>
       <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
@@ -1324,7 +1235,7 @@
         <div class="settings-cat-item" onclick="openSettingsPanel('app-data')">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#636366;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🗄</div>
-            <div><div style="font-weight:500;font-size:14px">App Data & Migration</div><div style="font-size:12px;color:var(--text-soft)">Migrate bookings to Supabase · Reset · Re-sync</div></div>
+            <div><div style="font-weight:500;font-size:14px">App Data</div><div style="font-size:12px;color:var(--text-soft)">Reset · Re-sync · Local storage</div></div>
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
@@ -1338,13 +1249,13 @@
       </div>
     </div>
 
-        <!-- PANEL: APP DATA -->
+    <!-- PANEL: APP DATA -->
     <div id="settings-panel-app-data" style="display:none">
       <div class="settings-back" onclick="closeSettingsPanel()">‹ Advanced</div>
       <div class="card" style="margin-bottom:10px">
-        <div class="card-title">☁️ Migrate Bookings to Supabase</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">One-time import of existing bookings from Google Sheet into Supabase. Safe to run multiple times.</div>
-        <button class="btn-primary" onclick="migrateSheetBookingsToSupabase()" style="background:#1E3A2F">↑ Migrate Sheet Bookings</button>
+        <div class="card-title">☁️ Local Data Tools</div>
+        <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Manage local cache and storage tools for your Supabase-backed data.</div>
+        <button class="btn-primary" onclick="clearCacheAndResync()" style="background:#1E3A2F">↻ Refresh Local Data</button>
       </div>
       <div class="card" style="margin-bottom:10px">
         <div class="card-title">🔄 Reset & Re-sync</div>
@@ -1453,9 +1364,9 @@
     <div style="margin-top:8px;padding:12px;background:var(--mist);border-radius:var(--radius-sm)">
       <div style="font-size:12px;font-weight:600;color:var(--text-soft);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.4px">Receipt</div>
       <div id="ee-current-receipt" style="margin-bottom:8px;display:none">
-        <a id="ee-receipt-link" href="#" target="_blank" style="font-size:13px;color:var(--moss);font-weight:600">📎 View current receipt in Drive</a>
+        <a id="ee-receipt-link" href="#" target="_blank" style="font-size:13px;color:var(--moss);font-weight:600">📎 View current receipt</a>
       </div>
-      <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px" id="ee-receipt-label">Upload receipt photo to Google Drive</div>
+      <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px" id="ee-receipt-label">Upload receipt photo</div>
       <label style="display:inline-block;background:var(--forest);color:white;padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
         📷 Choose Photo
         <input type="file" id="ee-file-input" accept="image/*,application/pdf" style="display:none" onchange="attachEditExpensePhoto(this)">
