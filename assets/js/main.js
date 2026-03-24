@@ -7918,60 +7918,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // On a fresh device (or preview URL) localStorage is empty, so
   // hasValidPropertyConfig() returns false and the setup overlay blocks,
   // and isOnboardingComplete() returns false because there's no property name.
-  // We load the full property from cloud and seed it into localStorage
-  // so BOTH gates pass for returning users.
-  try {
-    if (typeof loadPropertyFromCloud === 'function') {
-      const _pfProp = await loadPropertyFromCloud();
-      if (_pfProp && _pfProp.name) {
-        localStorage.setItem('gh-setup-complete', '1');
-        window._cloudPropertyId = _pfProp.id;
-
-        // Seed property config into localStorage so getActivePropertyConfig().name works
-        // Use _stayOpsHydrating to suppress cloud write-back during seeding
-        window._stayOpsHydrating = true;
-        try {
-          if (typeof savePropertyConfig === 'function') {
-            savePropertyConfig({
-              name:    _pfProp.name,
-              suburb:  _pfProp.suburb  || '',
-              state:   _pfProp.state   || '',
-              region:  _pfProp.region  || '',
-              country: _pfProp.country || 'Australia',
-              branding: {
-                subtitle: [_pfProp.suburb, _pfProp.state].filter(Boolean).join(' · '),
-                tagline:  _pfProp.tagline || [_pfProp.suburb, _pfProp.state].filter(Boolean).join(', '),
-              },
-              property: {
-                bedrooms:  _pfProp.bedrooms   || 4,
-                maxGuests: _pfProp.max_guests  || 8,
-                bathrooms: _pfProp.bathrooms   || 2,
-                type:      _pfProp.property_type || 'house',
-              },
-              owner: {
-                name:  _pfProp.owner_name  || '',
-                email: _pfProp.owner_email || '',
-              },
-              integrations: {
-                sheetCsvUrl: _pfProp.sheets_url  || '',
-                scriptUrl:   _pfProp.script_url  || '',
-              },
-              pricing: {
-                baseRate: _pfProp.base_rate || 350,
-              },
-              updated_at: _pfProp.updated_at || new Date().toISOString(),
-            });
-          }
-        } finally {
-          window._stayOpsHydrating = false;
-        }
-
-        console.log('[StayOps] Pre-flight: seeded cloud property "' + _pfProp.name + '" into localStorage');
-      }
-    }
-  } catch (e) {
-    console.warn('[StayOps] Pre-flight property check failed (non-fatal)', e);
-    window._stayOpsHydrating = false;
+  // Seed from cloud first so both gates pass for returning users.
+  if (typeof preflightSeedPropertyFromCloud === 'function') {
+    await preflightSeedPropertyFromCloud('Session pre-flight');
   }
 
   await ensureHostIdentityAndRestore();
