@@ -8350,19 +8350,23 @@ function checkAutoSendReport() {
 async function migrateSheetBookingsToSupabase() {
   showBanner('⟳ Migrating bookings to Supabase...', 'info');
   try {
-    // Check we have a sheet URL
-    // Use existing DB adapter which already knows the sheet URL
-    // syncFromSheets fetches CSV and populates module-level bookings array
     const sheetUrl = typeof getPropertySheetCsvUrl === 'function' ? getPropertySheetCsvUrl() : '';
     if (!sheetUrl) throw new Error('No Google Sheet URL configured — set it in Settings → Property → Property Configuration');
 
-    await syncFromSheets(false);
+    // Step 1: Ensure property record exists in Supabase BEFORE migrating bookings
+    // This guarantees bookings get a real property_id, not null
+    if (typeof savePropertyToCloud === 'function') {
+      await savePropertyToCloud(getActivePropertyConfig());
+      console.log('[StayOps] Property record ensured in Supabase');
+    }
 
-    // Wait for sync to complete and bookings array to be populated
+    // Step 2: Sync bookings from sheet into module-level bookings array
+    await syncFromSheets(false);
     await new Promise(r => setTimeout(r, 800));
 
     if (!bookings || bookings.length === 0) throw new Error('No bookings found after sync — check your Sheet URL is correct');
 
+    // Step 3: Save to Supabase
     if (typeof saveBookingsToCloud === 'function') {
       await saveBookingsToCloud(bookings);
     }

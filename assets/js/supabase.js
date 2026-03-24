@@ -551,35 +551,35 @@ async function hydrateFromCloud() {
 
     // 0. Bookings — primary source now Supabase (replaces Sheet CSV)
     const cloudBookings = await loadBookingsFromCloud();
-    if (Array.isArray(cloudBookings) && cloudBookings.length) {
+    if (Array.isArray(cloudBookings)) {
       localStorage.setItem(lsKey('bookings'), JSON.stringify(cloudBookings));
       console.log('[StayOps] Hydrated', cloudBookings.length, 'bookings from cloud');
     }
 
     // 2. Cleans — cloud is source of truth
     const cloudCleans = await loadCleansFromCloud();
-    if (Array.isArray(cloudCleans) && cloudCleans.length) {
+    if (Array.isArray(cloudCleans)) {
       localStorage.setItem(lsKey('cleans'), JSON.stringify(cloudCleans));
       console.log('[StayOps] Hydrated', cloudCleans.length, 'cleans from cloud');
     }
 
     // 3. Notes
     const cloudNotes = await loadNotesFromCloud();
-    if (Array.isArray(cloudNotes) && cloudNotes.length) {
+    if (Array.isArray(cloudNotes)) {
       localStorage.setItem(lsKey('notes'), JSON.stringify(cloudNotes));
       console.log('[StayOps] Hydrated', cloudNotes.length, 'notes from cloud');
     }
 
     // 4. Expenses
     const cloudExpenses = await loadExpensesFromCloud();
-    if (Array.isArray(cloudExpenses) && cloudExpenses.length) {
+    if (Array.isArray(cloudExpenses)) {
       localStorage.setItem(lsKey('expenses'), JSON.stringify(cloudExpenses));
       console.log('[StayOps] Hydrated', cloudExpenses.length, 'expenses from cloud');
     }
 
     // 5. Inventory
     const cloudInventory = await loadInventoryFromCloud();
-    if (Array.isArray(cloudInventory) && cloudInventory.length) {
+    if (Array.isArray(cloudInventory)) {
       localStorage.setItem(lsKey('inventory'), JSON.stringify(cloudInventory));
       console.log('[StayOps] Hydrated', cloudInventory.length, 'inventory items from cloud');
     }
@@ -917,7 +917,10 @@ async function saveBookingsToCloud(bookingsList) {
     const { error } = await window._sb
       .from('bookings')
       .upsert(payload, { onConflict: 'local_id,user_id' });
-    if (error) console.warn('[StayOps] saveBookingsToCloud bulk upsert error', error);
+    if (error) {
+      console.warn('[StayOps] saveBookingsToCloud bulk upsert error', error);
+      throw new Error(error.message || 'Supabase upsert failed');
+    }
   } catch (e) {
     console.warn('[StayOps] saveBookingsToCloud failed', e);
   }
