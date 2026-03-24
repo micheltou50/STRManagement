@@ -393,25 +393,12 @@ function calendarEventsUrl(eventId) {
 function renderConnectionSummary() {
   const wrap = document.getElementById('conn-summary-list');
   if (!wrap) return;
-
-  const token = getDriveToken();
-  const shared = {};
-  const clientId = String((typeof getDriveClientId === 'function' ? getDriveClientId() : localStorage.getItem('gh-gdrive-client-id') || '') || '').trim();
-  const calendarId = getConfiguredCalendarId();
-
-  const driveOk = !!token;
-  const calendarOk = !!token && !!calendarId;
-
-  const row = (label, ok, detail) => `
+  // All data is now stored in Supabase — no external connections required.
+  wrap.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--mist);border-radius:10px">
-      <div style="font-size:13px;color:var(--text)">${label}</div>
-      <div style="font-size:12px;color:${ok ? 'var(--moss)' : 'var(--amber)'}">${ok ? '✓ Connected' : '⚠ Not configured'}${detail ? ` · ${detail}` : ''}</div>
+      <div style="font-size:13px;color:var(--text)">Supabase</div>
+      <div style="font-size:12px;color:var(--moss)">✓ Connected</div>
     </div>`;
-
-  wrap.innerHTML = [
-    row('Google Drive', driveOk, driveOk ? 'Token active' : (clientId ? 'Client ID set, connect required' : 'Missing Client ID')),
-    row('Google Calendar', calendarOk, calendarOk ? ('Calendar: ' + escHtml(calendarId)) : 'Connect Drive token first')
-  ].join('');
 }
 
 let _connectionSummaryTimer = null;

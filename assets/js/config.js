@@ -434,29 +434,8 @@ function getDriveClientId() {
 }
 
 function getPropertyConfigGaps() {
-  const cfg = getActivePropertyConfig() || {};
-  const driveFolderId = String(getDriveFolderId() || '').trim();
-  const driveClientId = String(getDriveClientId() || '').trim();
-
-  const gaps = [];
-
-  if (!driveClientId) {
-    gaps.push({
-      key: 'gdriveClientId',
-      severity: 'warning',
-      label: 'Google Drive integration not configured',
-      detail: 'Receipt uploads and Drive backup features require a Drive connection.'
-    });
-  } else if (!driveFolderId) {
-    gaps.push({
-      key: 'driveFolderId',
-      severity: 'warning',
-      label: 'Google Drive folder ID missing',
-      detail: 'Drive uploads/backups may not target the expected folder until configured.'
-    });
-  }
-
-  return gaps;
+  // All data is stored in Supabase — no external service gaps to check.
+  return [];
 }
 
 function saveDriveFolderId(storageKey) {
