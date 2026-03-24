@@ -1182,26 +1182,35 @@ async function handleLoginSubmit() {
   hideLoginScreen();
   showLoadingScreen('Signing you in…');
 
-  // ── Pre-flight: check Supabase for an existing property BEFORE finishAppInit ──
-  // On a fresh device localStorage is empty, so hasValidPropertyConfig() and
-  // isOnboardingComplete() both fail. Seed from cloud so returning users skip setup.
-  setLoadingStatus('Checking your account…');
-  await seedLocalConfigFromCloud();
-  setLoadingStatus('Starting app…');
-  if (typeof finishAppInit === 'function') await finishAppInit();
-  setLoadingStatus('Loading your data…');
-  await hydrateFromCloud();
-  hideLoadingScreen();
+  try {
+    // ── Pre-flight: check Supabase for an existing property BEFORE finishAppInit ──
+    // On a fresh device localStorage is empty, so hasValidPropertyConfig() and
+    // isOnboardingComplete() both fail. Seed from cloud so returning users skip setup.
+    setLoadingStatus('Checking your account…');
+    await seedLocalConfigFromCloud();
+    console.log('[StayOps] Login boot: seedLocalConfigFromCloud complete');
+    setLoadingStatus('Starting app…');
+    if (typeof finishAppInit === 'function') await finishAppInit();
+    console.log('[StayOps] Login boot: finishAppInit complete');
+    setLoadingStatus('Loading your data…');
+    await hydrateFromCloud();
+    console.log('[StayOps] Login boot: hydrateFromCloud complete');
 
-  // Check if onboarding is needed (new user)
-  if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) {
-    if (typeof showOnboarding === 'function') showOnboarding();
-    return;
+    // Check if onboarding is needed (new user)
+    if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) {
+      if (typeof showOnboarding === 'function') showOnboarding();
+      return;
+    }
+
+    if (typeof renderHeaderDateBadge === 'function') renderHeaderDateBadge();
+    if (typeof renderAll === 'function') renderAll();
+    // Prompt if an owner report is due
+    setTimeout(() => { if (typeof checkAutoSendReport === 'function') checkAutoSendReport(); }, 1500);
+  } catch (e) {
+    console.error('[StayOps] Login boot failed:', e);
+  } finally {
+    hideLoadingScreen();
   }
-
-  if (typeof renderAll === 'function') renderAll();
-  // Prompt if an owner report is due
-  setTimeout(() => { if (typeof checkAutoSendReport === 'function') checkAutoSendReport(); }, 1500);
 }
 
 function toggleSignUp() {

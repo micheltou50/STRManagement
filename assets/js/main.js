@@ -7730,6 +7730,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (!session) {
     // No session — show login screen and wait
+    console.log('[StayOps] No session — showing login screen');
     if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
     if (typeof showLoginScreen === 'function') showLoginScreen();
     return;
@@ -7737,40 +7738,52 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Existing session — init app FIRST (establishes property/storage keys),
   // THEN hydrate from cloud so data lands under the correct scoped keys.
+  console.log('[StayOps] Boot step: session found, starting boot');
   if (typeof showLoadingScreen === 'function') showLoadingScreen('Signing you in…');
-  migrateConfigFromLegacySettings();
-  if (typeof setLoadingStatus === 'function') setLoadingStatus('Checking your account…');
-  if (typeof seedLocalConfigFromCloud === 'function') await seedLocalConfigFromCloud();
-  await ensureHostIdentityAndRestore();
-  if (typeof setLoadingStatus === 'function') setLoadingStatus('Starting app…');
-  await finishAppInit();
-  if (typeof setLoadingStatus === 'function') setLoadingStatus('Loading your data…');
-  if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
-  if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
 
-  // Check if onboarding is needed (new user on fresh device)
-  if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) {
-    if (typeof showOnboarding === 'function') {
-      showOnboarding();
-      // If returning from OAuth flow, jump to step 2 and show connected state
-      if (window._oauthConnected) {
-        _obGoToStep(2);
-        onboardEmailConnected(window._oauthConnected.provider, window._oauthConnected.email);
-        delete window._oauthConnected;
+  try {
+    migrateConfigFromLegacySettings();
+    if (typeof setLoadingStatus === 'function') setLoadingStatus('Checking your account…');
+    if (typeof seedLocalConfigFromCloud === 'function') await seedLocalConfigFromCloud();
+    console.log('[StayOps] Boot step: seedLocalConfigFromCloud complete');
+    await ensureHostIdentityAndRestore();
+    console.log('[StayOps] Boot step: ensureHostIdentityAndRestore complete');
+    if (typeof setLoadingStatus === 'function') setLoadingStatus('Starting app…');
+    await finishAppInit();
+    console.log('[StayOps] Boot step: finishAppInit complete');
+    if (typeof setLoadingStatus === 'function') setLoadingStatus('Loading your data…');
+    if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
+    console.log('[StayOps] Boot step: hydrateFromCloud complete');
+
+    // Check if onboarding is needed (new user on fresh device)
+    if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) {
+      if (typeof showOnboarding === 'function') {
+        showOnboarding();
+        // If returning from OAuth flow, jump to step 2 and show connected state
+        if (window._oauthConnected) {
+          _obGoToStep(2);
+          onboardEmailConnected(window._oauthConnected.provider, window._oauthConnected.email);
+          delete window._oauthConnected;
+        }
+        if (window._oauthError) {
+          _obGoToStep(2);
+          const errEl = document.getElementById('ob-step2-error');
+          if (errEl) errEl.textContent = '⚠ Connection failed: ' + window._oauthError;
+          delete window._oauthError;
+        }
       }
-      if (window._oauthError) {
-        _obGoToStep(2);
-        const errEl = document.getElementById('ob-step2-error');
-        if (errEl) errEl.textContent = '⚠ Connection failed: ' + window._oauthError;
-        delete window._oauthError;
-      }
+      return;
     }
-    return;
-  }
 
-  renderAll();
-  // Prompt if an owner report is due (non-blocking, runs after UI is visible)
-  setTimeout(checkAutoSendReport, 1500);
+    console.log('[StayOps] Boot step: renderAll called');
+    renderAll();
+    // Prompt if an owner report is due (non-blocking, runs after UI is visible)
+    setTimeout(checkAutoSendReport, 1500);
+  } catch (e) {
+    console.error('[StayOps] Boot failed:', e);
+  } finally {
+    if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
+  }
 });
 
 
