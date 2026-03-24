@@ -3150,10 +3150,52 @@ async function deleteBooking(id) {
   const b=bookings.find(b=>b.id===id);
   const _okBk = await showAppModal({ title: 'Delete Booking', msg: 'Remove this booking? This cannot be undone.', confirmText: 'Delete', confirmColor: 'var(--red)' }); if (!_okBk) return;
   const deletedBooking = bookings.find(b=>b.id===id);
+
+  // Capture linked cleans and notes BEFORE filtering — needed for Supabase deletion
+  const orphanedCleans = cleans.filter(c => c.bookingId === id || (deletedBooking && c.guestName === deletedBooking.name));
+  const orphanedNotes = notes.filter(n => n.bookingId === id || (deletedBooking && n.guestName === deletedBooking.name));
+
   bookings=bookings.filter(b=>b.id!==id);
   cleans=cleans.filter(c=>c.bookingId!==id && !(deletedBooking && c.guestName===deletedBooking.name));
   notes=notes.filter(n=>n.bookingId!==id && !(deletedBooking && n.guestName===deletedBooking.name));
   save();
+
+  if (deletedBooking && typeof deleteBookingFromCloud === 'function') deleteBookingFromCloud(deletedBooking).catch(e => console.warn('[StayOps] Failed to delete booking from cloud', e));
+
+  // Delete orphaned cleans from Supabase
+  if (orphanedCleans.length) {
+    const user = typeof getCurrentSupabaseUser === 'function' ? await getCurrentSupabaseUser() : null;
+    if (user && window._sb) {
+      for (const c of orphanedCleans) {
+        try {
+          if (c._cloudId) {
+            await window._sb.from('cleans').delete().eq('id', c._cloudId);
+          } else {
+            await window._sb.from('cleans').delete().eq('user_id', user.id).eq('local_id', String(c.id));
+          }
+        } catch (e) { console.warn('[StayOps] Failed to delete orphaned clean from cloud', e); }
+      }
+      console.log('[StayOps] Deleted', orphanedCleans.length, 'orphaned clean(s) from Supabase');
+    }
+  }
+
+  // Delete orphaned notes from Supabase
+  if (orphanedNotes.length) {
+    const user = typeof getCurrentSupabaseUser === 'function' ? await getCurrentSupabaseUser() : null;
+    if (user && window._sb) {
+      for (const n of orphanedNotes) {
+        try {
+          if (n._cloudId) {
+            await window._sb.from('notes').delete().eq('id', n._cloudId);
+          } else {
+            await window._sb.from('notes').delete().eq('user_id', user.id).eq('local_id', String(n.id));
+          }
+        } catch (e) { console.warn('[StayOps] Failed to delete orphaned note from cloud', e); }
+      }
+      console.log('[StayOps] Deleted', orphanedNotes.length, 'orphaned note(s) from Supabase');
+    }
+  }
+
   if (b) pushToSheet('delete', b);
   // Delete calendar event if one was created
   if (deletedBooking && deletedBooking.gcalEventId) {
@@ -7913,67 +7955,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // THEN hydrate from cloud so data lands under the correct scoped keys.
   if (typeof showLoadingScreen === 'function') showLoadingScreen('Signing you in…');
   migrateConfigFromLegacySettings();
-
-  // ── Pre-flight: check Supabase for an existing property BEFORE finishAppInit ──
-  // On a fresh device (or preview URL) localStorage is empty, so
-  // hasValidPropertyConfig() returns false and the setup overlay blocks,
-  // and isOnboardingComplete() returns false because there's no property name.
-  // We load the full property from cloud and seed it into localStorage
-  // so BOTH gates pass for returning users.
-  try {
-    if (typeof loadPropertyFromCloud === 'function') {
-      const _pfProp = await loadPropertyFromCloud();
-      if (_pfProp && _pfProp.name) {
-        localStorage.setItem('gh-setup-complete', '1');
-        window._cloudPropertyId = _pfProp.id;
-
-        // Seed property config into localStorage so getActivePropertyConfig().name works
-        // Use _stayOpsHydrating to suppress cloud write-back during seeding
-        window._stayOpsHydrating = true;
-        try {
-          if (typeof savePropertyConfig === 'function') {
-            savePropertyConfig({
-              name:    _pfProp.name,
-              suburb:  _pfProp.suburb  || '',
-              state:   _pfProp.state   || '',
-              region:  _pfProp.region  || '',
-              country: _pfProp.country || 'Australia',
-              branding: {
-                subtitle: [_pfProp.suburb, _pfProp.state].filter(Boolean).join(' · '),
-                tagline:  _pfProp.tagline || [_pfProp.suburb, _pfProp.state].filter(Boolean).join(', '),
-              },
-              property: {
-                bedrooms:  _pfProp.bedrooms   || 4,
-                maxGuests: _pfProp.max_guests  || 8,
-                bathrooms: _pfProp.bathrooms   || 2,
-                type:      _pfProp.property_type || 'house',
-              },
-              owner: {
-                name:  _pfProp.owner_name  || '',
-                email: _pfProp.owner_email || '',
-              },
-              integrations: {
-                sheetCsvUrl: _pfProp.sheets_url  || '',
-                scriptUrl:   _pfProp.script_url  || '',
-              },
-              pricing: {
-                baseRate: _pfProp.base_rate || 350,
-              },
-              updated_at: _pfProp.updated_at || new Date().toISOString(),
-            });
-          }
-        } finally {
-          window._stayOpsHydrating = false;
-        }
-
-        console.log('[StayOps] Pre-flight: seeded cloud property "' + _pfProp.name + '" into localStorage');
-      }
-    }
-  } catch (e) {
-    console.warn('[StayOps] Pre-flight property check failed (non-fatal)', e);
-    window._stayOpsHydrating = false;
-  }
-
+  if (typeof setLoadingStatus === 'function') setLoadingStatus('Checking your account…');
+  if (typeof seedLocalConfigFromCloud === 'function') await seedLocalConfigFromCloud();
   await ensureHostIdentityAndRestore();
   if (typeof setLoadingStatus === 'function') setLoadingStatus('Starting app…');
   await finishAppInit();
