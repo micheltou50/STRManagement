@@ -280,24 +280,6 @@ function getOwnerSub() { return getPushSubs().owner || null; }
 function getCleanerSub(cleanerId) { return (getPushSubs().cleaners || {})[String(cleanerId)] || null; }
 
 async function getFreshOwnerSub() {
-  // Always pull latest pushSubs from Sheet — owner sub lives on owner's device
-  try {
-    const url = (getCurrentScriptURL() || '').trim();
-    if (url && url.includes('legacy-endpoint.invalid')) {
-      const resp = await fetch(url + '?action=getAppData');
-      const json = await resp.json();
-      if (json.success && json.data && json.data.pushSubs) {
-        const local = getPushSubs();
-        const merged = {
-          owner: json.data.pushSubs.owner || local.owner,
-          cleaners: Object.assign({}, local.cleaners, json.data.pushSubs.cleaners)
-        };
-        localStorage.setItem(lsKey('push-subs'), JSON.stringify(merged));
-        console.log('Refreshed pushSubs, owner sub:', merged.owner ? 'found' : 'NOT FOUND');
-        return merged.owner || null;
-      }
-    }
-  } catch(e) { console.warn('Could not refresh pushSubs for owner:', e); }
   return getOwnerSub();
 }
 
@@ -309,14 +291,7 @@ if ('serviceWorker' in navigator) {
 function getScriptURL() { return getCurrentScriptURL(); }
 
 // ── SHEET POST HELPER — all sheet calls use POST to avoid URL length limits ──
-function sheetPost(syncUrl, action, data) {
-  // Legacy Sync redirects cause CORS failures with POST + large bodies.
-  // Use GET with params appended to URL — reliable up to ~2KB per call.
-  // For batch calls the app splits into small chunks before calling this.
-  const dataStr = encodeURIComponent(JSON.stringify(data));
-  const url = syncUrl + '?action=' + encodeURIComponent(action) + '&data=' + dataStr;
-  return fetch(url, { method: 'GET' }).then(r => r.json());
-}
+function sheetPost() {}
 
 
 
@@ -780,25 +755,7 @@ function save() {
 }
 
 // ── GOOGLE SHEET PUSH (per-booking, now that access is Anyone) ───────────
-function pushToSheet(action, booking) {
-  const url = getScriptURL();
-  if (!url) return;
-  sheetPost(url, action, booking)
-    .then(json => {
-      if (json.status === 'ok') {
-        showBanner('✓ Synced to Legacy Sheets', 'ok');
-        localStorage.setItem(lsKey('last-push'), new Date().toLocaleString('en-AU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}));
-      } else if (json.status === 'not_found' && action === 'update') {
-        sheetPost(url, 'add', booking);
-        showBanner('✓ Added to Legacy Sheets', 'ok');
-      } else {
-        showBanner('⚠ Sheet sync issue: ' + json.status, 'warn');
-      }
-    })
-    .catch(() => {
-      showBanner('⚠ Auto-sync failed — use Push button in Settings', 'warn');
-    });
-}
+function pushToSheet() {}
 
 // ── SYNC FROM SHEET ───────────────────────────────────────────────────────
 let _syncInProgress = false;
@@ -3279,10 +3236,11 @@ function openNotifyModal(cleanId, mode = 'assign') {
   if (!c) return;
   const b = bookings.find(b => String(b.id) === String(c.bookingId))
     || bookings.find(b => _normName(b.name) === _normName(c.guestName) && String(b.checkout || '').slice(0, 10) === String(c.date || '').slice(0, 10));
+  if (!b) console.warn('[StayOps] openNotifyModal: no booking found for clean', c);
   const isReminder = String(mode || '') === 'reminder';
 
   // Build message
-  const checkinRaw = b ? (b.checkin || b.checkIn || b.startDate) : '';
+  const checkinRaw = b ? (b.checkin || b.checkIn || b.startDate) : (c.checkin || '');
   const checkoutRaw = b ? (b.checkout || b.checkOut || b.endDate) : c.date;
   const guestsRaw = b ? (b.guests ?? b.numGuests ?? b.guestCount) : null;
   const checkin = checkinRaw ? fmt(checkinRaw) : 'TBC';
@@ -3363,55 +3321,9 @@ function closeNotifyModal() {
 }
 
 // ── SETTINGS ─────────────────────────────────────────────────────────────
-function chooseGoogleAccount() {
-  // Opens Google account chooser — user picks the right account, then comes back and taps Push
-  const syncUrl = getScriptURL();
-  const continueUrl = encodeURIComponent(syncUrl + '?action=test');
-  window.open('https://accounts.google.com/AccountChooser?continue=' + continueUrl, '_blank');
-}
+function chooseGoogleAccount() {}
 
-function syncToSheet() {
-  const el = document.getElementById('push-sync-result');
-  el.style.display = 'block';
-  el.style.background = '#FFF8E1';
-  el.style.color = '#E65100';
-  el.textContent = '⟳ Opening sync page...';
-
-  const url = getScriptURL();
-  if (!url) { el.textContent = '✗ No script URL set.'; return; }
-
-  const payload = JSON.stringify({ bookings: bookings });
-
-  // Use a hidden form POST — handles large payloads, works on iOS Safari
-  // Opens in new tab, user sees result and closes it
-  const form = document.createElement('form');
-  form.method = 'POST';
-  form.action = url;
-  form.target = '_blank';
-  form.style.display = 'none';
-
-  const actionInput = document.createElement('input');
-  actionInput.type = 'hidden';
-  actionInput.name = 'action';
-  actionInput.value = 'replaceAll';
-  form.appendChild(actionInput);
-
-  const dataInput = document.createElement('input');
-  dataInput.type = 'hidden';
-  dataInput.name = 'data';
-  dataInput.value = payload;
-  form.appendChild(dataInput);
-
-  document.body.appendChild(form);
-  form.submit();
-  document.body.removeChild(form);
-
-  el.style.background = '#E8F5E9';
-  el.style.color = '#2E7D32';
-  el.textContent = '✓ Sync page opened — close it once you see status ok';
-  const syncTime = new Date().toLocaleString('en-AU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
-  localStorage.setItem(lsKey('last-push'), syncTime);
-}
+function syncToSheet() {}
 
 
 // ── CLEAR CACHE (SAFE) ───────────────────────────────────────────────────────
@@ -6113,73 +6025,9 @@ function pushAppData(key, data) {
   });
 }
 
-async function pushAppDataNow(key, data) {
-  const url = getScriptURL();
-  if (!url) return false;
-  try {
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'setAppData', key, value: data })
-    });
-    const json = await resp.json();
-    return !!json.success;
-  } catch (e) {
-    console.warn('AppData immediate push error:', key, e);
-    return false;
-  }
-}
+function pushAppDataNow() { return Promise.resolve(false); }
 
-async function pushAllAppData() {
-  if (_pushAllAppDataInFlight) return;
-  _pushAllAppDataInFlight = true;
-  const url = getScriptURL();
-  if (!url) { showBanner('⚠ No script URL configured', 'warn'); _pushAllAppDataInFlight = false; return; }
-  const btn = document.getElementById('push-appdata-btn');
-  const result = document.getElementById('push-appdata-result');
-  if (btn) { btn.textContent = 'Pushing…'; btn.disabled = true; }
-  const keys = {
-    cleaners:    loadCleaners(),
-    cleans:      cleans,
-    notes:       notes,
-    inventory:   inventory,
-    maintenance: maintenance,
-    aiIgnore:    loadAIIgnoreList(),
-    pushSubs:    getPushSubs(),
-  };
-  const errors = [];
-  for (const [key, data] of Object.entries(keys)) {
-    try {
-      const r = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action: 'setAppData', key, value: data })
-      });
-      const j = await r.json();
-      if (!j.success) errors.push(key + ': ' + (j.error || j.status || 'failed'));
-    } catch(e) {
-      errors.push(key + ': network error');
-    }
-  }
-  if (btn) { btn.textContent = '⬆ Push App Data to Sheet'; btn.disabled = false; }
-  if (errors.length) {
-    if (result) {
-      result.style.display = 'block';
-      result.style.background = '#FDECEA'; result.style.color = 'var(--red)';
-      result.textContent = '⚠ Some failed: ' + errors.join(', ');
-    }
-    showBanner('⚠ Push completed with errors. Review AppData result details.', 'warn');
-  } else {
-    if (result) {
-      result.style.display = 'block';
-      result.style.background = '#EDF7ED'; result.style.color = 'var(--moss)';
-      result.textContent = '✓ All data pushed to Sheet successfully';
-    }
-    showBanner('✓ Push complete: local app data saved to Sheet', 'ok');
-    if (result) setTimeout(() => result.style.display = 'none', 4000);
-  }
-  _pushAllAppDataInFlight = false;
-}
+async function pushAllAppData() {}
 
 async function pullAppData(manual = false) {
   if (_pullAppDataInFlight) {
@@ -7212,34 +7060,8 @@ async function assignCleanerToBooking(bookingId) {
     if (typeof saveCleanToCloud === 'function') {
       await saveCleanToCloud(newClean);
     }
-    const sharedSaved = await pushAppDataNow('cleans', cleans);
-    if (sharedSaved) {
-      showBanner('✓ Assigned to ' + cleanerObj.name + ' — awaiting cleaner response', 'ok');
-    } else {
-      showBanner('⚠ Assigned locally. Shared sync pending/retry required.', 'warn');
-    }
+    showBanner('✓ Assigned to ' + cleanerObj.name + ' — awaiting cleaner response', 'ok');
     showDetail(bookingId);
-
-    // Pull latest pushSubs from Sheet (cleaner sub lives on cleaner's device)
-    try {
-      const url = getCurrentScriptURL();
-      console.log('Fetching pushSubs from:', url);
-      if (url && url.includes('legacy-endpoint.invalid')) {
-        const resp = await fetch(url + '?action=getAppData');
-        const json = await resp.json();
-        if (json.success && json.data && json.data.pushSubs) {
-          const local = getPushSubs();
-          const merged = {
-            owner: json.data.pushSubs.owner || local.owner,
-            cleaners: Object.assign({}, local.cleaners, json.data.pushSubs.cleaners)
-          };
-          localStorage.setItem(lsKey('push-subs'), JSON.stringify(merged));
-          console.log('Refreshed pushSubs. Cleaners:', Object.keys(merged.cleaners));
-        } else {
-          console.warn('getAppData response:', json);
-        }
-      }
-    } catch(e) { console.warn('Could not refresh pushSubs:', e); }
 
     // Send push notification
     const cleanerSub = getCleanerSub(cleanerObj.id);
