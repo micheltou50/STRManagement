@@ -7913,16 +7913,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // THEN hydrate from cloud so data lands under the correct scoped keys.
   if (typeof showLoadingScreen === 'function') showLoadingScreen('Signing you in…');
   migrateConfigFromLegacySettings();
-
-  // ── Pre-flight: check Supabase for an existing property BEFORE finishAppInit ──
-  // On a fresh device (or preview URL) localStorage is empty, so
-  // hasValidPropertyConfig() returns false and the setup overlay blocks,
-  // and isOnboardingComplete() returns false because there's no property name.
-  // Seed from cloud first so both gates pass for returning users.
-  if (typeof preflightSeedPropertyFromCloud === 'function') {
-    await preflightSeedPropertyFromCloud('Session pre-flight');
-  }
-
+  if (typeof setLoadingStatus === 'function') setLoadingStatus('Checking your account…');
+  if (typeof seedLocalConfigFromCloud === 'function') await seedLocalConfigFromCloud();
   await ensureHostIdentityAndRestore();
   if (typeof setLoadingStatus === 'function') setLoadingStatus('Starting app…');
   await finishAppInit();

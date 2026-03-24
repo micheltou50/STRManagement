@@ -76,79 +76,116 @@ async function getCurrentSupabaseUser() {
 async function loadPropertyFromCloud() {
   try {
     const user = await getCurrentSupabaseUser();
-    if (!user) return null;
-    // Use .limit(1) instead of .single() — .single() throws on 0 or 2+ rows
+    if (!user) { console.log('[PreFlight] loadPropertyFromCloud: no user'); return null; }
     const { data, error } = await window._sb
       .from('properties')
       .select('*')
       .eq('user_id', user.id)
       .order('updated_at', { ascending: false })
       .limit(1);
-    if (error || !data || !data.length) return null;
+    if (error) { console.warn('[PreFlight] loadPropertyFromCloud query error:', error); return null; }
+    if (!data || !data.length) { console.log('[PreFlight] loadPropertyFromCloud: no rows'); return null; }
+    console.log('[PreFlight] loadPropertyFromCloud: found property "' + data[0].name + '" id=' + data[0].id);
     return data[0];
   } catch (e) {
-    console.warn('[StayOps] loadPropertyFromCloud failed', e);
+    console.warn('[PreFlight] loadPropertyFromCloud exception:', e);
     return null;
   }
 }
 
-function mapCloudPropertyToLocalConfig(cloudProp) {
-  if (!cloudProp) return null;
-  return {
-    name: cloudProp.name || '',
-    suburb: cloudProp.suburb || '',
-    state: cloudProp.state || '',
-    region: cloudProp.region || '',
-    country: cloudProp.country || 'Australia',
-    branding: {
-      subtitle: [cloudProp.suburb, cloudProp.state].filter(Boolean).join(' · '),
-      tagline: cloudProp.tagline || [cloudProp.suburb, cloudProp.state].filter(Boolean).join(', '),
-    },
-    property: {
-      bedrooms: cloudProp.bedrooms || 4,
-      maxGuests: cloudProp.max_guests || 8,
-      bathrooms: cloudProp.bathrooms || 2,
-      type: cloudProp.property_type || 'house',
-    },
-    owner: {
-      name: cloudProp.owner_name || '',
-      email: cloudProp.owner_email || '',
-    },
-    integrations: {
-      sheetCsvUrl: cloudProp.sheets_url || '',
-      scriptUrl: cloudProp.script_url || '',
-    },
-    pricing: {
-      baseRate: cloudProp.base_rate || 350,
-    },
-    updated_at: cloudProp.updated_at || new Date().toISOString(),
-  };
-}
-
-async function preflightSeedPropertyFromCloud(logPrefix) {
+/**
+ * seedLocalConfigFromCloud — pre-flight helper.
+ * If the user has a property in Supabase, seeds it into localStorage
+ * so hasValidPropertyConfig() and isOnboardingComplete() pass.
+ * Non-blocking: returns true if seeded, false if not (new user or error).
+ */
+async function seedLocalConfigFromCloud() {
+  console.log('[PreFlight] seedLocalConfigFromCloud: starting...');
   try {
-    if (typeof loadPropertyFromCloud !== 'function') return null;
     const cloudProp = await loadPropertyFromCloud();
-    if (!cloudProp || !cloudProp.name) return null;
+    if (!cloudProp || !cloudProp.name) {
+      console.log('[PreFlight] seedLocalConfigFromCloud: no cloud property with name — new user, onboarding will show');
+      return false;
+    }
 
+    console.log('[PreFlight] seedLocalConfigFromCloud: found "' + cloudProp.name + '", seeding localStorage...');
+
+    // 1. Set the setup-complete flag so hasValidPropertyConfig() returns true
     localStorage.setItem('gh-setup-complete', '1');
-    window._cloudPropertyId = cloudProp.id;
+    console.log('[PreFlight] gh-setup-complete set to 1');
 
+    // 2. Cache the cloud property ID for booking saves
+    window._cloudPropertyId = cloudProp.id;
+    console.log('[PreFlight] _cloudPropertyId set to', cloudProp.id);
+
+    // 3. Seed the full property config into localStorage
+    //    Wrap in _stayOpsHydrating to suppress cloud write-back
     window._stayOpsHydrating = true;
     try {
       if (typeof savePropertyConfig === 'function') {
-        savePropertyConfig(mapCloudPropertyToLocalConfig(cloudProp));
+        const localCfg = {
+          name:    cloudProp.name,
+          suburb:  cloudProp.suburb  || '',
+          state:   cloudProp.state   || '',
+          region:  cloudProp.region  || '',
+          country: cloudProp.country || 'Australia',
+          branding: {
+            subtitle: [cloudProp.suburb, cloudProp.state].filter(Boolean).join(' · '),
+            tagline:  cloudProp.tagline || [cloudProp.suburb, cloudProp.state].filter(Boolean).join(', '),
+          },
+          property: {
+            bedrooms:  cloudProp.bedrooms      || 4,
+            maxGuests: cloudProp.max_guests    || 8,
+            bathrooms: cloudProp.bathrooms     || 2,
+            type:      cloudProp.property_type || 'house',
+          },
+          owner: {
+            name:  cloudProp.owner_name  || '',
+            email: cloudProp.owner_email || '',
+            phone: cloudProp.owner_phone || '',
+          },
+          integrations: {
+            sheetCsvUrl:    cloudProp.sheets_url       || '',
+            scriptUrl:      cloudProp.script_url       || '',
+            calendarId:     cloudProp.calendar_id      || 'primary',
+            vapidPublicKey: cloudProp.vapid_public_key || '',
+            driveFolderId:  cloudProp.drive_folder_id  || null,
+          },
+          pricing: {
+            baseRate: cloudProp.base_rate || 350,
+          },
+          updated_at: cloudProp.updated_at || new Date().toISOString(),
+        };
+        savePropertyConfig(localCfg);
+        console.log('[PreFlight] savePropertyConfig() called successfully');
+
+        // Verify it worked
+        if (typeof getActivePropertyConfig === 'function') {
+          const verify = getActivePropertyConfig();
+          console.log('[PreFlight] Verify — getActivePropertyConfig().name =', verify && verify.name);
+        }
+        if (typeof hasValidPropertyConfig === 'function') {
+          console.log('[PreFlight] Verify — hasValidPropertyConfig() =', hasValidPropertyConfig());
+        }
+      } else {
+        console.warn('[PreFlight] savePropertyConfig not available — config.js may not be loaded yet');
       }
     } finally {
       window._stayOpsHydrating = false;
     }
 
-    console.log('[StayOps] ' + (logPrefix || 'Pre-flight') + ': seeded cloud property "' + cloudProp.name + '" into localStorage');
-    return cloudProp;
+    // 4. Also restore Drive/API keys to localStorage if present
+    if (cloudProp.drive_client_id) localStorage.setItem('gh-gdrive-client-id', cloudProp.drive_client_id);
+    if (cloudProp.drive_folder_id) localStorage.setItem('gh-drive-folder-id', cloudProp.drive_folder_id);
+    if (cloudProp.anthropic_api_key) localStorage.setItem('gh-api-key', cloudProp.anthropic_api_key);
+    if (cloudProp.script_url) localStorage.setItem('gh-script-url', cloudProp.script_url);
+
+    console.log('[PreFlight] seedLocalConfigFromCloud: DONE — setup gates should now pass');
+    return true;
   } catch (e) {
-    console.warn('[StayOps] ' + (logPrefix || 'Pre-flight') + ' property check failed (non-fatal)', e);
+    console.warn('[PreFlight] seedLocalConfigFromCloud failed (non-fatal, onboarding may show):', e);
     window._stayOpsHydrating = false;
-    return null;
+    return false;
   }
 }
 
@@ -1148,8 +1185,8 @@ async function handleLoginSubmit() {
   // ── Pre-flight: check Supabase for an existing property BEFORE finishAppInit ──
   // On a fresh device localStorage is empty, so hasValidPropertyConfig() and
   // isOnboardingComplete() both fail. Seed from cloud so returning users skip setup.
-  await preflightSeedPropertyFromCloud('Login pre-flight');
-
+  setLoadingStatus('Checking your account…');
+  await seedLocalConfigFromCloud();
   setLoadingStatus('Starting app…');
   if (typeof finishAppInit === 'function') await finishAppInit();
   setLoadingStatus('Loading your data…');
