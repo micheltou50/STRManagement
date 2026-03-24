@@ -92,6 +92,66 @@ async function loadPropertyFromCloud() {
   }
 }
 
+function mapCloudPropertyToLocalConfig(cloudProp) {
+  if (!cloudProp) return null;
+  return {
+    name: cloudProp.name || '',
+    suburb: cloudProp.suburb || '',
+    state: cloudProp.state || '',
+    region: cloudProp.region || '',
+    country: cloudProp.country || 'Australia',
+    branding: {
+      subtitle: [cloudProp.suburb, cloudProp.state].filter(Boolean).join(' · '),
+      tagline: cloudProp.tagline || [cloudProp.suburb, cloudProp.state].filter(Boolean).join(', '),
+    },
+    property: {
+      bedrooms: cloudProp.bedrooms || 4,
+      maxGuests: cloudProp.max_guests || 8,
+      bathrooms: cloudProp.bathrooms || 2,
+      type: cloudProp.property_type || 'house',
+    },
+    owner: {
+      name: cloudProp.owner_name || '',
+      email: cloudProp.owner_email || '',
+    },
+    integrations: {
+      sheetCsvUrl: cloudProp.sheets_url || '',
+      scriptUrl: cloudProp.script_url || '',
+    },
+    pricing: {
+      baseRate: cloudProp.base_rate || 350,
+    },
+    updated_at: cloudProp.updated_at || new Date().toISOString(),
+  };
+}
+
+async function preflightSeedPropertyFromCloud(logPrefix) {
+  try {
+    if (typeof loadPropertyFromCloud !== 'function') return null;
+    const cloudProp = await loadPropertyFromCloud();
+    if (!cloudProp || !cloudProp.name) return null;
+
+    localStorage.setItem('gh-setup-complete', '1');
+    window._cloudPropertyId = cloudProp.id;
+
+    window._stayOpsHydrating = true;
+    try {
+      if (typeof savePropertyConfig === 'function') {
+        savePropertyConfig(mapCloudPropertyToLocalConfig(cloudProp));
+      }
+    } finally {
+      window._stayOpsHydrating = false;
+    }
+
+    console.log('[StayOps] ' + (logPrefix || 'Pre-flight') + ': seeded cloud property "' + cloudProp.name + '" into localStorage');
+    return cloudProp;
+  } catch (e) {
+    console.warn('[StayOps] ' + (logPrefix || 'Pre-flight') + ' property check failed (non-fatal)', e);
+    window._stayOpsHydrating = false;
+    return null;
+  }
+}
+
 async function savePropertyToCloud(cfg) {
   try {
     const user = await getCurrentSupabaseUser();
@@ -1088,56 +1148,7 @@ async function handleLoginSubmit() {
   // ── Pre-flight: check Supabase for an existing property BEFORE finishAppInit ──
   // On a fresh device localStorage is empty, so hasValidPropertyConfig() and
   // isOnboardingComplete() both fail. Seed from cloud so returning users skip setup.
-  try {
-    const _pfProp = await loadPropertyFromCloud();
-    if (_pfProp && _pfProp.name) {
-      localStorage.setItem('gh-setup-complete', '1');
-      window._cloudPropertyId = _pfProp.id;
-
-      // Seed property config into localStorage so getActivePropertyConfig().name works
-      window._stayOpsHydrating = true;
-      try {
-        if (typeof savePropertyConfig === 'function') {
-          savePropertyConfig({
-            name:    _pfProp.name,
-            suburb:  _pfProp.suburb  || '',
-            state:   _pfProp.state   || '',
-            region:  _pfProp.region  || '',
-            country: _pfProp.country || 'Australia',
-            branding: {
-              subtitle: [_pfProp.suburb, _pfProp.state].filter(Boolean).join(' · '),
-              tagline:  _pfProp.tagline || [_pfProp.suburb, _pfProp.state].filter(Boolean).join(', '),
-            },
-            property: {
-              bedrooms:  _pfProp.bedrooms   || 4,
-              maxGuests: _pfProp.max_guests  || 8,
-              bathrooms: _pfProp.bathrooms   || 2,
-              type:      _pfProp.property_type || 'house',
-            },
-            owner: {
-              name:  _pfProp.owner_name  || '',
-              email: _pfProp.owner_email || '',
-            },
-            integrations: {
-              sheetCsvUrl: _pfProp.sheets_url  || '',
-              scriptUrl:   _pfProp.script_url  || '',
-            },
-            pricing: {
-              baseRate: _pfProp.base_rate || 350,
-            },
-            updated_at: _pfProp.updated_at || new Date().toISOString(),
-          });
-        }
-      } finally {
-        window._stayOpsHydrating = false;
-      }
-
-      console.log('[StayOps] Login pre-flight: seeded cloud property "' + _pfProp.name + '" into localStorage');
-    }
-  } catch (e) {
-    console.warn('[StayOps] Login pre-flight property check failed (non-fatal)', e);
-    window._stayOpsHydrating = false;
-  }
+  await preflightSeedPropertyFromCloud('Login pre-flight');
 
   setLoadingStatus('Starting app…');
   if (typeof finishAppInit === 'function') await finishAppInit();
