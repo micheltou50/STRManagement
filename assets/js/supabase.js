@@ -1195,6 +1195,10 @@ async function handleLoginSubmit() {
     await hydrateFromCloud();
     console.log('[StayOps] Login boot: hydrateFromCloud complete');
 
+    // Refresh in-memory arrays and property UI after cloud hydration
+    if (typeof reloadInMemoryData === 'function') reloadInMemoryData();
+    if (typeof initPropertyUI === 'function') initPropertyUI();
+
     // Check if onboarding is needed (new user)
     if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) {
       if (typeof showOnboarding === 'function') showOnboarding();

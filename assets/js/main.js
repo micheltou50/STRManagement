@@ -446,6 +446,21 @@ let notes    = loadJSON(lsKey('notes'));
 let calYear  = new Date().getFullYear();
 let calMonth = new Date().getMonth();
 
+/**
+ * reloadInMemoryData — refresh all in-memory arrays from localStorage.
+ * Must be called after hydrateFromCloud() writes cloud data into localStorage,
+ * otherwise renderAll() sees the stale (empty) arrays from script parse time.
+ */
+function reloadInMemoryData() {
+  console.log('[StayOps] reloadInMemoryData: refreshing in-memory arrays from localStorage');
+  bookings    = loadJSON(lsKey('bookings'));
+  cleans      = loadJSON(lsKey('cleans'));
+  notes       = loadJSON(lsKey('notes'));
+  expenses    = JSON.parse(localStorage.getItem(lsKey('expenses'))    || '[]');
+  maintenance = JSON.parse(localStorage.getItem(lsKey('maintenance')) || '[]');
+  inventory   = JSON.parse(localStorage.getItem(lsKey('inventory'))   || '[]');
+}
+
 const _appDataTimers = {};
 const _actionLocks = Object.create(null);
 let _pullAppDataInFlight = false;
@@ -7755,6 +7770,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
     console.log('[StayOps] Boot step: hydrateFromCloud complete');
 
+    // Refresh in-memory arrays and property UI after cloud hydration
+    reloadInMemoryData();
+    initPropertyUI();
+
     // Check if onboarding is needed (new user on fresh device)
     if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) {
       if (typeof showOnboarding === 'function') {
@@ -7947,6 +7966,8 @@ async function onboardFinish() {
   if (typeof showLoadingScreen === 'function') showLoadingScreen('Setting up your account…');
   if (typeof finishAppInit === 'function') await finishAppInit();
   if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
+  reloadInMemoryData();
+  if (typeof initPropertyUI === 'function') initPropertyUI();
   if (typeof showAppChrome === 'function') showAppChrome();
   if (typeof renderAll === 'function') renderAll();
   setTimeout(() => { if (typeof checkAutoSendReport === 'function') checkAutoSendReport(); }, 1500);
