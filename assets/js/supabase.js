@@ -844,85 +844,79 @@ async function loadBookingsFromCloud() {
 }
 
 async function saveBookingToCloud(booking) {
-  try {
-    const user = await getCurrentSupabaseUser();
-    if (!user || !booking) return;
-    const propertyId = await getCloudPropertyId();
-    const payload = {
-      user_id:            user.id,
-      property_id:        propertyId || null,
-      local_id:           String(booking.id),
-      checkin:            booking.checkin   ? String(booking.checkin).slice(0,10)   : null,
-      checkout:           booking.checkout  ? String(booking.checkout).slice(0,10)  : null,
-      nights:             booking.nights    || null,
-      guest_name:         booking.name      || '',
-      guests:             booking.guests    || 1,
-      host_payout:        Number(booking.hostPayout)  || 0,
-      cleaning_fee:       Number(booking.cleaningFee) || 0,
-      mgmt_fee:           Number(booking.mgmtFee)     || 0,
-      mgmt_fee_raw:       Number(booking.mgmtFeeRaw)  || 0,
-      mgmt_payout:        Number(booking.mgmtPayout)  || 0,
-      net_payout:         Number(booking.netPayout)   || 0,
-      platform:           booking.platform    || '',
-      confirmation_code:  booking.confirmCode || null,
-      status:             booking.status      || 'confirmed',
-      cleaner_confirmed:  booking.cleanerConfirmed || false,
-      gcal_event_id:      booking.gcalEventId || null,
-      source:             booking.source      || 'sheet',
-      updated_at:         new Date().toISOString(),
-    };
-    if (booking._cloudId) {
-      await window._sb.from('bookings').upsert({ id: booking._cloudId, ...payload });
-    } else {
-      const { data } = await window._sb
-        .from('bookings')
-        .upsert(payload, { onConflict: 'local_id,user_id' })
-        .select().single();
-      if (data) booking._cloudId = data.id;
-    }
-  } catch (e) {
-    console.warn('[StayOps] saveBookingToCloud failed', e);
+  const user = await getCurrentSupabaseUser();
+  if (!user || !booking) return;
+  const propertyId = await getCloudPropertyId();
+  const payload = {
+    user_id:            user.id,
+    property_id:        propertyId || null,
+    local_id:           String(booking.id),
+    checkin:            booking.checkin   ? String(booking.checkin).slice(0,10)   : null,
+    checkout:           booking.checkout  ? String(booking.checkout).slice(0,10)  : null,
+    nights:             booking.nights    || null,
+    guest_name:         booking.name      || '',
+    guests:             booking.guests    || 1,
+    host_payout:        Number(booking.hostPayout)  || 0,
+    cleaning_fee:       Number(booking.cleaningFee) || 0,
+    mgmt_fee:           Number(booking.mgmtFee)     || 0,
+    mgmt_fee_raw:       Number(booking.mgmtFeeRaw)  || 0,
+    mgmt_payout:        Number(booking.mgmtPayout)  || 0,
+    net_payout:         Number(booking.netPayout)   || 0,
+    platform:           booking.platform    || '',
+    confirmation_code:  booking.confirmCode || null,
+    status:             booking.status      || 'confirmed',
+    cleaner_confirmed:  booking.cleanerConfirmed || false,
+    gcal_event_id:      booking.gcalEventId || null,
+    source:             booking.source      || 'sheet',
+    updated_at:         new Date().toISOString(),
+  };
+  if (booking._cloudId) {
+    const { error } = await window._sb.from('bookings').upsert({ id: booking._cloudId, ...payload });
+    if (error) { console.warn('[StayOps] saveBookingToCloud upsert error', error); throw error; }
+  } else {
+    const { data, error } = await window._sb
+      .from('bookings')
+      .upsert(payload, { onConflict: 'local_id,user_id' })
+      .select().single();
+    if (error) { console.warn('[StayOps] saveBookingToCloud insert error', error); throw error; }
+    if (data) booking._cloudId = data.id;
   }
 }
 
 async function saveBookingsToCloud(bookingsList) {
   if (!Array.isArray(bookingsList) || !bookingsList.length) return;
-  try {
-    const user = await getCurrentSupabaseUser();
-    if (!user) return;
-    const propertyId = await getCloudPropertyId();
-    const payload = bookingsList.map(b => ({
-      user_id:            user.id,
-      property_id:        propertyId || null,
-      local_id:           String(b.id),
-      checkin:            b.checkin   ? String(b.checkin).slice(0,10)   : null,
-      checkout:           b.checkout  ? String(b.checkout).slice(0,10)  : null,
-      nights:             b.nights    || null,
-      guest_name:         b.name      || '',
-      guests:             b.guests    || 1,
-      host_payout:        Number(b.hostPayout)  || 0,
-      cleaning_fee:       Number(b.cleaningFee) || 0,
-      mgmt_fee:           Number(b.mgmtFee)     || 0,
-      mgmt_fee_raw:       Number(b.mgmtFeeRaw)  || 0,
-      mgmt_payout:        Number(b.mgmtPayout)  || 0,
-      net_payout:         Number(b.netPayout)   || 0,
-      platform:           b.platform    || '',
-      confirmation_code:  b.confirmCode || null,
-      status:             b.status      || 'confirmed',
-      cleaner_confirmed:  b.cleanerConfirmed || false,
-      gcal_event_id:      b.gcalEventId || null,
-      source:             b.source      || 'sheet',
-      updated_at:         new Date().toISOString(),
-    }));
-    const { error } = await window._sb
-      .from('bookings')
-      .upsert(payload, { onConflict: 'local_id,user_id' });
-    if (error) {
-      console.warn('[StayOps] saveBookingsToCloud bulk upsert error', error);
-      throw new Error(error.message || 'Supabase upsert failed');
-    }
-  } catch (e) {
-    console.warn('[StayOps] saveBookingsToCloud failed', e);
+  const user = await getCurrentSupabaseUser();
+  if (!user) throw new Error('Not signed in — cannot save bookings to cloud');
+  const propertyId = await getCloudPropertyId();
+  const payload = bookingsList.map(b => ({
+    user_id:            user.id,
+    property_id:        propertyId || null,
+    local_id:           String(b.id),
+    checkin:            b.checkin   ? String(b.checkin).slice(0,10)   : null,
+    checkout:           b.checkout  ? String(b.checkout).slice(0,10)  : null,
+    nights:             b.nights    || null,
+    guest_name:         b.name      || '',
+    guests:             b.guests    || 1,
+    host_payout:        Number(b.hostPayout)  || 0,
+    cleaning_fee:       Number(b.cleaningFee) || 0,
+    mgmt_fee:           Number(b.mgmtFee)     || 0,
+    mgmt_fee_raw:       Number(b.mgmtFeeRaw)  || 0,
+    mgmt_payout:        Number(b.mgmtPayout)  || 0,
+    net_payout:         Number(b.netPayout)   || 0,
+    platform:           b.platform    || '',
+    confirmation_code:  b.confirmCode || null,
+    status:             b.status      || 'confirmed',
+    cleaner_confirmed:  b.cleanerConfirmed || false,
+    gcal_event_id:      b.gcalEventId || null,
+    source:             b.source      || 'sheet',
+    updated_at:         new Date().toISOString(),
+  }));
+  const { error } = await window._sb
+    .from('bookings')
+    .upsert(payload, { onConflict: 'local_id,user_id' });
+  if (error) {
+    console.warn('[StayOps] saveBookingsToCloud bulk upsert error', error);
+    throw new Error(error.message || 'Supabase upsert failed');
   }
 }
 
@@ -1087,6 +1081,21 @@ async function handleLoginSubmit() {
 
   hideLoginScreen();
   showLoadingScreen('Signing you in…');
+
+  // ── Pre-flight: check Supabase for an existing property BEFORE finishAppInit ──
+  // On a fresh device localStorage is empty, so hasValidPropertyConfig() would
+  // return false and the setup overlay would block. Seeding from cloud prevents this.
+  try {
+    const cloudProp = await loadPropertyFromCloud();
+    if (cloudProp && cloudProp.name) {
+      localStorage.setItem('gh-setup-complete', '1');
+      window._cloudPropertyId = cloudProp.id;
+      console.log('[StayOps] Login pre-flight: found cloud property "' + cloudProp.name + '" — skipping setup/onboarding');
+    }
+  } catch (e) {
+    console.warn('[StayOps] Login pre-flight property check failed (non-fatal)', e);
+  }
+
   setLoadingStatus('Starting app…');
   if (typeof finishAppInit === 'function') await finishAppInit();
   setLoadingStatus('Loading your data…');

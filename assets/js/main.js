@@ -3027,7 +3027,14 @@ function addBooking() {
   save();
   if (autoAssigned) if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
   pushToSheet('add', newB); closeModal(); render();
-  if (typeof saveBookingToCloud === 'function') saveBookingToCloud(newB).catch(() => {});
+  if (typeof saveBookingToCloud === 'function') {
+    saveBookingToCloud(newB).then(() => {
+      console.log('[StayOps] Booking saved to Supabase');
+    }).catch(e => {
+      console.error('[StayOps] Failed to save booking to Supabase', e);
+      showBanner('⚠ Booking saved locally but cloud sync failed: ' + (e.message || 'unknown error'), 'warn');
+    });
+  }
   showBanner('✅ Booking added', 'ok');
   pushBookingToCalendar(newB);
 }
@@ -3902,6 +3909,7 @@ function renderHostProfileRow() {
 }
 
 // ── PROPERTY SWITCHER (header) ─────────────────────────────────
+let _propSwitcherOpenedAt = 0;
 function openPropertySwitcherSheet() {
   console.log('[StayOps] openPropertySwitcherSheet called');
   const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
@@ -3922,11 +3930,16 @@ function openPropertySwitcherSheet() {
   }
   const sheet = document.getElementById('property-switcher-sheet');
   if (!sheet) { console.error('[StayOps] property-switcher-sheet element not found'); return; }
+  _propSwitcherOpenedAt = Date.now();
   sheet.style.display = 'flex';
   console.log('[StayOps] Sheet shown:', sheet.style.display);
 }
 
 function closePropertySwitcherSheet() {
+  // Guard against ghost-click: on mobile, a tap on the header button can fire
+  // a second click event on the backdrop that now sits under the finger,
+  // immediately closing the sheet. Ignore close requests within 350ms of open.
+  if (Date.now() - _propSwitcherOpenedAt < 350) return;
   const sheet = document.getElementById('property-switcher-sheet');
   if (sheet) sheet.style.display = 'none';
 }
@@ -7900,6 +7913,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   // THEN hydrate from cloud so data lands under the correct scoped keys.
   if (typeof showLoadingScreen === 'function') showLoadingScreen('Signing you in…');
   migrateConfigFromLegacySettings();
+
+  // ── Pre-flight: check Supabase for an existing property BEFORE finishAppInit ──
+  // On a fresh device localStorage is empty, so hasValidPropertyConfig() would
+  // return false and the setup overlay would block. Seeding from cloud prevents this.
+  try {
+    if (typeof loadPropertyFromCloud === 'function') {
+      const cloudProp = await loadPropertyFromCloud();
+      if (cloudProp && cloudProp.name) {
+        // Seed localStorage so hasValidPropertyConfig() and isOnboardingComplete() pass
+        localStorage.setItem('gh-setup-complete', '1');
+        // Cache the cloud property id for booking saves
+        window._cloudPropertyId = cloudProp.id;
+        console.log('[StayOps] Pre-flight: found cloud property "' + cloudProp.name + '" — skipping setup/onboarding');
+      }
+    }
+  } catch (e) {
+    console.warn('[StayOps] Pre-flight property check failed (non-fatal)', e);
+  }
+
   await ensureHostIdentityAndRestore();
   if (typeof setLoadingStatus === 'function') setLoadingStatus('Starting app…');
   await finishAppInit();
