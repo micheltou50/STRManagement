@@ -3150,10 +3150,52 @@ async function deleteBooking(id) {
   const b=bookings.find(b=>b.id===id);
   const _okBk = await showAppModal({ title: 'Delete Booking', msg: 'Remove this booking? This cannot be undone.', confirmText: 'Delete', confirmColor: 'var(--red)' }); if (!_okBk) return;
   const deletedBooking = bookings.find(b=>b.id===id);
+
+  // Capture linked cleans and notes BEFORE filtering — needed for Supabase deletion
+  const orphanedCleans = cleans.filter(c => c.bookingId === id || (deletedBooking && c.guestName === deletedBooking.name));
+  const orphanedNotes = notes.filter(n => n.bookingId === id || (deletedBooking && n.guestName === deletedBooking.name));
+
   bookings=bookings.filter(b=>b.id!==id);
   cleans=cleans.filter(c=>c.bookingId!==id && !(deletedBooking && c.guestName===deletedBooking.name));
   notes=notes.filter(n=>n.bookingId!==id && !(deletedBooking && n.guestName===deletedBooking.name));
   save();
+
+  if (deletedBooking && typeof deleteBookingFromCloud === 'function') deleteBookingFromCloud(deletedBooking).catch(e => console.warn('[StayOps] Failed to delete booking from cloud', e));
+
+  // Delete orphaned cleans from Supabase
+  if (orphanedCleans.length) {
+    const user = typeof getCurrentSupabaseUser === 'function' ? await getCurrentSupabaseUser() : null;
+    if (user && window._sb) {
+      for (const c of orphanedCleans) {
+        try {
+          if (c._cloudId) {
+            await window._sb.from('cleans').delete().eq('id', c._cloudId);
+          } else {
+            await window._sb.from('cleans').delete().eq('user_id', user.id).eq('local_id', String(c.id));
+          }
+        } catch (e) { console.warn('[StayOps] Failed to delete orphaned clean from cloud', e); }
+      }
+      console.log('[StayOps] Deleted', orphanedCleans.length, 'orphaned clean(s) from Supabase');
+    }
+  }
+
+  // Delete orphaned notes from Supabase
+  if (orphanedNotes.length) {
+    const user = typeof getCurrentSupabaseUser === 'function' ? await getCurrentSupabaseUser() : null;
+    if (user && window._sb) {
+      for (const n of orphanedNotes) {
+        try {
+          if (n._cloudId) {
+            await window._sb.from('notes').delete().eq('id', n._cloudId);
+          } else {
+            await window._sb.from('notes').delete().eq('user_id', user.id).eq('local_id', String(n.id));
+          }
+        } catch (e) { console.warn('[StayOps] Failed to delete orphaned note from cloud', e); }
+      }
+      console.log('[StayOps] Deleted', orphanedNotes.length, 'orphaned note(s) from Supabase');
+    }
+  }
+
   if (b) pushToSheet('delete', b);
   // Delete calendar event if one was created
   if (deletedBooking && deletedBooking.gcalEventId) {
