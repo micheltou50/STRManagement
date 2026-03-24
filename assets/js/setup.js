@@ -95,10 +95,6 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
     state:       'NSW',
     region:      'Blue Mountains',
     tagline:     'Katoomba, NSW · Blue Mountains',
-    // Suppress Glenhaven's live URLs on first-boot so a new host cannot
-    // accidentally submit the form pointing at Glenhaven's real data.
-    sheetCsvUrl: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTlssTFmteUx1q3NkqRz2hAIqtJbt8OlRxl8VcX1x5gW6mI8W52n3xutATDO13qlRNoobKSsmVPciDR/pub?gid=0&single=true&output=csv',
-    scriptUrl:   'https://script.google.com/macros/s/AKfycbzM0wcdsUqK03faXxk2VqTAEqzno4GCAMzFYGrUXc4y1LKDwd8GbCKhNJruvbXJGhOflw/exec',
   };
   const pre = (field, saved) => {
     if (editMode) return ea(saved);
@@ -249,58 +245,9 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
           </div>
         </div>
 
-        <!-- ══ SECTION: GOOGLE / ADVANCED ══ -->
-        <div class="ss-label">${onboardingMode ? 'Optional Integrations' : 'Google Integration'}</div>
-
-        ${onboardingMode ? `<div class="ss-hint" style="margin-bottom:10px">You can start using the app without this. Connect Google later for cloud sync, receipts, and backups.</div>` : ''}
-
-        <details ${onboardingMode ? '' : 'open'} style="margin-bottom:8px">
-          <summary style="cursor:pointer;font-weight:600;font-size:13px;color:var(--forest);margin-bottom:10px">${onboardingMode ? 'Connect Google services later (optional)' : 'Integration settings'}</summary>
-
-        <div class="ss-field" style="margin-bottom:14px">
-          <label class="ss-lbl" for="s-sheet-url">Google Sheet CSV URL ${onboardingMode ? '<span class="ss-opt">(optional now)</span>' : '<span class="ss-req" aria-hidden="true">*</span>'}</label>
-          <input type="url" id="s-sheet-url" class="ss-inp"
-            placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?…&output=csv"
-            value="${pre('sheetCsvUrl', integ.sheetCsvUrl || '')}">
-          <div class="ss-hint">
-            In your bookings spreadsheet: <strong>File → Share → Publish to web</strong>
-            → choose the bookings sheet → CSV → Publish. Paste that URL here.
-          </div>
-        </div>
-
-        <div class="ss-field" style="margin-bottom:4px">
-          <label class="ss-lbl" for="s-script-url">Apps Script URL ${onboardingMode ? '<span class="ss-opt">(optional now)</span>' : '<span class="ss-req" aria-hidden="true">*</span>'}</label>
-          <input type="url" id="s-script-url" class="ss-inp"
-            placeholder="https://script.google.com/macros/s/…/exec"
-            value="${pre('scriptUrl', integ.scriptUrl || '')}">
-          <div class="ss-hint">
-            In Apps Script: <strong>Deploy → Manage deployments → copy the /exec URL</strong>.
-          </div>
-        </div>
-
-        <div class="ss-row">
-          <div class="ss-field">
-            <label class="ss-lbl" for="s-gdrive-client-id">Google Drive Client ID (Web app)</label>
-            <input type="text" id="s-gdrive-client-id" class="ss-inp"
-              placeholder="xxxxx.apps.googleusercontent.com"
-              value="${ea(localStorage.getItem('gh-gdrive-client-id') || '')}">
-          </div>
-          <div class="ss-field">
-            <label class="ss-lbl" for="s-drive-folder-id">Drive Folder ID</label>
-            <input type="text" id="s-drive-folder-id" class="ss-inp"
-              placeholder="e.g. 1AbCdEf..."
-              value="${ea(integ.driveFolderId || '')}">
-          </div>
-        </div>
-
-        <div class="ss-field" style="margin-top:10px;margin-bottom:4px">
-          <label class="ss-lbl" for="s-calendar-id">Google Calendar ID</label>
-          <input type="text" id="s-calendar-id" class="ss-inp"
-            placeholder="primary"
-            value="${ea(integ.calendarId || 'primary')}">
-        </div>
-
-        </details>
+        <!-- CHANGE 2 PLAN: Remove legacy Google integration fields now that configuration is Supabase-only. -->
+        <div class="ss-label">Integrations</div>
+        <div class="ss-hint" style="margin-bottom:12px">Supabase integration is managed automatically for this property.</div>
 
         <!-- ── Error area ── -->
         <div id="setup-errors" role="alert" aria-live="assertive" style="display:none"></div>
@@ -343,22 +290,6 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
 
     errEl.style.display = 'none';
 
-    const currentSheetUrl = (integ.sheetCsvUrl || '').trim();
-    const currentScriptUrl = (integ.scriptUrl || '').trim();
-    const nextSheetUrl = (((overlay.querySelector('#s-sheet-url') || {}).value) || '').trim();
-    const nextScriptUrl = (((overlay.querySelector('#s-script-url') || {}).value) || '').trim();
-    const changedSheetUrl = currentSheetUrl && nextSheetUrl !== currentSheetUrl;
-    const changedScriptUrl = currentScriptUrl && nextScriptUrl !== currentScriptUrl;
-
-    if (changedSheetUrl || changedScriptUrl) {
-      const targets = [];
-      if (changedSheetUrl) targets.push('Google Sheet CSV URL');
-      if (changedScriptUrl) targets.push('Apps Script URL');
-      const ok = window.confirm(
-        `You changed ${targets.join(' and ')}. This can affect bookings sync and Google integrations. Save these changes?`
-      );
-      if (!ok) return;
-    }
 
     const newCfg = _setupBuildConfig(overlay, createMode);
     if (createMode && typeof addPropertyConfig === 'function') {
@@ -370,14 +301,8 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
     if (!editMode || createMode) localStorage.setItem('gh-setup-complete', '1');
 
     // Mirror critical values to legacy keys so existing code paths work immediately.
-    localStorage.setItem('gh-script-url', newCfg.integrations.scriptUrl);
     if (newCfg.owner.email) localStorage.setItem('gh-inv-email',  newCfg.owner.email);
     if (newCfg.owner.name)  localStorage.setItem('gh-inv-name',   newCfg.owner.name);
-    const driveClientId = (((overlay.querySelector('#s-gdrive-client-id') || {}).value) || '').trim();
-    if (driveClientId) localStorage.setItem('gh-gdrive-client-id', driveClientId);
-
-    // Update DB adapter thunks pick up the new scriptUrl on the next call.
-    // (No action needed — thunks call getCurrentScriptURL() at call time.)
 
     // Reflect changes in the DOM immediately.
     if (typeof initPropertyUI === 'function') initPropertyUI();
@@ -423,9 +348,6 @@ function _setupValidate(overlay) {
   const guests    = parseFloat(v('s-guests'));
   const baths     = parseFloat(v('s-baths'));
   const email     = v('s-owner-email').trim();
-  const sheetUrl  = v('s-sheet-url').trim();
-  const scriptUrl = v('s-script-url').trim();
-  const driveFolderId = v('s-drive-folder-id').trim();
 
   if (!name)   errors.push('Property name is required.');
   if (!suburb) errors.push('Suburb / town is required.');
@@ -442,25 +364,6 @@ function _setupValidate(overlay) {
     errors.push('Owner email is required.');
   }
 
-  if (!onboardingMode && !sheetUrl) {
-    errors.push('Google Sheet CSV URL is required.');
-  } else if (sheetUrl && !sheetUrl.toLowerCase().includes('docs.google.com/spreadsheets')) {
-    errors.push('Google Sheet URL should start with docs.google.com/spreadsheets…');
-  } else if (sheetUrl && !sheetUrl.includes('output=csv')) {
-    errors.push('Google Sheet URL should end in &output=csv — publish as CSV first.');
-  }
-
-  if (!onboardingMode && !scriptUrl) {
-    errors.push('Apps Script URL is required.');
-  } else if (scriptUrl && !scriptUrl.toLowerCase().includes('script.google.com/macros')) {
-    errors.push('Apps Script URL should contain script.google.com/macros.');
-  } else if (scriptUrl && !scriptUrl.endsWith('/exec')) {
-    errors.push('Apps Script URL should end in /exec (the deployed web-app URL).');
-  }
-
-  if (driveFolderId && !/^[A-Za-z0-9_-]{10,}$/.test(driveFolderId)) {
-    errors.push('Drive Folder ID looks invalid. Paste the folder ID only (letters, numbers, _ or -).');
-  }
 
   return errors;
 }
@@ -520,14 +423,12 @@ function _setupBuildConfig(overlay, createMode) {
     },
 
     integrations: {
-      sheetCsvUrl:     v('s-sheet-url'),
-      scriptUrl:       v('s-script-url'),
       // Preserve existing push / calendar / drive config — not in the form.
       vapidPublicKey:  _existingInteg.vapidPublicKey
                          || (typeof VAPID_PUBLIC_KEY !== 'undefined' ? VAPID_PUBLIC_KEY : ''),
       pushFunctionUrl: _existingInteg.pushFunctionUrl || '/.netlify/functions/send-push',
-      calendarId:      v('s-calendar-id') || _existingInteg.calendarId || 'primary',
-      driveFolderId:   v('s-drive-folder-id') || _existingInteg.driveFolderId || null,
+      calendarId:      _existingInteg.calendarId || 'primary',
+      driveFolderId:   _existingInteg.driveFolderId || null,
     },
 
     pricing: {
@@ -556,8 +457,6 @@ function _setupBlankConfig() {
     property: { bedrooms: '', maxGuests: '', bathrooms: '', type: 'house' },
     owner: { name: '', email: '', phone: '' },
     integrations: {
-      sheetCsvUrl: '',
-      scriptUrl: '',
       vapidPublicKey: (d.integrations && d.integrations.vapidPublicKey) || '',
       pushFunctionUrl: (d.integrations && d.integrations.pushFunctionUrl) || '/.netlify/functions/send-push',
       calendarId: (d.integrations && d.integrations.calendarId) || 'primary',

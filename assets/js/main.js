@@ -38,18 +38,16 @@ function getAwaitingResponseMeta(clean, nowRef) {
 }
 
 // ── CONFIG ────────────────────────────────────────────────────────────────
-const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTlssTFmteUx1q3NkqRz2hAIqtJbt8OlRxl8VcX1x5gW6mI8W52n3xutATDO13qlRNoobKSsmVPciDR/pub?gid=0&single=true&output=csv";
-const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzM0wcdsUqK03faXxk2VqTAEqzno4GCAMzFYGrUXc4y1LKDwd8GbCKhNJruvbXJGhOflw/exec";
+// CHANGE 2 PLAN: Disable legacy Legacy Sheets / Legacy Sync defaults so only Supabase paths remain active.
+const SHEET_URL = "";
+const DEFAULT_SCRIPT_URL = "";
 const VAPID_PUBLIC_KEY = 'BO-fP_0TOY1foiCQtOZ40N7io1MAzoMUui6pmeHPJ3jLxbdNGh0SrRjxtvWVhuf4QKvf4q83eyS_wcICiS4cgc4';
 const PUSH_FUNCTION_URL = '/.netlify/functions/send-push';
 
 // ── DATA ADAPTER ──────────────────────────────────────────────────────────────
 // Instantiated here so CONFIG constants above are in scope as fallbacks.
 // Both arguments are thunks so URLs are read live from config on every call.
-window.DB = new GoogleSheetsAdapter(
-  () => getCurrentScriptURL(),
-  () => getPropertySheetCsvUrl()
-);
+window.DB = new SupabaseAdapter();
 
 // ── PUSH NOTIFICATIONS ────────────────────────────────────────────────────────
 function urlBase64ToUint8Array(base64String) {
@@ -63,38 +61,6 @@ function safePushStringify(v) {
   try { return JSON.stringify(v); } catch (_) { return '[unserializable]'; }
 }
 
-function pushDebugBanner(msg) {
-  if (!document || !document.body) return;
-  let el = document.getElementById('push-debug-banner');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'push-debug-banner';
-    el.style.position = 'fixed';
-    el.style.left = '8px';
-    el.style.right = '8px';
-    el.style.bottom = '8px';
-    el.style.maxHeight = '35vh';
-    el.style.overflow = 'auto';
-    el.style.background = 'rgba(0,0,0,0.9)';
-    el.style.color = '#00ff7f';
-    el.style.fontSize = '11px';
-    el.style.lineHeight = '1.35';
-    el.style.padding = '8px';
-    el.style.borderRadius = '8px';
-    el.style.zIndex = '99999';
-    el.style.whiteSpace = 'pre-wrap';
-    el.style.boxShadow = '0 2px 12px rgba(0,0,0,0.35)';
-    document.body.appendChild(el);
-  }
-  const line = document.createElement('div');
-  line.textContent = msg;
-  el.appendChild(line);
-  el.scrollTop = el.scrollHeight;
-}
-
-function pushDebugLog(msg) {
-  pushDebugBanner(msg);
-}
 
 function getPushSubs() {
   return JSON.parse(localStorage.getItem(lsKey('push-subs')) || '{"cleaners":{}}');
@@ -104,7 +70,6 @@ function savePushSubsLocal(subs) {
     hasOwner: !!(subs && subs.owner),
     cleanerCount: Object.keys((subs && subs.cleaners) || {}).length
   });
-  pushDebugLog('[Push] savePushSubsLocal: hasOwner=' + (!!(subs && subs.owner)) + ' cleanerCount=' + Object.keys((subs && subs.cleaners) || {}).length);
   localStorage.setItem(lsKey('push-subs'), JSON.stringify(subs));
   // Save push subs to Supabase app_config
   if (typeof saveAppConfigToCloud === 'function') {
@@ -114,7 +79,6 @@ function savePushSubsLocal(subs) {
   if (saveResPromise && typeof saveResPromise.then === 'function') {
     saveResPromise.then(saveRes => {
       console.log('[Push] pushAppData("pushSubs") response:', saveRes);
-      pushDebugLog('[Push] pushAppData("pushSubs") response: ' + safePushStringify(saveRes));
     });
   }
 }
@@ -151,7 +115,6 @@ async function enableNotificationsManually() {
 
 async function resetPushOnly() {
   console.log('[Push] Reset Push Only started');
-  pushDebugBanner('[Push] Reset Push Only started');
   const result = document.getElementById('notif-result');
   try {
     if (!('serviceWorker' in navigator)) throw new Error('serviceWorker unavailable');
@@ -160,32 +123,27 @@ async function resetPushOnly() {
     if (sub) {
       const unsubscribed = await sub.unsubscribe();
       console.log('[Push] Reset Push Only unsubscribe result:', unsubscribed);
-      pushDebugBanner('[Push] Reset Push Only unsubscribe result: ' + unsubscribed);
     } else {
       console.log('[Push] Reset Push Only: no existing subscription');
-      pushDebugBanner('[Push] Reset Push Only: no existing subscription');
     }
     localStorage.removeItem(lsKey('push-subs'));
     localStorage.removeItem('gh-push-subs');
     // Also clear the stale subscription from the Sheet so getFreshOwnerSub()
     // doesn't retrieve and re-use the old endpoint after a key rotation.
     try {
-      const scriptUrl = (getScriptURL() || '').trim();
-      if (scriptUrl) {
-        await fetch(scriptUrl, {
+      const syncUrl = (getScriptURL() || '').trim();
+      if (syncUrl) {
+        await fetch(syncUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain' },
           body: JSON.stringify({ action: 'setAppData', key: 'pushSubs', value: { cleaners: {} } })
         });
         console.log('[Push] Reset Push Only: cleared pushSubs from Sheet');
-        pushDebugBanner('[Push] Reset Push Only: cleared pushSubs from Sheet');
       }
     } catch (sheetErr) {
       console.warn('[Push] Reset Push Only: could not clear pushSubs from Sheet:', sheetErr);
-      pushDebugBanner('[Push] Reset Push Only: Sheet clear failed (non-fatal): ' + (sheetErr && sheetErr.message ? sheetErr.message : ''));
     }
     console.log('[Push] Reset Push Only complete');
-    pushDebugBanner('[Push] Reset Push Only complete');
     if (result) {
       result.style.display = 'block';
       result.style.color = 'var(--moss)';
@@ -194,7 +152,6 @@ async function resetPushOnly() {
     if (typeof updateNotifStatus === 'function') updateNotifStatus();
   } catch (e) {
     console.warn('[Push] Reset Push Only failed:', e);
-    pushDebugBanner('[Push] Reset Push Only failed: ' + (e && e.message ? e.message : 'unknown error'));
     if (result) {
       result.style.display = 'block';
       result.style.color = 'var(--red)';
@@ -229,56 +186,40 @@ function updateNotifStatus() {
 
 async function subscribeToPush(role, cleanerId) {
   console.log('[Push] subscribeToPush start', { role, cleanerId: cleanerId || null });
-  pushDebugLog('[Push] subscribeToPush start role=' + role + ' cleanerId=' + (cleanerId || ''));
   console.log('[Push] serviceWorker available:', 'serviceWorker' in navigator);
-  pushDebugLog('[Push] serviceWorker available: ' + ('serviceWorker' in navigator));
   console.log('[Push] PushManager available:', 'PushManager' in window);
-  pushDebugLog('[Push] PushManager available: ' + ('PushManager' in window));
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
     console.warn('Push not supported on this browser');
-    pushDebugLog('[Push] Push not supported on this browser');
     return null;
   }
   try {
     console.log('[Push] Notification.permission before request:', Notification.permission);
-    pushDebugLog('[Push] Notification.permission before request: ' + Notification.permission);
     console.log('[Push] waiting for navigator.serviceWorker.ready...');
     const reg = await navigator.serviceWorker.ready;
     console.log('[Push] navigator.serviceWorker.ready resolved:', !!reg);
-    pushDebugLog('[Push] navigator.serviceWorker.ready resolved: ' + (!!reg));
     console.log('[Push] registration.pushManager exists:', !!(reg && reg.pushManager));
-    pushDebugLog('[Push] registration.pushManager exists: ' + (!!(reg && reg.pushManager)));
     console.log('SW ready, getting push subscription...');
     let sub = await reg.pushManager.getSubscription();
     console.log('[Push] existing subscription found:', !!sub);
-    pushDebugLog('[Push] existing subscription found: ' + (!!sub));
     if (!sub) {
       console.log('[Push] calling Notification.requestPermission()');
-      pushDebugLog('[Push] calling Notification.requestPermission()');
       const permission = await Notification.requestPermission();
       console.log('Notification permission:', permission);
-      pushDebugLog('[Push] Notification.requestPermission() result: ' + permission);
       if (permission !== 'granted') return null;
       console.log('[Push] calling pushManager.subscribe()');
-      pushDebugLog('[Push] calling pushManager.subscribe()');
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(getVapidPublicKey())
       });
       console.log('[Push] pushManager.subscribe() succeeded:', !!sub);
-      pushDebugLog('[Push] pushManager.subscribe() succeeded: ' + (!!sub));
       const subscribedJson = sub && typeof sub.toJSON === 'function' ? sub.toJSON() : null;
       console.log('[Push] post-subscribe endpoint:', subscribedJson && subscribedJson.endpoint ? subscribedJson.endpoint : null);
-      pushDebugLog('[Push] post-subscribe endpoint: ' + (subscribedJson && subscribedJson.endpoint ? subscribedJson.endpoint : null));
       console.log('[Push] post-subscribe object:', safePushStringify(subscribedJson || sub || null));
-      pushDebugLog('[Push] post-subscribe object: ' + safePushStringify(subscribedJson || sub || null));
     }
     const subJson = sub.toJSON();
     console.log('Subscription endpoint:', subJson.endpoint.substring(0, 60) + '...');
     console.log('[Push] subscription endpoint (full):', subJson.endpoint || null);
-    pushDebugLog('[Push] subscription endpoint (full): ' + (subJson.endpoint || null));
     console.log('[Push] subscription object (safe stringify):', safePushStringify(subJson || null));
-    pushDebugLog('[Push] subscription object (safe stringify): ' + safePushStringify(subJson || null));
     const subs = getPushSubs();
     if (role === 'owner') {
       subs.owner = subJson;
@@ -287,23 +228,16 @@ async function subscribeToPush(role, cleanerId) {
       subs.cleaners[String(cleanerId)] = subJson;
     }
     console.log('[Push] before saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
-    pushDebugLog('[Push] before saving subscription role=' + role + ' endpoint=' + (subJson.endpoint || null));
     savePushSubsLocal(subs);
     console.log('[Push] after saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
-    pushDebugLog('[Push] after saving subscription role=' + role + ' endpoint=' + (subJson.endpoint || null));
     console.log('[Push] subscription save requested via pushAppData("pushSubs")');
     console.log('Subscription saved for role:', role, cleanerId || '');
     return subJson;
   } catch(e) {
     console.warn('[Push] subscribeToPush caught error object:', e);
-    pushDebugBanner('[Push] subscribeToPush caught error object: ' + safePushStringify(e));
     console.warn('[Push] subscribeToPush error.name:', e && e.name);
-    pushDebugBanner('[Push] subscribeToPush error.name: ' + (e && e.name ? e.name : ''));
     console.warn('[Push] subscribeToPush error.message:', e && e.message);
-    pushDebugBanner('[Push] subscribeToPush error.message: ' + (e && e.message ? e.message : ''));
-    pushDebugLog('[Push] subscribeToPush error: ' + (e && e.name ? e.name : 'Error') + ' ' + (e && e.message ? e.message : ''));
     console.warn('Push subscribe failed:', e);
-    pushDebugBanner('[Push] Push subscribe failed: ' + (e && e.message ? e.message : ''));
     return null;
   }
 }
@@ -312,9 +246,7 @@ async function sendPushToDevice(subscription, title, body, url, tag) {
   if (!subscription) { console.warn('sendPushToDevice called with no subscription'); return { ok: false, reason: 'no-subscription' }; }
   try {
     console.log('[Push] before sending push endpoint:', subscription && subscription.endpoint ? subscription.endpoint : null);
-    pushDebugLog('[Push] before sending push endpoint: ' + (subscription && subscription.endpoint ? subscription.endpoint : null));
     console.log('[Push] before sending push subscription (safe stringify):', safePushStringify(subscription || null));
-    pushDebugLog('[Push] before sending push subscription (safe stringify): ' + safePushStringify(subscription || null));
     console.log('Sending push "' + title + '" to endpoint:', subscription.endpoint.substring(0, 50) + '...');
     const res = await fetch(getPushFunctionUrl(), {
       method: 'POST',
@@ -322,11 +254,9 @@ async function sendPushToDevice(subscription, title, body, url, tag) {
       body: JSON.stringify({ subscription, title, body, url, tag })
     });
     console.log('[Push] send push HTTP status:', res.status);
-    pushDebugLog('[Push] send push HTTP status: ' + res.status);
     console.log('Push HTTP status:', res.status);
     const data = await res.json().catch(() => null);
     console.log('[Push] send push response body:', data);
-    pushDebugLog('[Push] send push response body: ' + safePushStringify(data));
     if (data === null) throw new Error('Invalid JSON from send-push function');
     console.log('Push function response:', data);
     const ok = !!(res.ok && data.ok);
@@ -341,7 +271,6 @@ async function sendPushToDevice(subscription, title, body, url, tag) {
     if (!ok) console.warn('Push send not successful:', data);
     return { ok, data };
   } catch(e) {
-    pushDebugLog('[Push] sendPushToDevice error: ' + (e && e.name ? e.name : 'Error') + ' ' + (e && e.message ? e.message : ''));
     console.warn('Push send failed:', e);
     return { ok: false, reason: e && e.message ? e.message : 'push-send-failed' };
   }
@@ -354,7 +283,7 @@ async function getFreshOwnerSub() {
   // Always pull latest pushSubs from Sheet — owner sub lives on owner's device
   try {
     const url = (getCurrentScriptURL() || '').trim();
-    if (url && url.includes('script.google.com')) {
+    if (url && url.includes('legacy-endpoint.invalid')) {
       const resp = await fetch(url + '?action=getAppData');
       const json = await resp.json();
       if (json.success && json.data && json.data.pushSubs) {
@@ -380,12 +309,12 @@ if ('serviceWorker' in navigator) {
 function getScriptURL() { return getCurrentScriptURL(); }
 
 // ── SHEET POST HELPER — all sheet calls use POST to avoid URL length limits ──
-function sheetPost(scriptUrl, action, data) {
-  // Apps Script redirects cause CORS failures with POST + large bodies.
+function sheetPost(syncUrl, action, data) {
+  // Legacy Sync redirects cause CORS failures with POST + large bodies.
   // Use GET with params appended to URL — reliable up to ~2KB per call.
   // For batch calls the app splits into small chunks before calling this.
   const dataStr = encodeURIComponent(JSON.stringify(data));
-  const url = scriptUrl + '?action=' + encodeURIComponent(action) + '&data=' + dataStr;
+  const url = syncUrl + '?action=' + encodeURIComponent(action) + '&data=' + dataStr;
   return fetch(url, { method: 'GET' }).then(r => r.json());
 }
 
@@ -490,15 +419,15 @@ function renderConnectionSummary() {
   const wrap = document.getElementById('conn-summary-list');
   if (!wrap) return;
 
-  const sheetUrl = (typeof getPropertySheetCsvUrl === 'function' ? getPropertySheetCsvUrl() : '').trim();
-  const scriptUrl = (typeof getCurrentScriptURL === 'function' ? getCurrentScriptURL() : '').trim();
+  const csvUrl = (typeof getPropertySheetCsvUrl === 'function' ? getPropertySheetCsvUrl() : '').trim();
+  const syncUrl = (typeof getCurrentScriptURL === 'function' ? getCurrentScriptURL() : '').trim();
   const token = getDriveToken();
   const shared = (typeof getSharedIntegrationConfig === 'function' ? getSharedIntegrationConfig() : null) || {};
   const clientId = String((typeof getDriveClientId === 'function' ? getDriveClientId() : localStorage.getItem('gh-gdrive-client-id') || '') || shared.gDriveClientId || shared.driveClientId || '').trim();
   const calendarId = getConfiguredCalendarId();
 
-  const sheetOk = !!sheetUrl && sheetUrl.includes('docs.google.com/spreadsheets') && sheetUrl.includes('output=csv');
-  const scriptOk = !!scriptUrl && scriptUrl.includes('script.google.com/macros') && scriptUrl.endsWith('/exec');
+  const sheetOk = !!csvUrl && csvUrl.includes('docs.google.com/spreadsheets') && csvUrl.includes('output=csv');
+  const scriptOk = !!syncUrl && syncUrl.includes('legacy-endpoint.invalid/macros') && syncUrl.endsWith('/exec');
   const driveOk = !!token;
   const calendarOk = !!token && !!calendarId;
 
@@ -509,8 +438,8 @@ function renderConnectionSummary() {
     </div>`;
 
   wrap.innerHTML = [
-    row('Google Sheets', sheetOk, sheetOk ? 'CSV URL saved' : 'Add sheet CSV URL'),
-    row('Apps Script', scriptOk, scriptOk ? 'Exec URL saved' : 'Add Apps Script /exec URL'),
+    row('Legacy Sheets', sheetOk, sheetOk ? 'CSV URL saved' : 'Add sheet CSV URL'),
+    row('Legacy Sync', scriptOk, scriptOk ? 'Exec URL saved' : 'Add Legacy Sync /exec URL'),
     row('Google Drive', driveOk, driveOk ? 'Token active' : (clientId ? 'Client ID set, connect required' : 'Missing Client ID')),
     row('Google Calendar', calendarOk, calendarOk ? ('Calendar: ' + escHtml(calendarId)) : 'Connect Drive token first')
   ].join('');
@@ -731,7 +660,7 @@ async function _sendCleanerAssignmentNotifications(booking, cleanerObj, date, ta
 
   try {
     const url = getCurrentScriptURL();
-    if (url && url.includes('script.google.com')) {
+    if (url && url.includes('legacy-endpoint.invalid')) {
       const resp = await fetch(url + '?action=getAppData');
       const json = await resp.json();
       if (json.success && json.data && json.data.pushSubs) {
@@ -853,11 +782,11 @@ function pushToSheet(action, booking) {
   sheetPost(url, action, booking)
     .then(json => {
       if (json.status === 'ok') {
-        showBanner('✓ Synced to Google Sheets', 'ok');
+        showBanner('✓ Synced to Legacy Sheets', 'ok');
         localStorage.setItem(lsKey('last-push'), new Date().toLocaleString('en-AU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}));
       } else if (json.status === 'not_found' && action === 'update') {
         sheetPost(url, 'add', booking);
-        showBanner('✓ Added to Google Sheets', 'ok');
+        showBanner('✓ Added to Legacy Sheets', 'ok');
       } else {
         showBanner('⚠ Sheet sync issue: ' + json.status, 'warn');
       }
@@ -872,7 +801,7 @@ let _syncInProgress = false;
 async function syncFromSheets(manual = false) {
   if (_syncInProgress) return;
   _syncInProgress = true;
-  if (manual) showBanner('⟳ Syncing with Google Sheets...', 'info');
+  if (manual) showBanner('⟳ Syncing with Legacy Sheets...', 'info');
   try {
     const csv = await DB.fetchBookings(); // reads URL from config via thunk
     const lines = csv.trim().split('\n').filter(l => l.trim());
@@ -3290,7 +3219,7 @@ function toISO(val){
   // Dash-separated DD-MM-YYYY (first part ≤2 digits; YYYY-MM-DD already caught above)
   const dashParts=val.split('-');
   if (dashParts.length===3 && dashParts[0].length<=2){const[d,m,y]=dashParts;return `${y.length===2?'20'+y:y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;}
-  // Google Sheets serial number
+  // Legacy Sheets serial number
   if (/^\d{4,6}$/.test(val)){const epoch=new Date(1899,11,30);epoch.setDate(epoch.getDate()+Number(val));return epoch.toISOString().split('T')[0];}
   // Text date e.g. "8 Mar 2026" — explicit parse to avoid MM/DD ambiguity
   const months={'jan':0,'feb':1,'mar':2,'apr':3,'may':4,'jun':5,'jul':6,'aug':7,'sep':8,'oct':9,'nov':10,'dec':11};
@@ -3420,8 +3349,8 @@ function closeNotifyModal() {
 // ── SETTINGS ─────────────────────────────────────────────────────────────
 function chooseGoogleAccount() {
   // Opens Google account chooser — user picks the right account, then comes back and taps Push
-  const scriptUrl = getScriptURL();
-  const continueUrl = encodeURIComponent(scriptUrl + '?action=test');
+  const syncUrl = getScriptURL();
+  const continueUrl = encodeURIComponent(syncUrl + '?action=test');
   window.open('https://accounts.google.com/AccountChooser?continue=' + continueUrl, '_blank');
 }
 
@@ -3473,7 +3402,7 @@ function syncToSheet() {
 function clearCacheAndResync() {
   showAppModal({
     title: '🗑 Clear booking cache?',
-    msg: 'This will clear synced bookings, cleans, notes and expenses, then re-pull from Google Sheets.\n\nYour inventory, cleaners, maintenance records and all settings will be kept.',
+    msg: 'This will clear synced bookings, cleans, notes and expenses, then re-pull from Legacy Sheets.\n\nYour inventory, cleaners, maintenance records and all settings will be kept.',
     confirmText: 'Clear & Re-sync',
     cancelText: 'Cancel'
   }).then(ok => {
@@ -3510,9 +3439,9 @@ function saveCleaningFee(bookingId) {
 // ── PUSH ALL EXPENSES TO SHEET ───────────────────────────────────────────────
 async function smartSyncExpenses() {
   if (!_acquireLock(_actionLocks, 'smartSyncExpenses')) return;
-  const scriptUrl = (getCurrentScriptURL() || '').trim();
-  if (!scriptUrl || !scriptUrl.includes('script.google.com')) {
-    showBanner('⚠ Set your Apps Script URL in Settings → Google Sheets first', 'warn'); _releaseLock(_actionLocks, 'smartSyncExpenses'); return;
+  const syncUrl = (getCurrentScriptURL() || '').trim();
+  if (!syncUrl || !syncUrl.includes('legacy-endpoint.invalid')) {
+    showBanner('⚠ Set your Legacy Sync URL in Settings → Legacy Sheets first', 'warn'); _releaseLock(_actionLocks, 'smartSyncExpenses'); return;
   }
   if (!expenses.length) { showBanner('⚠ No expenses to sync', 'warn'); _releaseLock(_actionLocks, 'smartSyncExpenses'); return; }
 
@@ -3540,7 +3469,7 @@ async function smartSyncExpenses() {
         driveLink:   e.driveLink||''
       };
       // Use POST with text/plain to avoid GET URL length limits
-      const res = await fetch(scriptUrl, {
+      const res = await fetch(syncUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify({ action: 'updateExpense', data: JSON.stringify(expForSheet) })
@@ -3566,24 +3495,24 @@ function saveScriptURL() {
   persistScriptUrl(url); // writes to both legacy key AND config (from config.js)
   const el = document.getElementById('script-url-confirm');
   if (el) { el.style.display = 'block'; setTimeout(() => el.style.display = 'none', 2000); }
-  showBanner('✓ Settings saved: Apps Script URL', 'ok');
+  showBanner('✓ Settings saved: Legacy Sync URL', 'ok');
 }
 async function testScriptConnection() {
   if (!_acquireLock(_actionLocks, 'testScriptConnection')) return;
   const checkerOpen = document.getElementById('settings-panel-connection-checker')?.style.display !== 'none';
   const resultId = checkerOpen ? 'conn-script-result' : 'script-test-result';
-  _setConnectionCheckResult(resultId, 'loading', 'Checking Apps Script endpoint…');
+  _setConnectionCheckResult(resultId, 'loading', 'Checking Legacy Sync endpoint…');
 
-  const scriptUrl = (getCurrentScriptURL() || '').trim();
-  if (!scriptUrl) {
-    _setConnectionCheckResult(resultId, 'fail', '❌ Missing configuration: Apps Script URL is not set.');
-    showBanner('⚠ Missing setup: add your Apps Script URL first', 'warn');
+  const syncUrl = (getCurrentScriptURL() || '').trim();
+  if (!syncUrl) {
+    _setConnectionCheckResult(resultId, 'fail', '❌ Missing configuration: Legacy Sync URL is not set.');
+    showBanner('⚠ Missing setup: add your Legacy Sync URL first', 'warn');
     _releaseLock(_actionLocks, 'testScriptConnection');
     return;
   }
-  if (!scriptUrl.toLowerCase().includes('script.google.com/macros') || !scriptUrl.endsWith('/exec')) {
-    _setConnectionCheckResult(resultId, 'fail', '❌ Invalid URL: expected a deployed Apps Script /exec URL.');
-    showBanner('⚠ Apps Script URL looks invalid. Paste the deployed /exec URL.', 'warn');
+  if (!syncUrl.toLowerCase().includes('legacy-endpoint.invalid/macros') || !syncUrl.endsWith('/exec')) {
+    _setConnectionCheckResult(resultId, 'fail', '❌ Invalid URL: expected a deployed Legacy Sync /exec URL.');
+    showBanner('⚠ Legacy Sync URL looks invalid. Paste the deployed /exec URL.', 'warn');
     _releaseLock(_actionLocks, 'testScriptConnection');
     return;
   }
@@ -3591,16 +3520,16 @@ async function testScriptConnection() {
   try {
     const json = (window.DB && typeof window.DB.testConnection === 'function')
       ? await window.DB.testConnection()
-      : await fetch(scriptUrl + '?action=test').then(r => r.json());
+      : await fetch(syncUrl + '?action=test').then(r => r.json());
 
     const ok = !!(json && (json.success === true || json.status === 'ok' || json.status === 'success' || json.status === true));
     if (!ok) throw new Error((json && (json.error || json.status)) || 'Unexpected response');
 
-    _setConnectionCheckResult(resultId, 'ok', '✅ Connected: Apps Script responded to a safe test action.');
-    showBanner('✓ Test successful: Apps Script is connected', 'ok');
+    _setConnectionCheckResult(resultId, 'ok', '✅ Connected: Legacy Sync responded to a safe test action.');
+    showBanner('✓ Test successful: Legacy Sync is connected', 'ok');
   } catch(e) {
-    _setConnectionCheckResult(resultId, 'fail', '❌ Failed: Apps Script test request did not succeed. ' + e.message);
-    showBanner('⚠ Test failed: could not reach Apps Script. Check URL and deployment access.', 'warn');
+    _setConnectionCheckResult(resultId, 'fail', '❌ Failed: Legacy Sync test request did not succeed. ' + e.message);
+    showBanner('⚠ Test failed: could not reach Legacy Sync. Check URL and deployment access.', 'warn');
   } finally {
     _releaseLock(_actionLocks, 'testScriptConnection');
   }
@@ -3796,7 +3725,7 @@ function restoreSafeHostSettingsPayload(payload) {
 
 async function ensureHostIdentityAndRestore() {
   if (isCleanerMode()) return;
-  const scriptUrl = (getCurrentScriptURL() || '').trim();
+  const syncUrl = (getCurrentScriptURL() || '').trim();
   let host = getHostProfile();
 
   // Try to seed identity from existing owner config first.
@@ -3831,10 +3760,10 @@ async function ensureHostIdentityAndRestore() {
   }
 
   if (!host || !host.hostId) return;
-  if (!(scriptUrl && scriptUrl.includes('script.google.com'))) return;
+  if (!(syncUrl && syncUrl.includes('legacy-endpoint.invalid'))) return;
 
   try {
-    const resp = await fetch(scriptUrl + '?action=getAppData');
+    const resp = await fetch(syncUrl + '?action=getAppData');
     if (!resp.ok) return;
     const json = await resp.json();
     if (!json || !json.success || !json.data) return;
@@ -4657,7 +4586,7 @@ function addExpense(opts = {}) {
 
 async function saveExpenseToDriveAndSheet(exp) {
   // driveToken no longer needed — receipts use Supabase Storage
-  const scriptUrl = (getScriptURL() || '').trim();
+  const syncUrl = (getScriptURL() || '').trim();
 
   // ── Upload receipt to Supabase Storage ──────────────────────────────────────
   let driveLink = null;
@@ -4689,13 +4618,13 @@ async function saveExpenseToDriveAndSheet(exp) {
   }
 
   // ── Push to sheet with Drive link already included in one write ──────────
-  if (scriptUrl && scriptUrl.includes('script.google.com')) {
+  if (syncUrl && syncUrl.includes('legacy-endpoint.invalid')) {
     try {
       const expForSheet = Object.assign({}, exp, { driveLink: driveLink || exp.driveLink || '' });
       delete expForSheet.photo;
       delete expForSheet._mediaType;
       // Use POST to avoid GET URL length limit (Drive links push GET over ~2KB)
-      const res = await fetch(scriptUrl, {
+      const res = await fetch(syncUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify({ action: 'addExpense', data: JSON.stringify(expForSheet) })
@@ -4864,10 +4793,10 @@ async function deleteExpense(id) {
 
   // Delete from Google Sheet
   if (exp) {
-    const scriptUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
-    if (scriptUrl && scriptUrl.includes('script.google.com')) {
+    const syncUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+    if (syncUrl && syncUrl.includes('legacy-endpoint.invalid')) {
       const expForSheet = { date: exp.date, merchant: exp.merchant, amount: exp.amount };
-      fetch(scriptUrl, {
+      fetch(syncUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify({ action: 'deleteExpense', data: JSON.stringify(expForSheet) })
@@ -4885,15 +4814,15 @@ async function deleteExpense(id) {
 }
 
 async function migrateCategoriesInSheet() {
-  const scriptUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
-  if (!scriptUrl || !scriptUrl.includes('script.google.com')) {
-    showBanner('⚠ Set your Apps Script URL in Settings first', 'warn'); return;
+  const syncUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+  if (!syncUrl || !syncUrl.includes('legacy-endpoint.invalid')) {
+    showBanner('⚠ Set your Legacy Sync URL in Settings first', 'warn'); return;
   }
   const resultEl = document.getElementById('push-expenses-result');
   if (resultEl) { resultEl.style.display = 'block'; resultEl.style.background = '#E3F2FD'; resultEl.style.color = '#1565C0'; resultEl.textContent = '⟳ Migrating categories in sheet...'; }
   showBanner('⟳ Migrating categories...', 'info');
   try {
-    const json = await sheetPost(scriptUrl, 'migrateCategories', {});
+    const json = await sheetPost(syncUrl, 'migrateCategories', {});
     if (json.status === 'ok') {
       const msg = `✓ Done — ${json.updated} row${json.updated !== 1 ? 's' : ''} updated`;
       showBanner(msg, 'ok');
@@ -4924,7 +4853,7 @@ function buildBackupPayload() {
     cleaners: loadCleaners(),
     settings: {
       propertyData:       localStorage.getItem(lsKey('property-data')),
-      scriptUrl:          getCurrentScriptURL(),
+      syncUrl:          getCurrentScriptURL(),
       gDriveClientId:     localStorage.getItem('gh-gdrive-client-id'),
       cleaningFeeDefault: localStorage.getItem(lsKey('cleaning-fee')),
       smsTemplate:        localStorage.getItem(lsKey('sms-template')),
@@ -4935,9 +4864,9 @@ function buildBackupPayload() {
 }
 
 async function saveBackup() {
-  const scriptUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
-  if (!scriptUrl || !scriptUrl.includes('script.google.com')) {
-    showBanner('⚠ Set your Apps Script URL in Settings → Google Sheets first', 'warn'); return;
+  const syncUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+  if (!syncUrl || !syncUrl.includes('legacy-endpoint.invalid')) {
+    showBanner('⚠ Set your Legacy Sync URL in Settings → Legacy Sheets first', 'warn'); return;
   }
   const resultEl = document.getElementById('backup-result');
   if (resultEl) { resultEl.style.display = 'block'; resultEl.style.background = '#E3F2FD'; resultEl.style.color = '#1565C0'; resultEl.textContent = '⟳ Saving backup to Google Drive...'; }
@@ -4945,8 +4874,8 @@ async function saveBackup() {
   try {
     const payload = buildBackupPayload();
     const body = JSON.stringify({ action: 'saveBackup', data: JSON.stringify(payload) });
-    // Use text/plain to avoid CORS preflight — Apps Script parses the body manually
-    const resp = await fetch(scriptUrl, {
+    // Use text/plain to avoid CORS preflight — Legacy Sync parses the body manually
+    const resp = await fetch(syncUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body
@@ -4971,14 +4900,14 @@ async function saveBackup() {
 }
 
 async function listBackups() {
-  const scriptUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
-  if (!scriptUrl || !scriptUrl.includes('script.google.com')) {
-    showBanner('⚠ Set your Apps Script URL in Settings → Google Sheets first', 'warn'); return;
+  const syncUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+  if (!syncUrl || !syncUrl.includes('legacy-endpoint.invalid')) {
+    showBanner('⚠ Set your Legacy Sync URL in Settings → Legacy Sheets first', 'warn'); return;
   }
   const listEl = document.getElementById('backup-list');
   if (listEl) listEl.innerHTML = '<div style="font-size:13px;color:var(--text-soft)">⟳ Loading backups...</div>';
   try {
-    const json = await sheetPost(scriptUrl, 'listBackups', {});
+    const json = await sheetPost(syncUrl, 'listBackups', {});
     if (json.status === 'ok') {
       const backups = json.backups || [];
       if (!backups.length) {
@@ -5009,10 +4938,10 @@ async function restoreBackup(fileId, dateLabel) {
     `Restore backup from ${dateLabel}?`,
     `This will replace ALL current data — bookings, expenses, cleans, notes, everything — with this backup. This cannot be undone.`,
     async () => {
-      const scriptUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
+      const syncUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
       showBanner('⟳ Restoring backup...', 'info');
       try {
-        const url = scriptUrl + '?action=restoreBackup&fileId=' + encodeURIComponent(fileId);
+        const url = syncUrl + '?action=restoreBackup&fileId=' + encodeURIComponent(fileId);
         const resp = await fetch(url);
         const json = await resp.json();
         if (json.status === 'ok' && json.data) {
@@ -5026,7 +4955,7 @@ async function restoreBackup(fileId, dateLabel) {
           if (d.cleaners) saveCleaners(d.cleaners);
           if (d.settings) {
             if (d.settings.propertyData)       localStorage.setItem(lsKey('property-data'),    d.settings.propertyData);
-            if (d.settings.scriptUrl)          localStorage.setItem('gh-script-url',        d.settings.scriptUrl);
+            if (d.settings.syncUrl)          localStorage.setItem('gh-script-url',        d.settings.syncUrl);
             if (d.settings.gDriveClientId)     localStorage.setItem('gh-gdrive-client-id',  d.settings.gDriveClientId);
             if (d.settings.cleaningFeeDefault)  localStorage.setItem(lsKey('cleaning-fee'),      d.settings.cleaningFeeDefault);
             if (d.settings.smsTemplate)        localStorage.setItem(lsKey('sms-template'),      d.settings.smsTemplate);
@@ -5034,7 +4963,7 @@ async function restoreBackup(fileId, dateLabel) {
             if (d.settings.invoiceSettings)    localStorage.setItem(lsKey('invoice-settings'),  d.settings.invoiceSettings);
           }
           // Restore property config if present (v2 backups include it).
-          // Runs after settings so scriptUrl legacy mirror is already in place.
+          // Runs after settings so syncUrl legacy mirror is already in place.
           if (d.propertyConfig) {
             localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(d.propertyConfig));
             if (typeof initPropertyUI === 'function') initPropertyUI();
@@ -5055,14 +4984,14 @@ async function restoreBackup(fileId, dateLabel) {
 }
 
 async function pullExpensesFromSheet() {
-  const scriptUrl = (getScriptURL() || '').trim();
-  if (!scriptUrl || !scriptUrl.includes('script.google.com')) {
-    showBanner('⚠ Set your Apps Script URL in Settings → Google Sheets first', 'warn');
+  const syncUrl = (getScriptURL() || '').trim();
+  if (!syncUrl || !syncUrl.includes('legacy-endpoint.invalid')) {
+    showBanner('⚠ Set your Legacy Sync URL in Settings → Legacy Sheets first', 'warn');
     return;
   }
   showBanner('⟳ Pulling expenses from sheet...', 'info');
   try {
-    const json = await sheetPost(scriptUrl, 'getExpenses', {});
+    const json = await sheetPost(syncUrl, 'getExpenses', {});
     if (json.status === 'ok' && json.expenses) {
       if (json.expenses.length > 0) {}
       let added = 0, linksUpdated = 0;
@@ -5849,10 +5778,10 @@ async function saveExpenseEdit() {
   }
 
   savePropertyData();
-  const scriptUrl = (getCurrentScriptURL() || '').trim();
-  if (scriptUrl && scriptUrl.includes('script.google.com')) {
+  const syncUrl = (getCurrentScriptURL() || '').trim();
+  if (syncUrl && syncUrl.includes('legacy-endpoint.invalid')) {
     const eForSheet = Object.assign({}, e); delete eForSheet.photo; delete eForSheet._mediaType;
-    fetch(scriptUrl, {
+    fetch(syncUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ action: 'updateExpense', data: JSON.stringify(eForSheet) })
@@ -6160,14 +6089,10 @@ function pushAppData(key, data) {
   .catch(e => {
     if (key === 'pushSubs') {
       console.warn('[Push] pushAppData("pushSubs") caught error object:', e);
-      pushDebugBanner('[Push] pushAppData("pushSubs") caught error object: ' + safePushStringify(e));
       console.warn('[Push] pushAppData("pushSubs") error.name:', e && e.name);
-      pushDebugBanner('[Push] pushAppData("pushSubs") error.name: ' + (e && e.name ? e.name : ''));
       console.warn('[Push] pushAppData("pushSubs") error.message:', e && e.message);
-      pushDebugBanner('[Push] pushAppData("pushSubs") error.message: ' + (e && e.message ? e.message : ''));
     }
     console.warn('AppData push error:', key, e);
-    if (key === 'pushSubs') pushDebugBanner('[Push] AppData push error: ' + (e && e.message ? e.message : ''));
     return null;
   });
 }
@@ -6260,8 +6185,8 @@ async function pullAppData(manual = false) {
 
   if (!url) {
     if (manual) {
-      showResult('❌ No Apps Script URL configured.', false);
-      showBanner('⚠ Missing setup: add your Apps Script URL before pulling data', 'warn');
+      showResult('❌ No Legacy Sync URL configured.', false);
+      showBanner('⚠ Missing setup: add your Legacy Sync URL before pulling data', 'warn');
     }
     _pullAppDataInFlight = false;
     return;
@@ -6287,7 +6212,7 @@ async function pullAppData(manual = false) {
     if (!json.success || !json.data) {
       if (manual) {
         showResult('❌ Sheet returned: ' + JSON.stringify(json).substring(0, 100), false);
-        showBanner('⚠ Pull failed: Apps Script returned an unexpected response', 'warn');
+        showBanner('⚠ Pull failed: Legacy Sync returned an unexpected response', 'warn');
       }
       if (btn) { btn.disabled = false; btn.textContent = '↻ Pull App Data from Sheet'; }
       _pullAppDataInFlight = false;
@@ -6383,10 +6308,10 @@ async function pullAppData(manual = false) {
 
 // Render immediately from localStorage, then sync in background
 function hasCloudSyncConfigured() {
-  const sheetUrl = (typeof getPropertySheetCsvUrl === 'function' ? getPropertySheetCsvUrl() : '').trim();
-  const scriptUrl = (typeof getCurrentScriptURL === 'function' ? getCurrentScriptURL() : '').trim();
-  const sheetOk = !!sheetUrl && sheetUrl.toLowerCase().includes('docs.google.com/spreadsheets') && sheetUrl.includes('output=csv');
-  const scriptOk = !!scriptUrl && scriptUrl.toLowerCase().includes('script.google.com/macros') && scriptUrl.endsWith('/exec');
+  const csvUrl = (typeof getPropertySheetCsvUrl === 'function' ? getPropertySheetCsvUrl() : '').trim();
+  const syncUrl = (typeof getCurrentScriptURL === 'function' ? getCurrentScriptURL() : '').trim();
+  const sheetOk = !!csvUrl && csvUrl.toLowerCase().includes('docs.google.com/spreadsheets') && csvUrl.includes('output=csv');
+  const scriptOk = !!syncUrl && syncUrl.toLowerCase().includes('legacy-endpoint.invalid/macros') && syncUrl.endsWith('/exec');
   return sheetOk && scriptOk;
 }
 
@@ -7280,7 +7205,7 @@ async function assignCleanerToBooking(bookingId) {
     try {
       const url = getCurrentScriptURL();
       console.log('Fetching pushSubs from:', url);
-      if (url && url.includes('script.google.com')) {
+      if (url && url.includes('legacy-endpoint.invalid')) {
         const resp = await fetch(url + '?action=getAppData');
         const json = await resp.json();
         if (json.success && json.data && json.data.pushSubs) {
@@ -7313,7 +7238,7 @@ async function assignCleanerToBooking(bookingId) {
       console.warn('No push subscription found for cleaner', cleanerObj.id, '— cleaner needs to enable notifications');
     }
 
-    // Send email notification via Gmail/Apps Script (fires silently in background)
+    // Send email notification via Gmail/Legacy Sync (fires silently in background)
     const cleanerEmail = String(cleanerObj.email || '').trim();
     if (cleanerEmail) {
       sendCleanerEmail({
@@ -7478,7 +7403,7 @@ function saveEmailTemplate(type) {
   const color   = document.getElementById('etpl-color').value;
   const tpl = { subject, body, color };
   localStorage.setItem(lsKey('email-tpl-' + type), JSON.stringify(tpl));
-  // Sync reminder template to AppData so Apps Script can use it
+  // Sync reminder template to AppData so Legacy Sync can use it
   if (type === 'reminder') scheduleAppDataSave('emailTplReminder', tpl);
   if (type === 'assignment') scheduleAppDataSave('emailTplAssignment', tpl);
   const conf = document.getElementById('etpl-save-confirm');
@@ -7646,8 +7571,8 @@ function applyEmailTemplate(type, vars) {
 }
 async function sendCleanerEmail({ cleanerName, cleanerEmail, guestName, checkin, checkout, cleanerLink, cleanDate, type }) {
   if (!cleanerEmail) return { ok: false, reason: 'no-email' };
-  const scriptUrl = (getScriptURL() || '').trim();
-  if (!scriptUrl || !scriptUrl.includes('script.google.com')) return { ok: false, reason: 'no-script-url' };
+  const syncUrl = (getScriptURL() || '').trim();
+  if (!syncUrl || !syncUrl.includes('legacy-endpoint.invalid')) return { ok: false, reason: 'no-script-url' };
   const emailType = type || 'assignment';
   const { subject, html, text } = applyEmailTemplate(emailType, {
     cleanerName: String(cleanerName || 'Cleaner').split(' ')[0],
@@ -7714,20 +7639,20 @@ function resetConnectionCheckerResults() {
 }
 
 async function testSheetConnection() {
-  const sheetUrl = (getPropertySheetCsvUrl() || '').trim();
-  if (!sheetUrl) {
+  const csvUrl = (getPropertySheetCsvUrl() || '').trim();
+  if (!csvUrl) {
     _setConnectionCheckResult('conn-sheet-result', 'fail', '❌ Missing configuration: Google Sheet CSV URL is not set.');
     return;
   }
-  if (!sheetUrl.toLowerCase().includes('docs.google.com/spreadsheets') || !sheetUrl.includes('output=csv')) {
-    _setConnectionCheckResult('conn-sheet-result', 'fail', '❌ Invalid URL: expected a published Google Sheets CSV URL ending with output=csv.');
+  if (!csvUrl.toLowerCase().includes('docs.google.com/spreadsheets') || !csvUrl.includes('output=csv')) {
+    _setConnectionCheckResult('conn-sheet-result', 'fail', '❌ Invalid URL: expected a published Legacy Sheets CSV URL ending with output=csv.');
     return;
   }
 
   _setConnectionCheckResult('conn-sheet-result', 'loading', 'Checking Sheet URL…');
   try {
-    const sep = sheetUrl.includes('?') ? '&' : '?';
-    const res = await fetch(sheetUrl + sep + 't=' + Date.now());
+    const sep = csvUrl.includes('?') ? '&' : '?';
+    const res = await fetch(csvUrl + sep + 't=' + Date.now());
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const csv = await res.text();
     const lines = csv.trim().split('\n').filter(l => l.trim());
@@ -7746,21 +7671,21 @@ async function testNotificationConfig() {
 
   const ownerEmail = (getCurrentOwnerEmail() || '').trim();
   const pushFunctionUrl = (getPushFunctionUrl() || '').trim();
-  const scriptUrl = (getCurrentScriptURL() || '').trim();
+  const syncUrl = (getCurrentScriptURL() || '').trim();
   const pushSupported = ('Notification' in window);
   const perm = pushSupported ? Notification.permission : 'unsupported';
   const ownerSub = getOwnerSub();
 
   const checks = [];
   if (ownerEmail) checks.push('Owner email configured');
-  if (scriptUrl && scriptUrl.toLowerCase().includes('script.google.com/macros') && scriptUrl.endsWith('/exec')) checks.push('Apps Script URL configured');
+  if (syncUrl && syncUrl.toLowerCase().includes('legacy-endpoint.invalid/macros') && syncUrl.endsWith('/exec')) checks.push('Legacy Sync URL configured');
   if (pushFunctionUrl) checks.push('Push function URL configured');
   if (pushSupported) checks.push('Browser supports notifications');
   if (perm === 'granted' && ownerSub) checks.push('Push enabled on this device');
 
   const missing = [];
   if (!ownerEmail) missing.push('owner email missing');
-  if (!(scriptUrl && scriptUrl.toLowerCase().includes('script.google.com/macros') && scriptUrl.endsWith('/exec'))) missing.push('Apps Script URL invalid/missing');
+  if (!(syncUrl && syncUrl.toLowerCase().includes('legacy-endpoint.invalid/macros') && syncUrl.endsWith('/exec'))) missing.push('Legacy Sync URL invalid/missing');
   if (!pushFunctionUrl) missing.push('push function URL missing');
 
   const mode = 'configuration check only (no live send)';
@@ -7795,7 +7720,7 @@ async function testCleanerEmail() {
   });
   if (resultEl) {
     if (result.ok) { resultEl.style.background = '#F0FAF4'; resultEl.style.color = 'var(--moss)'; resultEl.textContent = '✓ Test email sent to ' + testTo; }
-    else { resultEl.style.background = '#FEF2F2'; resultEl.style.color = 'var(--red)'; resultEl.textContent = '✕ Failed — check your Apps Script URL is saved and deployed'; }
+    else { resultEl.style.background = '#FEF2F2'; resultEl.style.color = 'var(--red)'; resultEl.textContent = '✕ Failed — check your Legacy Sync URL is saved and deployed'; }
   }
 }
 
@@ -8279,7 +8204,7 @@ function saveOwnerReportSettings() {
 }
 
 /**
- * sendOwnerReport — generates the PDF for the chosen FY and emails it via Apps Script.
+ * sendOwnerReport — generates the PDF for the chosen FY and emails it via Legacy Sync.
  */
 async function sendOwnerReport() {
   if (!window.jspdf) { showBanner('⟳ PDF library loading — try again in a moment', 'warn'); return; }
@@ -8293,9 +8218,9 @@ async function sendOwnerReport() {
     return;
   }
 
-  const scriptUrl = (getCurrentScriptURL() || '').trim();
-  if (!scriptUrl || !scriptUrl.includes('script.google.com')) {
-    showBanner('⚠ Apps Script URL not configured — check Settings → Integrations', 'warn');
+  const syncUrl = (getCurrentScriptURL() || '').trim();
+  if (!syncUrl || !syncUrl.includes('legacy-endpoint.invalid')) {
+    showBanner('⚠ Legacy Sync URL not configured — check Settings → Integrations', 'warn');
     return;
   }
 
@@ -8322,7 +8247,7 @@ async function sendOwnerReport() {
 
     if (status) status.textContent = 'Sending email…';
 
-    // 3. POST to Apps Script — PDF base64 is too large for a URL query param
+    // 3. POST to Legacy Sync — PDF base64 is too large for a URL query param
     const payload = {
       action:    'sendReport',
       to:        ownerEmail,
@@ -8331,9 +8256,9 @@ async function sendOwnerReport() {
       pdfBase64: pdfB64,
       fileName,
     };
-    // Apps Script rejects CORS preflight on application/json — use text/plain
-    // to send as a simple request. Apps Script reads e.postData.contents regardless.
-    const res  = await fetch(scriptUrl, {
+    // Legacy Sync rejects CORS preflight on application/json — use text/plain
+    // to send as a simple request. Legacy Sync reads e.postData.contents regardless.
+    const res  = await fetch(syncUrl, {
       method:  'POST',
       headers: { 'Content-Type': 'text/plain' },
       body:    JSON.stringify(payload),
@@ -8412,8 +8337,8 @@ function checkAutoSendReport() {
 async function migrateSheetBookingsToSupabase() {
   showBanner('⟳ Migrating bookings to Supabase...', 'info');
   try {
-    const sheetUrl = typeof getPropertySheetCsvUrl === 'function' ? getPropertySheetCsvUrl() : '';
-    if (!sheetUrl) throw new Error('No Google Sheet URL configured — set it in Settings → Property → Property Configuration');
+    const csvUrl = typeof getPropertySheetCsvUrl === 'function' ? getPropertySheetCsvUrl() : '';
+    if (!csvUrl) throw new Error('No Google Sheet URL configured — set it in Settings → Property → Property Configuration');
 
     // Step 1: Ensure property record exists in Supabase BEFORE migrating bookings
     // This guarantees bookings get a real property_id, not null
