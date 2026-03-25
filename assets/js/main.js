@@ -1558,84 +1558,56 @@ function renderCalendar() {
 function renderBookings(filter) {
   if (filter) bookingFilter = filter;
   const list = document.getElementById('bookings-list');
+  const notesView = document.getElementById('bookings-notes-view');
+  if (notesView) notesView.style.display = bookingFilter === 'notes' ? '' : 'none';
+  if (list) list.style.display = bookingFilter === 'notes' ? 'none' : '';
+  if (bookingFilter === 'notes') {
+    renderNotes();
+    return;
+  }
+
   let filtered;
-  if (bookingFilter==='all')       filtered = bookings.filter(b => b.status !== 'cancelled');
-  else if (bookingFilter==='upcoming')  filtered = bookings.filter(b => b.status !== 'cancelled' && new Date(b.checkout)>=new Date());
+  if (bookingFilter==='all') filtered = bookings.filter(b => b.status !== 'cancelled');
+  else if (bookingFilter==='upcoming') filtered = bookings.filter(b => b.status !== 'cancelled' && new Date(b.checkout)>=new Date());
   else if (bookingFilter==='completed') filtered = bookings.filter(b => b.status !== 'cancelled' && new Date(b.checkout)<new Date());
   else if (bookingFilter==='cancelled') filtered = bookings.filter(b => b.status === 'cancelled');
   else filtered = bookings.filter(b => b.status !== 'cancelled' && new Date(b.checkout)>=new Date());
+
   if (!filtered.length) {
     const hasAny = bookings.length > 0;
-    list.innerHTML = `<div class="card" style="text-align:center;padding:32px 16px">
-      <div style="font-size:40px;margin-bottom:12px">📋</div>
-      <div style="font-weight:600;font-size:15px;margin-bottom:6px">${hasAny ? 'No ' + bookingFilter + ' bookings' : 'No bookings yet'}</div>
-      <div style="font-size:13px;color:var(--text-soft)">${hasAny ? 'Try switching tabs above' : 'Tap the + button to add your first booking'}</div>
-    </div>`;
+    list.innerHTML = `<div class="card" style="text-align:center;padding:32px 16px"><div style="font-size:40px;margin-bottom:12px">📋</div><div style="font-weight:600;font-size:15px;margin-bottom:6px">${hasAny ? 'No ' + bookingFilter + ' bookings' : 'No bookings yet'}</div><div style="font-size:13px;color:var(--text-soft)">${hasAny ? 'Try switching tabs above' : 'Tap the + button to add your first booking'}</div></div>`;
     return;
   }
+
   const sorted = [...filtered].sort((a,b)=>new Date(a.checkin)-new Date(b.checkin));
-  const upcomingActive = bookings.filter(b => b.status !== 'cancelled' && new Date(b.checkout) >= new Date());
-  const assignmentGaps = upcomingActive.filter(b => getBookingCleanerState(b).key === 'unassigned').length;
-  const declinedGaps = upcomingActive.filter(b => getBookingCleanerState(b).key === 'declined').length;
-  const summaryCard = (bookingFilter === 'upcoming' || bookingFilter === 'all')
-    ? `<div class="card attention-summary booking-attention-summary" style="margin-bottom:10px;padding:12px 14px;background:#FFFCF5;border:1px solid #F3E5C5">
-      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:6px">Today’s cleaner coverage</div>
-      <div style="font-size:13px;color:var(--text)">⚠️ <strong>${assignmentGaps}</strong> booking${assignmentGaps === 1 ? '' : 's'} still need cleaner assignment${declinedGaps ? ` · <strong>${declinedGaps}</strong> declined` : ''}.</div>
-      <div style="font-size:11px;color:var(--text-soft);margin-top:4px">Tip: use <strong>Cleaning → Action Needed</strong> to quickly fix gaps.</div>
-      <div class="quick-action-row" style="margin-top:10px">
-        <button class="btn-primary" onclick="jumpToCleaningActionNeeded()">Review Action Needed</button>
-        <button class="btn-secondary" onclick="jumpToScheduleClean()">Schedule Clean</button>
-      </div>
-    </div>`
-    : '';
-  list.innerHTML = summaryCard + sorted.map(b => {
-    const isCancelled = b.status === 'cancelled';
-    const isHosting = !isCancelled && new Date(b.checkin)<=new Date() && new Date(b.checkout)>=new Date();
-    const isPast = !isCancelled && new Date(b.checkout)<new Date();
-    const statusClass = isCancelled ? 'status-cancelled' : isHosting ? 'status-upcoming' : isPast ? 'status-completed' : 'status-upcoming';
-    const statusLabel = isCancelled ? '✕ Cancelled' : isHosting ? '🏡 Hosting' : isPast ? 'Past' : 'Upcoming';
-    const cleanerState = getBookingCleanerState(b);
-    const preferred = _getSuggestedCleanerForBooking(b);
-    const canQuickAssign = !isCancelled && !isPast && !!preferred && (cleanerState.key === 'unassigned' || cleanerState.key === 'declined');
-    const cleanerBadge = isCancelled
-      ? ''
-      : cleanerState.tone === 'ok'
-      ? `<div style="font-size:10px;color:var(--moss);margin-top:2px">🧹 ${escHtml(cleanerState.label)}</div>`
-      : cleanerState.tone === 'bad'
-      ? `<div style="font-size:10px;color:var(--red);margin-top:2px">🧹 ${escHtml(cleanerState.label)}</div>`
-      : `<div style="font-size:10px;color:var(--amber);margin-top:2px">🧹 ${escHtml(cleanerState.label)}</div>`;
-    return `
-    <div class="card" onclick="showDetail(${b.id})" style="cursor:pointer${isCancelled?';opacity:0.6':''}" data-booking-id="${b.id}">
-      <div class="booking-item" style="border:none;padding:0" data-booking-id="${b.id}">
-        ${platformIcon(b.platform, 42)}
-        <div class="booking-info">
-          <div class="booking-name">${escHtml(b.name)}</div>
-          <div class="booking-dates">${escHtml(fmt(b.checkin))} → ${escHtml(fmt(b.checkout))}</div>
-          <div class="booking-guests">${escHtml(b.guests)} guests · ${escHtml(b.nights)} night${b.nights!==1?'s':''}</div>
-        </div>
-        <div class="booking-right">
-          <div class="booking-amount" style="${isCancelled?'text-decoration:line-through;color:var(--text-soft)':''}">$${Number(b.hostPayout||0).toLocaleString()}</div>
-          <div class="booking-status ${statusClass}">${statusLabel}</div>
-          ${cleanerBadge}
-        </div>
-      </div>
-      ${canQuickAssign ? `<div style="margin-top:8px"><button onclick="event.stopPropagation(); quickAssignLastCleaner(${b.id});" class="btn-secondary" style="width:100%">⚡ Assign to last cleaner (${escHtml(preferred.name || 'Cleaner')})</button></div>` : ''}
-    </div>`;
-  }).join('');
+  const grouped = sorted.reduce((acc, b) => {
+    const d = new Date(b.checkin || b.checkout || Date.now());
+    const key = d.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(b);
+    return acc;
+  }, {});
+
+  list.innerHTML = Object.entries(grouped).map(([monthLabel, items]) => `
+    <div style="margin-bottom:12px">
+      <div style="font-size:12px;font-weight:700;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.5px;padding:0 2px 8px">${escHtml(monthLabel)}</div>
+      ${items.map(b => {
+        const isCancelled = b.status === 'cancelled';
+        const isHosting = !isCancelled && new Date(b.checkin)<=new Date() && new Date(b.checkout)>=new Date();
+        const isPast = !isCancelled && new Date(b.checkout)<new Date();
+        const statusClass = isCancelled ? 'status-cancelled' : isHosting ? 'status-upcoming' : isPast ? 'status-completed' : 'status-upcoming';
+        const statusLabel = isCancelled ? '✕ Cancelled' : isHosting ? '🏡 Hosting' : isPast ? 'Past' : 'Upcoming';
+        return `<div class="card" onclick="showDetail(${b.id})" style="cursor:pointer${isCancelled?';opacity:0.6':''}" data-booking-id="${b.id}"><div class="booking-item" style="border:none;padding:0" data-booking-id="${b.id}">${platformIcon(b.platform, 42)}<div class="booking-info"><div class="booking-name">${escHtml(b.name)}</div><div class="booking-dates">${escHtml(fmt(b.checkin))} → ${escHtml(fmt(b.checkout))}</div><div class="booking-guests">${escHtml(b.guests)} guests · ${escHtml(b.nights)} night${b.nights!==1?'s':''}</div></div><div class="booking-right"><div class="booking-amount" style="${isCancelled?'text-decoration:line-through;color:var(--text-soft)':''}">$${Number(b.hostPayout||0).toLocaleString()}</div><div class="booking-status ${statusClass}">${statusLabel}</div></div></div></div>`;
+      }).join('')}
+    </div>`).join('');
+
   animateList('#bookings-list');
   setTimeout(attachLongPress, 60);
 }
+
 let cleaningView = 'schedule';
 function switchCleaningView(view, btn) {
-  cleaningView = view;
-  const schedBtn = document.getElementById('clean-view-schedule-btn');
-  const addBtn = document.getElementById('clean-view-add-btn');
-  if (schedBtn) schedBtn.classList.toggle('active', view === 'schedule');
-  if (addBtn) addBtn.classList.toggle('active', view === 'add');
-  const schedCard = document.getElementById('clean-schedule-card');
-  const addCard = document.getElementById('clean-add-card');
-  if (schedCard) schedCard.style.display = view === 'schedule' ? '' : 'none';
-  if (addCard) addCard.style.display = view === 'add' ? '' : 'none';
+  cleaningView = 'schedule';
 }
 
 function filterCleans(f, btn) {
@@ -1658,14 +1630,8 @@ function renderCleaning() {
     return st === 'unassigned' || st === 'declined';
   }).length;
   const totalActionCount = pendingAssignCount + pendingAwaitingCount;
-  const summary = `<div class="card attention-summary cleaning-snapshot" style="margin-bottom:10px;padding:12px 14px;background:#F8FBF9">
-    <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:6px">Cleaning snapshot</div>
-    <div style="font-size:13px;color:var(--text)">Upcoming bookings: <strong>${upcomingBookingCount}</strong> · Scheduled cleans: <strong>${upcomingCleanCount}</strong> · Action needed: <strong>${totalActionCount}</strong></div>
-    <div class="quick-action-row" style="margin-top:10px">
-      ${totalActionCount > 0 ? '<button class="btn-primary" onclick="jumpToCleaningActionNeeded()">Open Action Needed</button>' : ''}
-      <button class="btn-secondary" onclick="jumpToScheduleClean()">Schedule</button>
-    </div>
-  </div>`;
+  const summaryEl = document.getElementById('cleaning-summary-strip');
+  if (summaryEl) summaryEl.innerHTML = `<div class="cleaning-summary-slim">Bookings <strong>${upcomingBookingCount}</strong> · Scheduled <strong>${upcomingCleanCount}</strong> · Action <strong>${totalActionCount}</strong></div>`;
 
   function cleanCard(c, b, extra) {
     const days = Math.ceil((new Date(c.date) - now) / 86400000);
@@ -1705,10 +1671,10 @@ function renderCleaning() {
       .filter(c => !c.done && !c.cleanerDeclined && c.date >= todayStr && !_isCleanLinkedToCancelledBooking(c))
       .sort((a, b) => a.date.localeCompare(b.date));
     if (!upcoming.length) {
-      list.innerHTML = summary + '<div style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">🧹</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">No upcoming cleans</div><div style="font-size:12px;color:var(--text-soft)">Assign a cleaner to a booking to get started</div></div>';
+      list.innerHTML = '<div style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">🧹</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">No upcoming cleans</div><div style="font-size:12px;color:var(--text-soft)">Assign a cleaner to a booking to get started</div></div>';
       return;
     }
-    list.innerHTML = summary + upcoming.map(c => {
+    list.innerHTML = upcoming.map(c => {
       const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || _normName(bk.name) === _normName(c.guestName));
       const extra = `<div style="display:flex;gap:8px">
         <button onclick="openNotifyModal(${c.id})" style="flex:1;background:var(--forest-light);color:var(--sage);border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">💬 SMS</button>
@@ -1736,7 +1702,7 @@ function renderCleaning() {
       .sort((a, b) => new Date(a.checkout) - new Date(b.checkout));
 
     if (!awaiting.length && !declined.length && !unassigned.length) {
-      list.innerHTML = summary + '<div style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">✅</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">All good!</div><div style="font-size:12px;color:var(--text-soft)">No action needed</div></div>';
+      list.innerHTML = '<div style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">✅</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">All good!</div><div style="font-size:12px;color:var(--text-soft)">No action needed</div></div>';
       return;
     }
 
@@ -1782,7 +1748,7 @@ function renderCleaning() {
         </div>`;
       }).join('');
     }
-    list.innerHTML = summary + html;
+    list.innerHTML = html;
     return;
   }
 
@@ -1792,10 +1758,10 @@ function renderCleaning() {
       .filter(c => c.done)
       .sort((a, b) => b.date.localeCompare(a.date));
     if (!done.length) {
-      list.innerHTML = summary + '<div style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">🧹</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">No completed cleans yet</div></div>';
+      list.innerHTML = '<div style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">🧹</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">No completed cleans yet</div></div>';
       return;
     }
-    list.innerHTML = summary + done.map(c => {
+    list.innerHTML = done.map(c => {
       const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || _normName(bk.name) === _normName(c.guestName));
       return cleanCard(c, b, '');
     }).join('');
@@ -1833,22 +1799,19 @@ function markCleanerConfirmed(id) {
 
 let financeTab = 'host';
 function switchFinanceTab(tab, btn) {
-  financeTab = tab;
+  financeTab = tab === 'report' ? 'report' : 'host';
   document.querySelectorAll('#section-finance > .tab-row .tab').forEach(t => t.classList.remove('active'));
   if (btn) btn.classList.add('active');
   const host = document.getElementById('finance-host-view');
-  const mgmt = document.getElementById('finance-management-view');
-  if (host) host.style.display = tab === 'host' || tab === 'report' ? '' : 'none';
-  if (mgmt) mgmt.style.display = tab === 'mgmt' ? '' : 'none';
-  document.getElementById('rev-monthly-view').style.display = tab === 'host' ? '' : 'none';
-  document.getElementById('rev-report-view').style.display = tab === 'report' ? '' : 'none';
-  if (tab === 'mgmt') renderManagement();
-  if (tab === 'host') renderRevenue();
-  if (tab === 'report') renderReport();
+  if (host) host.style.display = '';
+  document.getElementById('rev-monthly-view').style.display = financeTab === 'host' ? '' : 'none';
+  document.getElementById('rev-report-view').style.display = financeTab === 'report' ? '' : 'none';
+  if (financeTab === 'host') renderRevenue();
+  if (financeTab === 'report') renderReport();
 }
 
 function renderFinance() {
-  const activeBtn = document.getElementById('finance-tab-' + (financeTab === 'mgmt' ? 'mgmt' : financeTab === 'report' ? 'report' : 'host'));
+  const activeBtn = document.getElementById('finance-tab-' + (financeTab === 'report' ? 'report' : 'host'));
   switchFinanceTab(financeTab, activeBtn);
 }
 
@@ -2430,6 +2393,7 @@ function closeSettingsCat() {
   document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
   document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
   document.getElementById('settings-menu').style.display = 'block';
+  if (currentSection === 'settings') showSection('property');
 }
 
 // ── EXPENSE CATEGORY MANAGEMENT ───────────────────────────────────────────
@@ -3025,9 +2989,8 @@ function calcNet() {
   if(netEl) netEl.value=host?'$'+net.toFixed(2):'';
 }
 function filterBookings(f,btn) {
-  // Only clear tabs within the bookings section
   document.querySelectorAll('#section-bookings .tab-row .tab').forEach(t=>t.classList.remove('active'));
-  btn.classList.add('active');
+  if (btn) btn.classList.add('active');
   renderBookings(f);
 }
 function addBooking() {
@@ -3295,6 +3258,41 @@ function switchModalTab(tab,btn){
   document.getElementById('modal-manual').style.display=tab==='manual'?'block':'none';
   document.getElementById('modal-screenshot').style.display=tab==='screenshot'?'block':'none';
   document.getElementById('modal-import').style.display=tab==='import'?'block':'none';
+}
+
+function openQuickAddMenu() {
+  showActionSheet('Quick add', [
+    { label: 'Add Booking', fn: "() => openModal()" },
+    { label: 'Add Expense', fn: "() => { showSection('property'); filterProperty('expenses', document.querySelector('#section-property .tab-row .tab:nth-child(1)')); window.scrollTo({ top: 0, behavior: 'smooth' }); }" },
+    { label: 'Add Clean', fn: "() => { showSection('cleaning'); document.getElementById('clean-add-card')?.scrollIntoView({behavior:'smooth', block:'start'}); }" },
+    { label: 'Add Property', fn: "() => openAddPropertySetup()" }
+  ]);
+}
+
+async function runFullRefresh() {
+  const btn = document.getElementById('header-refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '↻ Syncing…'; }
+  try {
+    await syncFromSheets(true);
+    await syncToGoogleCalendar();
+    renderAll();
+    showBanner('✓ Refresh complete', 'ok');
+  } catch (e) {
+    showBanner('⚠ Refresh failed', 'warn');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
+  }
+}
+
+function openPropertySettingsMenu() {
+  showActionSheet('Property settings', [
+    { label: 'Property Details', fn: "() => { showSection('settings'); openSettingsCat('property'); openSettingsPanel('property-info'); }" },
+    { label: 'Smart Pricing', fn: "() => { showSection('settings'); openSettingsCat('property'); openSettingsPanel('smart-pricing'); }" },
+    { label: 'Team', fn: "() => { showSection('settings'); openSettingsCat('property'); openSettingsPanel('team'); }" },
+    { label: 'Integrations', fn: "() => { showSection('settings'); openSettingsCat('google'); }" },
+    { label: 'Notifications', fn: "() => { showSection('settings'); openSettingsPanel('notifications'); }" },
+    { label: 'App Tools', fn: "() => { showSection('settings'); openSettingsCat('advanced'); }" }
+  ]);
 }
 
 // ── UTILS ─────────────────────────────────────────────────────────────────
@@ -4151,35 +4149,23 @@ function populateContractorSelect() {
 }
 
 // ── PROPERTY TAB NAVIGATION ───────────────────────────────────────────────
-let propFilter = 'details';
+let propFilter = 'expenses';
 function filterProperty(f, btn) {
   propFilter = f;
   document.querySelectorAll('#section-property .tab-row .tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
-  ['details','smart','team','integrations','expenses','maintenance','inventory','tools'].forEach(s => {
-    document.getElementById('prop-' + s).style.display = s === f ? 'block' : 'none';
+  ['expenses','maintenance','inventory'].forEach(s => {
+    const el = document.getElementById('prop-' + s);
+    if (el) el.style.display = s === f ? 'block' : 'none';
   });
   renderProperty();
 }
 
 function renderProperty() {
-  if (propFilter === 'details') { renderPropertyDetails(); return; }
-  if (propFilter === 'smart') return;
-  if (propFilter === 'team') return;
-  if (propFilter === 'integrations') return;
   if (propFilter === 'expenses') renderExpenses();
   if (propFilter === 'maintenance') { renderMaintenance(); populateContractorSelect(); }
   if (propFilter === 'inventory') renderInventory();
-  if (propFilter === 'tools') return;
   populateExpenseCatSelect();
-}
-
-function renderPropertyDetails() {
-  const cfg = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : {};
-  const detailsWrap = document.getElementById('prop-details');
-  if (!detailsWrap) return;
-  const heading = detailsWrap.querySelector('.card .card-title');
-  if (heading) heading.textContent = 'Property Details';
 }
 
 // ── EXPENSES ──────────────────────────────────────────────────────────────
@@ -4590,7 +4576,20 @@ function renderExpenses() {
       </div>
     </div>`;
 
-  listEl.innerHTML = visible.map(expRow).join('');
+  const grouped = visible.reduce((acc, e) => {
+    const d = new Date(e.date || Date.now());
+    const key = d.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(e);
+    return acc;
+  }, {});
+
+  listEl.innerHTML = Object.entries(grouped).map(([monthLabel, items]) => `
+    <div style="padding:8px 0">
+      <div style="font-size:12px;font-weight:700;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.5px;padding:4px 0 8px">${escHtml(monthLabel)}</div>
+      ${items.map(expRow).join('')}
+    </div>
+  `).join('');
   animateList('#expenses-list');
   setTimeout(attachLongPress, 60);
 

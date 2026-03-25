@@ -880,3 +880,16 @@ label {
     grid-template-columns: 1fr;
   }
 }
+
+/* Compact nav + hierarchy refresh */
+.header { padding: 44px 16px 14px; }
+.header-top { gap: 6px; }
+.header-refresh-btn { background:rgba(255,255,255,0.14); border:none; border-radius:14px; color:rgba(255,255,255,0.9); font-size:11px; font-weight:700; padding:6px 10px; cursor:pointer; white-space:nowrap; }
+.nav { padding:4px 2px calc(10px + env(safe-area-inset-bottom)); }
+.nav-btn { font-size:8px; gap:2px; padding-top:2px; }
+.nav-btn .icon { width:32px; height:32px; font-size:15px; }
+.nav-btn.active .icon { transform:none; box-shadow:0 2px 8px rgba(30,58,47,0.22); }
+#bookings-tab-row { flex-wrap:wrap; }
+#bookings-tab-row .tab { flex: 1 1 calc(33.33% - 6px); }
+.cleaning-summary-slim { background:#F4F8F5; border:1px solid #DDE8DF; border-radius:10px; padding:8px 12px; font-size:12px; color:var(--text-soft); margin-bottom:8px; }
+#clean-add-card { margin-top:8px; }
