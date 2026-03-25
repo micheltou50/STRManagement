@@ -14,7 +14,7 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
-  const { to, subject, html } = payload;
+  const { to, subject, html, attachments } = payload;
 
   // API key and from address live server-side — never sent from the browser
   const apiKey = process.env.RESEND_API_KEY;
@@ -42,7 +42,7 @@ exports.handler = async (event) => {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ from, to, subject, html })
+      body: JSON.stringify({ from, to, subject, html, ...(attachments ? { attachments } : {}) })
     });
 
     const data = await response.json();

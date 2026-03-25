@@ -38,9 +38,6 @@ function getAwaitingResponseMeta(clean, nowRef) {
 }
 
 // ── CONFIG ────────────────────────────────────────────────────────────────
-// Legacy Sheet/Script constants — empty stubs, Supabase is now the data backend.
-const SHEET_URL = '';
-const DEFAULT_SCRIPT_URL = '';
 const VAPID_PUBLIC_KEY = 'BO-fP_0TOY1foiCQtOZ40N7io1MAzoMUui6pmeHPJ3jLxbdNGh0SrRjxtvWVhuf4QKvf4q83eyS_wcICiS4cgc4';
 const PUSH_FUNCTION_URL = '/.netlify/functions/send-push';
 
@@ -74,12 +71,6 @@ function savePushSubsLocal(subs) {
   // Save push subs to Supabase app_config
   if (typeof saveAppConfigToCloud === 'function') {
     saveAppConfigToCloud({ push_subs: subs }).catch(() => {});
-  }
-  const saveResPromise = pushAppData('pushSubs', subs); // legacy Sheet backup
-  if (saveResPromise && typeof saveResPromise.then === 'function') {
-    saveResPromise.then(saveRes => {
-      console.log('[Push] pushAppData("pushSubs") response:', saveRes);
-    });
   }
 }
 
@@ -128,21 +119,6 @@ async function resetPushOnly() {
     }
     localStorage.removeItem(lsKey('push-subs'));
     localStorage.removeItem('gh-push-subs');
-    // Also clear the stale subscription from the Sheet so getFreshOwnerSub()
-    // doesn't retrieve and re-use the old endpoint after a key rotation.
-    try {
-      const syncUrl = (getScriptURL() || '').trim();
-      if (syncUrl) {
-        await fetch(syncUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({ action: 'setAppData', key: 'pushSubs', value: { cleaners: {} } })
-        });
-        console.log('[Push] Reset Push Only: cleared pushSubs from Sheet');
-      }
-    } catch (sheetErr) {
-      console.warn('[Push] Reset Push Only: could not clear pushSubs from Sheet:', sheetErr);
-    }
     console.log('[Push] Reset Push Only complete');
     if (result) {
       result.style.display = 'block';
@@ -230,7 +206,6 @@ async function subscribeToPush(role, cleanerId) {
     console.log('[Push] before saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
     savePushSubsLocal(subs);
     console.log('[Push] after saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
-    console.log('[Push] subscription save requested via pushAppData("pushSubs")');
     console.log('Subscription saved for role:', role, cleanerId || '');
     return subJson;
   } catch(e) {
@@ -287,13 +262,6 @@ async function getFreshOwnerSub() {
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(e => console.warn('SW register failed:', e));
 }
-// Delegates to config.js — reads config first, then legacy key, then constant.
-function getScriptURL() { return ''; } // Legacy — stubbed out
-
-// ── SHEET POST HELPER — all sheet calls use POST to avoid URL length limits ──
-function sheetPost() {}
-
-
 
 // ── STATE ────────────────────────────────────────────────────────────────
 let bookingFilter = 'upcoming';
@@ -547,10 +515,7 @@ function reloadInMemoryData() {
   inventory   = JSON.parse(localStorage.getItem(lsKey('inventory'))   || '[]');
 }
 
-const _appDataTimers = {};
 const _actionLocks = Object.create(null);
-let _pullAppDataInFlight = false;
-let _pushAllAppDataInFlight = false;
 let _pendingUiRefresh = false;
 
 function _acquireLock(map, key) {
@@ -734,22 +699,6 @@ async function _sendCleanerAssignmentNotifications(booking, cleanerObj, date, ta
   let emailAttempted = false;
   let emailSent = false;
 
-  try {
-    const url = getCurrentScriptURL();
-    if (url && url.includes('legacy-endpoint.invalid')) {
-      const resp = await fetch(url + '?action=getAppData');
-      const json = await resp.json();
-      if (json.success && json.data && json.data.pushSubs) {
-        const local = getPushSubs();
-        const merged = {
-          owner: json.data.pushSubs.owner || local.owner,
-          cleaners: Object.assign({}, local.cleaners, json.data.pushSubs.cleaners)
-        };
-        localStorage.setItem(lsKey('push-subs'), JSON.stringify(merged));
-      }
-    }
-  } catch(e) { console.warn('Could not refresh pushSubs:', e); }
-
   const cleanerSub = getCleanerSub(cleanerObj.id);
   if (cleanerSub) {
     const pushRes = await sendPushToDevice(
@@ -857,263 +806,6 @@ function save() {
   if (typeof saveNotesToCloud === 'function') saveNotesToCloud(notes).catch(() => {});
 }
 
-// ── GOOGLE SHEET PUSH (per-booking, now that access is Anyone) ───────────
-function pushToSheet() {}
-
-// ── SYNC FROM SHEET ───────────────────────────────────────────────────────
-let _syncInProgress = false;
-async function syncFromSheets(manual = false) {
-  if (_syncInProgress) return;
-  _syncInProgress = true;
-  if (manual) showBanner('⟳ Syncing with Legacy Sheets...', 'info');
-  try {
-    const csv = await DB.fetchBookings(); // reads URL from config via thunk
-    const lines = csv.trim().split('\n').filter(l => l.trim());
-    if (lines.length < 2) throw new Error('Sheet returned no data rows');
-    // Temporary debug — store header layout for display
-    const headerCols = parseCSVLine(lines[0]);
-    window._csvDebug = 'HEADERS:\n' + headerCols.map((h,i) => `[${i}] col ${String.fromCharCode(65+i)}: "${h}"`).join('\n');
-    console.log('[CSV Debug]', window._csvDebug);
-
-    // Parse header row to find column indices dynamically
-    const headers = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
-    const col = {
-      checkin:          headers.indexOf('check-in date') >= 0 ? headers.indexOf('check-in date') : 0,
-      nights:           1,
-      checkout:         headers.indexOf('check-out date') >= 0 ? headers.indexOf('check-out date') : 2,
-      name:             3,
-      guests:           4,
-      hostPayout:       5,
-      cleaningFee:      6,
-      mgmt:             7,
-      mgmtPayout:       8,
-      netPayout:        9,
-      cleanerConfirmed: 10,
-      platform:         headers.findIndex(h => h.includes('platform')),
-      confirmCode:      headers.findIndex(h => h.includes('confirmation code') || h === 'confirmation' || (h.includes('confirm') && !h.includes('cleaner'))),
-      status:           headers.findIndex(h => h.includes('status')),
-    };
-    // Fall back to positional defaults if headers not recognised
-    if (col.platform < 0)     col.platform = 11;
-    if (col.confirmCode < 0)  col.confirmCode = 12;
-    if (col.status < 0)       col.status = 13;
-    console.log('[CSV] Column map:', col);
-    window._csvDebug += '\n\nDETECTED COLUMNS:\n' + Object.entries(col).map(([k,v]) => `${k}: [${v}] = "${headers[v] || 'n/a'}"`).join('\n');
-
-    const imported = [];
-    let skipped = 0;
-    lines.forEach((line, i) => {
-      if (i === 0) return;
-      const p = parseCSVLine(line);
-      if (!p[0] && !p[3]) return; // skip empty rows
-      const name = String(p[col.name] || '').trim();
-      const checkin = toISO(String(p[col.checkin] || '').trim());
-      if (!name || !checkin) { skipped++; return; }
-
-      const checkout = toISO(String(p[col.checkout] || '').trim());
-      const nights = Number(p[col.nights]) || 1;
-      const hostPayout = toNum(p[col.hostPayout]);
-      const cleaningFee = toNum(p[col.cleaningFee]);
-      const mgmtRaw = String(p[col.mgmt] || '').trim();
-      let mgmtDecimal = 0;
-      if (mgmtRaw.includes('%')) {
-        mgmtDecimal = toNum(mgmtRaw) / 100;
-      } else {
-        const n = toNum(mgmtRaw);
-        mgmtDecimal = n > 1 ? n / 100 : n;
-      }
-      const mgmtFeeRaw = Math.round(mgmtDecimal * 100 * 10) / 10;
-      const mgmtFee = Math.round(hostPayout * mgmtDecimal * 100) / 100;
-      const mgmtPayout = toNum(p[col.mgmtPayout]);
-      const netPayout = toNum(p[col.netPayout]) || Math.round((hostPayout - cleaningFee - mgmtFee) * 100) / 100;
-      const cleanerConfirmed = ['yes','true','1','TRUE'].includes(String(p[col.cleanerConfirmed] || '').trim());
-      const platform = String(p[col.platform] || '').trim();
-      const confirmCode = String(p[col.confirmCode] || '').trim();
-      const sheetStatus = String(p[col.status] || '').trim().toLowerCase().replace(/\s+/g, '');
-      const isCancelled = sheetStatus.includes('cancel');
-      console.log(`[CSV Row ${i}] name="${name}" status_col=[${col.status}] raw="${p[col.status]}" isCancelled:${isCancelled}`);
-
-      // Preserve local data by matching on stable identity fields.
-      const importProbe = { name, checkin, checkout, confirmCode };
-      const existingB = bookings.find(b => getBookingIdentityKey(b) === getBookingIdentityKey(importProbe));
-      const finalMgmtFeeRaw = mgmtFeeRaw || (existingB ? existingB.mgmtFeeRaw : 0);
-      imported.push({
-        id: existingB ? existingB.id : (Date.now() + i),
-        checkin, checkout, nights, name,
-        guests: Number(p[col.guests]) || 1,
-        hostPayout, cleaningFee, mgmtFee, mgmtFeeRaw: finalMgmtFeeRaw, mgmtPayout, netPayout,
-        cleanerConfirmed,
-        platform,
-        confirmCode,
-        status: isCancelled ? 'cancelled' : getStatus(checkin),
-        gcalEventId: existingB ? (existingB.gcalEventId || null) : null,
-        _fromSheet: true
-      });
-    });
-
-    // Check for duplicates in sheet data before deduplicating
-    const sheetKeyCounts = {};
-    imported.forEach(b => {
-      const key = getBookingIdentityKey(b);
-      sheetKeyCounts[key] = (sheetKeyCounts[key] || 0) + 1;
-    });
-    const sheetDupes = Object.entries(sheetKeyCounts)
-      .filter(([k, count]) => count > 1)
-      .map(([k]) => {
-        const [name, checkin, checkout] = k.split('|');
-        return { name, checkin, checkout };
-      });
-
-    if (sheetDupes.length) {
-      const dupeList = sheetDupes.map(d => `• ${d.name} (check-in ${d.checkin}${d.checkout ? `, check-out ${d.checkout}` : ''})`).join('\n');
-      const confirmed = await showAppModal({
-        title: '⚠️ Duplicate Bookings in Sheet',
-        msg: `${sheetDupes.length} duplicate row${sheetDupes.length > 1 ? 's' : ''} found in your Google Sheet:\n\n${dupeList}\n\nContinue? First occurrence kept — please delete duplicates from the sheet afterwards.`,
-        confirmText: 'Continue Sync',
-        cancelText: 'Cancel',
-      });
-      if (!confirmed) {
-        showBanner('Sync cancelled — fix duplicates in sheet first', 'warn');
-        return;
-      }
-    }
-
-    await finishSync(imported, skipped, manual);
-  } catch(e) {
-    console.error('[StayOps] Sync error:', e);
-    if (manual) showBanner('⚠ Sync failed: ' + (e.message || 'network error'), 'warn');
-  } finally {
-    _syncInProgress = false;
-  }
-}
-
-// ── BANNER ────────────────────────────────────────────────────────────────
-async function finishSync(imported, skipped, manual) {
-  // Find bookings that existed before sync but are gone or cancelled now
-  // so we can delete their calendar events
-  const token = getDriveToken();
-  const existingKeysBeforeSync = new Set(bookings.map(b => getBookingIdentityKey(b)));
-  const existingByKeyBeforeSync = new Map(bookings.map(b => [getBookingIdentityKey(b), b]));
-  const importedKeys = new Set(imported.map(b => getBookingIdentityKey(b)));
-
-  const orphanedCalEvents = bookings
-    .filter(b => b.gcalEventId && !importedKeys.has(getBookingIdentityKey(b)))
-    .map(b => b.gcalEventId);
-
-  const cancelledBookingsWithCalEvent = imported
-    .filter(b => b.gcalEventId && b.status === 'cancelled');
-
-  const toDeleteFromCal = [...new Set(orphanedCalEvents)];
-
-  if (token && toDeleteFromCal.length) {
-    await Promise.all(toDeleteFromCal.map(eventId => {
-      return fetch(calendarEventsUrl(eventId), {
-        method: 'DELETE',
-        headers: { Authorization: 'Bearer ' + token }
-      }).catch(() => {}); // silent — best effort
-    }));
-    console.log('[StayOps] Removed ' + toDeleteFromCal.length + ' orphaned calendar event(s)');
-  }
-
-  let cancelledDeletedCount = 0;
-  let cancelledAlreadyMissingCount = 0;
-  let cancelledDeleteFailedCount = 0;
-  for (const cancelledBooking of cancelledBookingsWithCalEvent) {
-    const result = await removeBookingCalendarEvent(cancelledBooking, {
-      token,
-      persistToSheet: true
-    });
-    if (result.deleted) cancelledDeletedCount++;
-    else if (result.alreadyMissing) cancelledAlreadyMissingCount++;
-    else if (result.failed) cancelledDeleteFailedCount++;
-  }
-
-  const cancellationNotifications = [];
-  const cancellationNoticeKeys = new Set();
-  imported.filter(b => b.status === 'cancelled').forEach(cancelledBooking => {
-    const key = getBookingIdentityKey(cancelledBooking);
-    const previous = existingByKeyBeforeSync.get(key);
-    if (!previous || previous.status === 'cancelled') return;
-    const relatedCleans = cleans.filter(c =>
-      String(c.bookingId) === String(previous.id) ||
-      (_normName(c.guestName) === _normName(previous.name) && String(c.date || '').slice(0, 10) === String(previous.checkout || '').slice(0, 10))
-    );
-    relatedCleans.forEach(clean => {
-      const cleanerObj = loadCleaners().find(p =>
-        (clean.cleanerId && String(p.id) === String(clean.cleanerId)) ||
-        (_normName(p.name) === _normName(clean.cleaner))
-      );
-      if (!cleanerObj) return;
-      const noticeKey = key + '::' + String(cleanerObj.id);
-      if (cancellationNoticeKeys.has(noticeKey)) return;
-      cancellationNoticeKeys.add(noticeKey);
-      cancellationNotifications.push({ booking: cancelledBooking, cleaner: cleanerObj });
-    });
-  });
-
-  // Sheet is source of truth — use imported only, no local-only preservation
-  // Bookings added in-app are pushed to sheet immediately and return on next sync
-  const seen = new Set();
-  const merged = imported.filter(b => {
-    const key = getBookingIdentityKey(b);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  bookings.splice(0, bookings.length, ...merged);
-  console.log('[StayOps] finishSync — imported:', imported.length, 'merged:', bookings.length);
-
-  const cleansBeforePrune = cleans.length;
-  cleans = cleans.filter(c => !_isCleanLinkedToCancelledBooking(c));
-  const prunedCancelledCleans = Math.max(0, cleansBeforePrune - cleans.length);
-  let autoAssignedCount = 0;
-  bookings.forEach(b => {
-    const key = getBookingIdentityKey(b);
-    if (!existingKeysBeforeSync.has(key) && _maybeAutoAssignPreferredCleaner(b, 'sheet-sync')) autoAssignedCount++;
-  });
-
-  _normalizeBookingCleanState();
-
-  save();
-  if (autoAssignedCount > 0 || prunedCancelledCleans > 0) if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
-
-  try { await getFreshOwnerSub(); } catch(_) {}
-  cancellationNotifications.forEach(({ booking, cleaner }) => {
-    const cleanerSub = getCleanerSub(cleaner.id);
-    if (cleanerSub) {
-      sendPushToDevice(
-        cleanerSub,
-        '❌ Booking Cancelled',
-        `${booking.name || 'Guest'} (${fmt(booking.checkin)} → ${fmt(booking.checkout)}) was cancelled.`,
-        cleanerLinkForId(cleaner),
-        'cancel-' + String(booking.id || getBookingIdentityKey(booking))
-      );
-    }
-    if (cleaner.email) {
-      sendCleanerEmail({
-        type: 'cancellation',
-        cleanerName: cleaner.name,
-        cleanerEmail: cleaner.email,
-        guestName: booking.name || 'Guest',
-        checkin: fmt(booking.checkin),
-        checkout: fmt(booking.checkout),
-        cleanDate: fmt(booking.checkout),
-        cleanerLink: cleanerLinkForId(cleaner)
-      }).catch(() => {});
-    }
-  });
-
-  const syncTime = new Date().toLocaleString('en-AU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
-  localStorage.setItem(lsKey('last-sync'), syncTime);
-  _refreshAfterDataChange(manual);
-  const calRemovedCount = toDeleteFromCal.length + cancelledDeletedCount + cancelledAlreadyMissingCount;
-  const calMsg = calRemovedCount ? ` · ${calRemovedCount} calendar event${calRemovedCount > 1 ? 's' : ''} removed` : '';
-  const cancelledCount = imported.filter(b => b.status === 'cancelled').length;
-  if (manual) showBanner('✓ Synced — ' + bookings.length + ' bookings' + (cancelledCount ? ` · ${cancelledCount} cancelled` : '') + (skipped ? ` (${skipped} skipped)` : '') + (autoAssignedCount ? ` · ${autoAssignedCount} auto-assigned` : '') + calMsg, 'ok');
-  if (manual && cancelledDeleteFailedCount > 0) showBanner('⚠ ' + cancelledDeleteFailedCount + ' cancelled booking calendar event(s) could not be removed', 'warn');
-  if (manual) syncNewBookingsToCalendar();
-}
-
 let bannerTimer;
 function showBanner(msg, type) {
   const banner = document.getElementById('sync-banner');
@@ -1216,29 +908,15 @@ function showSection(name) {
     showSection('bookings');
     return;
   } else if (name === 'property') {
-    // Reset any settings subpanels that may have been left open
-    const sm = document.getElementById('settings-menu');
-    if (sm) sm.style.display = 'none';
-    document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
-    document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
     // Ensure operational sub-view is visible
     const pf = propFilter || 'expenses';
     const tabBtn = document.querySelector(`#section-property .tab-row .tab[onclick*="'${pf}'"]`);
     filterProperty(pf, tabBtn);
   } else if (name === 'settings') {
-    // Legacy fallback — route to property instead
-    currentSection = 'property';
-    const sec2 = document.getElementById('section-property');
-    if (sec2) sec2.classList.remove('section-hidden');
-    const nav2 = document.getElementById('nav-property');
-    if (nav2) { document.querySelectorAll('.nav-btn').forEach(e => e.classList.remove('active')); nav2.classList.add('active'); }
-    const sm2 = document.getElementById('settings-menu');
-    if (sm2) sm2.style.display = 'none';
-    document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
-    document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
-    const pf2 = propFilter || 'expenses';
-    const tabBtn2 = document.querySelector(`#section-property .tab-row .tab[onclick*="'${pf2}'"]`);
-    filterProperty(pf2, tabBtn2);
+    // Show settings main menu, hide any open cats/panels
+    _resetSettingsToMenu();
+    renderSettings();
+    renderConnectionSummary();
   }
   setTimeout(_flushPendingUiRefresh, 0);
 }
@@ -1276,7 +954,7 @@ function render() {
   if (section === 'finance')      { renderFinance(); return; }
   if (section === 'notes')        { renderNotes(); populateSelects(); return; }
   if (section === 'property')     { renderProperty(); return; }
-  if (section === 'settings')     { showSection('property'); return; } // legacy guard
+  if (section === 'settings')     { renderSettings(); renderConnectionSummary(); return; }
   renderDashboard(); // fallback
 }
 
@@ -1301,6 +979,7 @@ function renderAll() {
   if (section === 'finance')    renderFinance();
   if (section === 'notes')      renderNotes();
   if (section === 'property')   renderProperty();
+  if (section === 'settings')   { renderSettings(); renderConnectionSummary(); }
   setTimeout(() => { attachButtonPress(); attachLongPress(); }, 50);
 }
 
@@ -2304,26 +1983,29 @@ function renderNotes() {
     </div>`).join('');
 }
 
-function _hidePropertyOpContent() {
-  // Hides the operational part of the Property tab so settings panels render at top
-  const heading = document.querySelector('#section-property .section-heading');
-  const tabrow  = document.querySelector('#section-property .tab-row');
-  const strip   = document.getElementById('cleaning-summary-strip');
-  if (heading) heading.style.display = 'none';
-  if (tabrow)  tabrow.style.display  = 'none';
-  if (strip)   strip.style.display   = 'none';
-  ['expenses','maintenance','inventory'].forEach(s => {
-    const el = document.getElementById('prop-' + s);
-    if (el) el.style.display = 'none';
-  });
-  // Scroll the property section back to top so the panel is visible
+// ── SETTINGS NAVIGATION ──────────────────────────────────────────────────────
+// Settings lives in its own section (section-settings). These functions manage
+// navigation within that section: main menu → category → panel → back.
+
+function _resetSettingsToMenu() {
+  // Show main menu, hide all cats and panels
+  const sm = document.getElementById('settings-menu');
+  if (sm) sm.style.display = '';
+  document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
+}
+
+function _ensureSettingsVisible() {
+  // If we're not on the settings section, switch to it
+  if (currentSection !== 'settings') showSection('settings');
+  // Scroll to top so the panel is visible
   const mc = document.getElementById('main-content');
   if (mc) mc.scrollTop = 0;
   else window.scrollTo(0, 0);
 }
 
 function openSettingsCat(cat) {
-  _hidePropertyOpContent();
+  _ensureSettingsVisible();
   const sm = document.getElementById('settings-menu');
   if (sm) sm.style.display = 'none';
   document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
@@ -2331,7 +2013,6 @@ function openSettingsCat(cat) {
   const el = document.getElementById('settings-cat-' + cat);
   if (el) el.style.display = 'block';
   if (cat === 'property') {
-    // update notification status row
     setTimeout(updateNotifStatus, 100);
     const sr = document.getElementById('notif-status-row-menu');
     if (sr) { const p = Notification.permission; sr.textContent = p === 'granted' ? '✅ Enabled' : p === 'denied' ? '❌ Blocked' : 'Tap to set up'; }
@@ -2345,7 +2026,7 @@ function openSettingsCat(cat) {
 }
 
 function openSettingsPanel(panelId) {
-  _hidePropertyOpContent();
+  _ensureSettingsVisible();
   // track which cat we came from
   const activeCat = document.querySelector('[id^="settings-cat-"]:not([style*="display: none"]):not([style*="display:none"])');
   const prevCat = activeCat ? activeCat.id.replace('settings-cat-', '') : null;
@@ -2392,14 +2073,6 @@ function openSettingsPanel(panelId) {
   }
   if (panelId === 'invoice-clients') {
     renderClientsList();
-  }
-  if (panelId === 'sheets') {
-    const el = document.getElementById('settings-script-url');
-    if (el) el.value = getCurrentScriptURL();
-  }
-  if (panelId === 'apps-script') {
-    const el = document.getElementById('settings-script-url');
-    if (el) el.value = getCurrentScriptURL();
   }
   if (panelId === 'drive') {
     const el = document.getElementById('gdrive-client-id');
@@ -2479,26 +2152,12 @@ function closeSettingsPanel() {
   const returnCat = panel?.dataset.prevCat;
   document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
   if (returnCat) openSettingsCat(returnCat);
-  else closeSettingsCat(); // goes back to main menu
+  else closeSettingsCat();
 }
 
 function closeSettingsCat() {
-  document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
-  document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
-  const sm = document.getElementById('settings-menu');
-  if (sm) sm.style.display = 'none';
-  // Always return to the Property operational view
-  const pf = propFilter || 'expenses';
-  const tabBtn = document.querySelector(`#section-property .tab-row .tab[onclick*="'${pf}'"]`);
-  filterProperty(pf, tabBtn);
-  // Ensure Property section is active
-  document.querySelectorAll('[id^="section-"]').forEach(el => el.classList.add('section-hidden'));
-  document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
-  const sec = document.getElementById('section-property');
-  if (sec) sec.classList.remove('section-hidden');
-  const nav = document.getElementById('nav-property');
-  if (nav) nav.classList.add('active');
-  currentSection = 'property';
+  // Return to the settings main menu (stay in settings section)
+  _resetSettingsToMenu();
 }
 
 // ── EXPENSE CATEGORY MANAGEMENT ───────────────────────────────────────────
@@ -3047,7 +2706,6 @@ function saveEdit(id) {
   // Keep existing lifecycle status; avoid date-only status flips during edit.
   if (!b.status) b.status = 'upcoming';
   save();
-  pushToSheet('update', b);
   updateBookingInCalendar(b);
   if (typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(() => {});
   showBanner('✅ Booking saved & syncing...', 'ok');
@@ -3122,7 +2780,7 @@ function addBooking() {
   _normalizeBookingCleanState();
   save();
   if (autoAssigned) if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
-  pushToSheet('add', newB); closeModal(); render();
+  closeModal(); render();
   if (typeof saveBookingToCloud === 'function') {
     saveBookingToCloud(newB).then(() => {
       console.log('[StayOps] Booking saved to Supabase');
@@ -3294,7 +2952,6 @@ async function deleteBooking(id) {
     }
   }
 
-  if (b) pushToSheet('delete', b);
   // Delete calendar event if one was created
   if (deletedBooking && deletedBooking.gcalEventId) {
     const token = getDriveToken();
@@ -3378,7 +3035,6 @@ async function runFullRefresh() {
   if (btn) { btn.disabled = true; btn.textContent = '↻ Syncing…'; }
 
   let cloudOk = false;
-  let sheetOk = false;
   let errors = [];
 
   try {
@@ -3393,16 +3049,7 @@ async function runFullRefresh() {
       }
     }
 
-    // Step 2: Pull bookings from Google Sheets CSV (secondary / legacy source)
-    try {
-      await syncFromSheets(false); // false = silent, no extra banner
-      sheetOk = true;
-    } catch (e) {
-      console.warn('[Refresh] syncFromSheets failed:', e);
-      // Not a hard error — Supabase is primary source
-    }
-
-    // Step 3: Try Google Calendar sync (non-blocking, failure is silent)
+    // Step 2: Try Google Calendar sync (non-blocking, failure is silent)
     if (typeof syncToGoogleCalendar === 'function') {
       syncToGoogleCalendar().catch(e => console.warn('[Refresh] syncToGoogleCalendar failed:', e));
     }
@@ -3428,14 +3075,7 @@ async function runFullRefresh() {
 }
 
 function openPropertySettingsMenu() {
-  showActionSheet('Property Settings', [
-    { label: 'Property Details',  fn: "() => { openSettingsCat('property'); openSettingsPanel('property-info'); }" },
-    { label: 'Smart Pricing',     fn: "() => { openSettingsCat('property'); openSettingsPanel('smart-pricing'); }" },
-    { label: 'Team',              fn: "() => { openSettingsCat('property'); openSettingsPanel('team'); }" },
-    { label: 'Integrations',      fn: "() => openSettingsCat('advanced')" },
-    { label: 'Notifications',     fn: "() => openSettingsPanel('notifications')" },
-    { label: 'App Tools',         fn: "() => openSettingsCat('advanced')" }
-  ]);
+  showSection('settings');
 }
 
 // ── UTILS ─────────────────────────────────────────────────────────────────
@@ -3640,109 +3280,10 @@ function saveCleaningFee(bookingId) {
   if (!b || !input) return;
   b.cleaningFee = Number(input.value) || 0;
   save();
-  pushToSheet('update', b);
   if (typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(() => {});
   showBanner('✓ Cleaning fee saved & synced', 'ok');
 }
 
-// ── PUSH ALL EXPENSES TO SHEET ───────────────────────────────────────────────
-async function smartSyncExpenses() {
-  if (!_acquireLock(_actionLocks, 'smartSyncExpenses')) return;
-  const syncUrl = (getCurrentScriptURL() || '').trim();
-  if (!syncUrl || !syncUrl.includes('legacy-endpoint.invalid')) {
-    showBanner('⚠ Set your Legacy Sync URL in Settings → Legacy Sheets first', 'warn'); _releaseLock(_actionLocks, 'smartSyncExpenses'); return;
-  }
-  if (!expenses.length) { showBanner('⚠ No expenses to sync', 'warn'); _releaseLock(_actionLocks, 'smartSyncExpenses'); return; }
-
-  const resultEl = document.getElementById('push-expenses-result');
-  if (resultEl) {
-    resultEl.style.display = 'block';
-    resultEl.style.background = '#FFF8E1'; resultEl.style.color = '#E65100';
-  }
-
-  let ok = 0, failed = 0;
-  const total = expenses.length;
-
-  for (let i = 0; i < expenses.length; i++) {
-    const e = expenses[i];
-    if (resultEl) resultEl.textContent = '⟳ Syncing ' + (i + 1) + ' / ' + total + '...';
-    try {
-      const expForSheet = {
-        date:        e.date||'',
-        merchant:    e.merchant||'',
-        description: e.description||'',
-        category:    e.category||'',
-        amount:      e.amount||0,
-        receiptNum:  e.receiptNum||'',
-        receiptType: e.receiptType||'',
-        driveLink:   e.driveLink||''
-      };
-      // Use POST with text/plain to avoid GET URL length limits
-      const res = await fetch(syncUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action: 'updateExpense', data: JSON.stringify(expForSheet) })
-      }).then(r => r.json());
-      if (res.status === 'ok') ok++; else failed++;
-    } catch(err) { failed++; }
-  }
-
-  if (resultEl) {
-    resultEl.style.background = ok ? '#E8F5E9' : '#FDECEA';
-    resultEl.style.color = ok ? '#2E7D32' : '#C0392B';
-    resultEl.textContent = (ok ? '✅' : '✗') + ' ' + ok + ' synced' + (failed ? ', ' + failed + ' failed' : '');
-  }
-  showBanner(ok ? '✅ ' + ok + ' expenses synced to sheet' : '⚠ Sync had ' + failed + ' failures', ok ? 'ok' : 'warn');
-  _releaseLock(_actionLocks, 'smartSyncExpenses');
-}
-
-function saveScriptURL() {
-  const input = document.getElementById('settings-script-url');
-  if (!input) return;
-  const url = input.value.trim();
-  if (!url) return;
-  persistScriptUrl(url); // writes to both legacy key AND config (from config.js)
-  const el = document.getElementById('script-url-confirm');
-  if (el) { el.style.display = 'block'; setTimeout(() => el.style.display = 'none', 2000); }
-  showBanner('✓ Settings saved: Legacy Sync URL', 'ok');
-}
-async function testScriptConnection() {
-  if (!_acquireLock(_actionLocks, 'testScriptConnection')) return;
-  const checkerOpen = document.getElementById('settings-panel-connection-checker')?.style.display !== 'none';
-  const resultId = checkerOpen ? 'conn-script-result' : 'script-test-result';
-  _setConnectionCheckResult(resultId, 'loading', 'Checking Legacy Sync endpoint…');
-
-  const syncUrl = (getCurrentScriptURL() || '').trim();
-  if (!syncUrl) {
-    _setConnectionCheckResult(resultId, 'fail', '❌ Missing configuration: Legacy Sync URL is not set.');
-    showBanner('⚠ Missing setup: add your Legacy Sync URL first', 'warn');
-    _releaseLock(_actionLocks, 'testScriptConnection');
-    return;
-  }
-  if (!syncUrl.toLowerCase().includes('legacy-endpoint.invalid/macros') || !syncUrl.endsWith('/exec')) {
-    _setConnectionCheckResult(resultId, 'fail', '❌ Invalid URL: expected a deployed Legacy Sync /exec URL.');
-    showBanner('⚠ Legacy Sync URL looks invalid. Paste the deployed /exec URL.', 'warn');
-    _releaseLock(_actionLocks, 'testScriptConnection');
-    return;
-  }
-
-  try {
-    const json = (window.DB && typeof window.DB.testConnection === 'function')
-      ? await window.DB.testConnection()
-      : await fetch(syncUrl + '?action=test').then(r => r.json());
-
-    const ok = !!(json && (json.success === true || json.status === 'ok' || json.status === 'success' || json.status === true));
-    if (!ok) throw new Error((json && (json.error || json.status)) || 'Unexpected response');
-
-    _setConnectionCheckResult(resultId, 'ok', '✅ Connected: Legacy Sync responded to a safe test action.');
-    showBanner('✓ Test successful: Legacy Sync is connected', 'ok');
-  } catch(e) {
-    _setConnectionCheckResult(resultId, 'fail', '❌ Failed: Legacy Sync test request did not succeed. ' + e.message);
-    showBanner('⚠ Test failed: could not reach Legacy Sync. Check URL and deployment access.', 'warn');
-  } finally {
-    _releaseLock(_actionLocks, 'testScriptConnection');
-  }
-}
 function saveBankDetails() {
   ['name','bsb','acc','bank'].forEach(k => {
     const val = document.getElementById('inv-bank-'+k)?.value?.trim();
@@ -3839,9 +3380,8 @@ function getApiKey() {
   return localStorage.getItem('gh-api-key') || '';
 }
 
-// ── HOST IDENTITY + SAFE HOST SETTINGS SYNC (Phase 1 foundation) ─────────────
+// ── HOST IDENTITY ─────────────────────────────────────────────────────────────
 const HOST_PROFILE_KEY = 'gh-host-profile';
-const HOST_SETTINGS_SCHEMA_VERSION = 1;
 
 function getHostProfile() {
   try {
@@ -3861,80 +3401,8 @@ function saveHostProfile(profile) {
   localStorage.setItem(HOST_PROFILE_KEY, JSON.stringify(profile));
 }
 
-function buildSafeHostSettingsPayload(hostProfile) {
-  return {
-    version: HOST_SETTINGS_SCHEMA_VERSION,
-    savedAt: new Date().toISOString(),
-    hostId: hostProfile.hostId,
-    activePropertyId: (typeof getActivePropertyId === 'function') ? getActivePropertyId() : null,
-    properties: (typeof getAllProperties === 'function') ? getAllProperties() : [],
-    ui: {
-      smsTemplate: localStorage.getItem(lsKey('sms-template')) || '',
-      expenseCats: localStorage.getItem(lsKey('expense-cats')) || '',
-      invoiceSettings: localStorage.getItem(lsKey('invoice-settings')) || ''
-    },
-    integrations: {
-      gDriveClientId: localStorage.getItem('gh-gdrive-client-id') || ''
-    },
-    // Sensitive values intentionally excluded from host-linked payload:
-    // - drive tokens
-    // - API keys
-    // - Gemini keys
-    // - push subscriptions
-  };
-}
-
-async function pushSafeHostSettings() {
-  const host = getHostProfile();
-  if (!host || !host.hostId) return false;
-  const key = 'hostSettings::' + host.hostId;
-  const payload = buildSafeHostSettingsPayload(host);
-  return await pushAppDataNow(key, payload);
-}
-
-function restoreSafeHostSettingsPayload(payload) {
-  if (!payload || typeof payload !== 'object') return false;
-  let changed = false;
-
-  if (Array.isArray(payload.properties) && payload.properties.length && typeof saveAllProperties === 'function') {
-    saveAllProperties(payload.properties);
-    changed = true;
-  }
-
-  if (payload.activePropertyId && typeof setActivePropertyId === 'function') {
-    setActivePropertyId(payload.activePropertyId);
-    changed = true;
-  }
-
-  if (payload.ui && typeof payload.ui === 'object') {
-    if (typeof payload.ui.smsTemplate === 'string' && payload.ui.smsTemplate) {
-      localStorage.setItem(lsKey('sms-template'), payload.ui.smsTemplate);
-      changed = true;
-    }
-    if (typeof payload.ui.expenseCats === 'string' && payload.ui.expenseCats) {
-      localStorage.setItem(lsKey('expense-cats'), payload.ui.expenseCats);
-      changed = true;
-    }
-    if (typeof payload.ui.invoiceSettings === 'string' && payload.ui.invoiceSettings) {
-      localStorage.setItem(lsKey('invoice-settings'), payload.ui.invoiceSettings);
-      changed = true;
-    }
-  }
-
-  if (payload.integrations && typeof payload.integrations === 'object') {
-    const id = String(payload.integrations.gDriveClientId || '').trim();
-    if (id) {
-      localStorage.setItem('gh-gdrive-client-id', id);
-      changed = true;
-    }
-  }
-
-  return changed;
-}
-
 async function ensureHostIdentityAndRestore() {
   if (isCleanerMode()) return;
-  const syncUrl = (getCurrentScriptURL() || '').trim();
   let host = getHostProfile();
 
   // Try to seed identity from existing owner config first.
@@ -3966,47 +3434,6 @@ async function ensureHostIdentityAndRestore() {
       saveHostProfile(host);
       showBanner('✓ Host profile created', 'ok');
     }
-  }
-
-  if (!host || !host.hostId) return;
-  if (!(syncUrl && syncUrl.includes('legacy-endpoint.invalid'))) return;
-
-  try {
-    const resp = await fetch(syncUrl + '?action=getAppData');
-    if (!resp.ok) return;
-    const json = await resp.json();
-    if (!json || !json.success || !json.data) return;
-    const d = json.data || {};
-
-    // Phase 3: cache centrally managed/shared integration defaults (if provided
-    // by backend AppData) so hosts don't always need to paste technical URLs.
-    if (d.sharedIntegrations && typeof saveSharedIntegrationConfig === 'function') {
-      saveSharedIntegrationConfig(d.sharedIntegrations);
-    }
-
-    const remoteHost = d.hostProfile && typeof d.hostProfile === 'object' ? d.hostProfile : null;
-    if (!getHostProfile() && remoteHost && remoteHost.hostId) {
-      saveHostProfile(remoteHost);
-      host = remoteHost;
-    }
-
-    const directKey = 'hostSettings::' + host.hostId;
-    const payload = d[directKey] || null;
-    if (payload) {
-      const changed = restoreSafeHostSettingsPayload(payload);
-      if (changed) {
-        migrateConfigFromLegacySettings();
-        initPropertyUI();
-        render();
-        showBanner('✓ Restored host settings', 'ok');
-      }
-    }
-
-    // Push current safe host profile/settings so new device/local wipe can recover.
-    pushAppData('hostProfile', host);
-    pushSafeHostSettings();
-  } catch (e) {
-    console.warn('host identity restore failed:', e);
   }
 
   renderHostProfileRow();
@@ -4145,7 +3572,6 @@ function loadCleaners() {
 }
 function saveCleaners(list) {
   localStorage.setItem(lsKey('cleaners'), JSON.stringify(list));
-  scheduleAppDataSave('cleaners', list);
   if (typeof saveCleanersToCloud === 'function') {
     saveCleanersToCloud(list).catch(e => console.warn('[StayOps] Cloud cleaner sync failed', e));
   }
@@ -4516,7 +3942,7 @@ function loadAIIgnoreList() {
 }
 function saveAIIgnoreList(list) {
   localStorage.setItem(lsKey('ai-ignore'), JSON.stringify(list));
-  scheduleAppDataSave('aiIgnore', list);
+  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ ai_ignore: list }).catch(() => {});
 }
 function addAIIgnoreItem(type, key, label, reason) {
   const list = loadAIIgnoreList();
@@ -4626,7 +4052,7 @@ function renderExpenseAnalysis(data) {
   if (!hasAnything) html += '<div style="color:var(--forest);font-weight:600">✓ No issues found — your expenses look clean!</div>';
 
   html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-    <button onclick="showSection('property');setTimeout(()=>{openSettingsCat('advanced');openSettingsPanel('ai-ignore');},60)"
+    <button onclick="openSettingsCat('advanced');openSettingsPanel('ai-ignore');"
       style="font-size:11px;color:var(--text-soft);background:none;border:none;cursor:pointer;text-decoration:underline">View ignore list</button>
     <button onclick="document.getElementById('expense-analysis-result').style.display='none'"
       style="font-size:12px;color:var(--text-soft);background:none;border:none;cursor:pointer">✕ Close</button>
@@ -4813,9 +4239,6 @@ function addExpense(opts = {}) {
 }
 
 async function saveExpenseToDriveAndSheet(exp) {
-  // driveToken no longer needed — receipts use Supabase Storage
-  const syncUrl = (getScriptURL() || '').trim();
-
   // ── Upload receipt to Supabase Storage ──────────────────────────────────────
   let driveLink = null;
   if (exp.photo) {
@@ -4842,26 +4265,6 @@ async function saveExpenseToDriveAndSheet(exp) {
       }
     } catch(e) {
       showBanner('⚠ Receipt upload failed: ' + e.message, 'warn');
-    }
-  }
-
-  // ── Push to sheet with Drive link already included in one write ──────────
-  if (syncUrl && syncUrl.includes('legacy-endpoint.invalid')) {
-    try {
-      const expForSheet = Object.assign({}, exp, { driveLink: driveLink || exp.driveLink || '' });
-      delete expForSheet.photo;
-      delete expForSheet._mediaType;
-      // Use POST to avoid GET URL length limit (Drive links push GET over ~2KB)
-      const res = await fetch(syncUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action: 'addExpense', data: JSON.stringify(expForSheet) })
-      });
-      const json = await res.json();
-      if (json.status === 'ok') showBanner('✓ Expense saved to sheet', 'ok');
-      else showBanner('⚠ Sheet sync: ' + json.status, 'warn');
-    } catch(e) {
-      showBanner('⚠ Sheet sync failed — check script URL in Settings', 'warn');
     }
   }
 }
@@ -5018,251 +4421,6 @@ async function deleteExpense(id) {
   showBanner('✓ Expense deleted', 'ok');
   // Sync deletion to Supabase (non-blocking)
   if (exp && typeof deleteExpenseFromCloud === 'function') deleteExpenseFromCloud(exp).catch(() => {});
-
-  // Delete from Google Sheet
-  if (exp) {
-    const syncUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
-    if (syncUrl && syncUrl.includes('legacy-endpoint.invalid')) {
-      const expForSheet = { date: exp.date, merchant: exp.merchant, amount: exp.amount };
-      fetch(syncUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action: 'deleteExpense', data: JSON.stringify(expForSheet) })
-      })
-        .then(r => r.json())
-        .then(json => {
-          if (json.status === 'not_found') showBanner('⚠ Expense deleted locally — row not found in sheet (may already be gone)', 'warn');
-          else if (json.status !== 'ok') showBanner('⚠ Deleted locally but not from sheet: ' + json.status, 'warn');
-        })
-        .catch(() => showBanner('⚠ Deleted locally — sheet connection failed', 'warn'));
-    }
-
-    // Receipt stored in Supabase Storage — no Drive cleanup needed
-  }
-}
-
-async function migrateCategoriesInSheet() {
-  const syncUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
-  if (!syncUrl || !syncUrl.includes('legacy-endpoint.invalid')) {
-    showBanner('⚠ Set your Legacy Sync URL in Settings first', 'warn'); return;
-  }
-  const resultEl = document.getElementById('push-expenses-result');
-  if (resultEl) { resultEl.style.display = 'block'; resultEl.style.background = '#E3F2FD'; resultEl.style.color = '#1565C0'; resultEl.textContent = '⟳ Migrating categories in sheet...'; }
-  showBanner('⟳ Migrating categories...', 'info');
-  try {
-    const json = await sheetPost(syncUrl, 'migrateCategories', {});
-    if (json.status === 'ok') {
-      const msg = `✓ Done — ${json.updated} row${json.updated !== 1 ? 's' : ''} updated`;
-      showBanner(msg, 'ok');
-      if (resultEl) { resultEl.style.background = '#E8F5E9'; resultEl.style.color = '#2E7D32'; resultEl.textContent = msg; }
-      await pullExpensesFromSheet();
-    } else {
-      showBanner('⚠ Migration failed: ' + (json.status || 'unknown'), 'warn');
-    }
-  } catch(e) {
-    const msg = '⚠ Migration failed: ' + (e.message || 'network error');
-    showBanner(msg, 'warn');
-    if (resultEl) { resultEl.style.display = 'block'; resultEl.style.background = '#FEF2F2'; resultEl.style.color = '#C0392B'; resultEl.textContent = msg; }
-  }
-}
-
-// ── BACKUP & RESTORE ──────────────────────────────────────────────────────────
-function buildBackupPayload() {
-  return {
-    version: 2,
-    timestamp: new Date().toISOString(),
-    propertyConfig: getPropertyConfig(), // included in v2 for full restore
-    bookings,
-    cleans,
-    notes,
-    expenses: expenses.map(e => { const c = Object.assign({}, e); delete c.photo; return c; }),
-    maintenance,
-    inventory,
-    cleaners: loadCleaners(),
-    settings: {
-      propertyData:       localStorage.getItem(lsKey('property-data')),
-      syncUrl:          getCurrentScriptURL(),
-      gDriveClientId:     localStorage.getItem('gh-gdrive-client-id'),
-      cleaningFeeDefault: localStorage.getItem(lsKey('cleaning-fee')),
-      smsTemplate:        localStorage.getItem(lsKey('sms-template')),
-      expenseCats:        localStorage.getItem(lsKey('expense-cats')),
-      invoiceSettings:    localStorage.getItem(lsKey('invoice-settings')),
-    }
-  };
-}
-
-async function saveBackup() {
-  const syncUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
-  if (!syncUrl || !syncUrl.includes('legacy-endpoint.invalid')) {
-    showBanner('⚠ Set your Legacy Sync URL in Settings → Legacy Sheets first', 'warn'); return;
-  }
-  const resultEl = document.getElementById('backup-result');
-  if (resultEl) { resultEl.style.display = 'block'; resultEl.style.background = '#E3F2FD'; resultEl.style.color = '#1565C0'; resultEl.textContent = '⟳ Saving backup to Google Drive...'; }
-  showBanner('⟳ Saving backup...', 'info');
-  try {
-    const payload = buildBackupPayload();
-    const body = JSON.stringify({ action: 'saveBackup', data: JSON.stringify(payload) });
-    // Use text/plain to avoid CORS preflight — Legacy Sync parses the body manually
-    const resp = await fetch(syncUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body
-    });
-    const json = await resp.json();
-    if (json.status === 'ok') {
-      const now = new Date().toLocaleString('en-AU', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
-      localStorage.setItem(lsKey('last-backup'), now);
-      const el = document.getElementById('backup-last-time');
-      if (el) el.textContent = now;
-      const msg = `✓ Backup saved — ${json.filename}`;
-      showBanner(msg, 'ok');
-      if (resultEl) { resultEl.style.background = '#E8F5E9'; resultEl.style.color = '#2E7D32'; resultEl.textContent = msg; }
-    } else {
-      throw new Error(json.message || json.status);
-    }
-  } catch(e) {
-    const msg = '⚠ Backup failed: ' + (e.message || 'network error');
-    showBanner(msg, 'warn');
-    if (resultEl) { resultEl.style.background = '#FEF2F2'; resultEl.style.color = '#C0392B'; resultEl.textContent = msg; }
-  }
-}
-
-async function listBackups() {
-  const syncUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
-  if (!syncUrl || !syncUrl.includes('legacy-endpoint.invalid')) {
-    showBanner('⚠ Set your Legacy Sync URL in Settings → Legacy Sheets first', 'warn'); return;
-  }
-  const listEl = document.getElementById('backup-list');
-  if (listEl) listEl.innerHTML = '<div style="font-size:13px;color:var(--text-soft)">⟳ Loading backups...</div>';
-  try {
-    const json = await sheetPost(syncUrl, 'listBackups', {});
-    if (json.status === 'ok') {
-      const backups = json.backups || [];
-      if (!backups.length) {
-        if (listEl) listEl.innerHTML = '<div style="font-size:13px;color:var(--text-soft)">No backups found. Tap Backup Now to create your first one.</div>';
-        return;
-      }
-      if (listEl) listEl.innerHTML = backups.map(b => `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--warm)">
-          <div>
-            <div style="font-size:13px;font-weight:600">${b.date}</div>
-            <div style="font-size:11px;color:var(--text-soft)">${(b.size/1024).toFixed(1)} KB</div>
-          </div>
-          <button onclick="restoreBackup('${b.id}', '${b.date}')"
-            style="font-size:12px;background:#FEF2F2;color:var(--red);border:none;border-radius:8px;padding:7px 12px;cursor:pointer;font-weight:600;font-family:'DM Sans',sans-serif">
-            Restore
-          </button>
-        </div>`).join('');
-    } else {
-      throw new Error(json.message || json.status);
-    }
-  } catch(e) {
-    if (listEl) listEl.innerHTML = '<div style="font-size:13px;color:var(--red)">⚠ Could not load backups: ' + (e.message || 'network error') + '</div>';
-  }
-}
-
-async function restoreBackup(fileId, dateLabel) {
-  showAppModal(
-    `Restore backup from ${dateLabel}?`,
-    `This will replace ALL current data — bookings, expenses, cleans, notes, everything — with this backup. This cannot be undone.`,
-    async () => {
-      const syncUrl = localStorage.getItem('gh-script-url') || DEFAULT_SCRIPT_URL;
-      showBanner('⟳ Restoring backup...', 'info');
-      try {
-        const url = syncUrl + '?action=restoreBackup&fileId=' + encodeURIComponent(fileId);
-        const resp = await fetch(url);
-        const json = await resp.json();
-        if (json.status === 'ok' && json.data) {
-          const d = json.data;
-          bookings    = d.bookings    || [];
-          cleans      = d.cleans      || [];
-          notes       = d.notes       || [];
-          expenses    = (d.expenses   || []).map(e => { if (!e.photo) e.photo = null; return e; });
-          maintenance = d.maintenance || [];
-          inventory   = d.inventory   || [];
-          if (d.cleaners) saveCleaners(d.cleaners);
-          if (d.settings) {
-            if (d.settings.propertyData)       localStorage.setItem(lsKey('property-data'),    d.settings.propertyData);
-            if (d.settings.syncUrl)          localStorage.setItem('gh-script-url',        d.settings.syncUrl);
-            if (d.settings.gDriveClientId)     localStorage.setItem('gh-gdrive-client-id',  d.settings.gDriveClientId);
-            if (d.settings.cleaningFeeDefault)  localStorage.setItem(lsKey('cleaning-fee'),      d.settings.cleaningFeeDefault);
-            if (d.settings.smsTemplate)        localStorage.setItem(lsKey('sms-template'),      d.settings.smsTemplate);
-            if (d.settings.expenseCats)        localStorage.setItem(lsKey('expense-cats'),      d.settings.expenseCats);
-            if (d.settings.invoiceSettings)    localStorage.setItem(lsKey('invoice-settings'),  d.settings.invoiceSettings);
-          }
-          // Restore property config if present (v2 backups include it).
-          // Runs after settings so syncUrl legacy mirror is already in place.
-          if (d.propertyConfig) {
-            localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(d.propertyConfig));
-            if (typeof initPropertyUI === 'function') initPropertyUI();
-          }
-          save();
-          savePropertyData();
-          renderAll();
-          showBanner(`✓ Restored backup from ${dateLabel}`, 'ok');
-        } else {
-          throw new Error(json.message || json.status);
-        }
-      } catch(e) {
-        showBanner('⚠ Restore failed: ' + (e.message || 'network error'), 'warn');
-      }
-    },
-    'Restore', 'Cancel'
-  );
-}
-
-async function pullExpensesFromSheet() {
-  const syncUrl = (getScriptURL() || '').trim();
-  if (!syncUrl || !syncUrl.includes('legacy-endpoint.invalid')) {
-    showBanner('⚠ Set your Legacy Sync URL in Settings → Legacy Sheets first', 'warn');
-    return;
-  }
-  showBanner('⟳ Pulling expenses from sheet...', 'info');
-  try {
-    const json = await sheetPost(syncUrl, 'getExpenses', {});
-    if (json.status === 'ok' && json.expenses) {
-      if (json.expenses.length > 0) {}
-      let added = 0, linksUpdated = 0;
-      json.expenses.forEach(row => {
-        // Each row: [date, merchant, description, category, amount, receiptNum, receiptType, driveLink]
-        if (!row[0] || !row[1]) return; // skip empty rows
-        const amount = parseFloat(String(row[4]||'').replace(/[^0-9.-]/g,'')) || 0;
-        const driveLink = String(row[7] || '').trim();
-        const hasHttpDriveLink = /^https?:\/\//i.test(driveLink);
-        const rowDate = toISO(String(row[0] || '').trim()); // normalise once
-        // Deduplicate by normalised date+merchant+amount (both sides now ISO)
-        const exists = expenses.find(e =>
-          e.date === rowDate && e.merchant === row[1] && Math.abs(Number(e.amount) - amount) < 0.01);
-        if (!exists) {
-          expenses.push({
-            id: Date.now() + Math.random(),
-            date: rowDate,
-            merchant: row[1] || '',
-            description: row[2] || '',
-            category: row[3] || 'Other',
-            amount,
-            receiptNum: row[5] || '',
-            receiptType: String(row[6] || '').toLowerCase().trim(),
-            driveLink: hasHttpDriveLink ? driveLink : null,
-            photo: null,
-            awaitingReceipt: false
-          });
-          added++;
-        } else if (hasHttpDriveLink && (!String(exists.driveLink || '').trim().match(/^https?:\/\//i))) {
-          // Sheet has a valid URL but local is missing or broken — fix it, then leave it alone
-          exists.driveLink = driveLink;
-          linksUpdated++;
-        }
-      });
-      savePropertyData();
-      renderExpenses();
-      const parts = [`${added} new`];
-      if (linksUpdated) parts.push(`${linksUpdated} receipt link${linksUpdated > 1 ? 's' : ''} synced`);
-      showBanner(`✓ Pulled ${json.expenses.length} rows — ${parts.join(', ')}`, 'ok');
-    } else {
-      showBanner('⚠ Pull failed: ' + (json.status || 'no data'), 'warn');
-    }
-  } catch(e) { showBanner('⚠ Pull failed — check script URL in Settings', 'warn'); }
 }
 
 // ── RECEIPT PHOTO READER ──────────────────────────────────────────────────
@@ -5551,18 +4709,6 @@ function isCalendarNotFoundStatus(status) {
   return status === 404 || status === 410;
 }
 
-async function persistBookingToSheetSourceOfTruth(booking) {
-  const url = getScriptURL();
-  if (!url || !booking) return { skipped: true };
-  try {
-    const json = await sheetPost(url, 'update', booking);
-    if (json && json.status === 'not_found') return sheetPost(url, 'add', booking);
-    return json;
-  } catch (e) {
-    return { failed: true, error: e };
-  }
-}
-
 async function removeBookingCalendarEvent(booking, opts = {}) {
   if (!booking || !booking.gcalEventId) return { skipped: true };
   const authToken = opts.token || getDriveToken();
@@ -5585,13 +4731,12 @@ async function removeBookingCalendarEvent(booking, opts = {}) {
   }
 
   booking.gcalEventId = null;
-  if (opts.persistToSheet) await persistBookingToSheetSourceOfTruth(booking);
   return isCalendarNotFoundStatus(deleteRes.status) ? { alreadyMissing: true } : { deleted: true };
 }
 
 async function upsertBookingCalendarEvent(b, token) {
   if (!b || !b.checkin || !b.checkout || new Date(b.checkout) < new Date()) return { skipped: true };
-  if (b.status === 'cancelled') return removeBookingCalendarEvent(b, { token, persistToSheet: true });
+  if (b.status === 'cancelled') return removeBookingCalendarEvent(b, { token });
   const authToken = token || getDriveToken();
   if (!authToken) return { skipped: true };
 
@@ -6006,15 +5151,6 @@ async function saveExpenseEdit() {
   }
 
   savePropertyData();
-  const syncUrl = (getCurrentScriptURL() || '').trim();
-  if (syncUrl && syncUrl.includes('legacy-endpoint.invalid')) {
-    const eForSheet = Object.assign({}, e); delete eForSheet.photo; delete eForSheet._mediaType;
-    fetch(syncUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'updateExpense', data: JSON.stringify(eForSheet) })
-    }).catch(() => {});
-  }
   closeExpenseEdit();
   renderExpenses();
   showBanner('✓ Expense updated', 'ok');
@@ -6073,8 +5209,6 @@ function savePropertyData() {
   localStorage.setItem(lsKey('expenses'),    JSON.stringify(expenses));
   localStorage.setItem(lsKey('maintenance'), JSON.stringify(maintenance));
   localStorage.setItem(lsKey('inventory'),   JSON.stringify(inventory));
-  scheduleAppDataSave('inventory',    inventory);
-  scheduleAppDataSave('maintenance',  maintenance);
   // Sync to Supabase (non-blocking)
   if (typeof saveInventoryToCloud === 'function') saveInventoryToCloud(inventory).catch(() => {});
 }
@@ -6279,216 +5413,11 @@ function renderStorageViewer() {
   if (changed) savePropertyData();
 })();
 
-// ── APP DATA SYNC ────────────────────────────────────────────────────────────
-// Legacy Sheet sync functions — stubbed. getScriptURL() returns '' so these
-// all short-circuit, but we keep the function signatures because they're
-// called from many places (savePropertyData, saveCleaners, etc.).
-function scheduleAppDataSave(key, data) {
-  const url = getScriptURL();
-  if (!url) return; // no script URL configured yet
-  clearTimeout(_appDataTimers[key]);
-  _appDataTimers[key] = setTimeout(() => pushAppData(key, data), 3000);
-}
-
-function pushAppData(key, data) {
-  const url = getScriptURL();
-  if (!url) return;
-  return fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({ action: 'setAppData', key, value: data })
-  })
-  .then(r => r.json())
-  .then(j => {
-    if (key === 'pushSubs') console.log('[Push] pushAppData("pushSubs") response:', j);
-    if (!j.success) console.warn('AppData save failed:', key, j);
-    if (key === 'pushSubs' && j.success) console.log('[Push] pushAppData("pushSubs") succeeded');
-    if (key === 'pushSubs' && !j.success) console.warn('[Push] pushAppData("pushSubs") failed');
-    return j;
-  })
-  .catch(e => {
-    if (key === 'pushSubs') {
-      console.warn('[Push] pushAppData("pushSubs") caught error object:', e);
-      console.warn('[Push] pushAppData("pushSubs") error.name:', e && e.name);
-      console.warn('[Push] pushAppData("pushSubs") error.message:', e && e.message);
-    }
-    console.warn('AppData push error:', key, e);
-    return null;
-  });
-}
-
-function pushAppDataNow() { return Promise.resolve(false); }
-
-async function pushAllAppData() {}
-
-async function pullAppData(manual = false) {
-  if (_pullAppDataInFlight) {
-    if (manual) showBanner('⟳ Pull already in progress. Please wait…', 'info');
-    return;
-  }
-  _pullAppDataInFlight = true;
-  const url = getScriptURL();
-  const btn = document.getElementById('pull-appdata-btn');
-  const resultEl = document.getElementById('pull-appdata-result');
-
-  function showResult(msg, ok) {
-    if (!resultEl) return;
-    resultEl.style.display = 'block';
-    resultEl.style.background = ok ? '#F0FAF4' : '#FDECEA';
-    resultEl.style.color = ok ? 'var(--moss)' : 'var(--red)';
-    resultEl.textContent = msg;
-  }
-
-  if (!url) {
-    if (manual) {
-      showResult('❌ No Legacy Sync URL configured.', false);
-      showBanner('⚠ Missing setup: add your Legacy Sync URL before pulling data', 'warn');
-    }
-    _pullAppDataInFlight = false;
-    return;
-  }
-
-  if (btn) { btn.disabled = true; btn.textContent = '…pulling'; }
-  if (resultEl) resultEl.style.display = 'none';
-
-  try {
-    const resp = await fetch(url + '?action=getAppData');
-    if (!resp.ok) {
-      if (manual) {
-        showResult('❌ Server error: ' + resp.status + ' ' + resp.statusText, false);
-        showBanner('⚠ Pull failed: server returned ' + resp.status, 'warn');
-      }
-      if (btn) { btn.disabled = false; btn.textContent = '↻ Pull App Data from Sheet'; }
-      _pullAppDataInFlight = false;
-      return;
-    }
-    const json = await resp.json();
-    console.log('pullAppData response:', JSON.stringify(json).substring(0, 300));
-
-    if (!json.success || !json.data) {
-      if (manual) {
-        showResult('❌ Sheet returned: ' + JSON.stringify(json).substring(0, 100), false);
-        showBanner('⚠ Pull failed: Legacy Sync returned an unexpected response', 'warn');
-      }
-      if (btn) { btn.disabled = false; btn.textContent = '↻ Pull App Data from Sheet'; }
-      _pullAppDataInFlight = false;
-      return;
-    }
-
-    const d = json.data;
-    let restored = [];
-
-    // Cleaners are now managed by Supabase — skip AppData to prevent conflicts
-    // (cleaners are still written TO AppData so the 24hr reminder emails keep working)
-    if (Array.isArray(d.cleans)) {
-      // Merge: prefer local confirmed/declined/done states over Sheet (in case Sheet is stale)
-      const localCleans = JSON.parse(localStorage.getItem(lsKey('cleans')) || '[]');
-      const merged = d.cleans.map(sheetClean => {
-        const local = localCleans.find(lc => String(lc.id) === String(sheetClean.id));
-        if (local) {
-          const sameAssignment = (
-            String(local.bookingId || '') === String(sheetClean.bookingId || '') &&
-            String(local.cleanerId || '') === String(sheetClean.cleanerId || '') &&
-            String(local.date || '').slice(0, 10) === String(sheetClean.date || '').slice(0, 10)
-          );
-          if (!sameAssignment) return sheetClean;
-          // Keep the most "advanced" state
-          return Object.assign({}, sheetClean, {
-            cleanerConfirmed: local.cleanerConfirmed || sheetClean.cleanerConfirmed,
-            cleanerDeclined:  local.cleanerDeclined  || sheetClean.cleanerDeclined,
-            done:             local.done             || sheetClean.done,
-          });
-        }
-        return sheetClean;
-      });
-      cleans.length = 0;
-      merged.forEach(c => cleans.push(c));
-      localStorage.setItem(lsKey('cleans'), JSON.stringify(cleans));
-      // Sync booking.cleanerConfirmed from cleans
-      cleans.forEach(c => {
-        if (c.cleanerConfirmed) {
-          const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || _normName(bk.name) === _normName(c.guestName));
-          if (b) b.cleanerConfirmed = true;
-        }
-      });
-      localStorage.setItem(lsKey('bookings'), JSON.stringify(bookings));
-      restored.push(merged.length + ' cleans');
-    }
-    if (d.notes && Array.isArray(d.notes)) {
-      notes.length = 0;
-      d.notes.forEach(n => notes.push(n));
-      localStorage.setItem(lsKey('notes'), JSON.stringify(notes));
-      restored.push(d.notes.length + ' notes');
-    }
-    if (Array.isArray(d.inventory)) {
-      inventory.length = 0;
-      d.inventory.forEach(i => inventory.push(i));
-      localStorage.setItem(lsKey('inventory'), JSON.stringify(inventory));
-      restored.push(d.inventory.length + ' inventory items');
-    }
-    if (d.maintenance && Array.isArray(d.maintenance)) {
-      maintenance.length = 0;
-      d.maintenance.forEach(m => maintenance.push(m));
-      localStorage.setItem(lsKey('maintenance'), JSON.stringify(maintenance));
-    }
-    if (d.aiIgnore && Array.isArray(d.aiIgnore)) {
-      localStorage.setItem(lsKey('ai-ignore'), JSON.stringify(d.aiIgnore));
-    }
-    if (d.pushSubs && d.pushSubs.cleaners) {
-      const local = getPushSubs();
-      const merged = { owner: d.pushSubs.owner || local.owner, cleaners: Object.assign({}, local.cleaners, d.pushSubs.cleaners) };
-      localStorage.setItem(lsKey('push-subs'), JSON.stringify(merged));
-    }
-
-    _normalizeBookingCleanState();
-    _refreshAfterDataChange(manual);
-    if (manual) {
-      if (restored.length > 0) {
-        showResult('✓ Restored: ' + restored.join(', '), true);
-        showBanner('✓ Pull complete: restored ' + restored.join(', '), 'ok');
-      } else {
-        showResult('⚠️ Connected but no data found in AppData tab. Keys present: ' + Object.keys(d).join(', '), false);
-        showBanner('⚠ Pull completed but no AppData keys were found to restore', 'warn');
-      }
-    }
-  } catch(e) {
-    console.error('pullAppData error:', e);
-    if (manual) {
-      showResult('❌ Error: ' + e.message, false);
-      showBanner('⚠ Pull failed: ' + (e.message || 'network error'), 'warn');
-    }
-  }
-  if (btn) { btn.disabled = false; btn.textContent = '↻ Pull App Data from Sheet'; }
-  _pullAppDataInFlight = false;
-}
-
-// Render immediately from localStorage, then sync in background
-function hasCloudSyncConfigured() {
-  const csvUrl = (typeof getPropertySheetCsvUrl === 'function' ? getPropertySheetCsvUrl() : '').trim();
-  const syncUrl = (typeof getCurrentScriptURL === 'function' ? getCurrentScriptURL() : '').trim();
-  const sheetOk = !!csvUrl && csvUrl.toLowerCase().includes('docs.google.com/spreadsheets') && csvUrl.includes('output=csv');
-  const scriptOk = !!syncUrl && syncUrl.toLowerCase().includes('legacy-endpoint.invalid/macros') && syncUrl.endsWith('/exec');
-  return sheetOk && scriptOk;
-}
-
+// Cleaner mode class setup (actual hydration happens in DOMContentLoaded boot)
 if (isCleanerMode()) {
   if (isCleanerAuthed()) document.body.classList.add('cleaner-mode');
   else document.body.classList.add('cleaner-pin-active');
 }
-render();
-if (isCleanerMode()) {
-  // Cleaner mode — only pull AppData (cleans, inventory, cleaners). Skip bookings CSV + expenses.
-  pullAppData();
-} else if (hasValidPropertyConfig()) {
-  // Primary source is Supabase — loaded during hydrateFromCloud.
-  // Only fall back to Sheet sync if no bookings in Supabase yet.
-  const cachedBookings = JSON.parse(localStorage.getItem(lsKey('bookings')) || '[]');
-  if (!cachedBookings.length && hasCloudSyncConfigured()) {
-    syncFromSheets(); // one-time migration pull
-  }
-  // pullExpensesFromSheet removed — expenses load from Supabase via hydrateFromCloud
-}
-// Subscribe owner via manual button in Settings (iOS requires user gesture)
 
 // Google Drive prompts removed — receipts now use Supabase Storage
 // Safety net: re-render calendar after 100ms in case layout wasn't settled
@@ -6506,8 +5435,6 @@ document.addEventListener('visibilitychange', () => {
         if (typeof renderAll === 'function') renderAll();
       });
     }
-    // Keep host-linked safe settings fresh (non-secrets only).
-    if (!isCleanerMode()) pushSafeHostSettings();
     setTimeout(_flushPendingUiRefresh, 120);
   }
 });
@@ -6545,7 +5472,6 @@ if (isCleanerMode()) {
       }
     }
   }, 60000);
-  setInterval(() => { if (!document.hidden && hasValidPropertyConfig()) pushSafeHostSettings(); }, 120000);
 }
 
 // ── FEEL & GESTURES ───────────────────────────────────────────────────────────
@@ -6604,8 +5530,12 @@ let swipeStartX = 0, swipeStartY = 0, swipeActive = false;
 const EDGE_ZONE = 30, MIN_SWIPE = 60;
 
 function isSubScreenOpen() {
-  return !!document.querySelector('[id^="settings-cat-"]:not(#settings-cat-pricing):not([style*="display:none"]):not([id="settings-menu"])') &&
-    document.getElementById('settings-menu')?.style.display === 'none';
+  // A settings cat or panel is open (not the main menu)
+  if (currentSection !== 'settings') return false;
+  const sm = document.getElementById('settings-menu');
+  if (sm && sm.style.display !== 'none' && sm.offsetParent !== null) return false; // main menu visible = not a sub-screen
+  return !!document.querySelector('[id^="settings-cat-"]:not([style*="display:none"]):not([style*="display: none"])') ||
+         !!document.querySelector('[id^="settings-panel-"]:not([style*="display:none"]):not([style*="display: none"])');
 }
 
 document.addEventListener('touchstart', e => {
@@ -6629,7 +5559,12 @@ document.addEventListener('touchend', e => {
   if (!swipeActive) return;
   swipeActive = false;
   const dx = e.changedTouches[0].clientX - swipeStartX;
-  if (dx >= MIN_SWIPE) { closeSettingsCat(); }
+  if (dx >= MIN_SWIPE) {
+    // Go back one level: panel→cat, cat→menu
+    const openPanel = document.querySelector('[id^="settings-panel-"]:not([style*="display:none"]):not([style*="display: none"])');
+    if (openPanel) closeSettingsPanel();
+    else closeSettingsCat();
+  }
 }, { passive:true });
 
 // ── ACTION SHEET ──────────────────────────────────────────────────────────────
@@ -7244,7 +6179,6 @@ async function cleanerAddInventoryItem() {
   };
   inventory.push(newItem);
   savePropertyData();
-  scheduleAppDataSave('inventory', inventory);
   renderCleanerInventory();
   showBanner('✓ Item added', 'ok');
 }
@@ -7658,9 +6592,12 @@ function saveEmailTemplate(type) {
   const color   = document.getElementById('etpl-color').value;
   const tpl = { subject, body, color };
   localStorage.setItem(lsKey('email-tpl-' + type), JSON.stringify(tpl));
-  // Sync reminder template to AppData so Legacy Sync can use it
-  if (type === 'reminder') scheduleAppDataSave('emailTplReminder', tpl);
-  if (type === 'assignment') scheduleAppDataSave('emailTplAssignment', tpl);
+  // Sync email templates to Supabase
+  if (typeof saveAppConfigToCloud === 'function') {
+    const templates = {};
+    templates[type] = tpl;
+    saveAppConfigToCloud({ email_templates: templates }).catch(() => {});
+  }
   const conf = document.getElementById('etpl-save-confirm');
   if (conf) { conf.style.display = 'block'; setTimeout(() => conf.style.display = 'none', 2000); }
 }
@@ -7826,8 +6763,6 @@ function applyEmailTemplate(type, vars) {
 }
 async function sendCleanerEmail({ cleanerName, cleanerEmail, guestName, checkin, checkout, cleanerLink, cleanDate, type }) {
   if (!cleanerEmail) return { ok: false, reason: 'no-email' };
-  const syncUrl = (getScriptURL() || '').trim();
-  if (!syncUrl || !syncUrl.includes('legacy-endpoint.invalid')) return { ok: false, reason: 'no-script-url' };
   const emailType = type || 'assignment';
   const { subject, html, text } = applyEmailTemplate(emailType, {
     cleanerName: String(cleanerName || 'Cleaner').split(' ')[0],
@@ -7840,31 +6775,6 @@ async function sendCleanerEmail({ cleanerName, cleanerEmail, guestName, checkin,
     return { ok: !!(data && (data.success || data.status === 'ok')), data };
   } catch(e) {
     return { ok: false, reason: e.message };
-  }
-}
-
-async function debugCSVColumns() {
-  const el = document.getElementById('csv-debug-result');
-  el.style.display = 'block';
-  if (window._csvDebug) {
-    el.textContent = window._csvDebug;
-    return;
-  }
-  el.textContent = 'Fetching…';
-  try {
-    const res = await fetch(getPropertySheetCsvUrl() + '&t=' + Date.now());
-    const csv = await res.text();
-    const lines = csv.trim().split('\n').filter(l => l.trim());
-    const headers = parseCSVLine(lines[0]);
-    const firstRow = lines.length > 1 ? parseCSVLine(lines[1]) : [];
-    let out = 'HEADERS:\n';
-    headers.forEach((h, i) => { out += `[${i}] col ${String.fromCharCode(65+i)}: "${h}"\n`; });
-    out += '\nFIRST DATA ROW:\n';
-    firstRow.forEach((v, i) => { out += `[${i}]: ${JSON.stringify(v)}\n`; });
-    el.textContent = out;
-    window._csvDebug = out;
-  } catch(e) {
-    el.textContent = 'Error: ' + e.message;
   }
 }
 
@@ -7887,16 +6797,10 @@ function _setConnectionCheckResult(id, status, msg) {
 }
 
 function resetConnectionCheckerResults() {
-  ['conn-sheet-result', 'conn-script-result', 'conn-notif-result'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = 'none';
-  });
+  const el = document.getElementById('conn-notif-result');
+  if (el) el.style.display = 'none';
 }
 
-async function testSheetConnection() {
-  // Legacy — Google Sheets no longer used, Supabase is the data backend.
-  _setConnectionCheckResult('conn-sheet-result', 'ok', '✅ Not required — data is stored in Supabase.');
-}
 
 
 async function testNotificationConfig() {
@@ -8480,12 +7384,6 @@ async function sendOwnerReport() {
     return;
   }
 
-  const syncUrl = (getCurrentScriptURL() || '').trim();
-  if (!syncUrl || !syncUrl.includes('legacy-endpoint.invalid')) {
-    showBanner('⚠ Legacy Sync URL not configured — check Settings → Integrations', 'warn');
-    return;
-  }
-
   const fyEl = document.getElementById('owner-report-send-fy');
   const fy   = fyEl ? Number(fyEl.value) : reportFY;
 
@@ -8509,21 +7407,15 @@ async function sendOwnerReport() {
 
     if (status) status.textContent = 'Sending email…';
 
-    // 3. POST to Legacy Sync — PDF base64 is too large for a URL query param
-    const payload = {
-      action:    'sendReport',
-      to:        ownerEmail,
-      subject,
-      body:      bodyIntro,
-      pdfBase64: pdfB64,
-      fileName,
-    };
-    // Legacy Sync rejects CORS preflight on application/json — use text/plain
-    // to send as a simple request. Legacy Sync reads e.postData.contents regardless.
-    const res  = await fetch(syncUrl, {
-      method:  'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body:    JSON.stringify(payload),
+    // 3. Send via Netlify function (Resend API) with PDF attachment
+    const html = bodyIntro.replace(/\n/g, '<br>');
+    const res = await fetch('/.netlify/functions/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: ownerEmail, subject, html,
+        attachments: [{ filename: fileName, content: pdfB64 }]
+      })
     });
     const json = await res.json().catch(() => ({}));
 
@@ -8580,7 +7472,7 @@ function checkAutoSendReport() {
     const label = fyLabel(fy);
 
     showBanner(
-      `📊 ${label} report ready — <a href="#" onclick="showSection('property');setTimeout(()=>{openSettingsCat('property');openSettingsPanel('owner-report');},60);return false;" style="color:inherit;font-weight:600">Send to owner ›</a>`,
+      `📊 ${label} report ready — <a href="#" onclick="openSettingsCat('property');openSettingsPanel('owner-report');return false;" style="color:inherit;font-weight:600">Send to owner ›</a>`,
       'info',
       12000
     );
@@ -8592,43 +7484,6 @@ function checkAutoSendReport() {
 
 // ── ONE-TIME BOOKING MIGRATION ────────────────────────────────────────────────
 /**
- * migrateSheetBookingsToSupabase — call once from console or Settings.
- * Pulls bookings from Google Sheet CSV and writes them to Supabase bookings table.
- * Safe to run multiple times — upserts on confirmation_code or guest+checkin.
- */
-async function migrateSheetBookingsToSupabase() {
-  showBanner('⟳ Migrating bookings to Supabase...', 'info');
-  try {
-    const csvUrl = typeof getPropertySheetCsvUrl === 'function' ? getPropertySheetCsvUrl() : '';
-    if (!csvUrl) throw new Error('No Google Sheet URL configured — set it in Settings → Property → Property Configuration');
-
-    // Step 1: Ensure property record exists in Supabase BEFORE migrating bookings
-    // This guarantees bookings get a real property_id, not null
-    if (typeof savePropertyToCloud === 'function') {
-      await savePropertyToCloud(getActivePropertyConfig());
-      console.log('[StayOps] Property record ensured in Supabase');
-    }
-
-    // Step 2: Sync bookings from sheet into module-level bookings array
-    await syncFromSheets(false);
-    await new Promise(r => setTimeout(r, 800));
-
-    if (!bookings || bookings.length === 0) throw new Error('No bookings found after sync — check your Sheet URL is correct');
-
-    // Step 3: Save to Supabase
-    if (typeof saveBookingsToCloud === 'function') {
-      await saveBookingsToCloud(bookings);
-    }
-
-    showBanner('✓ Migrated ' + bookings.length + ' bookings to Supabase', 'ok');
-    console.log('[StayOps] Migration complete —', bookings.length, 'bookings saved to Supabase');
-  } catch (e) {
-    showBanner('⚠ Migration failed: ' + e.message, 'warn');
-    console.error('[StayOps] Migration failed', e);
-  }
-}
-
-// ── END ONE-TIME BOOKING MIGRATION ───────────────────────────────────────────
 // ── REPORT EXPORT ─────────────────────────────────────────────────────────────
 /**
  * _buildReportDoc(fy) — shared PDF builder. Returns a jsPDF doc object.

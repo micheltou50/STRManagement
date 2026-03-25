@@ -364,10 +364,6 @@ function savePropertyConfig(updates) {
 
 // ── ACCESSOR HELPERS ───────────────────────────────────────────────────────────
 
-// Legacy Sheet/Script functions — stubbed out, Supabase is now the data backend.
-function getCurrentScriptURL() { return ''; }
-function getPropertySheetCsvUrl() { return ''; }
-
 function getCurrentPropertyName() {
   return getActivePropertyConfig().name || 'Property';
 }
@@ -442,10 +438,6 @@ function saveDriveFolderId(storageKey) {
   localStorage.setItem('gh-drive-folder-id', storageKey);
   savePropertyConfig({ integrations: { driveFolderId: storageKey } });
 }
-
-// Legacy — no-op, Supabase is now the data backend.
-function persistScriptUrl() {}
-
 
 // ── MIGRATION ──────────────────────────────────────────────────────────────────
 function migrateConfigFromLegacySettings() {
