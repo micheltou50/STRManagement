@@ -434,7 +434,7 @@
     <div id="cleaning-summary-strip"></div>
     <div class="card" id="clean-schedule-card">
       <div class="tab-row" style="margin-bottom:10px">
-        <button class="tab active" onclick="filterCleans('upcoming',this)">Schedule</button>
+        <button class="tab active" onclick="filterCleans('upcoming',this)">Scheduled</button>
         <button class="tab" onclick="filterCleans('action',this)">Action Needed</button>
         <button class="tab" onclick="filterCleans('done',this)">Done</button>
       </div>
@@ -481,58 +481,134 @@
   <!-- FINANCE -->
   <div id="section-finance" class="section-hidden section-stack">
 
+    <!-- Top-level tabs -->
     <div class="tab-row" style="margin-bottom:12px">
-      <button class="tab active" id="finance-tab-host" onclick="switchFinanceTab('host', this)">Payouts</button>
-      <button class="tab" id="finance-tab-report" onclick="switchFinanceTab('report', this)">Reports</button>
+      <button class="tab active" id="finance-tab-payouts" onclick="switchFinanceTab('payouts', this)">Payouts</button>
+      <button class="tab" id="finance-tab-mgmt" onclick="switchFinanceTab('mgmt', this)">Management</button>
+      <button class="tab" id="finance-tab-reports" onclick="switchFinanceTab('reports', this)">Reports</button>
     </div>
 
-    <div id="finance-host-view">
-    <!-- Tab toggle -->
-    <div class="tab-row" style="margin-bottom:12px">
-      <button class="tab active" id="rev-tab-monthly" onclick="switchRevTab('monthly')">Monthly</button>
-      <button class="tab" id="rev-tab-report" onclick="switchRevTab('report')">Financial Year</button>
-    </div>
-
-    <!-- MONTHLY VIEW -->
-    <div id="rev-monthly-view">
-    <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <button onclick="revPrev()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">‹</button>
-        <div id="rev-month-title" style="font-family:'DM Serif Display',serif;font-size:16px"></div>
-        <button onclick="revNext()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">›</button>
+    <!-- ── PAYOUTS VIEW ── -->
+    <div id="finance-payouts-view">
+      <div class="tab-row" style="margin-bottom:12px">
+        <button class="tab active" id="pay-tab-monthly" onclick="switchPayoutsSubTab('monthly',this)">Monthly</button>
+        <button class="tab" id="pay-tab-fy" onclick="switchPayoutsSubTab('fy',this)">Financial Year</button>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:8px 0">
-        <div style="text-align:center;padding:12px;background:var(--mist);border-radius:var(--radius-sm)">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);margin-bottom:4px">Host Payout</div>
-          <div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)" id="total-revenue">$0</div>
+      <!-- Monthly payout -->
+      <div id="pay-monthly-view">
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <button onclick="revPrev()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">‹</button>
+            <div id="rev-month-title" style="font-family:'DM Serif Display',serif;font-size:16px"></div>
+            <button onclick="revNext()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">›</button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:8px 0">
+            <div style="text-align:center;padding:12px;background:var(--mist);border-radius:var(--radius-sm)">
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);margin-bottom:4px">Host Payout</div>
+              <div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)" id="total-revenue">$0</div>
+            </div>
+            <div style="text-align:center;padding:12px;background:var(--forest);border-radius:var(--radius-sm)">
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:var(--sage);margin-bottom:4px">Net Payout</div>
+              <div style="font-family:'DM Serif Display',serif;font-size:28px;color:white" id="total-net">$0</div>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--text-soft);text-align:center;margin-top:4px" id="revenue-sub">0 bookings</div>
         </div>
-        <div style="text-align:center;padding:12px;background:var(--forest);border-radius:var(--radius-sm)">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:var(--sage);margin-bottom:4px">Net Payout</div>
-          <div style="font-family:'DM Serif Display',serif;font-size:28px;color:white" id="total-net">$0</div>
+        <div class="card">
+          <div class="card-title">Financial Summary</div>
+          <div id="finance-summary-content"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Per Booking</div>
+          <div id="revenue-breakdown"></div>
         </div>
       </div>
-      <div style="font-size:12px;color:var(--text-soft);text-align:center;margin-top:4px" id="revenue-sub">0 bookings</div>
+      <!-- FY payout -->
+      <div id="pay-fy-view" style="display:none">
+        <div id="rev-report-view">
+          <div class="card" style="margin-bottom:10px">
+            <div class="card-title">Owner Reports</div>
+            <div style="display:flex;gap:8px">
+              <button class="btn-secondary" style="margin:0" onclick="showSection('property');setTimeout(()=>{openSettingsCat('property');openSettingsPanel('owner-report');},60)">Send / Export Monthly</button>
+              <button class="btn-secondary" style="margin:0" onclick="showSection('property');setTimeout(()=>{openSettingsCat('property');openSettingsPanel('owner-report');},60)">Send / Export Financial Year</button>
+            </div>
+          </div>
+          <div id="report-content"></div>
+        </div>
+      </div>
     </div>
-    <div class="card">
-      <div class="card-title">Financial Summary</div>
-      <div id="finance-summary-content"></div>
-    </div>
-    <div class="card">
-      <div class="card-title">Per Booking</div>
-      <div id="revenue-breakdown"></div>
-    </div>
-    </div><!-- end monthly view -->
 
-    <!-- ANNUAL REPORT VIEW -->
-    <div id="rev-report-view" style="display:none">
+    <!-- ── MANAGEMENT VIEW ── -->
+    <div id="finance-mgmt-view" style="display:none">
+      <div class="tab-row" style="margin-bottom:12px">
+        <button class="tab active" id="mgmt-tab-monthly" onclick="switchMgmtSubTab('monthly',this)">Monthly</button>
+        <button class="tab" id="mgmt-tab-fy" onclick="switchMgmtSubTab('fy',this)">Financial Year</button>
+      </div>
+      <!-- Monthly management -->
+      <div id="mgmt-monthly-view">
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <button onclick="mgmtPrev()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">‹</button>
+            <div id="mgmt-month-title" style="font-family:'DM Serif Display',serif;font-size:16px"></div>
+            <button onclick="mgmtNext()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">›</button>
+          </div>
+          <div class="revenue-big" style="padding:12px 0 12px">
+            <div class="label">Management Payout</div>
+            <div class="amount" id="total-mgmt">$0</div>
+            <div class="sub" id="mgmt-sub">0 bookings</div>
+          </div>
+        </div>
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div class="card-title" style="margin-bottom:0">Bookings</div>
+            <button onclick="generateInvoice()" style="background:var(--amber);color:white;border:none;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer">📄 Invoice</button>
+          </div>
+          <div id="mgmt-breakdown"></div>
+        </div>
+      </div>
+      <!-- FY management -->
+      <div id="mgmt-fy-view" style="display:none">
+        <div id="mgmt-fy-content"></div>
+      </div>
+    </div>
+
+    <!-- ── REPORTS VIEW ── -->
+    <div id="finance-reports-view" style="display:none">
       <div class="card" style="margin-bottom:10px">
         <div class="card-title">Owner Reports</div>
         <div style="display:flex;gap:8px">
-          <button class="btn-secondary" style="margin:0" onclick="showSection('property');setTimeout(()=>{openSettingsCat('property');openSettingsPanel('owner-report');},60)">Send / Export Monthly</button>
-          <button class="btn-secondary" style="margin:0" onclick="showSection('property');setTimeout(()=>{openSettingsCat('property');openSettingsPanel('owner-report');},60)">Send / Export Financial Year</button>
+          <button class="btn-secondary" style="margin:0" onclick="showSection('property');setTimeout(()=>{openSettingsCat('property');openSettingsPanel('owner-report');},60)">Send Monthly Report</button>
+          <button class="btn-secondary" style="margin:0" onclick="showSection('property');setTimeout(()=>{openSettingsCat('property');openSettingsPanel('owner-report');},60)">Send FY Report</button>
         </div>
       </div>
-      <div id="report-content"></div>
+      <div class="tab-row" style="margin-bottom:12px">
+        <button class="tab active" id="rpt-tab-monthly" onclick="switchReportSubTab('monthly',this)">Monthly</button>
+        <button class="tab" id="rpt-tab-fy" onclick="switchReportSubTab('fy',this)">Financial Year</button>
+      </div>
+      <div id="rpt-monthly-view">
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <button onclick="revPrev()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">‹</button>
+            <div id="rpt-month-title" style="font-family:'DM Serif Display',serif;font-size:16px"></div>
+            <button onclick="revNext()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">›</button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:8px 0">
+            <div style="text-align:center;padding:12px;background:var(--mist);border-radius:var(--radius-sm)">
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);margin-bottom:4px">Host Payout</div>
+              <div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)" id="rpt-total-revenue">$0</div>
+            </div>
+            <div style="text-align:center;padding:12px;background:var(--forest);border-radius:var(--radius-sm)">
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:var(--sage);margin-bottom:4px">Net Payout</div>
+              <div style="font-family:'DM Serif Display',serif;font-size:28px;color:white" id="rpt-total-net">$0</div>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--text-soft);text-align:center;margin-top:4px" id="rpt-revenue-sub">0 bookings</div>
+        </div>
+        <div class="card"><div class="card-title">Per Booking</div><div id="rpt-revenue-breakdown"></div></div>
+      </div>
+      <div id="rpt-fy-view" style="display:none">
+        <div id="report-content"></div>
+      </div>
     </div>
 
   </div>

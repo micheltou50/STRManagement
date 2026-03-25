@@ -1617,7 +1617,9 @@ function renderBookings(filter) {
         const isPast = !isCancelled && new Date(b.checkout)<new Date();
         const statusClass = isCancelled ? 'status-cancelled' : isHosting ? 'status-upcoming' : isPast ? 'status-completed' : 'status-upcoming';
         const statusLabel = isCancelled ? '✕ Cancelled' : isHosting ? '🏡 Hosting' : isPast ? 'Past' : 'Upcoming';
-        return `<div class="card" onclick="showDetail(${b.id})" style="cursor:pointer${isCancelled?';opacity:0.6':''}" data-booking-id="${b.id}"><div class="booking-item" style="border:none;padding:0" data-booking-id="${b.id}">${platformIcon(b.platform, 42)}<div class="booking-info"><div class="booking-name">${escHtml(b.name)}</div><div class="booking-dates">${escHtml(fmt(b.checkin))} → ${escHtml(fmt(b.checkout))}</div><div class="booking-guests">${escHtml(b.guests)} guests · ${escHtml(b.nights)} night${b.nights!==1?'s':''}</div></div><div class="booking-right"><div class="booking-amount" style="${isCancelled?'text-decoration:line-through;color:var(--text-soft)':''}">$${Number(b.hostPayout||0).toLocaleString()}</div><div class="booking-status ${statusClass}">${statusLabel}</div></div></div></div>`;
+        const cs = getBookingCleanerState(b);
+        const cleanerChip = isCancelled ? '' : `<div style="font-size:10px;margin-top:3px;font-weight:600;color:${cs.tone==='ok'?'var(--moss)':cs.tone==='bad'?'var(--red)':'var(--amber)'}">🧹 ${escHtml(cs.key === 'unassigned' ? 'No cleaner' : cs.key === 'confirmed' ? 'Confirmed' : cs.key === 'done' ? 'Done' : cs.key === 'declined' ? 'Declined' : 'Awaiting')}</div>`;
+        return `<div class="card" onclick="showDetail(${b.id})" style="cursor:pointer${isCancelled?';opacity:0.6':''}" data-booking-id="${b.id}"><div class="booking-item" style="border:none;padding:0" data-booking-id="${b.id}">${platformIcon(b.platform, 42)}<div class="booking-info"><div class="booking-name">${escHtml(b.name)}</div><div class="booking-dates">${escHtml(fmt(b.checkin))} → ${escHtml(fmt(b.checkout))}</div><div class="booking-guests">${escHtml(b.guests)} guests · ${escHtml(b.nights)} night${b.nights!==1?'s':''}</div></div><div class="booking-right"><div class="booking-amount" style="${isCancelled?'text-decoration:line-through;color:var(--text-soft)':''}">$${Number(b.hostPayout||0).toLocaleString()}</div><div class="booking-status ${statusClass}">${statusLabel}</div>${cleanerChip}</div></div></div>`;
       }).join('')}
     </div>`).join('');
 
@@ -1817,32 +1819,81 @@ function markCleanerConfirmed(id) {
 }
 
 
-let financeTab = 'host';
+let financeTab = 'payouts';
 function switchFinanceTab(tab, btn) {
-  financeTab = tab === 'report' ? 'report' : 'host';
+  financeTab = tab;
   document.querySelectorAll('#section-finance > .tab-row .tab').forEach(t => t.classList.remove('active'));
   if (btn) btn.classList.add('active');
-  const host = document.getElementById('finance-host-view');
-  if (host) host.style.display = '';
-  document.getElementById('rev-monthly-view').style.display = financeTab === 'host' ? '' : 'none';
-  document.getElementById('rev-report-view').style.display = financeTab === 'report' ? '' : 'none';
-  if (financeTab === 'host') renderRevenue();
-  if (financeTab === 'report') renderReport();
+  document.getElementById('finance-payouts-view').style.display  = tab === 'payouts'  ? '' : 'none';
+  document.getElementById('finance-mgmt-view').style.display     = tab === 'mgmt'     ? '' : 'none';
+  document.getElementById('finance-reports-view').style.display  = tab === 'reports'  ? '' : 'none';
+  if (tab === 'payouts')  renderRevenue();
+  if (tab === 'mgmt')     renderManagement();
+  if (tab === 'reports')  renderReport();
+}
+
+function switchPayoutsSubTab(sub, btn) {
+  document.querySelectorAll('#finance-payouts-view > .tab-row .tab').forEach(t => t.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('pay-monthly-view').style.display = sub === 'monthly' ? '' : 'none';
+  document.getElementById('pay-fy-view').style.display      = sub === 'fy'      ? '' : 'none';
+  if (sub === 'monthly') renderRevenue();
+  if (sub === 'fy')      renderReport();
+}
+
+function switchMgmtSubTab(sub, btn) {
+  document.querySelectorAll('#finance-mgmt-view > .tab-row .tab').forEach(t => t.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('mgmt-monthly-view').style.display = sub === 'monthly' ? '' : 'none';
+  document.getElementById('mgmt-fy-view').style.display      = sub === 'fy'      ? '' : 'none';
+  if (sub === 'monthly') renderManagement();
+  if (sub === 'fy')      renderMgmtFY();
+}
+
+function switchReportSubTab(sub, btn) {
+  document.querySelectorAll('#finance-reports-view > .tab-row .tab').forEach(t => t.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('rpt-monthly-view').style.display = sub === 'monthly' ? '' : 'none';
+  document.getElementById('rpt-fy-view').style.display      = sub === 'fy'      ? '' : 'none';
+  if (sub === 'monthly') renderRevenue();
+  if (sub === 'fy')      renderReport();
+}
+
+function renderMgmtFY() {
+  const el = document.getElementById('mgmt-fy-content');
+  if (!el) return;
+  const months = fyMonths(reportFY);
+  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const mdata = months.map(({year, month}) => {
+    const bs = bookings.filter(b => b.status !== 'cancelled' && (()=>{ const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; })());
+    return { label: mo[month], total: bs.reduce((s,b)=>s+Number(b.mgmtPayout||0),0), count: bs.length };
+  });
+  const fyTotal = mdata.reduce((s,m)=>s+m.total, 0);
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <button onclick="fyPrev();renderMgmtFY()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">‹</button>
+        <div style="font-family:'DM Serif Display',serif;font-size:18px;color:var(--forest)">${fyLabel(reportFY)} Management</div>
+        <button onclick="fyNext();renderMgmtFY()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">›</button>
+      </div>
+      <div style="text-align:center;padding:12px;background:var(--forest);border-radius:var(--radius-sm);margin-bottom:12px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:var(--sage);margin-bottom:4px">Total Management Payout</div>
+        <div style="font-family:'DM Serif Display',serif;font-size:32px;color:white">$${fyTotal.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
+      </div>
+      ${mdata.map(m=>`<div class="revenue-row"><div class="rl">${m.label} <span style="color:var(--text-soft);font-size:11px">${m.count} booking${m.count!==1?'s':''}</span></div><div class="rr">$${m.total.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>`).join('')}
+    </div>`;
 }
 
 function renderFinance() {
-  const activeBtn = document.getElementById('finance-tab-' + (financeTab === 'report' ? 'report' : 'host'));
-  switchFinanceTab(financeTab, activeBtn);
+  const tab = financeTab || 'payouts';
+  const btn = document.getElementById('finance-tab-' + tab);
+  switchFinanceTab(tab, btn);
 }
 
-let revYear = new Date().getFullYear();
-let revMonth = new Date().getMonth();
+// switchRevTab is superseded by switchPayoutsSubTab / switchReportSubTab
 function switchRevTab(tab) {
-  if (tab === 'report') {
-    switchFinanceTab('report', document.getElementById('finance-tab-report'));
-    return;
-  }
-  switchFinanceTab('host', document.getElementById('finance-tab-host'));
+  if (tab === 'report') switchPayoutsSubTab('fy', document.getElementById('pay-tab-fy'));
+  else switchPayoutsSubTab('monthly', document.getElementById('pay-tab-monthly'));
 }
 
 // Financial Year helpers (Jul–Jun)
@@ -2025,6 +2076,8 @@ function renderReport() {
   document.getElementById('report-content').innerHTML = html;
 }
 
+let revYear = new Date().getFullYear();
+let revMonth = new Date().getMonth();
 function revPrev() { revMonth--; if(revMonth<0){revMonth=11;revYear--;} renderRevenue(); }
 function revNext() { revMonth++; if(revMonth>11){revMonth=0;revYear++;} renderRevenue(); }
 
@@ -3303,13 +3356,52 @@ function openQuickAddMenu() {
 async function runFullRefresh() {
   const btn = document.getElementById('header-refresh-btn');
   if (btn) { btn.disabled = true; btn.textContent = '↻ Syncing…'; }
+
+  let cloudOk = false;
+  let sheetOk = false;
+  let errors = [];
+
   try {
-    await syncFromSheets(true);
-    await syncToGoogleCalendar();
+    // Step 1: Pull from Supabase (primary source)
+    if (typeof hydrateFromCloud === 'function') {
+      try {
+        await hydrateFromCloud();
+        cloudOk = true;
+      } catch (e) {
+        console.warn('[Refresh] hydrateFromCloud failed:', e);
+        errors.push('cloud sync');
+      }
+    }
+
+    // Step 2: Pull bookings from Google Sheets CSV (secondary / legacy source)
+    try {
+      await syncFromSheets(false); // false = silent, no extra banner
+      sheetOk = true;
+    } catch (e) {
+      console.warn('[Refresh] syncFromSheets failed:', e);
+      // Not a hard error — Supabase is primary source
+    }
+
+    // Step 3: Try Google Calendar sync (non-blocking, failure is silent)
+    if (typeof syncToGoogleCalendar === 'function') {
+      syncToGoogleCalendar().catch(e => console.warn('[Refresh] syncToGoogleCalendar failed:', e));
+    }
+
+    // Step 4: Reload in-memory data from localStorage then re-render
+    reloadInMemoryData();
     renderAll();
-    showBanner('✓ Refresh complete', 'ok');
+
+    if (errors.length) {
+      showBanner('↻ Refreshed (some sources unavailable)', 'warn');
+    } else {
+      showBanner('✓ All data refreshed', 'ok');
+    }
   } catch (e) {
-    showBanner('⚠ Refresh failed', 'warn');
+    console.error('[Refresh] Unexpected error:', e);
+    // Still reload from localStorage so UI is not stale
+    reloadInMemoryData();
+    renderAll();
+    showBanner('⚠ Refresh failed — showing cached data', 'warn');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
   }
@@ -4184,7 +4276,12 @@ let propFilter = 'expenses';
 function filterProperty(f, btn) {
   propFilter = f;
   document.querySelectorAll('#section-property .tab-row .tab').forEach(t => t.classList.remove('active'));
-  btn.classList.add('active');
+  if (btn) {
+    btn.classList.add('active');
+  } else {
+    const fallback = document.querySelector(`#section-property .tab-row .tab[onclick*="'${f}'"]`);
+    if (fallback) fallback.classList.add('active');
+  }
   ['expenses','maintenance','inventory'].forEach(s => {
     const el = document.getElementById('prop-' + s);
     if (el) el.style.display = s === f ? 'block' : 'none';
