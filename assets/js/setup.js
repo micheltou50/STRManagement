@@ -423,12 +423,10 @@ function _setupBuildConfig(overlay, createMode) {
     },
 
     integrations: {
-      // Preserve existing push / calendar / drive config — not in the form.
+      // Preserve existing push config — not in the form.
       vapidPublicKey:  _existingInteg.vapidPublicKey
                          || (typeof VAPID_PUBLIC_KEY !== 'undefined' ? VAPID_PUBLIC_KEY : ''),
       pushFunctionUrl: _existingInteg.pushFunctionUrl || '/.netlify/functions/send-push',
-      calendarId:      _existingInteg.calendarId || 'primary',
-      driveFolderId:   _existingInteg.driveFolderId || null,
     },
 
     pricing: {
@@ -459,8 +457,6 @@ function _setupBlankConfig() {
     integrations: {
       vapidPublicKey: (d.integrations && d.integrations.vapidPublicKey) || '',
       pushFunctionUrl: (d.integrations && d.integrations.pushFunctionUrl) || '/.netlify/functions/send-push',
-      calendarId: (d.integrations && d.integrations.calendarId) || 'primary',
-      driveFolderId: null
     },
     pricing: {
       baseRate: (d.pricing && d.pricing.baseRate) || 350,

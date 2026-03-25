@@ -314,22 +314,6 @@ function renderPlanNudges(usageSnapshot, planState) {
   if (el) el.innerHTML = '';
 }
 
-function getConfiguredCalendarId() {
-  try {
-    const cfg = (typeof getPropertyConfig === 'function' ? getPropertyConfig() : null) || {};
-    const id = cfg.integrations && cfg.integrations.calendarId;
-    return String(id || 'primary').trim() || 'primary';
-  } catch (e) {
-    return 'primary';
-  }
-}
-
-function calendarEventsUrl(eventId) {
-  const calId = encodeURIComponent(getConfiguredCalendarId());
-  const base = 'https://www.googleapis.com/calendar/v3/calendars/' + calId + '/events';
-  return eventId ? (base + '/' + encodeURIComponent(eventId)) : base;
-}
-
 function renderConnectionSummary() {
   const wrap = document.getElementById('conn-summary-list');
   if (!wrap) return;
@@ -2020,11 +2004,6 @@ function openSettingsCat(cat) {
     const sr = document.getElementById('notif-status-row-menu');
     if (sr) { const p = Notification.permission; sr.textContent = p === 'granted' ? '✅ Enabled' : p === 'denied' ? '❌ Blocked' : 'Tap to set up'; }
   }
-  if (cat === 'google' || cat === 'advanced') {
-    const token = localStorage.getItem('gh-drive-token');
-    const statusRow = document.getElementById('gdrive-status-row');
-    if (statusRow) statusRow.textContent = token ? '✓ Connected' : 'Tap to connect';
-  }
   if (cat === 'cleaner') { openCleanerSettings(); }
 }
 
@@ -2076,12 +2055,6 @@ function openSettingsPanel(panelId) {
   }
   if (panelId === 'invoice-clients') {
     renderClientsList();
-  }
-  if (panelId === 'drive') {
-    const el = document.getElementById('gdrive-client-id');
-    if (el) el.value = localStorage.getItem('gh-gdrive-client-id') || '';
-    const statusEl = document.getElementById('gdrive-status');
-    if (statusEl) verifyDriveToken();
   }
   if (panelId === 'backup') {
     const el = document.getElementById('backup-last-time');
@@ -2709,7 +2682,6 @@ function saveEdit(id) {
   // Keep existing lifecycle status; avoid date-only status flips during edit.
   if (!b.status) b.status = 'upcoming';
   save();
-  updateBookingInCalendar(b);
   if (typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(() => {});
   showBanner('✅ Booking saved & syncing...', 'ok');
   setTimeout(() => { closeDetailModal(); render(); }, 500);
@@ -2793,7 +2765,6 @@ function addBooking() {
     });
   }
   showBanner('✅ Booking added', 'ok');
-  pushBookingToCalendar(newB);
 }
 function autoFillCleanDate() {
   const bookingId = Number(document.getElementById('clean-booking-select').value);
@@ -2955,23 +2926,6 @@ async function deleteBooking(id) {
     }
   }
 
-  // Delete calendar event if one was created
-  if (deletedBooking && deletedBooking.gcalEventId) {
-    const token = getDriveToken();
-    if (!token) {
-      showBanner('✅ Booking deleted — reconnect Google Drive to also remove calendar event', 'warn');
-    } else {
-      fetch(calendarEventsUrl(deletedBooking.gcalEventId), {
-        method: 'DELETE',
-        headers: { Authorization: 'Bearer ' + token }
-      }).then(res => {
-        if (res.status === 204 || res.status === 200) showBanner('✅ Booking & calendar event deleted', 'ok');
-        else if (res.status === 401) showBanner('✅ Booking deleted — calendar event not removed (token expired, reconnect Drive)', 'warn');
-        else if (res.status === 404) showBanner('✅ Booking deleted — calendar event already gone', 'ok');
-        else showBanner('✅ Booking deleted — calendar event not removed (error ' + res.status + ')', 'warn');
-      }).catch(() => showBanner('✅ Booking deleted — calendar event not removed (network error)', 'warn'));
-    }
-  }
   closeDetailModal(); render();
   showBanner('✅ Booking deleted', 'ok');
 }
@@ -3052,12 +3006,7 @@ async function runFullRefresh() {
       }
     }
 
-    // Step 2: Try Google Calendar sync (non-blocking, failure is silent)
-    if (typeof syncToGoogleCalendar === 'function') {
-      syncToGoogleCalendar().catch(e => console.warn('[Refresh] syncToGoogleCalendar failed:', e));
-    }
-
-    // Step 4: Reload in-memory data from localStorage then re-render
+    // Reload in-memory data from localStorage then re-render
     reloadInMemoryData();
     renderAll();
 
@@ -3349,21 +3298,6 @@ function saveGeminiKey() {
   el.style.display = 'block';
   setTimeout(() => el.style.display = 'none', 2000);
   showBanner('✓ Settings saved: Gemini key', 'ok');
-}
-function saveGDriveClientId() {
-  const input = document.getElementById('gdrive-client-id');
-  if (!input) return;
-  const id = input.value.trim();
-  if (!id) return;
-  localStorage.setItem('gh-gdrive-client-id', id);
-  const el = document.getElementById('gdrive-client-confirm');
-  if (el) { el.style.display = 'block'; setTimeout(() => el.style.display = 'none', 2000); }
-  showBanner('✓ Settings saved: Google Drive Client ID', 'ok');
-  // Sync to Supabase
-  if (typeof savePropertyToCloud === 'function') {
-    const cfg = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : {};
-    savePropertyToCloud(cfg).catch(() => {});
-  }
 }
 function saveApiKey() {
   const key = document.getElementById('settings-api-key').value.trim();
@@ -4373,47 +4307,6 @@ async function receiptImageToPDF(exp) {
   });
 }
 
-async function getOrCreateDriveFolder(token) {
-  const cached = getDriveFolderId(); // reads config first, then legacy key
-  if (cached) return cached;
-  const folderName = getReceiptsFolderName(); // e.g. "Glenhaven Receipts"
-  try {
-    const q = encodeURIComponent(`name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-    const search = await fetch('https://www.googleapis.com/drive/v3/files?q=' + q, {
-      headers: { Authorization: 'Bearer ' + token }
-    });
-    if (search.status === 401) return null; // token expired — handled by caller
-    const data = await search.json();
-    if (data.files && data.files.length > 0) {
-      saveDriveFolderId(data.files[0].id); // persists to both config and legacy key
-      return data.files[0].id;
-    }
-    // Create the folder
-    const create = await fetch('https://www.googleapis.com/drive/v3/files', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: folderName, mimeType: 'application/vnd.google-apps.folder' })
-    });
-    const folder = await create.json();
-    if (folder.id) {
-      saveDriveFolderId(folder.id);
-      return folder.id;
-    }
-    return null;
-  } catch(e) { return null; }
-}
-
-async function setDriveFilePublic(fileId, token) {
-  // Make the file viewable by anyone with the link
-  try {
-    await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: 'reader', type: 'anyone' })
-    });
-  } catch(e) { /* non-fatal — link still works if user is signed in */ }
-}
-
 async function deleteExpense(id) {
   const ok = await showAppModal({ title: 'Delete Expense', msg: 'Remove this expense? This cannot be undone.', confirmText: 'Delete', confirmColor: 'var(--red)' });
   if (!ok) return;
@@ -4590,261 +4483,6 @@ async function extractExpenseFromReceipt() {
   }
 }
 
-// ── GOOGLE DRIVE AUTH ─────────────────────────────────────────────────────
-function getDriveToken() {
-  const token = localStorage.getItem('gh-drive-token');
-  if (!token) return null;
-  const expiry = localStorage.getItem('gh-drive-token-expiry');
-  if (expiry && Date.now() > Number(expiry) - 60000) {
-    // Token expired or expiring within 1 min — clear it and prompt reconnect
-    localStorage.removeItem('gh-drive-token');
-    localStorage.removeItem('gh-drive-token-expiry');
-    showBanner('⚠ Google session expired — reconnect Drive in Settings', 'warn');
-    return null;
-  }
-  return token;
-}
-
-async function verifyDriveToken() {
-  const token = getDriveToken();
-  const statusEl = document.getElementById('gdrive-status');
-  const connectBtn = document.getElementById('gdrive-connect-btn');
-
-  if (!token) {
-    if (statusEl) statusEl.innerHTML = '<span style="color:var(--text-soft)">Not connected</span>';
-    return;
-  }
-
-  if (statusEl) statusEl.innerHTML = '<span style="color:var(--text-soft)">⟳ Verifying...</span>';
-
-  try {
-    // Verify using Drive API — matches the drive.file scope we actually request
-    const res = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
-      headers: { Authorization: 'Bearer ' + token }
-    });
-
-    if (res.ok) {
-      if (statusEl) statusEl.innerHTML = '<span style="color:var(--moss)">✓ Google Drive & Calendar connected</span>';
-    } else if (res.status === 401) {
-      // Token expired — clear it and prompt reconnect
-      localStorage.removeItem('gh-drive-token');
-      localStorage.removeItem('gh-drive-token-expiry');
-      if (statusEl) statusEl.innerHTML = '<span style="color:#C0392B">⚠ Session expired — please reconnect</span>';
-      showAppModal({
-        title: '🔗 Google Drive Disconnected',
-        msg: 'Your Google Drive & Calendar session has expired. Tap OK to reconnect now, or go to Settings → Google & Sync later.',
-        confirmText: 'Reconnect Now',
-        cancelText: 'Later'
-      }).then(confirmed => { if (confirmed) connectGoogleDrive(); });
-    } else {
-      if (statusEl) statusEl.innerHTML = '<span style="color:var(--amber)">⚠ Could not verify connection</span>';
-    }
-  } catch(e) {
-    if (statusEl) statusEl.innerHTML = '<span style="color:var(--amber)">⚠ Could not verify — check connection</span>';
-  }
-}
-
-function connectGoogleDrive() {
-  if (!_acquireLock(_actionLocks, 'connectGoogleDrive')) return;
-  const clientId = String((typeof getDriveClientId === 'function' ? getDriveClientId() : localStorage.getItem('gh-gdrive-client-id')) || '').trim();
-  if (!clientId) {
-    showBanner('⚠ Enter your Google Drive Client ID in Settings → Google Drive first','warn');
-    _releaseLock(_actionLocks, 'connectGoogleDrive');
-    return;
-  }
-  // Use exact current page URL (no hash, no query string)
-  let redirectUri = window.location.origin + window.location.pathname;
-  if (!redirectUri.endsWith('/')) redirectUri += '/';
-  const scope = encodeURIComponent('https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/calendar.events');
-  const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}`;
-
-  // Show user the exact URI they need to register
-  const statusEl = document.getElementById('gdrive-status');
-  if (statusEl) statusEl.innerHTML = `<span style="color:var(--amber)">⚠ Make sure this exact URL is in your Authorised redirect URIs:<br><strong style="word-break:break-all">${redirectUri}</strong></span>`;
-  showBanner('⟳ Opening Google connection flow. If it fails, check the redirect URI shown in Settings.', 'info');
-
-  setTimeout(() => { window.location.href = url; }, 1500);
-  setTimeout(() => _releaseLock(_actionLocks, 'connectGoogleDrive'), 5000);
-}
-
-// Handle OAuth token from redirect
-(function() {
-  const hash = window.location.hash;
-  if (hash.includes('access_token')) {
-    const params = new URLSearchParams(hash.substring(1));
-    const token = params.get('access_token');
-    const expiresIn = params.get('expires_in');
-    if (token) {
-      localStorage.setItem('gh-drive-token', token);
-      if (expiresIn) localStorage.setItem('gh-drive-token-expiry', String(Date.now() + Number(expiresIn) * 1000));
-      history.replaceState(null, '', window.location.pathname);
-      showBanner('✓ Google Drive connected', 'ok');
-    }
-  } else if (hash.includes('error=')) {
-    const params = new URLSearchParams(hash.substring(1));
-    const err = params.get('error') || 'unknown_error';
-    const reason = err === 'access_denied'
-      ? 'Google Drive connection was cancelled. You can try again anytime in Settings.'
-      : 'Google did not complete the Drive connection (' + err + '). Check Client ID and redirect URI.';
-    history.replaceState(null, '', window.location.pathname);
-    showBanner('⚠ Google Drive connect failed: ' + reason, 'warn');
-  }
-})();
-
-
-
-// ── GOOGLE CALENDAR AUTO-SYNC ─────────────────────────────────────────────
-function buildBookingCalendarEvent(b) {
-  return {
-    summary: buildCalendarEventSummary(b.name),
-    description: [
-      (b.guests || '') + ' guests · ' + (b.nights || '') + ' nights',
-      b.platform || '',
-      b.netPayout ? 'Net: $' + Number(b.netPayout).toFixed(2) : ''
-    ].filter(Boolean).join('\n'),
-    start: { date: b.checkin },
-    end:   { date: b.checkout },
-    colorId: '2'
-  };
-}
-
-function isCalendarNotFoundStatus(status) {
-  return status === 404 || status === 410;
-}
-
-async function removeBookingCalendarEvent(booking, opts = {}) {
-  if (!booking || !booking.gcalEventId) return { skipped: true };
-  const authToken = opts.token || getDriveToken();
-  if (!authToken) return { skipped: true };
-
-  const eventId = booking.gcalEventId;
-  let deleteRes;
-  try {
-    deleteRes = await fetch(calendarEventsUrl(eventId), {
-      method: 'DELETE',
-      headers: { Authorization: 'Bearer ' + authToken }
-    });
-  } catch (e) {
-    return { failed: true, networkError: true };
-  }
-
-  if (deleteRes.status === 401) return { authError: true };
-  if (!deleteRes.ok && !isCalendarNotFoundStatus(deleteRes.status)) {
-    return { failed: true, status: deleteRes.status };
-  }
-
-  booking.gcalEventId = null;
-  return isCalendarNotFoundStatus(deleteRes.status) ? { alreadyMissing: true } : { deleted: true };
-}
-
-async function upsertBookingCalendarEvent(b, token) {
-  if (!b || !b.checkin || !b.checkout || new Date(b.checkout) < new Date()) return { skipped: true };
-  if (b.status === 'cancelled') return removeBookingCalendarEvent(b, { token });
-  const authToken = token || getDriveToken();
-  if (!authToken) return { skipped: true };
-
-  const event = buildBookingCalendarEvent(b);
-
-  if (b.gcalEventId) {
-    const updateRes = await fetch(calendarEventsUrl(b.gcalEventId), {
-      method: 'PUT',
-      headers: { 'Authorization': 'Bearer ' + authToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify(event)
-    });
-    if (updateRes.ok) return { updated: true };
-    if (updateRes.status === 401) return { authError: true };
-    if (!isCalendarNotFoundStatus(updateRes.status)) {
-      return { failed: true, status: updateRes.status };
-    }
-    b.gcalEventId = null;
-  }
-
-  const createRes = await fetch(calendarEventsUrl(), {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + authToken, 'Content-Type': 'application/json' },
-    body: JSON.stringify(event)
-  });
-  if (createRes.ok) {
-    const data = await createRes.json();
-    b.gcalEventId = data.id;
-    return { created: true };
-  }
-  if (createRes.status === 401) return { authError: true };
-  return { failed: true, status: createRes.status };
-}
-
-async function pushBookingToCalendar(bookingOrId) {
-  const b = (typeof bookingOrId === 'object' && bookingOrId)
-    ? bookingOrId
-    : bookings.find(x => String(x.id) === String(bookingOrId));
-  if (!b) return;
-  try {
-    const result = await upsertBookingCalendarEvent(b);
-    if (result.created || result.updated || result.deleted || result.alreadyMissing) save();
-    else if (result.authError) showBanner('⚠ Google Calendar token expired — reconnect in Settings', 'warn');
-  } catch(e) {}
-}
-
-async function updateBookingInCalendar(b) {
-  if (!b) return;
-  try {
-    const result = await upsertBookingCalendarEvent(b);
-    if (result.created || result.updated || result.deleted || result.alreadyMissing) save();
-    else if (result.authError) showBanner('⚠ Google Calendar token expired — reconnect in Settings', 'warn');
-  } catch(e) {}
-}
-
-async function syncNewBookingsToCalendar() {
-  const token = getDriveToken();
-  if (!token) return;
-  const toSync = bookings.filter(b => b.status !== 'cancelled' && b.checkin && new Date(b.checkout) >= new Date());
-  for (const b of toSync) await upsertBookingCalendarEvent(b, token);
-  save();
-}
-
-// ── GOOGLE CALENDAR SYNC ──────────────────────────────────────────────────
-async function syncToGoogleCalendar() {
-  const token = getDriveToken();
-  const resultEl = document.getElementById('gcal-sync-result');
-  resultEl.style.display = 'block';
-  resultEl.style.background = '#FFF8E1'; resultEl.style.color = '#E65100';
-
-  if (!token) {
-    resultEl.textContent = '⚠ Not connected — tap "Connect Google Drive & Calendar" first';
-    return;
-  }
-
-  const upcoming = bookings.filter(b => b.status !== 'cancelled' && b.checkin && b.checkout && new Date(b.checkout) >= new Date());
-  if (!upcoming.length) { resultEl.textContent = '⚠ No upcoming bookings to sync'; return; }
-
-  resultEl.textContent = '⟳ Syncing ' + upcoming.length + ' bookings...';
-
-  let created = 0, updated = 0, failed = 0;
-  for (const b of upcoming) {
-    try {
-      const result = await upsertBookingCalendarEvent(b, token);
-      if (result.authError) {
-        resultEl.style.background = '#FDECEA'; resultEl.style.color = '#C0392B';
-        resultEl.textContent = '✗ Token expired — reconnect Google Drive & Calendar';
-        return;
-      }
-      if (result.created) created++;
-      else if (result.updated) updated++;
-      else if (result.failed) failed++;
-    } catch(e) { failed++; }
-    resultEl.textContent = '⟳ ' + (created + updated + failed) + ' / ' + upcoming.length + '...';
-  }
-  save(); // persist gcalEventIds
-  if (failed === 0) {
-    resultEl.style.background = '#E8F5E9'; resultEl.style.color = '#2E7D32';
-    resultEl.textContent = '✓ ' + created + ' created, ' + updated + ' updated';
-    showBanner('✓ Calendar synced — ' + created + ' new, ' + updated + ' updated', 'ok');
-  } else {
-    resultEl.style.background = '#FFF8E1'; resultEl.style.color = '#E65100';
-    resultEl.textContent = '⚠ ' + (created + updated) + ' synced, ' + failed + ' failed';
-  }
-}
-
 // ── MAINTENANCE ───────────────────────────────────────────────────────────
 function renderMaintenance() {
   const el = document.getElementById('maintenance-list');
@@ -4940,9 +4578,11 @@ async function resolveIssue(id) {
 async function deleteMaintenance(id) {
   const _okIssue = await showAppModal({ title: 'Delete Issue', msg: 'Delete this maintenance issue?', confirmText: 'Delete', confirmColor: 'var(--red)' });
   if (!_okIssue) return;
+  const removed = maintenance.find(m => m.id === id);
   maintenance = maintenance.filter(m => m.id !== id);
   savePropertyData();
   renderMaintenance();
+  if (removed && typeof deleteMaintenanceFromCloud === 'function') deleteMaintenanceFromCloud(removed).catch(() => {});
 }
 
 // ── INVENTORY ─────────────────────────────────────────────────────────────
@@ -5074,7 +4714,7 @@ function clearEditExpensePhoto() {
   document.getElementById('ee-photo-preview').style.display = 'none';
   document.getElementById('ee-file-input').value = '';
   const e = expenses.find(e => e.id === editingExpenseId);
-  document.getElementById('ee-receipt-label').textContent = e && e.driveLink ? 'Upload a replacement receipt' : 'Upload receipt photo to Google Drive';
+  document.getElementById('ee-receipt-label').textContent = e && e.driveLink ? 'Upload a replacement receipt' : 'Upload receipt photo';
 }
 function openExpenseEdit(id) {
   const e = expenses.find(e => e.id === id);
@@ -5099,7 +4739,7 @@ function openExpenseEdit(id) {
     document.getElementById('ee-receipt-label').textContent = 'Upload a replacement receipt';
   } else {
     currentReceiptEl.style.display = 'none';
-    document.getElementById('ee-receipt-label').textContent = 'Upload receipt photo to Google Drive';
+    document.getElementById('ee-receipt-label').textContent = 'Upload receipt photo';
   }
   document.getElementById('ee-photo-preview').style.display = 'none';
   document.getElementById('ee-upload-status').style.display = 'none';
@@ -5214,6 +4854,7 @@ function savePropertyData() {
   localStorage.setItem(lsKey('inventory'),   JSON.stringify(inventory));
   // Sync to Supabase (non-blocking)
   if (typeof saveInventoryToCloud === 'function') saveInventoryToCloud(inventory).catch(() => {});
+  if (typeof saveMaintenanceToCloud === 'function') saveMaintenanceToCloud(maintenance).catch(() => {});
 }
 
 // ── SCREENSHOT TO BOOKING ─────────────────────────────────────────────────
@@ -5435,6 +5076,7 @@ document.addEventListener('visibilitychange', () => {
       _lastVisibilitySync = now;
       // Supabase is now the source — trigger a silent re-hydrate instead
       if (typeof hydrateFromCloud === 'function') hydrateFromCloud().then(() => {
+        if (typeof reloadInMemoryData === 'function') reloadInMemoryData();
         if (typeof renderAll === 'function') renderAll();
       });
     }
@@ -5444,6 +5086,7 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('pageshow', (e) => {
   if (e.persisted && hasValidPropertyConfig()) {
     if (typeof hydrateFromCloud === 'function') hydrateFromCloud().then(() => {
+      if (typeof reloadInMemoryData === 'function') reloadInMemoryData();
       if (typeof renderAll === 'function') renderAll();
     });
   }
@@ -5609,7 +5252,6 @@ function attachLongPress() {
         showActionSheet(b.name, [
           { label: '✏️ Edit Booking',       fn: `() => showEditModal(${id})` },
           { label: '📱 Notify Cleaner',     fn: `() => { showSection('cleaning'); }` },
-          { label: '📅 Push to Calendar',   fn: `() => pushBookingToCalendar(${id})` },
           { label: '🗑 Delete Booking',      fn: `() => deleteBooking(${id})`, destructive: true },
         ]);
       }, 550);
@@ -6958,7 +6600,6 @@ function copyCleanerLinkById(id) {
  */
 async function finishAppInit() {
   migrateConfigFromLegacySettings();
-  initPropertyUI();
   renderPropertySwitcher();
   initFxSettings();
   attachButtonPress();
@@ -6976,7 +6617,6 @@ async function finishAppInit() {
     }
   } else {
     await showSetupIfNeeded();
-    migrateConfigFromLegacySettings();
   }
 }
 

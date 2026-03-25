@@ -67,8 +67,6 @@ const DEFAULT_PROPERTY_CONFIG = {
   integrations: {
     vapidPublicKey:  'BO-fP_0TOY1foiCQtOZ40N7io1MAzoMUui6pmeHPJ3jLxbdNGh0SrRjxtvWVhuf4QKvf4q83eyS_wcICiS4cgc4',
     pushFunctionUrl: '/.netlify/functions/send-push',
-    calendarId:      'primary',
-    driveFolderId:   null,
   },
 
   pricing: {
@@ -97,8 +95,7 @@ const _GLOBAL_GH_KEYS = new Set([
 const _SCOPED_KEY_PREFIXES = [
   'gh-bookings', 'gh-cleans', 'gh-notes', 'gh-expenses', 'gh-maintenance', 'gh-inventory',
   'gh-cleaners', 'gh-last-sync', 'gh-last-push', 'gh-last-backup', 'gh-last-cleaner',
-  'gh-push-subs', 'gh-property-data', 'gh-drive-folder-id', 'gh-drive-token', 'gh-drive-token-expiry',
-  'gh-drive-connect-dismissed', 'gh-gdrive-client-id', 'gh-api-key', 'gh-gemini-key', 'gh-base-rate',
+  'gh-push-subs', 'gh-property-data', 'gh-api-key', 'gh-gemini-key', 'gh-base-rate',
   'gh-cleaning-fee', 'gh-clients', 'gh-expense-cats', 'gh-invoice-settings', 'gh-sms-template',
   'gh-owner-email', 'gh-inv-', 'gh-bank-', 'gh-cleaner-authed-', 'gh-email-tpl-', 'gh-fx-',
   'gh-ai-ignore'
@@ -399,9 +396,6 @@ function getPushFunctionUrl() {
   return (c.integrations && c.integrations.pushFunctionUrl) || '/.netlify/functions/send-push';
 }
 
-function getReceiptsFolderName() { return getCurrentPropertyName() + ' Receipts'; }
-function getBackupsFolderName()  { return getCurrentPropertyName() + ' Backups';  }
-
 function getPropertyStats() {
   const c = getActivePropertyConfig();
   return {
@@ -415,28 +409,9 @@ function getPricingConfig() {
   return getActivePropertyConfig().pricing || DEFAULT_PROPERTY_CONFIG.pricing;
 }
 
-function buildCalendarEventSummary(guestName) {
-  return '🏡 ' + (guestName || 'Guest') + ' — ' + getCurrentPropertyName();
-}
-
-function getDriveFolderId() {
-  const c = getActivePropertyConfig();
-  if (c.integrations && c.integrations.driveFolderId) return c.integrations.driveFolderId;
-  return localStorage.getItem('gh-drive-folder-id') || null;
-}
-
-function getDriveClientId() {
-  return localStorage.getItem('gh-gdrive-client-id') || '';
-}
-
 function getPropertyConfigGaps() {
   // All data is stored in Supabase — no external service gaps to check.
   return [];
-}
-
-function saveDriveFolderId(storageKey) {
-  localStorage.setItem('gh-drive-folder-id', storageKey);
-  savePropertyConfig({ integrations: { driveFolderId: storageKey } });
 }
 
 // ── MIGRATION ──────────────────────────────────────────────────────────────────
@@ -452,10 +427,8 @@ function migrateConfigFromLegacySettings() {
   const updates = { integrations: {}, owner: {} };
   const email = localStorage.getItem('gh-inv-email');
   const ownerName = localStorage.getItem('gh-inv-name');
-  const storageKey = localStorage.getItem('gh-drive-folder-id');
   const baseRate = localStorage.getItem('gh-base-rate');
 
-  if (storageKey)   updates.integrations.driveFolderId = storageKey;
   if (email)      updates.owner.email = email;
   if (ownerName)  updates.owner.name = ownerName;
   if (baseRate)   updates.pricing = { baseRate: Number(baseRate) || 350 };

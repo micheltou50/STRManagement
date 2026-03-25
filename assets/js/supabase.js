@@ -147,9 +147,7 @@ async function seedLocalConfigFromCloud() {
           integrations: {
             sheetCsvUrl:    cloudProp.sheets_url       || '',
             syncUrl:      cloudProp.script_url       || '',
-            calendarId:     cloudProp.calendar_id      || 'primary',
             vapidPublicKey: cloudProp.vapid_public_key || '',
-            driveFolderId:  cloudProp.drive_folder_id  || null,
           },
           pricing: {
             baseRate: cloudProp.base_rate || 350,
@@ -174,9 +172,7 @@ async function seedLocalConfigFromCloud() {
       window._stayOpsHydrating = false;
     }
 
-    // 4. Also restore Drive/API keys to localStorage if present
-    if (cloudProp.drive_client_id) localStorage.setItem('gh-gdrive-client-id', cloudProp.drive_client_id);
-    if (cloudProp.drive_folder_id) localStorage.setItem('gh-drive-folder-id', cloudProp.drive_folder_id);
+    // 4. Also restore API keys to localStorage if present
     if (cloudProp.anthropic_api_key) localStorage.setItem('gh-api-key', cloudProp.anthropic_api_key);
     if (cloudProp.script_url) localStorage.setItem('gh-script-url', cloudProp.script_url);
 
@@ -212,7 +208,7 @@ async function savePropertyToCloud(cfg) {
       timezone:          'Australia/Sydney',
       sheets_url:        (cfg.integrations && cfg.integrations.sheetCsvUrl)   || null,
       script_url:        (cfg.integrations && cfg.integrations.syncUrl)     || null,
-      calendar_id:       (cfg.integrations && cfg.integrations.calendarId)    || null,
+      calendar_id:       null,
       vapid_public_key:  (cfg.integrations && cfg.integrations.vapidPublicKey) || null,
       base_rate:         (cfg.pricing && cfg.pricing.baseRate)         || null,
       owner_name:              (cfg.owner && cfg.owner.name)                 || null,
@@ -223,8 +219,6 @@ async function savePropertyToCloud(cfg) {
       auto_send_report:        (cfg.owner && cfg.owner.autoSendReport != null) ? cfg.owner.autoSendReport : null,
       report_frequency:        (cfg.owner && cfg.owner.reportFrequency)      || null,
       last_report_sent_at:     (cfg.owner && cfg.owner.lastReportSentAt)     || null,
-      drive_client_id:   localStorage.getItem('gh-gdrive-client-id')   || null,
-      drive_folder_id:   localStorage.getItem('gh-drive-folder-id')    || null,
       anthropic_api_key: localStorage.getItem('gh-api-key')            || null,
       // Use config's own updated_at if present so timestamp reflects when user actually saved
       updated_at:        cfg.updated_at || new Date().toISOString()
@@ -631,6 +625,85 @@ async function deleteInventoryItemFromCloud(item) {
 }
 
 
+// ── MAINTENANCE ──────────────────────────────────────────────────────────────
+
+async function loadMaintenanceFromCloud() {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user) return null;
+    const { data, error } = await window._sb
+      .from('maintenance')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('date', { ascending: false });
+    if (error || !data) return null;
+    return data.map(m => ({
+      id:          m.local_id ? Number(m.local_id) || m.local_id : m.id,
+      _cloudId:    m.id,
+      description: m.description || '',
+      status:      m.status      || 'open',
+      cost:        m.cost        || 0,
+      contractor:  m.contractor  || '',
+      date:        m.date        || ''
+    }));
+  } catch (e) {
+    console.warn('[StayOps] loadMaintenanceFromCloud failed', e);
+    return null;
+  }
+}
+
+async function saveMaintenanceItemToCloud(item) {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user || !item) return;
+    const propertyId = await getCloudPropertyId();
+    const payload = {
+      user_id:     user.id,
+      property_id: propertyId || null,
+      local_id:    String(item.id),
+      description: item.description || '',
+      status:      item.status      || 'open',
+      cost:        Number(item.cost) || 0,
+      contractor:  item.contractor  || '',
+      date:        item.date        || null,
+      updated_at:  new Date().toISOString()
+    };
+    if (item._cloudId) {
+      await window._sb.from('maintenance').upsert({ id: item._cloudId, ...payload });
+    } else {
+      const { data } = await window._sb
+        .from('maintenance')
+        .upsert(payload, { onConflict: 'local_id,user_id' })
+        .select().single();
+      if (data) item._cloudId = data.id;
+    }
+  } catch (e) {
+    console.warn('[StayOps] saveMaintenanceItemToCloud failed', e);
+  }
+}
+
+async function saveMaintenanceToCloud(maintenanceList) {
+  if (!Array.isArray(maintenanceList)) return;
+  for (const m of maintenanceList) await saveMaintenanceItemToCloud(m);
+}
+
+async function deleteMaintenanceFromCloud(item) {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user || !item) return;
+    if (item._cloudId) {
+      await window._sb.from('maintenance').delete().eq('id', item._cloudId);
+    } else {
+      await window._sb.from('maintenance').delete()
+        .eq('user_id', user.id)
+        .eq('local_id', String(item.id));
+    }
+  } catch (e) {
+    console.warn('[StayOps] deleteMaintenanceFromCloud failed', e);
+  }
+}
+
+
 // ── FULL HYDRATION ────────────────────────────────────────────────────────────
 
 /**
@@ -686,15 +759,19 @@ async function hydrateFromCloud() {
       console.log('[StayOps] Hydrated', cloudInventory.length, 'inventory items from cloud');
     }
 
+    // 5b. Maintenance
+    const cloudMaintenance = await loadMaintenanceFromCloud();
+    if (Array.isArray(cloudMaintenance)) {
+      localStorage.setItem(lsKey('maintenance'), JSON.stringify(cloudMaintenance));
+      console.log('[StayOps] Hydrated', cloudMaintenance.length, 'maintenance items from cloud');
+    }
+
     // 6. Property config — timestamp-based merge: newer wins
     const cloudProp = await loadPropertyFromCloud();
     if (cloudProp) {
       window._cloudPropertyId = cloudProp.id;
 
-      // Restore Drive and API settings to localStorage FIRST
-      // so renderConnectionSummary sees them when it runs
-      if (cloudProp.drive_client_id) localStorage.setItem('gh-gdrive-client-id', cloudProp.drive_client_id);
-      if (cloudProp.drive_folder_id) localStorage.setItem('gh-drive-folder-id',  cloudProp.drive_folder_id);
+      // Restore API settings to localStorage
       if (cloudProp.anthropic_api_key) localStorage.setItem('gh-api-key', cloudProp.anthropic_api_key);
 
       const existingCfg = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : {};
@@ -732,9 +809,7 @@ async function hydrateFromCloud() {
           integrations: {
             sheetCsvUrl:    cloudProp.sheets_url      || (existingCfg.integrations && existingCfg.integrations.sheetCsvUrl),
             syncUrl:      cloudProp.script_url      || (existingCfg.integrations && existingCfg.integrations.syncUrl),
-            calendarId:     cloudProp.calendar_id     || (existingCfg.integrations && existingCfg.integrations.calendarId) || 'primary',
             vapidPublicKey: cloudProp.vapid_public_key || (existingCfg.integrations && existingCfg.integrations.vapidPublicKey),
-            driveFolderId:  cloudProp.drive_folder_id  || (existingCfg.integrations && existingCfg.integrations.driveFolderId)
           },
           pricing: {
             baseRate: cloudProp.base_rate || (existingCfg.pricing && existingCfg.pricing.baseRate)
@@ -788,11 +863,10 @@ async function migrateLocalDataToCloud() {
   console.log('[StayOps] Starting migration to cloud…');
 
   // Property config first (needed for property_id on other tables)
-  // Also captures Drive client ID, folder ID, and API key from localStorage
   const cfg = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : null;
   if (cfg) {
     await savePropertyToCloud(cfg);
-    console.log('[StayOps] ✓ Property config migrated (includes Drive + API settings)');
+    console.log('[StayOps] ✓ Property config migrated');
   }
 
   // Cleaners
@@ -833,6 +907,14 @@ async function migrateLocalDataToCloud() {
     await saveInventoryToCloud(inventory);
     localStorage.setItem(lsKey('inventory'), JSON.stringify(inventory));
     console.log('[StayOps] ✓', inventory.length, 'inventory items migrated');
+  }
+
+  // Maintenance
+  const maintenance = JSON.parse(localStorage.getItem(lsKey('maintenance')) || '[]');
+  if (maintenance.length) {
+    await saveMaintenanceToCloud(maintenance);
+    localStorage.setItem(lsKey('maintenance'), JSON.stringify(maintenance));
+    console.log('[StayOps] ✓', maintenance.length, 'maintenance items migrated');
   }
 
   console.log('[StayOps] Migration complete! Run hydrateFromCloud() on other devices.');
@@ -937,7 +1019,6 @@ async function loadBookingsFromCloud() {
       confirmCode:      b.confirmation_code || '',
       status:           b.status       || 'confirmed',
       cleanerConfirmed: b.cleaner_confirmed || false,
-      gcalEventId:      b.gcal_event_id || null,
       source:           b.source        || 'sheet',
     }));
   } catch (e) {
@@ -969,7 +1050,6 @@ async function saveBookingToCloud(booking) {
     confirmation_code:  booking.confirmCode || null,
     status:             booking.status      || 'confirmed',
     cleaner_confirmed:  booking.cleanerConfirmed || false,
-    gcal_event_id:      booking.gcalEventId || null,
     source:             booking.source      || 'sheet',
     updated_at:         new Date().toISOString(),
   };
@@ -1010,7 +1090,6 @@ async function saveBookingsToCloud(bookingsList) {
     confirmation_code:  b.confirmCode || null,
     status:             b.status      || 'confirmed',
     cleaner_confirmed:  b.cleanerConfirmed || false,
-    gcal_event_id:      b.gcalEventId || null,
     source:             b.source      || 'sheet',
     updated_at:         new Date().toISOString(),
   }));
