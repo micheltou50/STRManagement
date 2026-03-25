@@ -72,19 +72,38 @@ exports.handler = async (event) => {
       Prefer: 'return=minimal',
     };
 
-    const patch = {
-      user_id: state,
+    const gmailFields = {
       gmail_refresh_token: tokens.refresh_token || null,
       gmail_email: email,
       gmail_connected_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
 
-    await fetch(SUPABASE_URL + '/rest/v1/app_config', {
-      method: 'POST',
-      headers: { ...sbHeaders, Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify(patch),
-    });
+    // Try PATCH first (row already exists from app login)
+    const patchRes = await fetch(
+      SUPABASE_URL + '/rest/v1/app_config?user_id=eq.' + encodeURIComponent(state),
+      { method: 'PATCH', headers: sbHeaders, body: JSON.stringify(gmailFields) }
+    );
+
+    if (!patchRes.ok) {
+      // Row doesn't exist yet — insert with user_id
+      console.log('[gmail-oauth-callback] PATCH failed (' + patchRes.status + '), trying POST...');
+      const postRes = await fetch(
+        SUPABASE_URL + '/rest/v1/app_config',
+        {
+          method: 'POST',
+          headers: sbHeaders,
+          body: JSON.stringify({ user_id: state, ...gmailFields }),
+        }
+      );
+      if (!postRes.ok) {
+        const errText = await postRes.text();
+        console.error('[gmail-oauth-callback] POST also failed:', postRes.status, errText);
+      }
+    }
+
+    // Log whether refresh token was received
+    console.log('[gmail-oauth-callback] refresh_token received:', !!tokens.refresh_token, 'email:', email);
 
     // 4. Redirect back to app
     return redirect(SITE_URL + '/?oauth_success=google&oauth_email=' + encodeURIComponent(email));
