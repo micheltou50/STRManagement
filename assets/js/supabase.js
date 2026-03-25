@@ -289,7 +289,7 @@ async function loadCleanersFromCloud() {
       phone:       c.phone  || '',
       role:        c.role   || 'Cleaner',
       pin:         c.pin    || '',
-      permissions: c.permissions ? (typeof c.permissions === 'string' ? JSON.parse(c.permissions) : c.permissions) : {},
+      permissions: c.permissions || {},
       active:      c.active !== false
     }));
   } catch (e) {
@@ -312,7 +312,7 @@ async function saveCleanersToCloud(cleanerList) {
         phone:       c.phone  || '',
         role:        c.role   || 'Cleaner',
         pin:         c.pin    || '',
-        permissions: JSON.stringify(c.permissions || {}),
+        permissions: c.permissions || {},
         active:      c.active !== false,
         updated_at:  new Date().toISOString()
       };

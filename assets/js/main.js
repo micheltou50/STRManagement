@@ -6497,7 +6497,9 @@ function isCleanerMode() {
   const hash = window.location.hash; // e.g. #cleaner/123/ABC
   if (hash.startsWith('#cleaner/')) return true;
   const p = new URLSearchParams(window.location.search);
-  return p.get('role') === 'cleaner';
+  if (p.get('role') === 'cleaner') return true;
+  // Fallback: cleaner params were saved to localStorage on first auth
+  return !!localStorage.getItem('gh-cleaner-session');
 }
 
 function getCleanerParams() {
@@ -6509,7 +6511,13 @@ function getCleanerParams() {
   }
   // Fallback: query string format (old links)
   const p = new URLSearchParams(window.location.search);
-  return { id: p.get('id'), encoded: p.get('p') };
+  if (p.get('id')) return { id: p.get('id'), encoded: p.get('p') };
+  // Fallback: saved session from home screen launch
+  try {
+    const saved = JSON.parse(localStorage.getItem('gh-cleaner-session') || 'null');
+    if (saved && saved.id) return { id: saved.id, encoded: saved.encoded || null };
+  } catch (e) {}
+  return { id: null, encoded: null };
 }
 function getActiveCleaner() {
   const { id } = getCleanerParams();
@@ -6551,6 +6559,8 @@ function verifyCleanerPin() {
   try { stored = atob(encoded); } catch(e) { stored = ''; }
   if (cleanerPinEntry === stored) {
     localStorage.setItem('gh-cleaner-authed-' + id, '1');
+    // Save cleaner session so home screen launch preserves cleaner mode
+    localStorage.setItem('gh-cleaner-session', JSON.stringify({ id, encoded }));
     document.body.classList.remove('cleaner-pin-active');
     document.body.classList.add('cleaner-mode');
     renderCleanerView();
@@ -6611,6 +6621,7 @@ function updateCleanerNotifBtn() {
 function cleanerSignOut() {
   const { id } = getCleanerParams();
   localStorage.removeItem('gh-cleaner-authed-' + id);
+  localStorage.removeItem('gh-cleaner-session');
   cleanerPinEntry = ''; updatePinDots();
   document.getElementById('pin-error').style.display = 'none';
   document.body.classList.remove('cleaner-mode');
