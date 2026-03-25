@@ -307,13 +307,11 @@
 </div>
 
 <div class="nav">
-  <button class="nav-btn active" onclick="showSection('dashboard')" id="nav-dashboard"><span class="icon">🏠</span>Dashboard</button>
+  <button class="nav-btn active" onclick="showSection('today')" id="nav-today"><span class="icon">🏠</span>Today</button>
   <button class="nav-btn" onclick="showSection('bookings')" id="nav-bookings"><span class="icon">📋</span>Bookings</button>
   <button class="nav-btn" onclick="showSection('cleaning')" id="nav-cleaning"><span class="icon">🧹</span>Cleaning</button>
-  <button class="nav-btn" onclick="showSection('revenue')" id="nav-revenue"><span class="icon">💰</span>Payout</button>
-  <button class="nav-btn" onclick="showSection('management')" id="nav-management"><span class="icon">📊</span>Mgmt</button>
+  <button class="nav-btn" onclick="showSection('finance')" id="nav-finance"><span class="icon">💰</span>Finance</button>
   <button class="nav-btn" onclick="showSection('property')" id="nav-property"><span class="icon">🏡</span>Property</button>
-  <button class="nav-btn" onclick="showSection('settings')" id="nav-settings"><span class="icon">⚙️</span>Settings</button>
 </div>
 
 
@@ -332,7 +330,7 @@
   </div>
 
   <!-- DASHBOARD -->
-  <div id="section-dashboard" class="section-stack">
+  <div id="section-today" class="section-stack">
     <div class="card dashboard-hero" style="background:var(--forest);color:white;position:relative;overflow:hidden">
       <div style="position:absolute;top:-20px;right:-20px;font-size:80px;opacity:0.08">🏠</div>
       <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="openPropertySwitcherSheet()" id="prop-hero-name-wrap">
@@ -405,18 +403,37 @@
       <button class="tab" onclick="filterBookings('cancelled',this)">Cancelled</button>
     </div>
     <div id="bookings-list"></div>
+    <div class="card" id="bookings-notes-card">
+      <div class="card-title">Booking-linked Notes</div>
+      <div id="notes-list"></div>
+      <label>Guest</label>
+      <select id="note-booking-select"><option value="">Select booking...</option></select>
+      <label>Note</label>
+      <textarea id="note-text" placeholder="e.g. Early check-in requested, allergies, great guests..."></textarea>
+      <label>Tag</label>
+      <select id="note-tag">
+        <option value="info">Info</option>
+        <option value="positive">Positive</option>
+        <option value="alert">Alert</option>
+      </select>
+      <button class="btn-primary" onclick="addNote()">Save Note</button>
+    </div>
   </div>
 
   <!-- CLEANING -->
   <div id="section-cleaning" class="section-hidden section-stack">
     <div class="section-heading">
       <div>
-        <h2>Cleaning Workflow</h2>
-        <p>Review upcoming tasks, then schedule the next clean.</p>
+        <h2>Cleaning</h2>
+        <p>Manage schedule and add cleans separately.</p>
       </div>
-      <button class="btn-secondary section-cta" onclick="document.getElementById('clean-add-card').scrollIntoView({behavior:'smooth',block:'start'})">Schedule</button>
+      <button class="btn-secondary section-cta" onclick="switchCleaningView('add', this)">Add Clean</button>
     </div>
-    <div class="card">
+    <div class="tab-row" style="margin-bottom:12px">
+      <button class="tab active" id="clean-view-schedule-btn" onclick="switchCleaningView('schedule', this)">Schedule</button>
+      <button class="tab" id="clean-view-add-btn" onclick="switchCleaningView('add', this)">Add Clean</button>
+    </div>
+    <div class="card" id="clean-schedule-card">
       <div class="tab-row" style="margin-bottom:12px">
         <button class="tab active" onclick="filterCleans('upcoming',this)">🗓 Upcoming</button>
         <button class="tab" onclick="filterCleans('action',this)">⚠️ Action</button>
@@ -424,7 +441,7 @@
       </div>
       <div id="cleaning-list" style="max-height:340px;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div>
     </div>
-    <div class="card" id="clean-add-card">
+    <div class="card" id="clean-add-card" style="display:none">
       <div class="card-title">Add Clean</div>
       <label>After Booking</label>
       <select id="clean-booking-select" onchange="autoFillCleanDate()"><option value="">Select booking...</option></select>
@@ -462,9 +479,16 @@
     </div>
   </div>
 
-  <!-- REVENUE / HOST PAYOUT -->
-  <div id="section-revenue" class="section-hidden">
+  <!-- FINANCE -->
+  <div id="section-finance" class="section-hidden section-stack">
 
+    <div class="tab-row" style="margin-bottom:12px">
+      <button class="tab active" id="finance-tab-host" onclick="switchFinanceTab('host', this)">Host Payout</button>
+      <button class="tab" id="finance-tab-mgmt" onclick="switchFinanceTab('mgmt', this)">Management Fee</button>
+      <button class="tab" id="finance-tab-report" onclick="switchFinanceTab('report', this)">Annual Report</button>
+    </div>
+
+    <div id="finance-host-view">
     <!-- Tab toggle -->
     <div class="tab-row" style="margin-bottom:12px">
       <button class="tab active" id="rev-tab-monthly" onclick="switchRevTab('monthly')">Monthly</button>
@@ -508,8 +532,10 @@
 
   </div>
 
-  <!-- MANAGEMENT -->
-  <div id="section-management" class="section-hidden">
+    </div>
+
+  <!-- MANAGEMENT FEE -->
+    <div id="finance-management-view" style="display:none">
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <button onclick="mgmtPrev()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">‹</button>
@@ -529,26 +555,12 @@
       </div>
       <div id="mgmt-breakdown"></div>
     </div>
+    </div>
+
   </div>
 
-  <!-- NOTES -->
-  <div id="section-notes" class="section-hidden">
-    <div id="notes-list"></div>
-    <div class="card">
-      <div class="card-title">Add Note</div>
-      <label>Guest</label>
-      <select id="note-booking-select"><option value="">Select booking...</option></select>
-      <label>Note</label>
-      <textarea id="note-text" placeholder="e.g. Early check-in requested, allergies, great guests..."></textarea>
-      <label>Tag</label>
-      <select id="note-tag">
-        <option value="info">Info</option>
-        <option value="positive">Positive</option>
-        <option value="alert">Alert</option>
-      </select>
-      <button class="btn-primary" onclick="addNote()">Save Note</button>
-    </div>
-  </div>
+  <!-- NOTES (legacy target retained for backward compatibility) -->
+  <div id="section-notes" class="section-hidden"></div>
 
   <!-- PROPERTY -->
   <div id="section-property" class="section-hidden section-stack">
@@ -558,14 +570,56 @@
         <p>Manage expenses, maintenance, and inventory in one place.</p>
       </div>
     </div>
-    <div class="tab-row" style="margin-bottom:12px">
-      <button class="tab active" onclick="filterProperty('expenses',this)">💰 Expenses</button>
+    <div class="tab-row" style="margin-bottom:12px;flex-wrap:wrap">
+      <button class="tab active" onclick="filterProperty('details',this)">🏡 Property Details</button>
+      <button class="tab" onclick="filterProperty('smart',this)">📈 Smart Pricing</button>
+      <button class="tab" onclick="filterProperty('team',this)">👥 Team</button>
+      <button class="tab" onclick="filterProperty('integrations',this)">🔌 Integrations</button>
+      <button class="tab" onclick="filterProperty('expenses',this)">💰 Expenses</button>
       <button class="tab" onclick="filterProperty('maintenance',this)">🔧 Maintenance</button>
       <button class="tab" onclick="filterProperty('inventory',this)">📦 Inventory</button>
+      <button class="tab" onclick="filterProperty('tools',this)">⚙️ App Tools</button>
+    </div>
+
+
+    <!-- PROPERTY DETAILS -->
+    <div id="prop-details">
+      <div class="card">
+        <div class="card-title">Property Details</div>
+        <button class="btn-secondary" onclick="showSection('settings');openSettingsCat('property');openSettingsPanel('property-info')">Edit Property Configuration</button>
+      </div>
+    </div>
+
+    <div id="prop-smart" style="display:none">
+      <div class="card">
+        <div class="card-title">Smart Pricing</div>
+        <p style="font-size:12px;color:var(--text-soft);margin-top:0">Review pricing suggestions based on seasonality and booking trends.</p>
+        <button class="btn-secondary" onclick="showSection('settings');openSettingsCat('property');openSettingsPanel('smart-pricing')">Open Smart Pricing</button>
+      </div>
+    </div>
+
+    <div id="prop-team" style="display:none">
+      <div class="card">
+        <div class="card-title">Team</div>
+        <p style="font-size:12px;color:var(--text-soft);margin-top:0">Manage cleaners and support contacts for this property.</p>
+        <button class="btn-secondary" onclick="showSection('settings');openSettingsCat('property');openSettingsPanel('team')">Manage Team</button>
+      </div>
+    </div>
+
+    <div id="prop-integrations" style="display:none">
+      <div class="card">
+        <div class="card-title">Integrations</div>
+        <p style="font-size:12px;color:var(--text-soft);margin-top:0">Connect and verify external services used by property operations.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-secondary" onclick="showSection('settings');openSettingsCat('google')">Google</button>
+          <button class="btn-secondary" onclick="showSection('settings');openSettingsCat('property');openSettingsPanel('connection-checker')">Connection Checker</button>
+          <button class="btn-secondary" onclick="showSection('settings');openSettingsCat('property');openSettingsPanel('notifications')">Notifications</button>
+        </div>
+      </div>
     </div>
 
     <!-- EXPENSES -->
-    <div id="prop-expenses">
+    <div id="prop-expenses" style="display:none">
       <!-- 1. ADD EXPENSE -->
       <div class="card">
         <div class="card-title">Add Expense</div>
@@ -687,6 +741,18 @@
           <div class="field"><label>Reorder Below</label><input type="number" id="inv-item-threshold" placeholder="0" min="0"></div>
         </div>
         <button class="btn-primary" onclick="addInventoryItem()">Add Item</button>
+      </div>
+    </div>
+
+    <div id="prop-tools" style="display:none">
+      <div class="card">
+        <div class="card-title">App Tools / Advanced</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <button class="btn-secondary" onclick="showSection('settings');openSettingsCat('property');openSettingsPanel('owner-report')">Owner Report</button>
+          <button class="btn-secondary" onclick="showSection('settings');openSettingsCat('property');openSettingsPanel('property-switcher')">Property Switcher</button>
+          <button class="btn-secondary" onclick="showSection('settings');openSettingsCat('property');openSettingsPanel('ai-ignore')">AI Rules</button>
+          <button class="btn-secondary" onclick="showSection('settings');openSettingsCat('property');openSettingsPanel('app-data')">App Data</button>
+        </div>
       </div>
     </div>
   </div>

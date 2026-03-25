@@ -830,6 +830,8 @@ async function quickAssignLastCleaner(bookingId) {
     save();
     if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
     renderBookings();
+    renderNotes();
+    populateSelects();
     if (currentSection === 'cleaning') renderCleaning();
     showBanner('✓ Assigned to ' + preferred.name + (newClean.cleanerConfirmed ? ' (already confirmed)' : ' — awaiting cleaner response'), 'ok');
     const notify = await _sendCleanerAssignmentNotifications(booking, preferred, booking.checkout, 'quick-assign-' + bookingId);
@@ -1181,8 +1183,10 @@ function renderSetupWarningBanner() {
 }
 
 // ── NAV ───────────────────────────────────────────────────────────────────
-let currentSection = 'dashboard';
+let currentSection = 'today';
 function showSection(name) {
+  if (name === 'dashboard') name = 'today';
+  if (name === 'revenue' || name === 'management') name = 'finance';
   currentSection = name;
   document.querySelectorAll('[id^="section-"]').forEach(el => el.classList.add('section-hidden'));
   document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
@@ -1192,25 +1196,25 @@ function showSection(name) {
   if (nav) nav.classList.add('active');
   // FAB only on dashboard + bookings
   const fab = document.querySelector('.fab');
-  if (fab) fab.style.display = (name === 'dashboard' || name === 'bookings') ? 'flex' : 'none';
+  if (fab) fab.style.display = (name === 'today' || name === 'bookings') ? 'flex' : 'none';
   // Only render what's needed for this section
-  if (name === 'dashboard') {
+  if (name === 'today') {
     renderDashboard();
   } else if (name === 'bookings') {
     document.querySelectorAll('#section-bookings .tab-row .tab').forEach(t => t.classList.remove('active'));
     const activeTab = document.querySelector(`#section-bookings .tab-row .tab[onclick*="${bookingFilter}"]`);
     if (activeTab) activeTab.classList.add('active');
     renderBookings();
+    renderNotes();
+    populateSelects();
   } else if (name === 'cleaning') {
     renderCleaning();
     populateSelects();
-  } else if (name === 'revenue') {
-    renderRevenue();
-  } else if (name === 'management') {
-    renderManagement();
+  } else if (name === 'finance') {
+    renderFinance();
   } else if (name === 'notes') {
-    renderNotes();
-    populateSelects();
+    showSection('bookings');
+    return;
   } else if (name === 'property') {
     renderProperty();
   } else if (name === 'settings') {
@@ -1223,14 +1227,15 @@ function jumpToCleaningActionNeeded() {
   showSection('cleaning');
   cleanFilter = 'action';
   renderCleaning();
-  document.querySelectorAll('#section-cleaning .tab-row .tab').forEach((t, i) => t.classList.toggle('active', i === 1));
+  document.querySelectorAll('#clean-schedule-card .tab-row .tab').forEach((t, i) => t.classList.toggle('active', i === 1));
 }
 
 function jumpToScheduleClean() {
   showSection('cleaning');
+  switchCleaningView('add');
   cleanFilter = 'upcoming';
   renderCleaning();
-  document.querySelectorAll('#section-cleaning .tab-row .tab').forEach((t, i) => t.classList.toggle('active', i === 0));
+  document.querySelectorAll('#clean-schedule-card .tab-row .tab').forEach((t, i) => t.classList.toggle('active', i === 0));
   setTimeout(() => {
     const card = document.getElementById('clean-add-card');
     if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1243,13 +1248,12 @@ function render() {
   renderHeaderDateBadge()
   // Set FAB visibility based on current section
   const fab = document.querySelector('.fab');
-  const section = currentSection || 'dashboard';
-  if (fab) fab.style.display = (section === 'dashboard' || section === 'bookings') ? 'flex' : 'none';
-  if (section === 'dashboard')    { renderDashboard(); return; }
-  if (section === 'bookings')     { renderBookings(); return; }
+  const section = currentSection || 'today';
+  if (fab) fab.style.display = (section === 'today' || section === 'bookings') ? 'flex' : 'none';
+  if (section === 'today')        { renderDashboard(); return; }
+  if (section === 'bookings')     { renderBookings(); renderNotes(); return; }
   if (section === 'cleaning')     { renderCleaning(); populateSelects(); return; }
-  if (section === 'revenue')      { renderRevenue(); return; }
-  if (section === 'management')   { renderManagement(); return; }
+  if (section === 'finance')      { renderFinance(); return; }
   if (section === 'notes')        { renderNotes(); populateSelects(); return; }
   if (section === 'property')     { renderProperty(); return; }
   if (section === 'settings')     { renderSettings(); return; }
@@ -1272,10 +1276,9 @@ function renderAll() {
   const maintDate = document.getElementById('maint-date');
   if (maintDate && !maintDate.value) maintDate.value = new Date().toISOString().split('T')[0];
   // Also render whatever section is active
-  const section = currentSection || 'dashboard';
+  const section = currentSection || 'today';
   if (section === 'cleaning')   { renderCleaning(); populateCleanerSelect(); }
-  if (section === 'revenue')    renderRevenue();
-  if (section === 'management') renderManagement();
+  if (section === 'finance')    renderFinance();
   if (section === 'notes')      renderNotes();
   if (section === 'property')   renderProperty();
   setTimeout(() => { attachButtonPress(); attachLongPress(); }, 50);
@@ -1622,13 +1625,27 @@ function renderBookings(filter) {
   animateList('#bookings-list');
   setTimeout(attachLongPress, 60);
 }
+let cleaningView = 'schedule';
+function switchCleaningView(view, btn) {
+  cleaningView = view;
+  const schedBtn = document.getElementById('clean-view-schedule-btn');
+  const addBtn = document.getElementById('clean-view-add-btn');
+  if (schedBtn) schedBtn.classList.toggle('active', view === 'schedule');
+  if (addBtn) addBtn.classList.toggle('active', view === 'add');
+  const schedCard = document.getElementById('clean-schedule-card');
+  const addCard = document.getElementById('clean-add-card');
+  if (schedCard) schedCard.style.display = view === 'schedule' ? '' : 'none';
+  if (addCard) addCard.style.display = view === 'add' ? '' : 'none';
+}
+
 function filterCleans(f, btn) {
   cleanFilter = f;
-  document.querySelectorAll('#section-cleaning .tab-row .tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('#clean-schedule-card .tab-row .tab').forEach(t=>t.classList.remove('active'));
   btn.classList.add('active');
   renderCleaning();
 }
 function renderCleaning() {
+  switchCleaningView(cleaningView || 'schedule');
   const list = document.getElementById('cleaning-list');
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];
@@ -1807,20 +1824,42 @@ function markCleanerConfirmed(id) {
     if (typeof saveCleaningJobToCloud === 'function') saveCleaningJobToCloud(c);
     showBanner('✅ Cleaner confirmed', 'ok');
     cleanFilter = 'upcoming';
-    document.querySelectorAll('#section-cleaning .tab-row .tab').forEach((t,i) => t.classList.toggle('active', i===0));
+    document.querySelectorAll('#clean-schedule-card .tab-row .tab').forEach((t,i) => t.classList.toggle('active', i===0));
     renderCleaning();
     renderBookings();
   }
 }
 
+
+let financeTab = 'host';
+function switchFinanceTab(tab, btn) {
+  financeTab = tab;
+  document.querySelectorAll('#section-finance > .tab-row .tab').forEach(t => t.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const host = document.getElementById('finance-host-view');
+  const mgmt = document.getElementById('finance-management-view');
+  if (host) host.style.display = tab === 'host' || tab === 'report' ? '' : 'none';
+  if (mgmt) mgmt.style.display = tab === 'mgmt' ? '' : 'none';
+  document.getElementById('rev-monthly-view').style.display = tab === 'host' ? '' : 'none';
+  document.getElementById('rev-report-view').style.display = tab === 'report' ? '' : 'none';
+  if (tab === 'mgmt') renderManagement();
+  if (tab === 'host') renderRevenue();
+  if (tab === 'report') renderReport();
+}
+
+function renderFinance() {
+  const activeBtn = document.getElementById('finance-tab-' + (financeTab === 'mgmt' ? 'mgmt' : financeTab === 'report' ? 'report' : 'host'));
+  switchFinanceTab(financeTab, activeBtn);
+}
+
 let revYear = new Date().getFullYear();
 let revMonth = new Date().getMonth();
 function switchRevTab(tab) {
-  document.getElementById('rev-tab-monthly').classList.toggle('active', tab === 'monthly');
-  document.getElementById('rev-tab-report').classList.toggle('active', tab === 'report');
-  document.getElementById('rev-monthly-view').style.display = tab === 'monthly' ? '' : 'none';
-  document.getElementById('rev-report-view').style.display = tab === 'report' ? '' : 'none';
-  if (tab === 'report') renderReport();
+  if (tab === 'report') {
+    switchFinanceTab('report', document.getElementById('finance-tab-report'));
+    return;
+  }
+  switchFinanceTab('host', document.getElementById('finance-tab-host'));
 }
 
 // Financial Year helpers (Jul–Jun)
@@ -3094,13 +3133,13 @@ function addClean() {
         newClean.notified = true;
         save();
         cleanFilter = 'upcoming';
-        document.querySelectorAll('#section-cleaning .tab-row .tab').forEach((t,i) => t.classList.toggle('active', i===0));
+        document.querySelectorAll('#clean-schedule-card .tab-row .tab').forEach((t,i) => t.classList.toggle('active', i===0));
         renderCleaning();
         renderBookings();
         openNotifyModal(newClean.id);
       } else {
         cleanFilter = 'upcoming';
-        document.querySelectorAll('#section-cleaning .tab-row .tab').forEach((t,i) => t.classList.toggle('active', i===0));
+        document.querySelectorAll('#clean-schedule-card .tab-row .tab').forEach((t,i) => t.classList.toggle('active', i===0));
         renderCleaning();
         renderBookings();
       }
@@ -3117,7 +3156,7 @@ function toggleClean(id) {
     // If marking done, switch to Done tab
     if (c.done) {
       cleanFilter='done';
-      document.querySelectorAll('#section-cleaning .tab-row .tab').forEach((t,i)=>{
+      document.querySelectorAll('#clean-schedule-card .tab-row .tab').forEach((t,i)=>{
         t.classList.toggle('active', i===2);
       });
     }
@@ -3412,7 +3451,7 @@ function sendSMS() {
   closeNotifyModal();
   // Switch to upcoming tab
   cleanFilter = 'upcoming';
-  document.querySelectorAll('#section-cleaning .tab-row .tab').forEach((t,i) => t.classList.toggle('active', i===0));
+  document.querySelectorAll('#clean-schedule-card .tab-row .tab').forEach((t,i) => t.classList.toggle('active', i===0));
   renderCleaning();
   populateSelects();
 }
@@ -4112,22 +4151,35 @@ function populateContractorSelect() {
 }
 
 // ── PROPERTY TAB NAVIGATION ───────────────────────────────────────────────
-let propFilter = 'expenses';
+let propFilter = 'details';
 function filterProperty(f, btn) {
   propFilter = f;
   document.querySelectorAll('#section-property .tab-row .tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
-  ['expenses','maintenance','inventory'].forEach(s => {
+  ['details','smart','team','integrations','expenses','maintenance','inventory','tools'].forEach(s => {
     document.getElementById('prop-' + s).style.display = s === f ? 'block' : 'none';
   });
   renderProperty();
 }
 
 function renderProperty() {
+  if (propFilter === 'details') { renderPropertyDetails(); return; }
+  if (propFilter === 'smart') return;
+  if (propFilter === 'team') return;
+  if (propFilter === 'integrations') return;
   if (propFilter === 'expenses') renderExpenses();
   if (propFilter === 'maintenance') { renderMaintenance(); populateContractorSelect(); }
   if (propFilter === 'inventory') renderInventory();
+  if (propFilter === 'tools') return;
   populateExpenseCatSelect();
+}
+
+function renderPropertyDetails() {
+  const cfg = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : {};
+  const detailsWrap = document.getElementById('prop-details');
+  if (!detailsWrap) return;
+  const heading = detailsWrap.querySelector('.card .card-title');
+  if (heading) heading.textContent = 'Property Details';
 }
 
 // ── EXPENSES ──────────────────────────────────────────────────────────────
