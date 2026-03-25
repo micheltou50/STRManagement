@@ -313,12 +313,15 @@ async function saveCleanersToCloud(cleanerList) {
         role:        c.role   || 'Cleaner',
         pin:         c.pin    || '',
         permissions: JSON.stringify(c.permissions || {}),
-        active:      c.active !== false
+        active:      c.active !== false,
+        updated_at:  new Date().toISOString()
       };
       if (c._cloudId) {
         await window._sb.from('cleaners').upsert({ id: c._cloudId, ...payload });
       } else {
-        const { data } = await window._sb.from('cleaners').insert(payload).select().single();
+        const { data } = await window._sb.from('cleaners')
+          .upsert(payload, { onConflict: 'user_id,local_id' })
+          .select().single();
         if (data) c._cloudId = data.id;
       }
     }
