@@ -1194,9 +1194,9 @@ function showSection(name) {
   if (sec) sec.classList.remove('section-hidden');
   const nav = document.getElementById('nav-' + name);
   if (nav) nav.classList.add('active');
-  // FAB only on dashboard + bookings
+  // FAB only on Today tab
   const fab = document.querySelector('.fab');
-  if (fab) fab.style.display = (name === 'today' || name === 'bookings') ? 'flex' : 'none';
+  if (fab) fab.style.display = name === 'today' ? 'flex' : 'none';
   // Only render what's needed for this section
   if (name === 'today') {
     renderDashboard();
@@ -1216,9 +1216,29 @@ function showSection(name) {
     showSection('bookings');
     return;
   } else if (name === 'property') {
-    renderProperty();
+    // Reset any settings subpanels that may have been left open
+    const sm = document.getElementById('settings-menu');
+    if (sm) sm.style.display = 'none';
+    document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
+    // Ensure operational sub-view is visible
+    const pf = propFilter || 'expenses';
+    const tabBtn = document.querySelector(`#section-property .tab-row .tab[onclick*="'${pf}'"]`);
+    filterProperty(pf, tabBtn);
   } else if (name === 'settings') {
-    renderSettings();
+    // Legacy fallback — route to property instead
+    currentSection = 'property';
+    const sec2 = document.getElementById('section-property');
+    if (sec2) sec2.classList.remove('section-hidden');
+    const nav2 = document.getElementById('nav-property');
+    if (nav2) { document.querySelectorAll('.nav-btn').forEach(e => e.classList.remove('active')); nav2.classList.add('active'); }
+    const sm2 = document.getElementById('settings-menu');
+    if (sm2) sm2.style.display = 'none';
+    document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
+    const pf2 = propFilter || 'expenses';
+    const tabBtn2 = document.querySelector(`#section-property .tab-row .tab[onclick*="'${pf2}'"]`);
+    filterProperty(pf2, tabBtn2);
   }
   setTimeout(_flushPendingUiRefresh, 0);
 }
@@ -1249,14 +1269,14 @@ function render() {
   // Set FAB visibility based on current section
   const fab = document.querySelector('.fab');
   const section = currentSection || 'today';
-  if (fab) fab.style.display = (section === 'today' || section === 'bookings') ? 'flex' : 'none';
+  if (fab) fab.style.display = section === 'today' ? 'flex' : 'none';
   if (section === 'today')        { renderDashboard(); return; }
   if (section === 'bookings')     { renderBookings(); renderNotes(); return; }
   if (section === 'cleaning')     { renderCleaning(); populateSelects(); return; }
   if (section === 'finance')      { renderFinance(); return; }
   if (section === 'notes')        { renderNotes(); populateSelects(); return; }
   if (section === 'property')     { renderProperty(); return; }
-  if (section === 'settings')     { renderSettings(); return; }
+  if (section === 'settings')     { showSection('property'); return; } // legacy guard
   renderDashboard(); // fallback
 }
 
@@ -2392,8 +2412,20 @@ function closeSettingsPanel() {
 function closeSettingsCat() {
   document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
   document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
-  document.getElementById('settings-menu').style.display = 'block';
-  if (currentSection === 'settings') showSection('property');
+  const sm = document.getElementById('settings-menu');
+  if (sm) sm.style.display = 'none';
+  // Always return to the Property operational view
+  const pf = propFilter || 'expenses';
+  const tabBtn = document.querySelector(`#section-property .tab-row .tab[onclick*="'${pf}'"]`);
+  filterProperty(pf, tabBtn);
+  // Ensure Property section is active
+  document.querySelectorAll('[id^="section-"]').forEach(el => el.classList.add('section-hidden'));
+  document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+  const sec = document.getElementById('section-property');
+  if (sec) sec.classList.remove('section-hidden');
+  const nav = document.getElementById('nav-property');
+  if (nav) nav.classList.add('active');
+  currentSection = 'property';
 }
 
 // ── EXPENSE CATEGORY MANAGEMENT ───────────────────────────────────────────
@@ -3264,8 +3296,7 @@ function openQuickAddMenu() {
   showActionSheet('Quick add', [
     { label: 'Add Booking', fn: "() => openModal()" },
     { label: 'Add Expense', fn: "() => { showSection('property'); filterProperty('expenses', document.querySelector('#section-property .tab-row .tab:nth-child(1)')); window.scrollTo({ top: 0, behavior: 'smooth' }); }" },
-    { label: 'Add Clean', fn: "() => { showSection('cleaning'); document.getElementById('clean-add-card')?.scrollIntoView({behavior:'smooth', block:'start'}); }" },
-    { label: 'Add Property', fn: "() => openAddPropertySetup()" }
+    { label: 'Add Clean', fn: "() => { showSection('cleaning'); document.getElementById('clean-add-card')?.scrollIntoView({behavior:'smooth', block:'start'}); }" }
   ]);
 }
 
@@ -3285,13 +3316,13 @@ async function runFullRefresh() {
 }
 
 function openPropertySettingsMenu() {
-  showActionSheet('Property settings', [
-    { label: 'Property Details', fn: "() => { showSection('settings'); openSettingsCat('property'); openSettingsPanel('property-info'); }" },
-    { label: 'Smart Pricing', fn: "() => { showSection('settings'); openSettingsCat('property'); openSettingsPanel('smart-pricing'); }" },
-    { label: 'Team', fn: "() => { showSection('settings'); openSettingsCat('property'); openSettingsPanel('team'); }" },
-    { label: 'Integrations', fn: "() => { showSection('settings'); openSettingsCat('google'); }" },
-    { label: 'Notifications', fn: "() => { showSection('settings'); openSettingsPanel('notifications'); }" },
-    { label: 'App Tools', fn: "() => { showSection('settings'); openSettingsCat('advanced'); }" }
+  showActionSheet('Property Settings', [
+    { label: 'Property Details',  fn: "() => { openSettingsCat('property'); openSettingsPanel('property-info'); }" },
+    { label: 'Smart Pricing',     fn: "() => { openSettingsCat('property'); openSettingsPanel('smart-pricing'); }" },
+    { label: 'Team',              fn: "() => { openSettingsCat('property'); openSettingsPanel('team'); }" },
+    { label: 'Integrations',      fn: "() => openSettingsCat('google')" },
+    { label: 'Notifications',     fn: "() => openSettingsPanel('notifications')" },
+    { label: 'App Tools',         fn: "() => openSettingsCat('advanced')" }
   ]);
 }
 
@@ -4478,7 +4509,7 @@ function renderExpenseAnalysis(data) {
   if (!hasAnything) html += '<div style="color:var(--forest);font-weight:600">✓ No issues found — your expenses look clean!</div>';
 
   html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-    <button onclick="showSection('settings');openSettingsCat('advanced');openSettingsPanel('ai-ignore')"
+    <button onclick="showSection('property');setTimeout(()=>{openSettingsCat('advanced');openSettingsPanel('ai-ignore');},60)"
       style="font-size:11px;color:var(--text-soft);background:none;border:none;cursor:pointer;text-decoration:underline">View ignore list</button>
     <button onclick="document.getElementById('expense-analysis-result').style.display='none'"
       style="font-size:12px;color:var(--text-soft);background:none;border:none;cursor:pointer">✕ Close</button>
@@ -8432,7 +8463,7 @@ function checkAutoSendReport() {
     const label = fyLabel(fy);
 
     showBanner(
-      `📊 ${label} report ready — <a href="#" onclick="showSection('settings');openSettingsCat('property');setTimeout(()=>openSettingsPanel('owner-report'),60);return false;" style="color:inherit;font-weight:600">Send to owner ›</a>`,
+      `📊 ${label} report ready — <a href="#" onclick="showSection('property');setTimeout(()=>{openSettingsCat('property');openSettingsPanel('owner-report');},60);return false;" style="color:inherit;font-weight:600">Send to owner ›</a>`,
       'info',
       12000
     );

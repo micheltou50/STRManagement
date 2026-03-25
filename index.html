@@ -528,8 +528,8 @@
       <div class="card" style="margin-bottom:10px">
         <div class="card-title">Owner Reports</div>
         <div style="display:flex;gap:8px">
-          <button class="btn-secondary" style="margin:0" onclick="showSection('settings');openSettingsCat('property');openSettingsPanel('owner-report')">Send / Export Monthly</button>
-          <button class="btn-secondary" style="margin:0" onclick="showSection('settings');openSettingsCat('property');openSettingsPanel('owner-report')">Send / Export Financial Year</button>
+          <button class="btn-secondary" style="margin:0" onclick="showSection('property');setTimeout(()=>{openSettingsCat('property');openSettingsPanel('owner-report');},60)">Send / Export Monthly</button>
+          <button class="btn-secondary" style="margin:0" onclick="showSection('property');setTimeout(()=>{openSettingsCat('property');openSettingsPanel('owner-report');},60)">Send / Export Financial Year</button>
         </div>
       </div>
       <div id="report-content"></div>
@@ -789,7 +789,7 @@
          PROPERTY SUB-SCREEN
     ═══════════════════════════════════════════════════════ -->
     <div id="settings-cat-property" style="display:none">
-      <div class="settings-back" onclick="closeSettingsCat()">‹ Settings</div>
+      <div class="settings-back" onclick="closeSettingsCat()">‹ Property</div>
       <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
         <div class="settings-cat-item" onclick="reopenPropertySetup()">
           <div style="display:flex;align-items:center;gap:14px">
@@ -955,7 +955,7 @@
 
     <!-- PANEL: HOST PROFILE -->
     <div id="settings-panel-host-profile" style="display:none">
-      <div class="settings-back" onclick="closeSettingsPanel()">‹ Settings</div>
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Property</div>
       <div class="card" style="margin-bottom:14px">
         <div class="card-title">👤 Host Profile</div>
         <label>Your name</label>
@@ -1013,7 +1013,7 @@
 
     <!-- PANEL: PUSH NOTIFICATIONS -->
     <div id="settings-panel-notifications" style="display:none">
-      <div class="settings-back" onclick="closeSettingsPanel()">‹ Back</div>
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Property</div>
       <div class="card" style="margin-bottom:10px">
         <div class="card-title">🔔 Push Notifications</div>
         <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Get notified when your cleaner accepts, declines, or completes a clean. On iPhone, you must tap the button below — iOS requires a manual tap.</div>
@@ -1082,7 +1082,7 @@
          TEAM ACCESS SUB-SCREEN (Cleaner)
     ═══════════════════════════════════════════════════════ -->
     <div id="settings-cat-cleaner" style="display:none">
-      <div class="settings-back" onclick="closeSettingsCat()">‹ Settings</div>
+      <div class="settings-back" onclick="closeSettingsCat()">‹ Property</div>
       <div id="cleaner-access-list"></div>
     </div>
 
@@ -1090,7 +1090,7 @@
          FINANCE SUB-SCREEN
     ═══════════════════════════════════════════════════════ -->
     <div id="settings-cat-finance" style="display:none">
-      <div class="settings-back" onclick="closeSettingsCat()">‹ Settings</div>
+      <div class="settings-back" onclick="closeSettingsCat()">‹ Property</div>
       <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
         <div class="settings-cat-item" onclick="openSettingsPanel('expense-cats')">
           <div style="display:flex;align-items:center;gap:14px">
@@ -1201,7 +1201,7 @@
     ═══════════════════════════════════════════════════════ -->
     <!-- CHANGE 2 PLAN: Remove legacy Google service UI and keep only Supabase-relevant tools. -->
     <div id="settings-cat-advanced" style="display:none">
-      <div class="settings-back" onclick="closeSettingsCat()">‹ Settings</div>
+      <div class="settings-back" onclick="closeSettingsCat()">‹ Property</div>
 
       <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">AI Tools</div>
       <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
