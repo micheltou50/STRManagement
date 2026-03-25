@@ -400,8 +400,8 @@
     <div class="tab-row" id="bookings-tab-row">
       <button class="tab active" onclick="filterBookings('upcoming',this)">Upcoming</button>
       <button class="tab" onclick="filterBookings('completed',this)">Past</button>
-      <button class="tab" onclick="filterBookings('all',this)">All</button>
       <button class="tab" onclick="filterBookings('cancelled',this)">Cancelled</button>
+      <button class="tab" onclick="filterBookings('all',this)">All</button>
       <button class="tab" onclick="filterBookings('notes',this)">Notes</button>
     </div>
     <div id="bookings-list"></div>
@@ -574,41 +574,26 @@
 
     <!-- ── REPORTS VIEW ── -->
     <div id="finance-reports-view" style="display:none">
-      <div class="card" style="margin-bottom:10px">
+
+      <!-- Period selector + send/export actions -->
+      <div class="card" style="margin-bottom:12px">
         <div class="card-title">Owner Reports</div>
-        <div style="display:flex;gap:8px">
-          <button class="btn-secondary" style="margin:0" onclick="showSection('property');setTimeout(()=>{openSettingsCat('property');openSettingsPanel('owner-report');},60)">Send Monthly Report</button>
-          <button class="btn-secondary" style="margin:0" onclick="showSection('property');setTimeout(()=>{openSettingsCat('property');openSettingsPanel('owner-report');},60)">Send FY Report</button>
+        <div style="font-size:13px;color:var(--text-soft);margin-bottom:12px">Send a formatted report to the property owner by month or financial year.</div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <button class="btn-secondary" style="margin:0;flex:1" onclick="showSection('property');setTimeout(()=>{openSettingsCat('property');openSettingsPanel('owner-report');},60)">📧 Monthly</button>
+          <button class="btn-secondary" style="margin:0;flex:1" onclick="showSection('property');setTimeout(()=>{openSettingsCat('property');openSettingsPanel('owner-report');},60)">📊 Financial Year</button>
         </div>
       </div>
-      <div class="tab-row" style="margin-bottom:12px">
-        <button class="tab active" id="rpt-tab-monthly" onclick="switchReportSubTab('monthly',this)">Monthly</button>
-        <button class="tab" id="rpt-tab-fy" onclick="switchReportSubTab('fy',this)">Financial Year</button>
-      </div>
-      <div id="rpt-monthly-view">
-        <div class="card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-            <button onclick="revPrev()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">‹</button>
-            <div id="rpt-month-title" style="font-family:'DM Serif Display',serif;font-size:16px"></div>
-            <button onclick="revNext()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">›</button>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:8px 0">
-            <div style="text-align:center;padding:12px;background:var(--mist);border-radius:var(--radius-sm)">
-              <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);margin-bottom:4px">Host Payout</div>
-              <div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)" id="rpt-total-revenue">$0</div>
-            </div>
-            <div style="text-align:center;padding:12px;background:var(--forest);border-radius:var(--radius-sm)">
-              <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:var(--sage);margin-bottom:4px">Net Payout</div>
-              <div style="font-family:'DM Serif Display',serif;font-size:28px;color:white" id="rpt-total-net">$0</div>
-            </div>
-          </div>
-          <div style="font-size:12px;color:var(--text-soft);text-align:center;margin-top:4px" id="rpt-revenue-sub">0 bookings</div>
+
+      <!-- FY report preview -->
+      <div class="card" style="margin-bottom:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <button onclick="fyPrev();renderReport()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">‹</button>
+          <div id="rpt-fy-title" style="font-family:'DM Serif Display',serif;font-size:16px;color:var(--forest)"></div>
+          <button onclick="fyNext();renderReport()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">›</button>
         </div>
-        <div class="card"><div class="card-title">Per Booking</div><div id="rpt-revenue-breakdown"></div></div>
       </div>
-      <div id="rpt-fy-view" style="display:none">
-        <div id="report-content"></div>
-      </div>
+      <div id="report-content"></div>
     </div>
 
   </div>

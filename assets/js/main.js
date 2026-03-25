@@ -1850,13 +1850,9 @@ function switchMgmtSubTab(sub, btn) {
   if (sub === 'fy')      renderMgmtFY();
 }
 
+// switchReportSubTab removed — Reports tab is now a single FY view with send buttons
 function switchReportSubTab(sub, btn) {
-  document.querySelectorAll('#finance-reports-view > .tab-row .tab').forEach(t => t.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  document.getElementById('rpt-monthly-view').style.display = sub === 'monthly' ? '' : 'none';
-  document.getElementById('rpt-fy-view').style.display      = sub === 'fy'      ? '' : 'none';
-  if (sub === 'monthly') renderRevenue();
-  if (sub === 'fy')      renderReport();
+  renderReport(); // always render the FY report
 }
 
 function renderMgmtFY() {
@@ -1910,6 +1906,8 @@ function fyPrev() { reportFY--; renderReport(); }
 function fyNext() { reportFY++; renderReport(); }
 
 function renderReport() {
+  const rptTitle = document.getElementById('rpt-fy-title');
+  if (rptTitle) rptTitle.textContent = fyLabel(reportFY);
   const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const months = fyMonths(reportFY);
   const platforms = ['Airbnb','VRBO','Direct'];
@@ -2306,8 +2304,28 @@ function renderNotes() {
     </div>`).join('');
 }
 
+function _hidePropertyOpContent() {
+  // Hides the operational part of the Property tab so settings panels render at top
+  const heading = document.querySelector('#section-property .section-heading');
+  const tabrow  = document.querySelector('#section-property .tab-row');
+  const strip   = document.getElementById('cleaning-summary-strip');
+  if (heading) heading.style.display = 'none';
+  if (tabrow)  tabrow.style.display  = 'none';
+  if (strip)   strip.style.display   = 'none';
+  ['expenses','maintenance','inventory'].forEach(s => {
+    const el = document.getElementById('prop-' + s);
+    if (el) el.style.display = 'none';
+  });
+  // Scroll the property section back to top so the panel is visible
+  const mc = document.getElementById('main-content');
+  if (mc) mc.scrollTop = 0;
+  else window.scrollTo(0, 0);
+}
+
 function openSettingsCat(cat) {
-  document.getElementById('settings-menu').style.display = 'none';
+  _hidePropertyOpContent();
+  const sm = document.getElementById('settings-menu');
+  if (sm) sm.style.display = 'none';
   document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
   document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
   const el = document.getElementById('settings-cat-' + cat);
@@ -2318,7 +2336,7 @@ function openSettingsCat(cat) {
     const sr = document.getElementById('notif-status-row-menu');
     if (sr) { const p = Notification.permission; sr.textContent = p === 'granted' ? '✅ Enabled' : p === 'denied' ? '❌ Blocked' : 'Tap to set up'; }
   }
-  if (cat === 'google') {
+  if (cat === 'google' || cat === 'advanced') {
     const token = localStorage.getItem('gh-drive-token');
     const statusRow = document.getElementById('gdrive-status-row');
     if (statusRow) statusRow.textContent = token ? '✓ Connected' : 'Tap to connect';
@@ -2327,10 +2345,12 @@ function openSettingsCat(cat) {
 }
 
 function openSettingsPanel(panelId) {
+  _hidePropertyOpContent();
   // track which cat we came from
   const activeCat = document.querySelector('[id^="settings-cat-"]:not([style*="display: none"]):not([style*="display:none"])');
   const prevCat = activeCat ? activeCat.id.replace('settings-cat-', '') : null;
-  document.getElementById('settings-menu').style.display = 'none';
+  const sm = document.getElementById('settings-menu');
+  if (sm) sm.style.display = 'none';
   document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
   document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
   const panel = document.getElementById('settings-panel-' + panelId);
@@ -3412,7 +3432,7 @@ function openPropertySettingsMenu() {
     { label: 'Property Details',  fn: "() => { openSettingsCat('property'); openSettingsPanel('property-info'); }" },
     { label: 'Smart Pricing',     fn: "() => { openSettingsCat('property'); openSettingsPanel('smart-pricing'); }" },
     { label: 'Team',              fn: "() => { openSettingsCat('property'); openSettingsPanel('team'); }" },
-    { label: 'Integrations',      fn: "() => openSettingsCat('google')" },
+    { label: 'Integrations',      fn: "() => openSettingsCat('advanced')" },
     { label: 'Notifications',     fn: "() => openSettingsPanel('notifications')" },
     { label: 'App Tools',         fn: "() => openSettingsCat('advanced')" }
   ]);
