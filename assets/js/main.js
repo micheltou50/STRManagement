@@ -1751,6 +1751,9 @@ function renderReport() {
   </div>`;
 
   document.getElementById('report-content').innerHTML = html;
+  // Also populate the Payouts FY view copy (if visible)
+  const payoutsCopy = document.getElementById('report-content-payouts');
+  if (payoutsCopy) payoutsCopy.innerHTML = html;
 }
 
 let revYear = new Date().getFullYear();
