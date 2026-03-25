@@ -1,19 +1,17 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   STAYOPS — Gmail Scan Bookings
+   STAYOPS — Gmail Scan Bookings v3
    Reads recent booking emails from Gmail, parses them with Claude Haiku,
    and upserts/updates/cancels bookings in Supabase.
 
    Handles: new bookings, cancellations, and modifications.
+   Tracks skipped emails so they are not re-processed.
 
    Query params:
      uid — Supabase user ID
 
    Required Netlify env vars:
-     GOOGLE_CLIENT_ID
-     GOOGLE_CLIENT_SECRET
-     SUPABASE_URL
-     SUPABASE_SERVICE_KEY
-     ANTHROPIC_API_KEY
+     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+     SUPABASE_URL, SUPABASE_SERVICE_KEY, ANTHROPIC_API_KEY
    ═══════════════════════════════════════════════════════════════════════════ */
 
 exports.handler = async (event) => {
@@ -37,10 +35,10 @@ exports.handler = async (event) => {
   };
 
   try {
-    // ── 1. Get Gmail refresh token from app_config ──────────────────────
+    // ── 1. Get Gmail config from app_config ─────────────────────────────
     const cfgRes = await fetch(
       SUPABASE_URL + '/rest/v1/app_config?user_id=eq.' + enc(uid) +
-        '&select=gmail_refresh_token,gmail_email,gmail_last_scan&limit=1',
+        '&select=gmail_refresh_token,gmail_email,gmail_last_scan,gmail_skipped_ids&limit=1',
       { headers: sbHeaders }
     );
     const cfgRows = await cfgRes.json();
@@ -48,6 +46,14 @@ exports.handler = async (event) => {
       return json(400, { error: 'Gmail not connected — connect in Settings first' });
     }
     const refreshToken = cfgRows[0].gmail_refresh_token;
+    const userGmailAddress = cfgRows[0].gmail_email || '';
+
+    // Load previously skipped message IDs
+    let skippedIds = new Set();
+    try {
+      const raw = cfgRows[0].gmail_skipped_ids;
+      if (raw) skippedIds = new Set(JSON.parse(raw));
+    } catch (e) {}
 
     // ── 2. Exchange refresh token for access token ──────────────────────
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -77,22 +83,21 @@ exports.handler = async (event) => {
     const propertyId = (props && props[0]) ? props[0].id : null;
     const propertyName = (props && props[0]) ? props[0].name : '';
 
-    // ── 4. Search Gmail for booking-related emails ──────────────────────
+    // ── 4. Search Gmail ────────────────────────────────────────────────
     const searchDays = 14;
     const afterDate = new Date(Date.now() - searchDays * 24 * 60 * 60 * 1000);
     const afterStr = afterDate.toISOString().split('T')[0].replace(/-/g, '/');
 
+    // Only search from known booking platforms + user's own email (for testing)
+    const senders = 'from:(airbnb.com OR vrbo.com OR booking.com OR stayz.com OR expedia.com OR mtoubia96@gmail.com)';
     const searchQueries = [
-      'subject:(reservation confirmed OR booking confirmation OR new booking OR reservation request) after:' + afterStr,
-      'from:(airbnb.com OR vrbo.com OR booking.com OR stayz.com OR expedia.com) subject:(reservation OR booking OR confirmed OR cancelled OR canceled OR modified OR updated OR alteration) after:' + afterStr,
-      'subject:(reservation cancelled OR booking cancelled OR reservation canceled OR booking canceled OR cancellation confirmed) after:' + afterStr,
-      'subject:(reservation updated OR booking modified OR reservation change OR itinerary updated OR alteration) after:' + afterStr,
+      senders + ' subject:(reservation OR booking OR confirmed OR cancelled OR canceled OR modified OR updated OR alteration OR request) after:' + afterStr,
     ];
 
     const allMessageIds = new Set();
     for (const q of searchQueries) {
       const searchRes = await fetch(
-        'https://www.googleapis.com/gmail/v1/users/me/messages?q=' + encodeURIComponent(q) + '&maxResults=20',
+        'https://www.googleapis.com/gmail/v1/users/me/messages?q=' + encodeURIComponent(q) + '&maxResults=30',
         { headers: { Authorization: 'Bearer ' + accessToken } }
       );
       const searchData = await searchRes.json();
@@ -102,7 +107,7 @@ exports.handler = async (event) => {
     }
 
     if (!allMessageIds.size) {
-      await updateLastScan(SUPABASE_URL, sbHeaders, uid);
+      await updateLastScan(SUPABASE_URL, sbHeaders, uid, skippedIds);
       return json(200, { found: 0, imported: 0, updated: 0, cancelled: 0, skipped: 0, message: 'No booking emails found in the last ' + searchDays + ' days' });
     }
 
@@ -118,10 +123,12 @@ exports.handler = async (event) => {
         .map(r => r.gmail_message_id).filter(Boolean)
     );
 
-    const newMessageIds = [...allMessageIds].filter(id => !processedIds.has(id));
+    // Combine with skipped IDs — both should be excluded
+    const allProcessedIds = new Set([...processedIds, ...skippedIds]);
+    const newMessageIds = [...allMessageIds].filter(id => !allProcessedIds.has(id));
 
     if (!newMessageIds.length) {
-      await updateLastScan(SUPABASE_URL, sbHeaders, uid);
+      await updateLastScan(SUPABASE_URL, sbHeaders, uid, skippedIds);
       return json(200, { found: allMessageIds.size, imported: 0, updated: 0, cancelled: 0, skipped: allMessageIds.size, message: 'All booking emails already processed' });
     }
 
@@ -137,6 +144,7 @@ exports.handler = async (event) => {
     // ── 7. Fetch email bodies and parse with Claude ────────────────────
     const results = { imported: 0, updated: 0, cancelled: 0, skipped: 0, errors: 0, details: [] };
     const batch = newMessageIds.slice(0, 10);
+    const newlySkipped = [];
 
     for (const msgId of batch) {
       try {
@@ -145,25 +153,34 @@ exports.handler = async (event) => {
           { headers: { Authorization: 'Bearer ' + accessToken } }
         );
         const msg = await msgRes.json();
-        if (!msg.payload) { results.skipped++; continue; }
+        if (!msg.payload) {
+          results.skipped++;
+          newlySkipped.push(msgId);
+          continue;
+        }
 
         const emailBody = extractEmailBody(msg);
         const emailSubject = getHeader(msg.payload.headers, 'Subject') || '';
         const emailFrom = getHeader(msg.payload.headers, 'From') || '';
 
-        if (!emailBody || emailBody.length < 50) { results.skipped++; continue; }
+        if (!emailBody || emailBody.length < 50) {
+          results.skipped++;
+          newlySkipped.push(msgId);
+          continue;
+        }
 
         const parsed = await parseBookingEmail(ANTHROPIC_KEY, emailSubject, emailFrom, emailBody, propertyName);
         if (!parsed || parsed.not_a_booking) {
           results.skipped++;
-          results.details.push({ msgId, status: 'skipped', reason: parsed ? 'Not a booking email' : 'Parse failed' });
+          newlySkipped.push(msgId);
+          results.details.push({ msgId, status: 'skipped', reason: parsed ? 'Not a host booking email' : 'Parse failed' });
           continue;
         }
 
         const emailType = parsed.emailType || 'new_booking';
         const confCode = (parsed.confirmationCode || '').trim();
 
-        // ── Handle cancellation ──────────────────────────────────────
+        // ── Cancellation ─────────────────────────────────────────────
         if (emailType === 'cancellation') {
           const match = findExistingBooking(existingBookings, confCode, parsed.guestName, parsed.checkin);
           if (match) {
@@ -179,12 +196,13 @@ exports.handler = async (event) => {
             results.details.push({ msgId, status: 'cancelled', guest: parsed.guestName || match.guest_name, confCode });
           } else {
             results.skipped++;
+            newlySkipped.push(msgId);
             results.details.push({ msgId, status: 'skipped', reason: 'Cancellation but no matching booking found' });
           }
           continue;
         }
 
-        // ── Handle modification ──────────────────────────────────────
+        // ── Modification ─────────────────────────────────────────────
         if (emailType === 'modification') {
           const match = findExistingBooking(existingBookings, confCode, parsed.guestName, null);
           if (match) {
@@ -212,24 +230,28 @@ exports.handler = async (event) => {
             results.details.push({ msgId, status: 'imported', guest: parsed.guestName, checkin: parsed.checkin, note: 'modification without matching original' });
           } else {
             results.skipped++;
+            newlySkipped.push(msgId);
             results.details.push({ msgId, status: 'skipped', reason: 'Modification but no matching booking and missing dates' });
           }
           continue;
         }
 
-        // ── Handle new booking ───────────────────────────────────────
+        // ── New booking ──────────────────────────────────────────────
         if (!parsed.checkin || !parsed.checkout) {
           results.skipped++;
+          newlySkipped.push(msgId);
           results.details.push({ msgId, status: 'skipped', reason: 'Missing check-in or check-out date' });
           continue;
         }
 
+        // Duplicate check by confirmation code
         if (confCode) {
           const dup = existingBookings.find(b =>
             b.confirmation_code && b.confirmation_code.toLowerCase() === confCode.toLowerCase()
           );
           if (dup) {
             results.skipped++;
+            newlySkipped.push(msgId);
             results.details.push({ msgId, status: 'skipped', reason: 'Booking with this confirmation code already exists' });
             continue;
           }
@@ -242,11 +264,18 @@ exports.handler = async (event) => {
       } catch (emailErr) {
         console.warn('[gmail-scan] Error processing message', msgId, emailErr.message);
         results.errors++;
+        newlySkipped.push(msgId);
       }
     }
 
-    // ── 8. Update last scan time ───────────────────────────────────────
-    await updateLastScan(SUPABASE_URL, sbHeaders, uid);
+    // ── 8. Save skipped IDs + update last scan ─────────────────────────
+    newlySkipped.forEach(id => skippedIds.add(id));
+    // Cap at 500 to prevent unlimited growth — remove oldest
+    if (skippedIds.size > 500) {
+      const arr = [...skippedIds];
+      skippedIds = new Set(arr.slice(arr.length - 500));
+    }
+    await updateLastScan(SUPABASE_URL, sbHeaders, uid, skippedIds);
 
     const parts = [];
     if (results.imported) parts.push(results.imported + ' imported');
@@ -284,11 +313,16 @@ function json(status, body) {
   };
 }
 
-async function updateLastScan(supabaseUrl, headers, uid) {
+async function updateLastScan(supabaseUrl, headers, uid, skippedIds) {
+  const patch = {
+    gmail_last_scan: new Date().toISOString(),
+    gmail_skipped_ids: JSON.stringify([...skippedIds]),
+    updated_at: new Date().toISOString(),
+  };
   await fetch(supabaseUrl + '/rest/v1/app_config?user_id=eq.' + enc(uid), {
     method: 'PATCH',
     headers: { ...headers, Prefer: 'return=minimal' },
-    body: JSON.stringify({ gmail_last_scan: new Date().toISOString(), updated_at: new Date().toISOString() }),
+    body: JSON.stringify(patch),
   });
 }
 
@@ -327,7 +361,6 @@ async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, 
 function findExistingBooking(bookings, confCode, guestName, checkin) {
   if (!Array.isArray(bookings)) return null;
 
-  // Match by confirmation code first (most reliable)
   if (confCode) {
     const byCode = bookings.find(b =>
       b.confirmation_code &&
@@ -342,7 +375,6 @@ function findExistingBooking(bookings, confCode, guestName, checkin) {
     if (byCodeAny) return byCodeAny;
   }
 
-  // Fall back to guest name + checkin date
   if (guestName && checkin) {
     const normName = guestName.toLowerCase().trim();
     return bookings.find(b =>
@@ -351,7 +383,6 @@ function findExistingBooking(bookings, confCode, guestName, checkin) {
     ) || null;
   }
 
-  // Fall back to guest name only (only if one unique match)
   if (guestName) {
     const normName = guestName.toLowerCase().trim();
     const matches = bookings.filter(b =>
@@ -429,7 +460,8 @@ function daysBetween(d1, d2) {
 // ── CLAUDE PARSING ───────────────────────────────────────────────────────────
 
 async function parseBookingEmail(apiKey, subject, from, body, propertyName) {
-  const prompt = 'You are a booking email parser for a short-term rental property' + (propertyName ? ' called "' + propertyName + '"' : '') + '.\n\nAnalyse this email and return ONLY valid JSON with no other text.\n\nFirst, classify the email type:\n- "new_booking" — a new reservation confirmation\n- "cancellation" — a booking has been cancelled\n- "modification" — an existing booking\'s dates, guests, or payout have changed\n- "not_a_booking" — marketing, review request, payout receipt, message from guest, or anything that is not one of the above\n\nIf not_a_booking, return: {"not_a_booking": true}\n\nOtherwise return:\n{\n  "emailType": "new_booking" or "cancellation" or "modification",\n  "guestName": "Full name of the guest",\n  "checkin": "YYYY-MM-DD" (null if not found, e.g. for cancellations),\n  "checkout": "YYYY-MM-DD" (null if not found),\n  "guests": number of guests (integer, default 1),\n  "hostPayout": host payout amount as a number (0 if not found),\n  "cleaningFee": cleaning fee as a number (0 if not found),\n  "platform": "airbnb" or "vrbo" or "booking.com" or "stayz" or "direct" or other,\n  "confirmationCode": "confirmation/reservation code",\n  "status": "confirmed" or "cancelled"\n}\n\nImportant:\n- Dates must be YYYY-MM-DD format\n- If year is missing, assume the nearest future occurrence\n- The confirmation code is CRITICAL for matching cancellations/modifications to existing bookings\n- hostPayout = amount the HOST receives (not guest total). Look for "Total payout", "You\'ll earn", "Host payout"\n- Platform: detect from the From address (e.g. @airbnb.com = "airbnb")\n- For cancellations: guestName and confirmationCode are the most important fields\n- For modifications: include the NEW dates/details, not the old ones\n- Payout receipt emails and "your payout is on the way" are NOT bookings — return not_a_booking\n\nSubject: ' + subject + '\nFrom: ' + from + '\nBody:\n' + body;
+  const propContext = propertyName ? ' called "' + propertyName + '"' : '';
+  const prompt = 'You are a booking email parser for a short-term rental HOST who manages a property' + propContext + '.\n\nYou are analysing emails from the HOST\'s inbox. The host receives booking notifications when GUESTS book their property.\n\nCRITICAL DISTINCTION:\n- HOST emails say things like: "You have a new reservation", "Your guest X is arriving", "You\'ll earn $X", "Host payout", "New booking at ' + (propertyName || 'your property') + '"\n- PERSONAL TRAVEL emails say things like: "Your trip to X", "Your stay at Hotel Y", "Your booking at Restaurant Z", "Your flight"\n- Only extract HOST booking notifications. If this looks like a personal travel/hotel/restaurant booking where the email recipient is the traveller, return not_a_booking.\n\nAnalyse this email and return ONLY valid JSON with no other text.\n\nClassify the email type:\n- "new_booking" — a new guest reservation at the host\'s property\n- "cancellation" — a guest booking has been cancelled\n- "modification" — an existing guest booking\'s dates, guests, or payout have changed\n- "not_a_booking" — marketing, review, payout receipt, personal travel booking, message from guest, or anything else\n\nIf not_a_booking, return: {"not_a_booking": true}\n\nOtherwise return:\n{\n  "emailType": "new_booking" or "cancellation" or "modification",\n  "guestName": "Full name of the guest staying at the property",\n  "checkin": "YYYY-MM-DD" (null if not found),\n  "checkout": "YYYY-MM-DD" (null if not found),\n  "guests": number of guests (integer, default 1),\n  "hostPayout": host payout amount as a number (0 if not found),\n  "cleaningFee": cleaning fee as a number (0 if not found),\n  "platform": "airbnb" or "vrbo" or "booking.com" or "stayz" or "direct" or other,\n  "confirmationCode": "confirmation/reservation code",\n  "status": "confirmed" or "cancelled"\n}\n\nRules:\n- Dates must be YYYY-MM-DD. If year missing, assume nearest future date.\n- confirmationCode is CRITICAL for matching cancellations/modifications.\n- hostPayout = amount the HOST receives. Look for "Total payout", "You\'ll earn", "Host payout".\n- Platform: detect from From address (@airbnb.com = "airbnb").\n- Payout receipts ("your payout is on the way") = not_a_booking.\n- Review requests = not_a_booking.\n- Guest messages = not_a_booking.\n\nSubject: ' + subject + '\nFrom: ' + from + '\nBody:\n' + body;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
