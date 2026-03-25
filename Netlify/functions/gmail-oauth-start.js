@@ -1,35 +1,40 @@
-// ── Netlify function: gmail-oauth-start.js ────────────────────────────────────
-// Redirects the user to Google's OAuth consent screen.
-// Called from the client when they tap "Connect Gmail".
-//
-// Required environment variables:
-//   GOOGLE_CLIENT_ID     — from Google Cloud Console → OAuth 2.0 credentials
-//   GOOGLE_REDIRECT_URI  — must match exactly what's in Google Cloud Console
-//                          e.g. https://strmanagement.netlify.app/.netlify/functions/gmail-oauth-callback
-//
-// Usage: redirect the browser to /.netlify/functions/gmail-oauth-start?state=<user_id>
+/* ═══════════════════════════════════════════════════════════════════════════
+   STAYOPS — Gmail OAuth Start
+   Redirects user to Google OAuth consent screen.
+   State param = Supabase user ID (passed back in callback).
+
+   Required Netlify env vars:
+     GOOGLE_CLIENT_ID
+     GOOGLE_CLIENT_SECRET
+     SITE_URL               — e.g. https://strmanagement.netlify.app
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 exports.handler = async (event) => {
-  const clientId    = process.env.GOOGLE_CLIENT_ID;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI
-    || 'https://strmanagement.netlify.app/.netlify/functions/gmail-oauth-callback';
-
-  if (!clientId) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'GOOGLE_CLIENT_ID not set' }) };
+  const state = (event.queryStringParameters || {}).state || '';
+  if (!state) {
+    return { statusCode: 400, body: 'Missing state (user ID)' };
   }
 
-  const state = event.queryStringParameters?.state || '';
+  const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+  const SITE_URL = process.env.SITE_URL || process.env.URL || '';
+
+  if (!CLIENT_ID || !SITE_URL) {
+    return { statusCode: 500, body: 'Server misconfigured — missing GOOGLE_CLIENT_ID or SITE_URL' };
+  }
+
+  const redirectUri = SITE_URL + '/.netlify/functions/gmail-oauth-callback';
+  const scope = [
+    'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/userinfo.email',
+  ].join(' ');
 
   const params = new URLSearchParams({
-    client_id:     clientId,
-    redirect_uri:  redirectUri,
+    client_id: CLIENT_ID,
+    redirect_uri: redirectUri,
     response_type: 'code',
-    scope: [
-      'https://www.googleapis.com/auth/gmail.readonly',
-      'https://www.googleapis.com/auth/userinfo.email',
-    ].join(' '),
-    access_type:   'offline',   // get refresh token
-    prompt:        'consent',   // always show consent so we always get refresh token
+    scope,
+    access_type: 'offline',
+    prompt: 'consent',
     state,
   });
 

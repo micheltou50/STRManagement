@@ -371,11 +371,35 @@ function renderConnectionSummary() {
     ? window.location.origin + '/.netlify/functions/calendar-feed?uid=' + user.id
     : '';
 
+  const gmailEmail = localStorage.getItem('gh-gmail-email') || '';
+  const gmailConnected = !!gmailEmail;
+
   wrap.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--mist);border-radius:10px">
       <div style="font-size:13px;color:var(--text)">Supabase</div>
       <div style="font-size:12px;color:var(--moss)">✓ Connected</div>
     </div>
+
+    <div style="padding:12px;background:var(--mist);border-radius:10px;margin-top:8px">
+      <div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:6px">📧 Gmail — Booking Import</div>
+      ${gmailConnected ? `
+        <div style="font-size:12px;color:var(--moss);margin-bottom:8px">✓ Connected: ${escHtml(gmailEmail)}</div>
+        <div style="display:flex;gap:6px">
+          <button onclick="scanGmailBookings()" id="gmail-scan-btn"
+            style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">📥 Scan for Bookings</button>
+          <button onclick="connectGmail()" 
+            style="background:var(--warm);color:var(--forest);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">Reconnect</button>
+        </div>
+        <div id="gmail-scan-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;line-height:1.5"></div>
+      ` : `
+        <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.5">Connect your Gmail to automatically import bookings from Airbnb, VRBO, Booking.com, and other platforms.</div>
+        <button onclick="connectGmail()"
+          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
+          <img src="https://www.google.com/favicon.ico" width="18" height="18" style="border-radius:3px"> Connect Gmail
+        </button>
+      `}
+    </div>
+
     ${feedUrl ? `
     <div style="padding:12px;background:var(--mist);border-radius:10px;margin-top:8px">
       <div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:6px">📅 Calendar Feed</div>
@@ -389,6 +413,84 @@ function renderConnectionSummary() {
       </div>
     </div>` : ''}`
   ;
+}
+
+async function connectGmail() {
+  const user = await getCurrentSupabaseUser();
+  if (!user) { showBanner('⚠ Please sign in first', 'warn'); return; }
+  window.location.href = '/.netlify/functions/gmail-oauth-start?state=' + encodeURIComponent(user.id);
+}
+
+async function scanGmailBookings() {
+  const user = window._supabaseUser;
+  if (!user) { showBanner('⚠ Please sign in first', 'warn'); return; }
+
+  const btn = document.getElementById('gmail-scan-btn');
+  const statusEl = document.getElementById('gmail-scan-status');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Scanning…'; }
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.style.background = '#FFF8E1';
+    statusEl.style.color = '#E65100';
+    statusEl.textContent = 'Scanning Gmail for booking confirmations…';
+  }
+
+  try {
+    const res = await fetch('/.netlify/functions/gmail-scan-bookings?uid=' + encodeURIComponent(user.id));
+    const data = await res.json();
+
+    if (!res.ok) {
+      if (statusEl) {
+        statusEl.style.background = '#FEF2F2';
+        statusEl.style.color = 'var(--red)';
+        statusEl.textContent = '⚠ ' + (data.error || 'Scan failed');
+      }
+      if (btn) { btn.disabled = false; btn.textContent = '📥 Scan for Bookings'; }
+      return;
+    }
+
+    if (statusEl) {
+      const hasChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0) > 0;
+      statusEl.style.background = hasChanges ? '#EDF7ED' : 'var(--mist)';
+      statusEl.style.color = hasChanges ? 'var(--forest)' : 'var(--text-soft)';
+
+      let msg = data.message || 'Scan complete';
+      if (data.details && data.details.length) {
+        const actionItems = data.details
+          .filter(d => d.status === 'imported' || d.status === 'updated' || d.status === 'cancelled')
+          .map(d => {
+            const label = d.status === 'cancelled' ? '❌' : d.status === 'updated' ? '✏️' : '✅';
+            return label + ' ' + (d.guest || 'Guest') + (d.checkin ? ' (' + d.checkin + ')' : '');
+          })
+          .join(', ');
+        if (actionItems) msg += ': ' + actionItems;
+      }
+      if (data.remaining > 0) msg += ' · ' + data.remaining + ' more emails to process — scan again';
+      statusEl.textContent = (hasChanges ? '✓ ' : '') + msg;
+    }
+
+    // Refresh data if any bookings changed
+    const totalChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0);
+    if (totalChanges > 0) {
+      if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
+      reloadInMemoryData();
+      renderAll();
+      const parts = [];
+      if (data.imported) parts.push(data.imported + ' imported');
+      if (data.updated) parts.push(data.updated + ' updated');
+      if (data.cancelled) parts.push(data.cancelled + ' cancelled');
+      showBanner('✓ ' + parts.join(', ') + ' from Gmail', 'ok');
+    }
+
+  } catch (e) {
+    if (statusEl) {
+      statusEl.style.background = '#FEF2F2';
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '⚠ Network error — check connection';
+    }
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = '📥 Scan for Bookings'; }
 }
 
 function copyCalendarFeedUrl() {
@@ -6223,15 +6325,10 @@ window.addEventListener('pageshow', (e) => {
 if (isCleanerMode()) {
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
-      // Refresh cleans from Supabase for cleaner mode
-      if (typeof loadCleansFromCloud === 'function') {
-        loadCleansFromCloud().then(cloudCleans => {
-          if (Array.isArray(cloudCleans) && cloudCleans.length) {
-            localStorage.setItem(lsKey('cleans'), JSON.stringify(cloudCleans));
-            if (typeof renderCleanerView === 'function') renderCleanerView();
-          }
-        }).catch(() => {});
-      }
+      // Refresh from Netlify function for cleaner mode
+      hydrateCleanerFromFunction().then(ok => {
+        if (ok && typeof renderCleanerView === 'function') renderCleanerView();
+      }).catch(() => {});
       setTimeout(_flushPendingUiRefresh, 120);
     }
   });
@@ -6505,24 +6602,117 @@ function isCleanerMode() {
 function getCleanerParams() {
   // Hash format: #cleaner/ID/ENCODEDPIN
   const hash = window.location.hash;
+  const p = new URLSearchParams(window.location.search);
   if (hash.startsWith('#cleaner/')) {
     const parts = hash.slice(1).split('/');
-    return { id: parts[1] || null, encoded: parts[2] || null };
+    return { id: parts[1] || null, encoded: parts[2] || null, uid: p.get('uid') || null };
   }
   // Fallback: query string format (old links)
-  const p = new URLSearchParams(window.location.search);
-  if (p.get('id')) return { id: p.get('id'), encoded: p.get('p') };
+  if (p.get('id')) return { id: p.get('id'), encoded: p.get('p'), uid: p.get('uid') || null };
   // Fallback: saved session from home screen launch
   try {
     const saved = JSON.parse(localStorage.getItem('gh-cleaner-session') || 'null');
-    if (saved && saved.id) return { id: saved.id, encoded: saved.encoded || null };
+    if (saved && saved.id) return { id: saved.id, encoded: saved.encoded || null, uid: saved.uid || null };
   } catch (e) {}
-  return { id: null, encoded: null };
+  return { id: null, encoded: null, uid: null };
 }
 function getActiveCleaner() {
   const { id } = getCleanerParams();
   if (!id) return null;
   return loadCleaners().find(c => String(c.id) === String(id)) || null;
+}
+
+/**
+ * hydrateCleanerFromFunction — fetches cleaner data from the Netlify function
+ * and populates localStorage + in-memory arrays. Used when the home screen PWA
+ * has no Supabase auth session (isolated localStorage).
+ */
+async function hydrateCleanerFromFunction() {
+  const { id, uid } = getCleanerParams();
+  if (!id || !uid) {
+    console.log('[StayOps] hydrateCleanerFromFunction: missing id or uid');
+    return false;
+  }
+  try {
+    console.log('[StayOps] hydrateCleanerFromFunction: fetching data…');
+    const res = await fetch('/.netlify/functions/cleaner-data?cleanerId=' + encodeURIComponent(id) + '&uid=' + encodeURIComponent(uid));
+    if (!res.ok) {
+      console.warn('[StayOps] hydrateCleanerFromFunction: HTTP ' + res.status);
+      return false;
+    }
+    const data = await res.json();
+    if (!data || !data.cleaner) {
+      console.warn('[StayOps] hydrateCleanerFromFunction: no cleaner in response');
+      return false;
+    }
+
+    // Populate localStorage so loadCleaners/getActiveCleaner work
+    const cleanerRecord = data.cleaner;
+    // Ensure the cleaner's local_id is a number if it was originally
+    if (cleanerRecord.id && !isNaN(Number(cleanerRecord.id))) {
+      cleanerRecord.id = Number(cleanerRecord.id);
+    }
+    localStorage.setItem(lsKey('cleaners'), JSON.stringify([cleanerRecord]));
+
+    // Populate cleans
+    if (Array.isArray(data.cleans)) {
+      cleans = data.cleans;
+      localStorage.setItem(lsKey('cleans'), JSON.stringify(cleans));
+    }
+
+    // Populate bookings
+    if (Array.isArray(data.bookings)) {
+      bookings = data.bookings;
+      localStorage.setItem(lsKey('bookings'), JSON.stringify(bookings));
+    }
+
+    // Populate inventory
+    if (Array.isArray(data.inventory)) {
+      inventory = data.inventory;
+      localStorage.setItem(lsKey('inventory'), JSON.stringify(inventory));
+    }
+
+    // Set property name
+    if (data.property && data.property.name) {
+      const headerName = document.getElementById('header-property-name');
+      if (headerName) headerName.textContent = data.property.name;
+    }
+
+    console.log('[StayOps] hydrateCleanerFromFunction: done — ' +
+      (data.cleans || []).length + ' cleans, ' +
+      (data.bookings || []).length + ' bookings');
+    return true;
+  } catch (e) {
+    console.warn('[StayOps] hydrateCleanerFromFunction failed:', e);
+    return false;
+  }
+}
+
+/**
+ * postCleanerAction — sends accept/decline/done to the Netlify function.
+ * Used when there's no Supabase auth session (home screen PWA).
+ */
+async function postCleanerAction(cleanId, action) {
+  const { id: cleanerId, uid } = getCleanerParams();
+  if (!uid || !cleanerId) {
+    console.warn('[StayOps] postCleanerAction: missing uid or cleanerId, skipping cloud write');
+    return false;
+  }
+  try {
+    const res = await fetch('/.netlify/functions/cleaner-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid, cleanerId: String(cleanerId), cleanId: String(cleanId), action })
+    });
+    if (!res.ok) {
+      console.warn('[StayOps] postCleanerAction failed: HTTP ' + res.status);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('[StayOps] postCleanerAction error:', e);
+    return false;
+  }
 }
 function isCleanerAuthed() {
   const { id } = getCleanerParams();
@@ -6548,7 +6738,7 @@ function updatePinDots() {
     if (dot) dot.classList.toggle('filled', i < cleanerPinEntry.length);
   }
 }
-function verifyCleanerPin() {
+async function verifyCleanerPin() {
   const { id, encoded } = getCleanerParams();
   if (!encoded) {
     document.getElementById('pin-error').textContent = 'No PIN in link — ask owner to re-copy link from Settings';
@@ -6560,9 +6750,12 @@ function verifyCleanerPin() {
   if (cleanerPinEntry === stored) {
     localStorage.setItem('gh-cleaner-authed-' + id, '1');
     // Save cleaner session so home screen launch preserves cleaner mode
-    localStorage.setItem('gh-cleaner-session', JSON.stringify({ id, encoded }));
+    const { uid } = getCleanerParams();
+    localStorage.setItem('gh-cleaner-session', JSON.stringify({ id, encoded, uid: uid || '' }));
     document.body.classList.remove('cleaner-pin-active');
     document.body.classList.add('cleaner-mode');
+    // Hydrate cleaner data from Netlify function before rendering
+    await hydrateCleanerFromFunction();
     renderCleanerView();
     // Subscribe cleaner to push after auth
     setTimeout(() => subscribeToPush('cleaner', id), 1500);
@@ -6579,7 +6772,8 @@ function verifyCleanerPin() {
 async function cleanerRefresh() {
   const btn = document.getElementById('cleaner-refresh-btn');
   if (btn) { btn.textContent = '↻ …'; btn.disabled = true; }
-  await pullAppData();
+  await hydrateCleanerFromFunction();
+  renderCleanerView();
   if (btn) { btn.textContent = '↻ Refresh'; btn.disabled = false; }
   showBanner('✓ Updated', 'ok');
 }
@@ -6875,7 +7069,12 @@ async function cleanerAccept(cleanId) {
   try {
     _normalizeBookingCleanState();
     save();
-    if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
+    // Try direct Supabase first (works in Safari), fall back to Netlify function (home screen PWA)
+    if (typeof saveCleansToCloud === 'function' && window._supabaseUser) {
+      saveCleansToCloud(cleans).catch(() => {});
+    } else {
+      postCleanerAction(cleanId, 'accept');
+    }
     renderCleanerCleans();
     showBanner('✓ Clean accepted!', 'ok');
     // Push owner
@@ -6913,8 +7112,12 @@ async function cleanerDecline(cleanId) {
   try {
     _normalizeBookingCleanState();
     save();
-    if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {}); // push immediately
-    if (typeof saveCleaningJobToCloud === 'function') saveCleaningJobToCloud(c);
+    if (typeof saveCleansToCloud === 'function' && window._supabaseUser) {
+      saveCleansToCloud(cleans).catch(() => {});
+    } else {
+      postCleanerAction(cleanId, 'decline');
+    }
+    if (typeof saveCleaningJobToCloud === 'function' && window._supabaseUser) saveCleaningJobToCloud(c);
     renderCleanerCleans();
     showBanner('Clean declined', 'ok');
     // Push owner
@@ -6944,8 +7147,14 @@ async function cleanerMarkDone(cleanId) {
   if (b) b.cleanerConfirmed = true;
   try {
     _normalizeBookingCleanState();
-    save(); if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {}); renderCleanerCleans();
-    if (typeof saveCleaningJobToCloud === 'function') saveCleaningJobToCloud(c);
+    save();
+    if (typeof saveCleansToCloud === 'function' && window._supabaseUser) {
+      saveCleansToCloud(cleans).catch(() => {});
+    } else {
+      postCleanerAction(cleanId, 'done');
+    }
+    renderCleanerCleans();
+    if (typeof saveCleaningJobToCloud === 'function' && window._supabaseUser) saveCleaningJobToCloud(c);
     showBanner('✓ Clean marked as complete', 'ok');
     // Push owner
     const ownerSub = await getFreshOwnerSub();
@@ -7587,7 +7796,10 @@ function renderCleanerAccessList() {
 }
 function cleanerLinkForId(c) {
   const base = window.location.origin + window.location.pathname;
-  return c.pin ? (base + '?role=cleaner&id=' + encodeURIComponent(c.id) + '&p=' + encodeURIComponent(btoa(c.pin)) + '#cleaner/' + c.id + '/' + btoa(c.pin)) : (base + '?role=cleaner&id=' + encodeURIComponent(c.id) + '#cleaner/' + c.id);
+  const uid = window._supabaseUser ? window._supabaseUser.id : '';
+  return c.pin
+    ? (base + '?role=cleaner&id=' + encodeURIComponent(c.id) + '&p=' + encodeURIComponent(btoa(c.pin)) + '&uid=' + encodeURIComponent(uid) + '#cleaner/' + c.id + '/' + btoa(c.pin))
+    : (base + '?role=cleaner&id=' + encodeURIComponent(c.id) + '&uid=' + encodeURIComponent(uid) + '#cleaner/' + c.id);
 }
 function saveCleanerPinById(id) {
   const input = document.getElementById('pin-input-' + id);
@@ -7651,6 +7863,7 @@ async function finishAppInit() {
   if (isCleanerMode()) {
     if (isCleanerAuthed()) {
       document.body.classList.add('cleaner-mode');
+      await hydrateCleanerFromFunction();
       renderCleanerView();
     } else {
       document.body.classList.add('cleaner-pin-active');
@@ -7671,6 +7884,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (oauthSuccess && oauthEmail) {
     // Clean URL
     window.history.replaceState({}, '', window.location.pathname);
+    // Save Gmail connection for connection summary UI
+    if (oauthSuccess === 'google') {
+      localStorage.setItem('gh-gmail-email', decodeURIComponent(oauthEmail));
+    }
     // Show onboarding step 2 connected state after app loads
     window._oauthConnected = { provider: oauthSuccess, email: decodeURIComponent(oauthEmail) };
   }
@@ -7690,6 +7907,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('notify-modal').addEventListener('click', function(e) { if (e.target === this) closeNotifyModal(); });
     if (isCleanerAuthed()) {
       document.body.classList.add('cleaner-mode');
+      // Hydrate from Netlify function (handles home screen PWA with no Supabase session)
+      await hydrateCleanerFromFunction();
       renderCleanerView();
     } else {
       document.body.classList.add('cleaner-pin-active');

@@ -1,35 +1,41 @@
-// ── Netlify function: gmail-oauth-callback.js ─────────────────────────────────
-// Handles the OAuth callback from Google after the user grants permission.
-// Exchanges the auth code for tokens and stores them in Supabase.
-//
-// Required environment variables:
-//   GOOGLE_CLIENT_ID
-//   GOOGLE_CLIENT_SECRET  — from Google Cloud Console
-//   GOOGLE_REDIRECT_URI
-//   SUPABASE_URL
-//   SUPABASE_SERVICE_KEY  — use service role key (not anon) to write to email_connections
+/* ═══════════════════════════════════════════════════════════════════════════
+   STAYOPS — Gmail OAuth Callback
+   Exchanges auth code for tokens, stores refresh_token in Supabase app_config,
+   then redirects back to the app with success/error status.
 
-const { createClient } = require('@supabase/supabase-js');
+   Required Netlify env vars:
+     GOOGLE_CLIENT_ID
+     GOOGLE_CLIENT_SECRET
+     SITE_URL
+     SUPABASE_URL
+     SUPABASE_SERVICE_KEY
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 exports.handler = async (event) => {
-  const code   = event.queryStringParameters?.code;
-  const state  = event.queryStringParameters?.state || ''; // user_id passed through
-  const error  = event.queryStringParameters?.error;
+  const params = event.queryStringParameters || {};
+  const code = params.code;
+  const state = params.state; // user_id
+  const error = params.error;
 
-  const appUrl = process.env.URL || 'https://strmanagement.netlify.app';
+  const SITE_URL = process.env.SITE_URL || process.env.URL || '';
 
   if (error) {
-    return { statusCode: 302, headers: { Location: appUrl + '?oauth_error=' + error }, body: '' };
+    return redirect(SITE_URL + '/?oauth_error=' + encodeURIComponent(error));
+  }
+  if (!code || !state) {
+    return redirect(SITE_URL + '/?oauth_error=missing_code_or_state');
   }
 
-  if (!code) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Missing code' }) };
+  const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+  const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
+
+  if (!CLIENT_ID || !CLIENT_SECRET || !SUPABASE_URL || !SUPABASE_KEY) {
+    return redirect(SITE_URL + '/?oauth_error=server_misconfigured');
   }
 
-  const clientId     = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri  = process.env.GOOGLE_REDIRECT_URI
-    || appUrl + '/.netlify/functions/gmail-oauth-callback';
+  const redirectUri = SITE_URL + '/.netlify/functions/gmail-oauth-callback';
 
   try {
     // 1. Exchange code for tokens
@@ -38,61 +44,57 @@ exports.handler = async (event) => {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         code,
-        client_id:     clientId,
-        client_secret: clientSecret,
-        redirect_uri:  redirectUri,
-        grant_type:    'authorization_code',
-      }),
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+      }).toString(),
     });
 
     const tokens = await tokenRes.json();
-    if (!tokens.access_token) {
-      throw new Error('Token exchange failed: ' + JSON.stringify(tokens));
+    if (!tokenRes.ok || !tokens.access_token) {
+      console.error('[gmail-oauth-callback] Token exchange failed:', tokens);
+      return redirect(SITE_URL + '/?oauth_error=token_exchange_failed');
     }
 
-    // 2. Get user's email address
-    const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+    // 2. Get user email
+    const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: 'Bearer ' + tokens.access_token },
     });
-    const userInfo = await userRes.json();
-    const email = userInfo.email;
+    const profile = await profileRes.json();
+    const email = profile.email || '';
 
-    // 3. Store tokens in Supabase
-    const sb = createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_KEY
-    );
-
-    const expiry = tokens.expires_in
-      ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-      : null;
-
-    const { error: dbError } = await sb
-      .from('email_connections')
-      .upsert({
-        user_id:       state || null,  // Supabase user ID passed as state
-        email,
-        provider:      'google',
-        access_token:  tokens.access_token,
-        refresh_token: tokens.refresh_token || null,
-        token_expiry:  expiry,
-        updated_at:    new Date().toISOString(),
-      }, { onConflict: 'user_id' });
-
-    if (dbError) throw new Error('Supabase error: ' + dbError.message);
-
-    // 4. Redirect back to app with success signal
-    return {
-      statusCode: 302,
-      headers: { Location: appUrl + '?oauth_success=google&email=' + encodeURIComponent(email) },
-      body: '',
+    // 3. Store refresh token + email in Supabase app_config
+    const sbHeaders = {
+      apikey: SUPABASE_KEY,
+      Authorization: 'Bearer ' + SUPABASE_KEY,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
     };
+
+    const patch = {
+      user_id: state,
+      gmail_refresh_token: tokens.refresh_token || null,
+      gmail_email: email,
+      gmail_connected_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    await fetch(SUPABASE_URL + '/rest/v1/app_config', {
+      method: 'POST',
+      headers: { ...sbHeaders, Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(patch),
+    });
+
+    // 4. Redirect back to app
+    return redirect(SITE_URL + '/?oauth_success=google&oauth_email=' + encodeURIComponent(email));
+
   } catch (err) {
-    console.error('[gmail-oauth-callback] Error:', err.message);
-    return {
-      statusCode: 302,
-      headers: { Location: appUrl + '?oauth_error=' + encodeURIComponent(err.message) },
-      body: '',
-    };
+    console.error('[gmail-oauth-callback] Error:', err);
+    return redirect(SITE_URL + '/?oauth_error=internal_error');
   }
 };
+
+function redirect(url) {
+  return { statusCode: 302, headers: { Location: url }, body: '' };
+}
