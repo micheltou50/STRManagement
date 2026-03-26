@@ -1,9 +1,6 @@
 [build]
   functions = "Netlify/functions"
 
-[[plugins]]
-  package = "@netlify/plugin-functions-install-deps"
-
 [functions]
   node_bundler = "esbuild"
 
