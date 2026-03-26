@@ -382,11 +382,7 @@ async function maybeAutoScanGmail() {
     const user = window._supabaseUser;
     if (!user) return;
 
-    const THROTTLE_MS = 30 * 60 * 1000; // 30 minutes
-    const lastRun = parseInt(localStorage.getItem('gh-gmail-auto-scan-ts') || '0', 10);
-    if (Date.now() - lastRun < THROTTLE_MS) return; // Already ran recently
-
-    localStorage.setItem('gh-gmail-auto-scan-ts', String(Date.now()));
+    // No throttle — scan runs every time the app is opened
 
     const res = await fetch('/.netlify/functions/gmail-scan-bookings?uid=' + encodeURIComponent(user.id));
     if (!res.ok) return;
@@ -1315,7 +1311,7 @@ function renderBookings(filter) {
         const statusLabel = isCancelled ? '✕ Cancelled' : isHosting ? '🏡 Hosting' : isPast ? 'Past' : 'Upcoming';
         const cs = getBookingCleanerState(b);
         const cleanerChip = isCancelled ? '' : `<div style="font-size:10px;margin-top:3px;font-weight:600;color:${cs.tone==='ok'?'var(--moss)':cs.tone==='bad'?'var(--red)':'var(--amber)'}">🧹 ${escHtml(cs.key === 'unassigned' ? 'No cleaner' : cs.key === 'confirmed' ? 'Confirmed' : cs.key === 'done' ? 'Done' : cs.key === 'declined' ? 'Declined' : 'Awaiting')}</div>`;
-        return `<div class="card" onclick="showDetail(${b.id})" style="cursor:pointer${isCancelled?';opacity:0.6':''}" data-booking-id="${b.id}"><div class="booking-item" style="border:none;padding:0" data-booking-id="${b.id}">${platformIcon(b.platform, 42)}<div class="booking-info"><div class="booking-name">${escHtml(b.name)}</div><div class="booking-dates">${escHtml(fmt(b.checkin))} → ${escHtml(fmt(b.checkout))}</div><div class="booking-guests">${escHtml(b.guests)} guests · ${escHtml(b.nights)} night${b.nights!==1?'s':''}</div></div><div class="booking-right"><div class="booking-amount" style="${isCancelled?'text-decoration:line-through;color:var(--text-soft)':''}">$${Number(b.hostPayout||0).toLocaleString()}</div><div class="booking-status ${statusClass}">${statusLabel}</div>${cleanerChip}</div></div></div>`;
+        return `<div class="card" onclick="showDetail('${b._cloudId || b.id}')" style="cursor:pointer${isCancelled?';opacity:0.6':''}" data-booking-id="${b.id}"><div class="booking-item" style="border:none;padding:0" data-booking-id="${b.id}">${platformIcon(b.platform, 42)}<div class="booking-info"><div class="booking-name">${escHtml(b.name)}</div><div class="booking-dates">${escHtml(fmt(b.checkin))} → ${escHtml(fmt(b.checkout))}</div><div class="booking-guests">${escHtml(b.guests)} guests · ${escHtml(b.nights)} night${b.nights!==1?'s':''}</div></div><div class="booking-right"><div class="booking-amount" style="${isCancelled?'text-decoration:line-through;color:var(--text-soft)':''}">$${Number(b.hostPayout||0).toLocaleString()}</div><div class="booking-status ${statusClass}">${statusLabel}</div>${cleanerChip}</div></div></div>`;
       }).join('')}
     </div>`).join('');
 
@@ -2671,7 +2667,7 @@ function getBookingCleanerState(booking) {
 
 // ── BOOKING DETAIL ────────────────────────────────────────────────────────
 function showDetail(id) {
-  const b = bookings.find(b=>b.id===id);
+  const b = bookings.find(b => b._cloudId === id || String(b.id) === String(id));
   if (!b) return;
   const isCancelled = b.status === 'cancelled';
   const bn = notes.filter(n=>n.bookingId===id);
