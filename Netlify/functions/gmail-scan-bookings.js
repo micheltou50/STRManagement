@@ -92,6 +92,8 @@ exports.handler = async (event) => {
     const senders = 'from:(airbnb.com OR vrbo.com OR booking.com OR stayz.com OR expedia.com OR mtoubia96@gmail.com)';
     const searchQueries = [
       senders + ' subject:(reservation OR booking OR confirmed OR cancelled OR canceled OR modified OR updated OR alteration OR request OR arrival) after:' + afterStr,
+      // Catch all emails from the test address regardless of subject
+      'from:mtoubia96@gmail.com after:' + afterStr,
     ];
 
     const allMessageIds = new Set();
@@ -345,6 +347,7 @@ async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, 
     guests: parsed.guests || 1,
     host_payout: parsed.hostPayout || 0,
     cleaning_fee: parsed.cleaningFee || 0,
+    net_payout: (parsed.hostPayout || 0) - (parsed.cleaningFee || 0),
     platform: parsed.platform || '',
     confirmation_code: parsed.confirmationCode || '',
     status: 'confirmed',
