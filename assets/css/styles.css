@@ -657,6 +657,7 @@ label {
 
 .booking-status {
   font-size: 10px;
+  font-weight: 700;
   padding: 3px 8px;
   border-radius: 999px;
 }
@@ -674,6 +675,7 @@ label {
 .status-completed {
   background: #f0f3f1;
   color: #667b71;
+  border: 1px solid #d8e0dc;
 }
 
 .clean-check {
@@ -754,6 +756,9 @@ label {
 #cleaning-list .card {
   margin-bottom: 10px;
 }
+
+/* Bookings list — compact rhythm: tighter padding and gap */
+#bookings-list .card { padding: 12px; margin-bottom: 8px; }
 
 .attention-summary {
   position: relative;
@@ -889,8 +894,9 @@ label {
 .nav-btn { font-size:10px; gap:3px; padding-top:3px; }
 .nav-btn .icon { width:38px; height:38px; font-size:19px; }
 .nav-btn.active .icon { transform:none; box-shadow:0 2px 8px rgba(30,58,47,0.22); }
-#bookings-tab-row { flex-wrap:wrap; }
-#bookings-tab-row .tab { flex: 1 1 calc(33.33% - 6px); }
+#bookings-tab-row { flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+#bookings-tab-row::-webkit-scrollbar { display:none; }
+#bookings-tab-row .tab { flex:0 0 auto; padding-left:14px; padding-right:14px; }
 .cleaning-summary-slim { background:#F4F8F5; border:1px solid #DDE8DF; border-radius:10px; padding:8px 12px; font-size:12px; color:var(--text-soft); margin-bottom:8px; }
 #clean-add-card { margin-top:8px; }
 
@@ -1050,4 +1056,681 @@ label {
 #integrations-conn-list div[style*="font-size:11px"][style*="color:var(--text-soft)"],
 #integrations-conn-list div[style*="font-size:12px"][style*="color:var(--moss)"] {
   font-size: 11px !important;
+}
+
+/* ── Mobile breathing-room patch ─────────────────────────────────────────
+   Surgical visual-only overrides: header spacing, nav tappability, tab
+   sizing. No colours, no layout changes, no JS. Appended last so it wins
+   the cascade over all prior ungated rules and earlier media queries.
+   ─────────────────────────────────────────────────────────────────────── */
+@media (max-width: 430px) {
+
+  /* Header — more room between property name, refresh button, date badge */
+  .header {
+    padding: 50px 18px 20px;
+  }
+  .header-top {
+    gap: 10px;
+    align-items: center;
+  }
+  .header h1 {
+    font-size: 22px;
+  }
+  .header-sub {
+    margin-top: 4px;
+  }
+  .today-badge {
+    padding: 5px 12px;
+    min-height: 28px;
+    font-size: 11px;
+  }
+
+  /* Bottom nav — larger touch target, readable label, more vertical room */
+  .nav {
+    padding: 8px 4px calc(16px + env(safe-area-inset-bottom));
+  }
+  .nav-btn {
+    font-size: 11px;
+    gap: 5px;
+    padding: 6px 2px 2px;
+  }
+  .nav-btn .icon {
+    width: 44px;
+    height: 44px;
+    font-size: 21px;
+  }
+
+  /* All tabs — taller, easier to read and tap */
+  .tab {
+    min-height: 44px;
+    font-size: 13px;
+    padding: 10px 8px;
+  }
+
+  /* Bookings tab row — single-row horizontal scroll */
+  #bookings-tab-row {
+    gap: 6px;
+  }
+  #bookings-tab-row .tab {
+    min-height: 44px;
+    font-size: 12px;
+    padding: 10px 14px;
+  }
+}
+
+/* Extra-small phones (≤ 390px): don't let the 390px rule shrink labels
+   back to 8px or icons to 36px — hold at comfortable sizes */
+@media (max-width: 390px) {
+  .nav-btn {
+    font-size: 10px;
+  }
+  .nav-btn .icon {
+    width: 42px;
+    height: 42px;
+    font-size: 20px;
+  }
+}
+
+/* ── Depth & light patch ──────────────────────────────────────────────────
+   Replaces single-layer neutral shadows with two-layer green-tinted ones
+   and adds subtle inset highlights on lit surfaces. Visual-only — no
+   layout, colour, or sizing changes. Appended last; wins the cascade.
+   ─────────────────────────────────────────────────────────────────────── */
+
+/* Header — layered shadow + faint top-edge specular on the green surface */
+.header {
+  box-shadow:
+    0 4px 10px rgba(18, 46, 34, 0.18),
+    0 12px 28px rgba(18, 46, 34, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.09);
+}
+
+/* Cards — two-layer shadow: close contact shadow + soft ambient lift */
+.card {
+  box-shadow:
+    0 1px 3px rgba(22, 46, 35, 0.07),
+    0 6px 18px rgba(22, 46, 35, 0.07);
+  border: 1px solid rgba(22, 46, 35, 0.08);
+}
+
+/* Stat cards inherit .card but override for the tighter radius context */
+.stat-card {
+  box-shadow:
+    0 1px 3px rgba(22, 46, 35, 0.06),
+    0 5px 14px rgba(22, 46, 35, 0.07);
+}
+
+/* Bottom nav — two-layer upward shadow, greenish cast, crisper top border */
+.nav {
+  box-shadow:
+    0 -1px 4px rgba(18, 44, 32, 0.07),
+    0 -8px 24px rgba(18, 44, 32, 0.11);
+  border-top: 1px solid rgba(22, 46, 35, 0.10);
+}
+
+/* FAB — layered drop + inset top highlight for a "raised button" feel */
+.fab {
+  box-shadow:
+    0 3px 8px rgba(18, 46, 34, 0.22),
+    0 10px 22px rgba(18, 46, 34, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+/* Active nav icon — inset top highlight makes the pill feel lit from above */
+.nav-btn.active .icon {
+  box-shadow:
+    0 3px 10px rgba(18, 46, 34, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+/* Active tab — crisper two-layer lift, barely-there top border highlight */
+.tab.active {
+  box-shadow:
+    0 1px 3px rgba(22, 46, 35, 0.08),
+    0 4px 12px rgba(22, 46, 35, 0.10);
+  border-color: rgba(22, 46, 35, 0.11);
+}
+
+/* ── Active & selected state refinement patch ────────────────────────────
+   Improves contrast between active and inactive states for nav items,
+   tabs, and the primary button press state. Visual-only — no layout,
+   sizing, or logic changes. Appended last; wins the cascade.
+   ─────────────────────────────────────────────────────────────────────── */
+
+/* Active nav label — bolder weight makes it legible at 10–11px vs inactive */
+.nav-btn.active {
+  color: #1a4f3a;
+  font-weight: 700;
+}
+
+/* Active nav icon — deeper gradient so it reads clearly against the
+   light #edf4f0 inactive pill without going dark or muddy */
+.nav-btn.active .icon {
+  background: linear-gradient(155deg, #1a4f3a 0%, #256150 100%);
+  box-shadow:
+    0 2px 6px rgba(18, 46, 34, 0.22),
+    0 5px 14px rgba(18, 46, 34, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* Active tab — green tint instead of plain white so it reads as selected
+   even when sitting on a white card; bolder label for extra pop */
+.tab.active {
+  background: #eef8f3;
+  color: #1a4f3a;
+  font-weight: 700;
+  border-color: rgba(26, 79, 58, 0.18);
+  box-shadow:
+    0 1px 3px rgba(22, 46, 35, 0.08),
+    0 4px 12px rgba(22, 46, 35, 0.11);
+}
+
+/* btn-primary press state — brightness dip + shadow collapse makes the
+   tap feel physically satisfying rather than invisible */
+.btn-primary:active {
+  filter: brightness(0.93);
+  transform: translateY(1px);
+  box-shadow:
+    0 1px 3px rgba(18, 46, 34, 0.18),
+    0 3px 8px rgba(18, 46, 34, 0.14);
+  transition: filter 0.08s, transform 0.08s, box-shadow 0.08s;
+}
+
+/* ── Dashboard (Today) visual hierarchy patch ────────────────────────────
+   Scoped entirely to #section-today. Corrects the prior dead rules that
+   used #section-dashboard (wrong ID). Surgical visual-only overrides —
+   no layout, logic, or sizing changes. Appended last; wins the cascade.
+   ─────────────────────────────────────────────────────────────────────── */
+
+/* Hero card — layered shadow + faint specular rim; corrects dead prior rule */
+#section-today .dashboard-hero {
+  padding: 20px;
+  box-shadow:
+    0 6px 16px rgba(18, 50, 36, 0.20),
+    0 18px 36px rgba(18, 50, 36, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+
+/* Stats row: values bigger and tighter, labels quieter */
+#section-today .stat-val {
+  font-size: 26px;
+  letter-spacing: -0.4px;
+  line-height: 1;
+}
+
+#section-today .stat-label {
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  margin-top: 5px;
+  color: #8ca49a;
+}
+
+#section-today .stat-card {
+  padding: 16px 10px;
+}
+
+/* Card titles within dashboard — bolder, with a hairline rule underneath
+   to create a clear shelf between title and content */
+#section-today .card > .card-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.9px;
+  color: #7a9b8e;
+  margin-bottom: 12px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid rgba(22, 46, 35, 0.07);
+}
+
+/* Next Check-in & Next Clean: glance cards — title a touch lighter
+   so content (the actual data) commands more attention */
+#section-today .dashboard-next-checkin .card-title,
+#section-today .dashboard-next-clean .card-title {
+  color: #92aca2;
+  letter-spacing: 1px;
+}
+
+/* Calendar card — softer border so it doesn't compete with data cards */
+#section-today .dashboard-calendar {
+  border-color: rgba(22, 46, 35, 0.06);
+}
+
+/* ── Quick Add overlay ───────────────────────────────────────────────────
+   Strict layout pass. One parent menu, one action column, one close row.
+   No arc offsets. No overlap. Equal spacing throughout.
+   ─────────────────────────────────────────────────────────────────────── */
+
+/* Full-screen blurred backdrop */
+#quick-add-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 98;
+  background: rgba(14, 32, 24, 0.48);
+  backdrop-filter: blur(8px) saturate(0.82);
+  -webkit-backdrop-filter: blur(8px) saturate(0.82);
+}
+
+#quick-add-overlay.open {
+  display: block;
+}
+
+/* ── Menu container ──────────────────────────────────────────────────────
+   Anchored to bottom-right, well inset from edges.
+   Flex column: action list on top, close row below.
+   Gap between them is explicit and controlled.
+   ─────────────────────────────────────────────────────────────────────── */
+#quick-add-menu {
+  position: absolute;
+  bottom: calc(162px + env(safe-area-inset-bottom));
+  right: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: qa-rise 0.26s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+@keyframes qa-rise {
+  from { opacity: 0; transform: translateY(18px) scale(0.92); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* ── Action list ─────────────────────────────────────────────────────────
+   Three equal bubbles, same width, equal gap, centered column.
+   ─────────────────────────────────────────────────────────────────────── */
+#qa-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Each bubble button */
+.qa-bubble {
+  width: 80px;         /* fixed width so all labels center identically */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Circle — all three the same */
+.qa-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 25px;
+  box-shadow:
+    0 2px 6px rgba(14, 34, 24, 0.16),
+    0 8px 20px rgba(14, 34, 24, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  transition: transform 0.14s cubic-bezier(0.32, 0.72, 0, 1),
+              box-shadow 0.14s;
+}
+
+.qa-bubble:active .qa-icon {
+  transform: scale(0.90);
+  box-shadow:
+    0 1px 3px rgba(14, 34, 24, 0.14),
+    0 3px 8px rgba(14, 34, 24, 0.12);
+}
+
+/* Label — centered under bubble, never clipped */
+.qa-label {
+  width: 80px;
+  text-align: center;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  letter-spacing: 0.15px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── FAB — keep rotation as extra affordance ─────────────────────────── */
+.fab {
+  transition: transform 0.26s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.fab.qa-open {
+  transform: rotate(45deg);
+  z-index: 99;
+}
+
+/* ── Dashboard hierarchy pass ────────────────────────────────────────────
+   Calendar card: utility panel weight, not headline card weight.
+   Hero occupancy: de-emphasised — the stats row owns headline KPIs.
+   ─────────────────────────────────────────────────────────────────────── */
+
+/* Calendar — smaller padding, quieter shadow, secondary card-title */
+#section-today .dashboard-calendar {
+  box-shadow:
+    0 1px 3px rgba(22, 46, 35, 0.05),
+    0 4px 10px rgba(22, 46, 35, 0.05);
+  border-color: rgba(22, 46, 35, 0.06);
+}
+
+#section-today .dashboard-calendar .card-title {
+  font-size: 9px;
+  color: #a0b8ae;
+}
+
+/* Hero occupancy: visually quieter than the three property facts
+   so it doesn't compete with the stats row below */
+#stat-occupancy2 {
+  font-size: 15px !important;
+  opacity: 0.75;
+}
+
+/* ── Dashboard section spacing pass ──────────────────────────────────────
+   Removed "This Week" card (hidden via display:none in HTML).
+   Tighten the stack gap slightly and give each card more internal
+   breathing room so the reduced set of cards doesn't feel crowded.
+   Scoped to #section-today only.
+   ─────────────────────────────────────────────────────────────────────── */
+
+#section-today.section-stack {
+  gap: 14px;
+}
+
+/* Hero — slightly taller bottom padding so the property facts feel settled */
+#section-today .dashboard-hero {
+  padding-bottom: 22px;
+}
+
+/* Owner Insights and operational cards: a touch more internal padding */
+#section-today .card:not(.dashboard-hero):not(.dashboard-calendar) {
+  padding: 18px;
+}
+
+/* Next Check-in / Next Clean: clear title-to-content separation */
+#section-today .dashboard-next-checkin,
+#section-today .dashboard-next-clean {
+  padding: 16px 18px;
+}
+
+/* Calendar: stays compact — less padding, no extra gap */
+#section-today .dashboard-calendar {
+  padding: 14px 16px;
+}
+
+/* ── Dashboard: collapse empty placeholder divs out of flex gap ──────────
+   #dashboard-product-guidance and #dashboard-plan-nudges are empty by
+   default; as flex children they still consume gap spacing even at zero
+   height. :empty removes them from flow so no phantom gap appears between
+   Owner Insights and the alerts card.
+   ─────────────────────────────────────────────────────────────────────── */
+#dashboard-product-guidance:empty,
+#dashboard-plan-nudges:empty {
+  display: none;
+}
+
+/* Collapse cleaner alert slot when empty (no actions needed) */
+#dashboard-cleaner-alert:empty {
+  display: none;
+}
+
+/* ── Calendar booking preview — isolated to dashboard calendar only ──────
+   Compact bottom sheet with blurred backdrop. No changes to main modals.
+   ─────────────────────────────────────────────────────────────────────── */
+
+#cal-preview-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  background: rgba(14, 32, 24, 0.36);
+  backdrop-filter: blur(4px) saturate(0.9);
+  -webkit-backdrop-filter: blur(4px) saturate(0.9);
+}
+
+#cal-preview-sheet {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 151;
+  max-width: 430px;
+  margin: 0 auto;
+  background: #fff;
+  border-radius: 22px 22px 0 0;
+  box-shadow:
+    0 -4px 16px rgba(18, 46, 34, 0.12),
+    0 -16px 40px rgba(18, 46, 34, 0.10);
+  padding: 0 20px calc(28px + env(safe-area-inset-bottom));
+  transform: translateY(100%);
+  transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+#cal-preview-handle-row {
+  display: flex;
+  justify-content: center;
+  padding: 14px 0 12px;
+}
+
+#cal-preview-sheet.open {
+  transform: translateY(0);
+}
+
+#cal-preview-backdrop.open {
+  display: block;
+}
+
+#cal-preview-content {
+  padding-bottom: 4px;
+}
+
+/* Preview typography — consistent with app but compact */
+.cp-name {
+  font-family: 'DM Serif Display', serif;
+  font-size: 19px;
+  color: var(--text);
+  margin-bottom: 3px;
+  line-height: 1.2;
+}
+
+.cp-dates {
+  font-size: 13px;
+  color: var(--text-soft);
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+.cp-meta-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.cp-chip {
+  display: inline-flex;
+  align-items: center;
+  background: var(--mist);
+  border-radius: 20px;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--forest);
+  gap: 4px;
+}
+
+.cp-payout {
+  font-family: 'DM Serif Display', serif;
+  font-size: 22px;
+  color: var(--forest);
+  margin-bottom: 16px;
+  line-height: 1;
+}
+
+.cp-payout-label {
+  font-size: 11px;
+  color: var(--text-soft);
+  margin-bottom: 14px;
+  margin-top: -10px;
+}
+
+.cp-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.cp-btn-primary {
+  flex: 1;
+  background: var(--forest);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  padding: 13px 16px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: filter 0.1s;
+}
+
+.cp-btn-primary:active { filter: brightness(0.92); }
+
+.cp-btn-ghost {
+  background: var(--mist);
+  color: var(--text-soft);
+  border: none;
+  border-radius: 12px;
+  padding: 13px 16px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: filter 0.1s;
+}
+
+.cp-btn-ghost:active { filter: brightness(0.95); }
+
+/* ── Dashboard calendar range refinement (v3) ────────────────────────────
+   ::before strips, 26px tall in 40px cells = 7px breathing room each side.
+
+   booked-start: fill covers right half (left:50% → right:0).
+     The LEFT edge is the range terminus → rounded left: border-radius 13px 0 0 13px.
+     The RIGHT edge connects to mid-days → flat.
+
+   booked-mid: fill covers full width (left:0 → right:0). Flat both sides.
+
+   booked-end: fill covers left half (left:0 → right:50%).
+     The LEFT edge connects from mid-days → flat.
+     The RIGHT edge is the range terminus → rounded right: border-radius 0 13px 13px 0.
+   ─────────────────────────────────────────────────────────────────────── */
+
+#section-today .cal-day {
+  height: 40px;
+}
+
+#section-today .cal-day.booked-start,
+#section-today .cal-day.booked-mid,
+#section-today .cal-day.booked-end {
+  background: none !important;
+}
+
+#section-today .cal-day.booked-start::before,
+#section-today .cal-day.booked-mid::before,
+#section-today .cal-day.booked-end::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 26px;
+  background: rgba(31, 88, 62, 0.11);
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Check-in day: right half, round the LEFT (start terminus) end */
+#section-today .cal-day.booked-start::before {
+  left: 50%;
+  right: 0;
+  border-radius: 13px 0 0 13px;
+}
+
+/* Middle days: full width, no rounding */
+#section-today .cal-day.booked-mid::before {
+  left: 0;
+  right: 0;
+  border-radius: 0;
+}
+
+/* Check-out day: left half, round the RIGHT (end terminus) end */
+#section-today .cal-day.booked-end::before {
+  left: 0;
+  right: 50%;
+  border-radius: 0 13px 13px 0;
+}
+
+/* Single-night stay: no fill strip needed */
+#section-today .cal-day.booked-start.booked-end::before {
+  display: none;
+}
+
+/* Check-in / check-out circles above the strip */
+#section-today .cal-day.booked-start .cal-num,
+#section-today .cal-day.booked-end .cal-num,
+#section-today .cal-day.booked-start.booked-end .cal-num {
+  position: relative;
+  z-index: 1;
+  background: var(--forest);
+  color: #fff;
+  font-weight: 700;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(18, 46, 34, 0.20);
+}
+
+/* Mid-day numbers above the strip */
+#section-today .cal-day.booked-mid .cal-num {
+  position: relative;
+  z-index: 1;
+  color: #1d5a42;
+  font-weight: 500;
+}
+
+#section-today .cal-day-label {
+  padding: 4px 0 6px;
+  font-size: 9.5px;
+  color: #9ab2a8;
+  letter-spacing: 0.3px;
+}
+
+/* Bookings header — polish section-cta button and heading alignment */
+#section-bookings .section-heading {
+  align-items: center;
+}
+#section-bookings .section-heading p {
+  margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+#section-bookings .section-cta {
+  border-radius: 99px;
+  min-height: 34px;
+  padding: 7px 15px;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
 }

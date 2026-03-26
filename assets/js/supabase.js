@@ -351,6 +351,7 @@ async function loadCleansFromCloud() {
       cleanerConfirmed: c.cleaner_confirmed || false,
       cleanerDeclined:  c.cleaner_declined  || false,
       notified:         c.notified     || false,
+      reminderSent:     c.reminder_sent || false,
       assignedAt:       c.assigned_at  || null,
       confirmedAt:      c.confirmed_at || null,
       notes:            c.notes        || ''
@@ -379,6 +380,7 @@ async function saveCleanToCloud(clean) {
       cleaner_confirmed:clean.cleanerConfirmed || false,
       cleaner_declined: clean.cleanerDeclined  || false,
       notified:         clean.notified         || false,
+      reminder_sent:    clean.reminderSent     || false,
       assigned_at:      clean.assignedAt  || null,
       confirmed_at:     clean.confirmedAt || null,
       notes:            clean.notes       || '',

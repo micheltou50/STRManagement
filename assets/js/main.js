@@ -529,6 +529,8 @@ function reloadInMemoryData() {
   expenses    = JSON.parse(localStorage.getItem(lsKey('expenses'))    || '[]');
   maintenance = JSON.parse(localStorage.getItem(lsKey('maintenance')) || '[]');
   inventory   = JSON.parse(localStorage.getItem(lsKey('inventory'))   || '[]');
+  // Keep clean records in sync with current booking identity data
+  _normalizeBookingCleanState();
 }
 
 const _actionLocks = Object.create(null);
@@ -567,6 +569,14 @@ function _normalizeBookingCleanState() {
       const match = bookings.find(b => _normName(b.name) === _normName(c.guestName) && String(b.checkout || '').slice(0, 10) === String(c.date || '').slice(0, 10));
       if (match) {
         c.bookingId = match.id;
+        cleansChanged = true;
+      }
+    }
+    // Refresh stale guestName snapshot if clean is linked to a booking
+    if (c && c.bookingId) {
+      const linked = bookings.find(b => String(b.id) === String(c.bookingId) || (b._cloudId && String(b._cloudId) === String(c.bookingId)));
+      if (linked && linked.name && _normName(linked.name) !== _normName(c.guestName)) {
+        c.guestName = linked.name;
         cleansChanged = true;
       }
     }
@@ -752,13 +762,15 @@ async function quickAssignLastCleaner(bookingId) {
   const lockKey = 'quickAssign:' + String(bookingId);
   if (!_acquireLock(_actionLocks, lockKey)) return;
   try {
-    const booking = bookings.find(b => b.id === bookingId);
+    const booking = bookings.find(b => String(b.id) === String(bookingId));
     if (!booking) return;
+    const preferred = _getSuggestedCleanerForBooking(booking);
+    const confirmed = await showAppModal({ title: '⚡ Assign to last cleaner?', msg: `Assign ${preferred ? preferred.name : 'last cleaner'} to ${booking.name} (checkout ${fmt(booking.checkout)})?`, confirmText: 'Assign', cancelText: 'Cancel' });
+    if (!confirmed) return;
     if (booking.status === 'cancelled' || new Date(booking.checkout) < new Date()) {
       showBanner('Past/cancelled booking — cleaner assignment is disabled', 'warn');
       return;
     }
-    const preferred = _getSuggestedCleanerForBooking(booking);
     if (!preferred) {
       showBanner('⚠ No preferred cleaner yet. Assign once from booking details first.', 'warn');
       return;
@@ -794,19 +806,27 @@ async function quickAssignLastCleaner(bookingId) {
     _normalizeBookingCleanState();
     save();
     if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
+    showBanner('✓ Assigned to ' + preferred.name + ' — awaiting cleaner response', 'ok');
     renderBookings();
     renderNotes();
     populateSelects();
     if (currentSection === 'cleaning') renderCleaning();
-    showBanner('✓ Assigned to ' + preferred.name + (newClean.cleanerConfirmed ? ' (already confirmed)' : ' — awaiting cleaner response'), 'ok');
-    const notify = await _sendCleanerAssignmentNotifications(booking, preferred, booking.checkout, 'quick-assign-' + bookingId);
-    if (notify.emailSent) showBanner('✉️ Email sent to ' + preferred.name, 'ok');
-    else if (!notify.pushSent && !notify.emailAttempted) showBanner('⚠ Assigned, but no cleaner email or push subscription is configured', 'warn');
+    // Send push + email silently (same as assignCleanerToBooking)
+    _sendCleanerAssignmentNotifications(booking, preferred, booking.checkout, 'quick-assign-' + bookingId)
+      .then(notify => {
+        if (notify.emailSent) showBanner('✉️ Email sent to ' + preferred.name, 'ok');
+      }).catch(() => {});
+    // Prompt to send SMS — same flow as regular assignment
+    showAppModal({ title: '💬 Send SMS?', msg: `Notify ${preferred.name} about this booking now?`, confirmText: 'Send SMS', cancelText: 'Later' })
+      .then(ok => {
+        if (ok) {
+          newClean.notified = true;
+          save();
+          openNotifyModal(newClean.id);
+        }
+      })
+      .catch(() => {});
   } finally {
-    if (saveBtn) {
-      saveBtn.disabled = false;
-      saveBtn.textContent = 'Save Assignment';
-    }
     _releaseLock(_actionLocks, lockKey);
   }
 }
@@ -1054,7 +1074,21 @@ function renderDashboard() {
     if (end <= start) return sum;
     return sum + Math.ceil((end - start) / 86400000);
   }, 0);
-  const occupancyNext30 = Math.max(0, Math.min(100, Math.round((bookedNightsNext30 / 30) * 100)));
+
+  // ── Monthly occupancy: booked nights in the current calendar month ────────
+  const thisMonth      = now.getMonth();
+  const thisYear       = now.getFullYear();
+  const daysThisMonth  = new Date(thisYear, thisMonth + 1, 0).getDate();
+  const monthStart     = new Date(thisYear, thisMonth, 1);
+  const monthEnd       = new Date(thisYear, thisMonth + 1, 1);
+  let bookedNightsMonth = 0;
+  activeBookings.forEach(b => {
+    if (!b.checkin || !b.checkout) return;
+    const ci = new Date(Math.max(new Date(b.checkin).getTime(), monthStart.getTime()));
+    const co = new Date(Math.min(new Date(b.checkout).getTime(), monthEnd.getTime()));
+    if (co > ci) bookedNightsMonth += Math.round((co - ci) / 86400000);
+  });
+  const occupancyThisMonth = Math.max(0, Math.min(100, Math.round((bookedNightsMonth / daysThisMonth) * 100)));
 
   const dayLoad = {};
   activeBookings.forEach(b => {
@@ -1084,41 +1118,50 @@ function renderDashboard() {
 
   const insightsEl = document.getElementById('dashboard-insights-content');
   if (insightsEl) {
-    const revenueCoverageText = (!upcomingBookings7.length && !upcomingBookings30.length)
-      ? 'No upcoming bookings in the next 30 days yet'
-      : (hostPayoutCoverage7 === upcomingBookings7.length && hostPayoutCoverage30 === upcomingBookings30.length)
-      ? 'Based on available upcoming booking payout values'
-      : `Estimated from available booking payout data (7d ${hostPayoutCoverage7}/${upcomingBookings7.length}, 30d ${hostPayoutCoverage30}/${upcomingBookings30.length})`;
-    const payoutCoverageText = !upcomingBookings.length
-      ? 'Estimated upcoming payout'
-      : netPayoutCoverage === upcomingBookings.length
-      ? 'Estimated upcoming payout'
-      : `Estimated upcoming payout from available net payout data (${netPayoutCoverage}/${upcomingBookings.length})`;
-    insightsEl.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <div style="background:var(--mist);border-radius:8px;padding:10px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:0.4px">Next 7 days</div><div style="font-size:16px;font-weight:700;color:var(--forest)">$${Math.round(upcomingRevenue7).toLocaleString()}</div></div>
-      <div style="background:var(--mist);border-radius:8px;padding:10px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:0.4px">Next 30 days</div><div style="font-size:16px;font-weight:700;color:var(--forest)">$${Math.round(upcomingRevenue30).toLocaleString()}</div></div>
-      <div style="background:var(--mist);border-radius:8px;padding:10px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:0.4px">Upcoming bookings</div><div style="font-size:16px;font-weight:700;color:var(--forest)">${upcomingBookings.length}</div></div>
-      <div style="background:var(--mist);border-radius:8px;padding:10px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:0.4px">Upcoming cleans</div><div style="font-size:16px;font-weight:700;color:var(--forest)">${upcomingCleans.length}</div></div>
-    </div>
-    <div style="margin-top:10px;font-size:12px;color:var(--text-soft)">${revenueCoverageText}</div>
-    <div style="margin-top:4px;font-size:12px;color:var(--text-soft)">${payoutCoverageText}: <strong style="color:var(--forest)">$${Math.round(upcomingPayoutEstimate).toLocaleString()}</strong> · 30-day occupancy indicator: <strong style="color:var(--forest)">${occupancyNext30}%</strong></div>`;
+    // Forward-looking revenue: lead with the 30-day figure, support with 7-day
+    const rev30Str = `$${Math.round(upcomingRevenue30).toLocaleString()}`;
+    const rev7Str  = `$${Math.round(upcomingRevenue7).toLocaleString()}`;
+    const payoutStr = `$${Math.round(upcomingPayoutEstimate).toLocaleString()}`;
+    const coverageNote = (!upcomingBookings7.length && !upcomingBookings30.length)
+      ? 'No upcoming bookings in the next 30 days'
+      : (hostPayoutCoverage7 < upcomingBookings7.length || hostPayoutCoverage30 < upcomingBookings30.length)
+      ? `Partial data (${hostPayoutCoverage30}/${upcomingBookings30.length} bookings have payout figures)`
+      : '';
+    insightsEl.innerHTML = `
+      <div style="font-size:22px;font-weight:700;color:var(--forest);letter-spacing:-0.3px;line-height:1">${rev30Str}</div>
+      <div style="font-size:12px;color:var(--text-soft);margin-top:4px;line-height:1.4">Expected payout · next 30 days</div>
+      <div style="margin-top:12px;display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:12px;color:var(--text-soft);line-height:1.4">Next 7 days <strong style="color:var(--forest)">${rev7Str}</strong> &nbsp;·&nbsp; Est. total payout <strong style="color:var(--forest)">${payoutStr}</strong></div>
+        <div style="font-size:12px;color:var(--text-soft);line-height:1.4">${upcomingBookings.length} upcoming booking${upcomingBookings.length!==1?'s':''} &nbsp;·&nbsp; ${upcomingCleans.length} clean${upcomingCleans.length!==1?'s':''} scheduled</div>
+        <div style="font-size:12px;color:var(--text-soft);line-height:1.4">Monthly Occ. <strong style="color:var(--forest)">${occupancyThisMonth}%</strong> &nbsp;(${now.toLocaleString('en-AU', {month:'long'})} ${thisYear})</div>
+      </div>
+      ${coverageNote ? `<div style="margin-top:8px;font-size:11px;color:var(--stone);line-height:1.4">${coverageNote}</div>` : ''}`;
   }
+
+  // ── Cleaner Actions — highest-priority alert, rendered before calendar ────
+  const cleanerAlertEl = document.getElementById('dashboard-cleaner-alert');
+  if (cleanerAlertEl) cleanerAlertEl.innerHTML = '';
 
   const weekEl = document.getElementById('dashboard-week-content');
   if (weekEl) {
     const busyText = busyDays.length
-      ? busyDays.slice(0, 2).map(([d, c]) => `${safeDayLabel(d)} (${c})`).join(' · ')
-      : 'Week looks well balanced';
+      ? busyDays.slice(0, 2).map(([d, c]) => `${safeDayLabel(d)} (${c})`).join(', ')
+      : null;
     const multiCleansText = multiCleans.length
-      ? multiCleans.map(([d, c]) => `${safeDayLabel(d)} (${c} cleans)`).join(' · ')
-      : 'No stacked clean days';
-    weekEl.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
-      <div style="background:var(--mist);border-radius:8px;padding:9px 8px;text-align:center"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px">Arrivals</div><div style="font-size:18px;font-weight:700;color:var(--forest)">${checkinsThisWeek.length}</div></div>
-      <div style="background:var(--mist);border-radius:8px;padding:9px 8px;text-align:center"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px">Departures</div><div style="font-size:18px;font-weight:700;color:var(--forest)">${checkoutsThisWeek.length}</div></div>
-      <div style="background:var(--mist);border-radius:8px;padding:9px 8px;text-align:center"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px">Cleans due</div><div style="font-size:18px;font-weight:700;color:var(--forest)">${cleansThisWeek.length}</div></div>
-    </div>
-    <div style="font-size:12px;color:var(--text-soft);margin-bottom:4px">⚡ Busy days: ${busyText}</div>
-    <div style="font-size:12px;color:var(--text-soft)">🧹 Multi-clean days: ${multiCleansText}</div>`;
+      ? multiCleans.map(([d, c]) => `${safeDayLabel(d)} (${c} cleans)`).join(', ')
+      : null;
+    // Pill-style counts: compact, inline, lighter weight than the stats row
+    const pill = (n, label) =>
+      `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--mist);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:600;color:var(--forest)">${n} <span style="font-weight:400;color:var(--text-soft)">${label}</span></span>`;
+    weekEl.innerHTML = `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        ${pill(checkinsThisWeek.length, 'arrival' + (checkinsThisWeek.length !== 1 ? 's' : ''))}
+        ${pill(checkoutsThisWeek.length, 'departure' + (checkoutsThisWeek.length !== 1 ? 's' : ''))}
+        ${pill(cleansThisWeek.length, 'clean' + (cleansThisWeek.length !== 1 ? 's' : ''))}
+      </div>
+      ${busyText ? `<div style="font-size:12px;color:var(--text-soft);margin-bottom:3px">⚡ Busy: ${busyText}</div>` : ''}
+      ${multiCleansText ? `<div style="font-size:12px;color:var(--text-soft)">🧹 Stacked cleans: ${multiCleansText}</div>` : ''}
+      ${!busyText && !multiCleansText ? `<div style="font-size:12px;color:var(--text-soft)">Week looks well balanced</div>` : ''}`;
   }
 
   const usageSnapshot = getUsageSnapshotLite();
@@ -1126,6 +1169,7 @@ function renderDashboard() {
   renderOnboardingGuidance(usageSnapshot);
   renderPlanNudges(usageSnapshot, planState);
 
+  // ── Next Check-in card — tappable shortcut to booking detail ─────────────
   const upcoming = [...bookings]
     .filter(b => b.status !== 'cancelled' && b.checkin && parseLocalDayStart(b.checkin) >= todayStart)
     .sort((a, b) => parseLocalDayStart(a.checkin) - parseLocalDayStart(b.checkin));
@@ -1133,14 +1177,17 @@ function renderDashboard() {
   if (nc) {
     if (upcoming.length > 0) {
       const b = upcoming[0];
-      nc.innerHTML = `<div class="booking-item" style="border:none;padding:0">
+      const detailId = b._cloudId || b.id;
+      nc.innerHTML = `<div class="booking-item" style="border:none;padding:0;cursor:pointer" onclick="showDetail('${detailId}')">
         ${platformIcon(b.platform, 42)}
         <div class="booking-info">
           <div class="booking-name">${b.name}</div>
           <div class="booking-dates">${fmt(b.checkin)} → ${fmt(b.checkout)}</div>
           <div class="booking-guests">${b.guests} guests · ${b.nights} night${b.nights!==1?'s':''}</div>
         </div>
-        <div class="booking-right"><div class="booking-amount">$${Number(b.hostPayout||0).toLocaleString()}</div></div>
+        <div class="booking-right">
+          <div class="booking-amount">$${Number(b.hostPayout||0).toLocaleString()}</div>
+        </div>
       </div>`;
     } else {
       nc.innerHTML = '<div style="color:var(--text-soft);font-size:13px;">No upcoming bookings</div>';
@@ -1150,10 +1197,15 @@ function renderDashboard() {
   const localNow = new Date();
   const todayStr = localNow.getFullYear() + '-' + String(localNow.getMonth()+1).padStart(2,'0') + '-' + String(localNow.getDate()).padStart(2,'0');
 
-  // Next clean: merge cleans array + confirmed bookings, pick soonest
+  // ── Next Clean card — carry bookingId so the row can open booking detail ──
   const fromCleans = cleans
     .filter(c => !c.done && c.date && c.date >= todayStr)
-    .map(c => ({ date: c.date, name: c.cleaner, sub: 'After ' + (c.guestName||'') }));
+    .map(c => ({
+      date: c.date,
+      name: c.cleaner,
+      sub: 'After ' + (c.guestName || ''),
+      bookingId: c.bookingId || null
+    }));
   const fromBookings = bookings
     .filter(b => b.checkout && b.checkout >= todayStr)
     .map(b => ({ booking: b, state: getBookingCleanerState(b) }))
@@ -1161,19 +1213,42 @@ function renderDashboard() {
     .filter(({ state }) => !state.clean || !!state.clean.done)
     .map(({ booking, state }) => {
       const cl = state.clean;
-      return { date: cl ? cl.date : booking.checkout, name: cl ? cl.cleaner : '—', sub: 'After ' + booking.name };
+      return {
+        date: cl ? cl.date : booking.checkout,
+        name: cl ? cl.cleaner : '—',
+        sub: 'After ' + booking.name,
+        bookingId: booking._cloudId || booking.id
+      };
     });
   const allNextCleans = [...fromCleans, ...fromBookings]
-    .filter((v,i,a) => a.findIndex(x=>x.sub===v.sub)===i) // dedupe by guest
-    .sort((a,b) => a.date.localeCompare(b.date));
-  const nextClean = allNextCleans;
+    .filter((v, i, a) => a.findIndex(x => x.sub === v.sub) === i) // dedupe by guest
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   const ncc = document.getElementById('next-clean-content');
-  // Alerts: low stock + open maintenance
+
+  // ── Alerts: low stock + open maintenance (passive alerts, below calendar) ─
   const alertsEl = document.getElementById('dashboard-alerts');
   const lowStock = inventory.filter(i => i.stock <= i.threshold);
   const openIssues = maintenance.filter(m => m.status === 'open' || m.status === 'inprogress');
-  const awaitingResponses = cleans.filter(c => isAwaitingCleanerResponse(c, localNow));
+  // Match the Cleaning tab's totalActionCount: awaiting responses + unassigned/declined
+  const awaitingResponses = cleans.filter(c => isAwaitingCleanerResponse(c, localNow) && !_isCleanLinkedToCancelledBooking(c));
+  const unassignedOrDeclined = bookings.filter(b => {
+    if (b.status === 'cancelled' || new Date(b.checkout) < localNow) return false;
+    const st = getBookingCleanerState(b).key;
+    return st === 'unassigned' || st === 'declined';
+  });
+  const totalCleanerActions = awaitingResponses.length + unassignedOrDeclined.length;
+
+  // Cleaner alert: own element, before calendar, hidden when zero
+  if (cleanerAlertEl) {
+    cleanerAlertEl.innerHTML = totalCleanerActions > 0
+      ? `<div class="card" style="border-left:3px solid var(--amber);padding:10px 14px;cursor:pointer" onclick="jumpToCleaningActionNeeded()">
+          <div style="font-weight:600;font-size:13px;margin-bottom:4px">⏳ Cleaner Actions Needed (${totalCleanerActions})</div>
+          <div style="font-size:12px;color:var(--text-soft)">Tap to open Action tab</div>
+        </div>`
+      : '';
+  }
+
   let alertsHtml = '';
   if (lowStock.length) alertsHtml += `<div class="card" style="border-left:3px solid var(--amber);padding:10px 14px">
     <div style="font-weight:600;font-size:13px;margin-bottom:6px">📦 Low Stock (${lowStock.length})</div>
@@ -1183,20 +1258,27 @@ function renderDashboard() {
     <div style="font-weight:600;font-size:13px;margin-bottom:6px">🔧 Open Issues (${openIssues.length})</div>
     ${openIssues.map(m=>`<div style="font-size:12px;color:var(--text-soft);margin-bottom:2px">${m.status==='inprogress'?'🔄':'🔴'} ${m.description}</div>`).join('')}
   </div>`;
-  if (awaitingResponses.length) alertsHtml += `<div class="card" style="border-left:3px solid var(--amber);padding:10px 14px">
-    <div style="font-weight:600;font-size:13px;margin-bottom:6px">⏳ Cleaner Responses Needed (${awaitingResponses.length})</div>
-    <div style="font-size:12px;color:var(--text-soft)">Open Cleaning → Action to send reminders or reassign quickly.</div>
-  </div>`;
   if (alertsEl) alertsEl.innerHTML = alertsHtml;
 
-  if (ncc && nextClean.length > 0) {
-    const c = nextClean[0];
+  // ── Next Clean render — tappable shortcut to booking detail if available ──
+  if (ncc && allNextCleans.length > 0) {
+    const c = allNextCleans[0];
     const days = Math.ceil((new Date(c.date) - localNow) / 86400000);
-    const urgClass = days<=0?'urgent':days<=1?'urgent':days<=3?'soon':'ok';
-    const urgText = days<=0?'Today!':days===1?'Tomorrow':`In ${days} days`;
-    ncc.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center">
-      <div><div style="font-weight:600;font-size:14px">${c.name}</div>
-      <div style="font-size:12px;color:var(--text-soft)">${c.sub} · ${fmt(c.date)}</div></div>
+    const urgClass = days <= 0 ? 'urgent' : days <= 1 ? 'urgent' : days <= 3 ? 'soon' : 'ok';
+    const urgText = days <= 0 ? 'Today!' : days === 1 ? 'Tomorrow' : `In ${days} days`;
+    // Resolve booking ID: prefer explicit bookingId, fall back to name match
+    const linkedBookingId = c.bookingId ||
+      (bookings.find(bk => bk.name && c.sub && c.sub.includes(bk.name))
+        ? (bk => bk._cloudId || bk.id)(bookings.find(bk => bk.name && c.sub && c.sub.includes(bk.name)))
+        : null);
+    const clickAttr = linkedBookingId
+      ? `onclick="showDetail('${linkedBookingId}')" style="cursor:pointer"`
+      : `onclick="jumpToCleaningActionNeeded()" style="cursor:pointer"`;
+    ncc.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center" ${clickAttr}>
+      <div>
+        <div style="font-weight:600;font-size:14px">${c.name}</div>
+        <div style="font-size:12px;color:var(--text-soft)">${c.sub} · ${fmt(c.date)}</div>
+      </div>
       <div class="clean-urgency ${urgClass}">${urgText}</div>
     </div>`;
   } else if (ncc) {
@@ -1208,24 +1290,34 @@ function calPrev() { calMonth--; if (calMonth<0){calMonth=11;calYear--;} renderC
 function calNext() { calMonth++; if (calMonth>11){calMonth=0;calYear++;} renderCalendar(); updateCalStats(); }
 
 function updateCalStats() {
-  const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
-  let bookedDays = 0;
+  // ── Annual occupancy: booked nights across the full calYear ──────────────
+  const isLeap = (calYear % 4 === 0 && calYear % 100 !== 0) || calYear % 400 === 0;
+  const daysInYear = isLeap ? 366 : 365;
+  const yearStart = new Date(calYear, 0, 1);
+  const yearEnd   = new Date(calYear + 1, 0, 1);
+  let bookedNightsYear = 0;
   bookings.filter(b => b.status !== 'cancelled').forEach(b => {
-    const ci = new Date(b.checkin), co = new Date(b.checkout);
-    for (let d = new Date(ci); d < co; d.setDate(d.getDate()+1))
-      if (d.getMonth()===calMonth && d.getFullYear()===calYear) bookedDays++;
+    if (!b.checkin || !b.checkout) return;
+    const ci = new Date(Math.max(new Date(b.checkin).getTime(), yearStart.getTime()));
+    const co = new Date(Math.min(new Date(b.checkout).getTime(), yearEnd.getTime()));
+    if (co > ci) bookedNightsYear += Math.round((co - ci) / 86400000);
   });
+  const annualOcc = Math.round((bookedNightsYear / daysInYear) * 100);
+
+  // ── Monthly revenue: bookings whose check-in falls in calMonth/calYear ───
   const monthRev = bookings.filter(b => {
     const d = new Date(b.checkin);
-    return b.status !== 'cancelled' && d.getMonth()===calMonth && d.getFullYear()===calYear;
-  }).reduce((s,b) => s+Number(b.hostPayout||0), 0);
-  const occ = Math.round((bookedDays/daysInMonth)*100);
+    return b.status !== 'cancelled' && d.getMonth() === calMonth && d.getFullYear() === calYear;
+  }).reduce((s, b) => s + Number(b.hostPayout || 0), 0);
+
   const occEl = document.getElementById('stat-occupancy');
   const revEl = document.getElementById('stat-revenue');
-  if (occEl) occEl.textContent = occ + '%';
+  if (occEl) occEl.textContent = annualOcc + '%';
   if (revEl) revEl.textContent = '$' + monthRev.toLocaleString();
+
+  // Hero card occupancy bubble — keep in sync with annual figure
   const o2 = document.getElementById('stat-occupancy2');
-  if (o2) o2.textContent = occ + '%';
+  if (o2) o2.textContent = annualOcc + '%';
 }
 
 function renderCalendar() {
@@ -1234,7 +1326,9 @@ function renderCalendar() {
   if (calTitle) calTitle.textContent = months[calMonth] + ' ' + calYear;
 
   // Tag each day: start = checkin, end = checkout, mid = in between
+  // Also map each booked day → booking id for the preview
   const starts = new Set(), ends = new Set(), mids = new Set();
+  const dayBooking = {}; // day → booking id
   bookings.filter(b => b.status !== 'cancelled').forEach(b => {
     if (!b.checkin || !b.checkout) return;
     const ci = new Date(b.checkin), co = new Date(b.checkout);
@@ -1246,6 +1340,7 @@ function renderCalendar() {
       if (isStart) starts.add(day);
       if (isEnd)   ends.add(day);
       if (!isStart && !isEnd) mids.add(day);
+      dayBooking[day] = b._cloudId || b.id;
     }
   });
 
@@ -1257,14 +1352,50 @@ function renderCalendar() {
   for (let i = 0; i < firstDay; i++) html += '<div class="cal-day"></div>';
 
   for (let d = 1; d <= daysInMonth; d++) {
-    const isToday   = d === now.getDate() && calMonth === now.getMonth() && calYear === now.getFullYear();
-    const isStart   = starts.has(d);
-    const isEnd     = ends.has(d);
-    const isMid     = mids.has(d);
-    const classes   = ['cal-day', isStart?'booked-start':'', isEnd?'booked-end':'', isMid?'booked-mid':'', isToday?'today':''].filter(Boolean).join(' ');
-    html += `<div class="${classes}"><span class="cal-num">${d}</span></div>`;
+    const isToday  = d === now.getDate() && calMonth === now.getMonth() && calYear === now.getFullYear();
+    const isStart  = starts.has(d);
+    const isEnd    = ends.has(d);
+    const isMid    = mids.has(d);
+    const isBooked = isStart || isEnd || isMid;
+    const classes  = ['cal-day', isStart?'booked-start':'', isEnd?'booked-end':'', isMid?'booked-mid':'', isToday?'today':''].filter(Boolean).join(' ');
+    const click    = isBooked ? ` onclick="openCalPreview('${dayBooking[d]}')" style="cursor:pointer"` : '';
+    html += `<div class="${classes}"${click}><span class="cal-num">${d}</span></div>`;
   }
   document.getElementById('cal-grid').innerHTML = html;
+}
+
+function openCalPreview(bookingId) {
+  const b = bookings.find(bk => bk._cloudId === bookingId || String(bk.id) === String(bookingId));
+  if (!b) return;
+  const content = document.getElementById('cal-preview-content');
+  if (!content) return;
+  const payout = Number(b.hostPayout || 0);
+  content.innerHTML = `
+    <div class="cp-name">${escHtml(b.name)}</div>
+    <div class="cp-dates">${fmt(b.checkin)} → ${fmt(b.checkout)}</div>
+    <div class="cp-meta-row">
+      <span class="cp-chip">👥 ${escHtml(String(b.guests))} guests</span>
+      <span class="cp-chip">🌙 ${escHtml(String(b.nights))} night${b.nights !== 1 ? 's' : ''}</span>
+      ${b.platform ? `<span class="cp-chip">${b.platform === 'Airbnb' ? '🏠' : b.platform === 'VRBO' ? '🏡' : '📋'} ${escHtml(b.platform)}</span>` : ''}
+    </div>
+    ${payout ? `<div class="cp-payout">$${payout.toLocaleString()}</div><div class="cp-payout-label">Host payout</div>` : ''}
+    <div class="cp-actions">
+      <button class="cp-btn-primary" onclick="closeCalPreview();showDetail('${b._cloudId || b.id}')">View booking</button>
+      <button class="cp-btn-ghost" onclick="closeCalPreview()">Close</button>
+    </div>`;
+  document.getElementById('cal-preview-backdrop').classList.add('open');
+  const sheet = document.getElementById('cal-preview-sheet');
+  sheet.style.display = 'block';
+  requestAnimationFrame(() => sheet.classList.add('open'));
+}
+
+function closeCalPreview() {
+  const sheet = document.getElementById('cal-preview-sheet');
+  const backdrop = document.getElementById('cal-preview-backdrop');
+  if (!sheet) return;
+  sheet.classList.remove('open');
+  if (backdrop) backdrop.classList.remove('open');
+  sheet.addEventListener('transitionend', () => { sheet.style.display = 'none'; }, { once: true });
 }
 
 function renderBookings(filter) {
@@ -1287,7 +1418,11 @@ function renderBookings(filter) {
 
   if (!filtered.length) {
     const hasAny = bookings.length > 0;
-    list.innerHTML = `<div class="card" style="text-align:center;padding:32px 16px"><div style="font-size:40px;margin-bottom:12px">📋</div><div style="font-weight:600;font-size:15px;margin-bottom:6px">${hasAny ? 'No ' + bookingFilter + ' bookings' : 'No bookings yet'}</div><div style="font-size:13px;color:var(--text-soft)">${hasAny ? 'Try switching tabs above' : 'Tap the + button to add your first booking'}</div></div>`;
+    const _emptyLabels = { upcoming: 'Nothing upcoming', completed: 'No past bookings', cancelled: 'No cancelled bookings', all: 'No bookings found' };
+    const _emptyHints  = { upcoming: 'Past and cancelled bookings live in other tabs', completed: 'Completed stays will appear here', cancelled: 'Cancelled bookings will appear here', all: 'Add a booking with the + button above' };
+    const _emptyTitle  = hasAny ? (_emptyLabels[bookingFilter] || 'No bookings found') : 'No bookings yet';
+    const _emptyHint   = hasAny ? (_emptyHints[bookingFilter]  || 'Try switching tabs above') : 'Tap + Add Booking above to get started';
+    list.innerHTML = `<div class="card" style="text-align:center;padding:40px 24px 36px"><div style="font-size:36px;margin-bottom:14px;opacity:0.45">📅</div><div style="font-weight:700;font-size:15px;color:var(--forest);margin-bottom:6px">${_emptyTitle}</div><div style="font-size:12.5px;color:var(--text-soft);line-height:1.5">${_emptyHint}</div></div>`;
     return;
   }
 
@@ -1301,17 +1436,16 @@ function renderBookings(filter) {
   }, {});
 
   list.innerHTML = Object.entries(grouped).map(([monthLabel, items]) => `
-    <div style="margin-bottom:12px">
-      <div style="font-size:12px;font-weight:700;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.5px;padding:0 2px 8px">${escHtml(monthLabel)}</div>
+    <div style="margin-bottom:4px">
+      <div style="font-size:11px;font-weight:700;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.9px;padding:16px 4px 8px">${escHtml(monthLabel)}</div>
       ${items.map(b => {
         const isCancelled = b.status === 'cancelled';
         const isHosting = !isCancelled && new Date(b.checkin)<=new Date() && new Date(b.checkout)>=new Date();
         const isPast = !isCancelled && new Date(b.checkout)<new Date();
         const statusClass = isCancelled ? 'status-cancelled' : isHosting ? 'status-upcoming' : isPast ? 'status-completed' : 'status-upcoming';
         const statusLabel = isCancelled ? '✕ Cancelled' : isHosting ? '🏡 Hosting' : isPast ? 'Past' : 'Upcoming';
-        const cs = getBookingCleanerState(b);
-        const cleanerChip = isCancelled ? '' : `<div style="font-size:10px;margin-top:3px;font-weight:600;color:${cs.tone==='ok'?'var(--moss)':cs.tone==='bad'?'var(--red)':'var(--amber)'}">🧹 ${escHtml(cs.key === 'unassigned' ? 'No cleaner' : cs.key === 'confirmed' ? 'Confirmed' : cs.key === 'done' ? 'Done' : cs.key === 'declined' ? 'Declined' : 'Awaiting')}</div>`;
-        return `<div class="card" onclick="showDetail('${b._cloudId || b.id}')" style="cursor:pointer${isCancelled?';opacity:0.6':''}" data-booking-id="${b.id}"><div class="booking-item" style="border:none;padding:0" data-booking-id="${b.id}">${platformIcon(b.platform, 42)}<div class="booking-info"><div class="booking-name">${escHtml(b.name)}</div><div class="booking-dates">${escHtml(fmt(b.checkin))} → ${escHtml(fmt(b.checkout))}</div><div class="booking-guests">${escHtml(b.guests)} guests · ${escHtml(b.nights)} night${b.nights!==1?'s':''}</div></div><div class="booking-right"><div class="booking-amount" style="${isCancelled?'text-decoration:line-through;color:var(--text-soft)':''}">$${Number(b.hostPayout||0).toLocaleString()}</div><div class="booking-status ${statusClass}">${statusLabel}</div>${cleanerChip}</div></div></div>`;
+
+        return `<div class="card" onclick="showDetail('${b._cloudId || b.id}')" style="cursor:pointer${isCancelled?';opacity:0.6':''}" data-booking-id="${b.id}"><div class="booking-item" style="border:none;padding:0" data-booking-id="${b.id}">${platformIcon(b.platform, 42)}<div class="booking-info"><div class="booking-name">${escHtml(b.name)}</div><div class="booking-dates">${escHtml(fmt(b.checkin))} → ${escHtml(fmt(b.checkout))}</div><div class="booking-guests">${escHtml(b.guests)} guests · ${escHtml(b.nights)} night${b.nights!==1?'s':''}</div></div><div class="booking-right"><div class="booking-amount" style="${isCancelled?'text-decoration:line-through;color:var(--text-soft)':''}">$${Number(b.hostPayout||0).toLocaleString()}</div><div class="booking-status ${statusClass}">${statusLabel}</div></div></div></div>`;
       }).join('')}
     </div>`).join('');
 
@@ -1351,28 +1485,23 @@ function renderCleaning() {
     const days = Math.ceil((new Date(c.date) - now) / 86400000);
     const urgClass = days <= 0 ? 'urgent' : days <= 2 ? 'soon' : 'ok';
     const urgText = days < 0 ? 'Overdue' : days === 0 ? 'Today!' : days === 1 ? 'Tomorrow' : `In ${days}d`;
-    const statusBadge = c.done
-      ? '<span style="font-size:11px;font-weight:600;color:var(--moss);background:#EDF7ED;padding:3px 9px;border-radius:20px">✅ Done</span>'
-      : c.cleanerDeclined
-      ? '<span style="font-size:11px;font-weight:600;color:var(--red);background:#FDECEA;padding:3px 9px;border-radius:20px">❌ Declined</span>'
-      : c.cleanerConfirmed
-      ? '<span style="font-size:11px;font-weight:600;color:var(--moss);background:#EDF7ED;padding:3px 9px;border-radius:20px">✓ Accepted</span>'
-      : '<span style="font-size:11px;font-weight:600;color:var(--amber);background:#FFF5E6;padding:3px 9px;border-radius:20px">⏳ Awaiting response</span>';
+    const urgBg   = days <= 0 ? 'rgba(192,57,43,0.09)' : days <= 2 ? 'rgba(193,127,62,0.10)' : 'rgba(46,113,87,0.08)';
+    const statusColor = c.done ? 'var(--moss)' : c.cleanerDeclined ? 'var(--red)' : c.cleanerConfirmed ? 'var(--moss)' : 'var(--amber)';
+    const statusBg    = c.done ? 'rgba(46,113,87,0.09)' : c.cleanerDeclined ? 'rgba(192,57,43,0.09)' : c.cleanerConfirmed ? 'rgba(46,113,87,0.09)' : 'rgba(193,127,62,0.10)';
+    const statusText  = c.done ? 'Done' : c.cleanerDeclined ? 'Declined' : c.cleanerConfirmed ? 'Accepted' : 'Awaiting';
     const waitingMeta = isAwaitingCleanerResponse(c, now) ? getAwaitingResponseMeta(c, now) : null;
-    const waitingChip = waitingMeta
-      ? `<span style="font-size:10px;color:var(--amber)">${escHtml(waitingMeta.label)}</span>`
-      : '';
-    return `<div style="padding:14px 0;border-bottom:1px solid var(--warm)">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
-        <div>
-          <div style="font-weight:600;font-size:14px">${escHtml(b ? b.name : (c.guestName || '—'))}</div>
-          <div style="font-size:12px;color:var(--text-soft);margin-top:2px">🧹 ${escHtml(c.cleaner || 'Not assigned yet')} · ${escHtml(fmt(c.date))}</div>
-          ${b ? `<div style="font-size:12px;color:var(--text-soft)">Checkout: ${escHtml(fmt(b.checkout))}</div>` : ''}
+    const cleanerLine = c.cleaner
+      ? `<span style="font-weight:500;color:var(--text)">${escHtml(c.cleaner)}</span><span style="color:var(--text-soft)"> · ${escHtml(fmt(c.date))}</span>`
+      : `<span style="color:var(--text-soft)">No cleaner · ${escHtml(fmt(c.date))}</span>`;
+    return `<div style="padding:12px 0;border-bottom:1px solid var(--warm)">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px">
+        <div style="min-width:0">
+          <div style="font-weight:700;font-size:15px;line-height:1.2;margin-bottom:4px">${escHtml(b ? b.name : (c.guestName || '—'))}</div>
+          <div style="font-size:12px;margin-bottom:4px">${cleanerLine}</div>
+          <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;background:${statusBg};color:${statusColor}">${statusText}${waitingMeta ? ' · ' + escHtml(waitingMeta.label) : ''}</span>
         </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-          <div class="clean-urgency ${urgClass}">${urgText}</div>
-          ${statusBadge}
-          ${waitingChip}
+        <div style="flex-shrink:0;text-align:right">
+          <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;background:${urgBg};color:var(--${urgClass === 'urgent' ? 'red' : urgClass === 'soon' ? 'amber' : 'moss'})">${urgText}</span>
         </div>
       </div>
       ${extra || ''}
@@ -1389,7 +1518,7 @@ function renderCleaning() {
       return;
     }
     list.innerHTML = upcoming.map(c => {
-      const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || _normName(bk.name) === _normName(c.guestName));
+      const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)) || _normName(bk.name) === _normName(c.guestName));
       const extra = `<div style="display:flex;gap:8px">
         <button onclick="openNotifyModal(${c.id})" style="flex:1;background:var(--forest-light);color:var(--sage);border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">💬 SMS</button>
         <button onclick="reassignClean(${c.id})" style="flex:1;background:var(--mist);color:var(--text);border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">↺ Reassign</button>
@@ -1422,9 +1551,9 @@ function renderCleaning() {
 
     let html = '';
     if (awaiting.length) {
-      html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--amber);margin-bottom:4px">⏳ Awaiting cleaner response</div>`;
+      html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:var(--amber);padding:4px 0 6px;margin-top:2px">Awaiting response</div>`;
       html += awaiting.map(c => {
-        const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || _normName(bk.name) === _normName(c.guestName));
+        const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)) || _normName(bk.name) === _normName(c.guestName));
         const meta = getAwaitingResponseMeta(c, now);
         const extra = `<div style="display:flex;gap:8px;flex-wrap:wrap">
           <button onclick="sendCleanerReminder(${c.id})" style="flex:1;min-width:110px;background:${meta.isOverdue ? 'var(--amber)' : 'var(--forest-light)'};color:${meta.isOverdue ? 'white' : 'var(--sage)'};border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">${meta.isOverdue ? '⚠️ Remind now' : '💬 Send reminder'}</button>
@@ -1434,7 +1563,7 @@ function renderCleaning() {
       }).join('');
     }
     if (declined.length) {
-      html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--red);margin-bottom:4px">❌ Declined — needs reassigning</div>`;
+      html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:var(--red);padding:4px 0 6px;margin-top:2px">Declined — reassign needed</div>`;
       html += declined.map(({ booking, state }) => {
         const c = state.clean;
         const preferred = _getSuggestedCleanerForBooking(booking);
@@ -1445,20 +1574,27 @@ function renderCleaning() {
       }).join('');
     }
     if (unassigned.length) {
-      html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--amber);margin-top:${declined.length?'16px':'0'};margin-bottom:4px">⚠️ No cleaner assigned</div>`;
+      html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:var(--amber);padding:4px 0 6px;margin-top:${declined.length?'12px':'2px'}">No cleaner assigned</div>`;
       html += unassigned.map(b => {
         const days = Math.ceil((new Date(b.checkout) - now) / 86400000);
         const urgClass = days <= 3 ? 'urgent' : days <= 7 ? 'soon' : 'ok';
         const preferred = _getSuggestedCleanerForBooking(b);
-        return `<div style="padding:14px 0;border-bottom:1px solid var(--warm)">
-          <div style="display:flex;align-items:center;justify-content:space-between">
-            <div>
-              <div style="font-weight:600;font-size:14px">${escHtml(b.name || '')}</div>
-              <div style="font-size:12px;color:var(--text-soft);margin-top:2px">Checkout: ${escHtml(fmt(b.checkout))} · ${escHtml(b.guests || 0)} guests</div>
+        const uDays = days;
+        const uUrgBg = uDays <= 3 ? 'rgba(192,57,43,0.09)' : uDays <= 7 ? 'rgba(193,127,62,0.10)' : 'rgba(46,113,87,0.08)';
+        const uUrgColor = uDays <= 3 ? 'var(--red)' : uDays <= 7 ? 'var(--amber)' : 'var(--moss)';
+        const uUrgText = uDays <= 0 ? 'Today!' : uDays === 1 ? 'Tomorrow' : `In ${uDays}d`;
+        return `<div style="padding:12px 0;border-bottom:1px solid var(--warm)">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:${preferred ? '10px' : '0'}">
+            <div style="min-width:0">
+              <div style="font-weight:700;font-size:15px;line-height:1.2;margin-bottom:4px">${escHtml(b.name || '')}</div>
+              <div style="font-size:12px;color:var(--text-soft);margin-bottom:4px">Checkout ${escHtml(fmt(b.checkout))} · ${escHtml(b.guests || 0)} guests</div>
+              <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;background:rgba(193,127,62,0.10);color:var(--amber)">No cleaner</span>
             </div>
-            <div class="clean-urgency ${urgClass}">No cleaner</div>
+            <div style="flex-shrink:0">
+              <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;background:${uUrgBg};color:${uUrgColor}">${uUrgText}</span>
+            </div>
           </div>
-          ${preferred ? `<div style="margin-top:8px"><button onclick="quickAssignLastCleaner(${b.id})" style="width:100%;background:var(--mist);color:var(--text);border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">⚡ Assign to last cleaner (${escHtml(preferred.name || 'Cleaner')})</button></div>` : ''}
+          ${preferred ? `<div><button onclick="quickAssignLastCleaner(${b.id})" style="width:100%;background:var(--mist);color:var(--text);border:none;border-radius:10px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">⚡ Assign to last cleaner (${escHtml(preferred.name || 'Cleaner')})</button></div>` : ''}
         </div>`;
       }).join('');
     }
@@ -1476,7 +1612,7 @@ function renderCleaning() {
       return;
     }
     list.innerHTML = done.map(c => {
-      const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || _normName(bk.name) === _normName(c.guestName));
+      const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)) || _normName(bk.name) === _normName(c.guestName));
       return cleanCard(c, b, '');
     }).join('');
     return;
@@ -1487,7 +1623,7 @@ function reassignClean(cleanId) {
   const c = cleans.find(cl => cl.id === cleanId);
   if (!c) return;
   // Reset the clean so it can be reassigned from the booking detail
-  const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || _normName(bk.name) === _normName(c.guestName));
+  const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)) || _normName(bk.name) === _normName(c.guestName));
   if (b) {
     showDetail(b.id);
   } else {
@@ -2608,9 +2744,12 @@ function renderSettings() {
 }
 
 function populateSelects() {
-  const allOpts = '<option value="">Select booking...</option>' + bookings.map(b=>`<option value="${b.id}">${b.name} (${fmt(b.checkin)})</option>`).join('');
-  // For clean form: only show future bookings not yet notified
   const now = new Date();
+  const upcomingForNotes = bookings
+    .filter(b => b.status !== 'cancelled' && new Date(b.checkout) >= now)
+    .sort((a,b) => new Date(a.checkin) - new Date(b.checkin));
+  const allOpts = '<option value="">Select upcoming booking...</option>' + upcomingForNotes.map(b=>`<option value="${b.id}">${b.name} (${fmt(b.checkin)})</option>`).join('');
+  // For clean form: only show future bookings not yet notified
   const unnotified = bookings.filter(b => {
     const isFuture = new Date(b.checkout) >= now;
     const cleanerState = getBookingCleanerState(b).key;
@@ -2673,10 +2812,41 @@ function showDetail(id) {
   const b = bookings.find(b => b._cloudId === id || String(b.id) === String(id));
   if (!b) return;
   const isCancelled = b.status === 'cancelled';
+  // A booking is "past" once its checkout date is strictly before today.
+  // Current and upcoming bookings keep the full cleaner workflow.
+  const todayStr = new Date().toISOString().split('T')[0];
+  const isPast = !isCancelled && b.checkout && String(b.checkout).slice(0, 10) < todayStr;
   const bn = notes.filter(n=>n.bookingId===id);
   const matchedClean = _findMatchingCleanForBooking(b);
   const cleanerState = getBookingCleanerState(b);
   const bc = matchedClean ? [matchedClean] : [];
+  // Cancelled booking: minimal record view — no financials, no cleaner controls
+  if (isCancelled) {
+    document.getElementById('detail-content').innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:12px">
+          ${platformIcon(b.platform, 52)}
+          <div>
+            <div style="font-family:'DM Serif Display',serif;font-size:20px;opacity:0.6">${b.name}</div>
+            <div class="booking-status status-cancelled" style="margin-top:4px">✕ Cancelled</div>
+          </div>
+        </div>
+        <button onclick="deleteBooking(${b.id})" style="background:#FDECEA;color:var(--red);border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer">Delete</button>
+      </div>
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-title">Stay Details</div>
+        <div class="detail-row"><span class="detail-label">Check-in</span><span class="detail-val">${fmt(b.checkin)}</span></div>
+        <div class="detail-row"><span class="detail-label">Check-out</span><span class="detail-val">${fmt(b.checkout)}</span></div>
+        <div class="detail-row"><span class="detail-label">Nights</span><span class="detail-val">${b.nights}</span></div>
+        <div class="detail-row"><span class="detail-label">Guests</span><span class="detail-val">${b.guests}</span></div>
+        ${b.platform ? `<div class="detail-row"><span class="detail-label">Platform</span><span class="detail-val">${b.platform==='Airbnb'?'🏠 Airbnb':b.platform==='VRBO'?'🏡 VRBO':'📋 Direct'}</span></div>` : ''}
+      </div>
+    `;
+    document.getElementById('detail-modal').classList.add('open'); document.body.style.overflow='hidden';
+    setTimeout(attachModalHandleDrag, 0);
+    return;
+  }
+
   document.getElementById('detail-content').innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div style="display:flex;align-items:center;gap:12px">
@@ -2709,40 +2879,61 @@ function showDetail(id) {
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-title">Cleaner</div>
-      <div style="font-size:12px;margin-bottom:8px;color:${cleanerState.tone==='ok'?'var(--moss)':cleanerState.tone==='bad'?'var(--red)':'var(--amber)'}">🧹 ${escHtml(cleanerState.label)}</div>
-      <div class="toggle-wrap">
-        <div>
-          <div style="font-weight:500;font-size:14px">Cleaner Confirmed</div>
-          <div style="font-size:12px;color:var(--text-soft)">${b.cleanerConfirmed?'✓ Confirmed':'Not yet confirmed'}</div>
-        </div>
-        <button class="toggle ${b.cleanerConfirmed?'on':''}" onclick="toggleCleanerConfirmed(${b.id})" ${isCancelled ? 'disabled style="opacity:.45;cursor:not-allowed"' : ''}></button>
-      </div>
-      ${bc.map(c=>`<div style="font-size:12px;color:var(--text-soft);padding:4px 0">${c.cleaner} · ${fmt(c.date)}</div>`).join('')}
-      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--warm)">
-        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:8px">Assign Cleaner</div>
-        ${isCancelled ? '<div style="font-size:12px;color:var(--text-soft)">Cancelled booking — cleaner actions are disabled</div>' : (()=>{
-          const cls = loadCleaners().filter(c => isCleanerPerson(c));
-          const assigned = bc[0];
-          const suggested = _getSuggestedCleanerForBooking(b);
-          if (!cls.length) return '<div style="font-size:12px;color:var(--text-soft)">No cleaners set up yet — add in Settings → Property &amp; People</div>';
-          return `<select id="detail-assign-cleaner" style="margin-bottom:8px">
-            <option value="">— Not assigned —</option>
-            ${cls.map(c=>`<option value="${c.id}" ${(assigned&&String(assigned.cleanerId)===String(c.id))||(!assigned&&suggested&&String(suggested.id)===String(c.id))?'selected':''}>${c.name}</option>`).join('')}
-          </select>
-          ${!assigned && suggested ? `<div style="font-size:11px;color:var(--text-soft);margin:-2px 0 8px 0">Suggested: ${escHtml(suggested.name || '')}</div>` : ''}
-          <input type="date" id="detail-assign-date" value="${assigned?assigned.date:b.checkout}" style="margin-bottom:8px">
-          <button onclick="assignCleanerToBooking(${b.id})" class="btn-primary" style="width:100%" id="detail-assign-btn">💾 Save Assignment</button>`;
-        })()}
-      </div>
-      ${b.status==='completed'?`
-      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--warm)">
-        <div style="font-size:12px;font-weight:600;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px">Confirm Actual Cleaning Fee</div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <input type="number" id="actual-clean-fee" value="${Number(b.cleaningFee||0)}" style="flex:1;padding:10px;border:1px solid var(--warm);border-radius:8px;font-size:14px;font-family:'DM Sans',sans-serif">
-          <button onclick="saveCleaningFee(${b.id})" style="background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">Save &amp; Sync</button>
-        </div>
-      </div>`:''}
+      ${bc.length
+        ? `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0 10px">
+            <div>
+              <div style="font-weight:600;font-size:15px;color:var(--forest)">${escHtml(bc[0].cleaner)}</div>
+              <div style="font-size:12px;color:var(--text-soft);margin-top:2px">Clean date: ${fmt(bc[0].date)}</div>
+            </div>
+            <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:99px;background:${cleanerState.tone==='ok'?'rgba(46,113,87,0.09)':cleanerState.tone==='bad'?'rgba(192,57,43,0.09)':'rgba(193,127,62,0.11)'};color:${cleanerState.tone==='ok'?'var(--moss)':cleanerState.tone==='bad'?'var(--red)':'var(--amber)'}">${cleanerState.key==='done'?'Done':cleanerState.key==='confirmed'?'Confirmed':cleanerState.key==='declined'?'Declined':'Awaiting'}</span>
+          </div>`
+        : `<div style="font-size:13px;color:var(--text-soft);padding:8px 0 10px">No cleaner assigned yet</div>`
+      }
+      ${cleanerState.key === 'confirmed'
+        ? `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0 2px;border-top:1px solid var(--warm)">
+            <div style="font-size:13px;font-weight:500;color:var(--moss)">✓ Cleaner confirmed</div>
+          </div>
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--warm)">
+            <button onclick="revealCleanerReassign(${b.id})" id="detail-change-cleaner-btn" style="width:100%;background:var(--warm);color:var(--text);border:1px solid var(--card-border);border-radius:10px;padding:9px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Change Cleaner</button>
+            <div id="detail-reassign-form" style="display:none;margin-top:12px">${(()=>{
+              const cls = loadCleaners().filter(c => isCleanerPerson(c));
+              const assigned = bc[0];
+              if (!cls.length) return '<div style="font-size:12px;color:var(--text-soft)">No cleaners set up yet — add in Settings → Property &amp; People</div>';
+              const opts = cls.map(c => '<option value="' + c.id + '" ' + (assigned && String(assigned.cleanerId) === String(c.id) ? 'selected' : '') + '>' + c.name + '</option>').join('');
+              return '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:8px">Change Cleaner</div><select id="detail-assign-cleaner" style="margin-bottom:8px"><option value="">— Not assigned —</option>' + opts + '</select><input type="date" id="detail-assign-date" value="' + (assigned ? assigned.date : b.checkout) + '" style="margin-bottom:8px"><button onclick="assignCleanerToBooking(' + b.id + ')" class="btn-primary" style="width:100%" id="detail-assign-btn">💾 Save Assignment</button>';
+            })()}</div>
+          </div>`
+        : `<div class="toggle-wrap" style="border-top:1px solid var(--warm);padding-top:10px;margin-top:2px">
+            <div style="font-size:13px;font-weight:500">Cleaner confirmed</div>
+            <button class="toggle ${(matchedClean?.cleanerConfirmed ?? b.cleanerConfirmed)?'on':''}" onclick="toggleCleanerConfirmed(${b.id})"></button>
+          </div>
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--warm)">
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:8px">${bc.length ? 'Change Cleaner' : 'Assign Cleaner'}</div>
+            ${(()=>{
+              const cls = loadCleaners().filter(c => isCleanerPerson(c));
+              const assigned = bc[0];
+              const suggested = _getSuggestedCleanerForBooking(b);
+              if (!cls.length) return '<div style="font-size:12px;color:var(--text-soft)">No cleaners set up yet — add in Settings → Property &amp; People</div>';
+              const opts = cls.map(c => '<option value="' + c.id + '" ' + (((assigned && String(assigned.cleanerId) === String(c.id)) || (!assigned && suggested && String(suggested.id) === String(c.id))) ? 'selected' : '') + '>' + c.name + '</option>').join('');
+              const suggestHint = (!assigned && suggested) ? '<div style="font-size:11px;color:var(--text-soft);margin:-2px 0 8px 0">Suggested: ' + escHtml(suggested.name || '') + '</div>' : '';
+              return '<select id="detail-assign-cleaner" style="margin-bottom:8px"><option value="">— Not assigned —</option>' + opts + '</select>' + suggestHint + '<input type="date" id="detail-assign-date" value="' + (assigned ? assigned.date : b.checkout) + '" style="margin-bottom:8px"><button onclick="assignCleanerToBooking(' + b.id + ')" class="btn-primary" style="width:100%" id="detail-assign-btn">💾 Save Assignment</button>';
+            })()}
+          </div>`
+      }
     </div>
+    ${isPast ? `<div class="card" style="margin-bottom:10px">
+      <div class="card-title">Cleaning Cost</div>
+      <div id="clean-cost-view" style="display:flex;align-items:center;justify-content:space-between;padding:4px 0 2px">
+        <span style="font-size:22px;font-family:'DM Serif Display',serif;color:var(--forest)">$${Number(b.cleaningFee||0).toLocaleString()}</span>
+        <button onclick="document.getElementById('clean-cost-view').style.display='none';document.getElementById('clean-cost-edit').style.display=''" style="background:none;border:1px solid var(--card-border);border-radius:8px;padding:5px 12px;font-size:12px;font-weight:600;color:var(--text-soft);cursor:pointer;font-family:'DM Sans',sans-serif">Edit</button>
+      </div>
+      <div id="clean-cost-edit" style="display:none;margin-top:8px">
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="number" id="actual-clean-fee" value="${Number(b.cleaningFee||0)}" placeholder="0" style="flex:1;padding:10px;border:1px solid var(--warm);border-radius:8px;font-size:14px;font-family:'DM Sans',sans-serif">
+          <button onclick="saveCleaningFee(${b.id})" style="background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">Save</button>
+        </div>
+      </div>
+    </div>` : ''}
     ${bn.length?`<div class="card" style="margin-bottom:10px">
       <div class="card-title">Notes</div>
       ${bn.map(n=>`<div class="note-item" style="margin-bottom:6px"><span class="note-tag tag-${n.tag}">${n.tag}</span><div class="note-text">${n.text}</div></div>`).join('')}
@@ -2752,7 +2943,6 @@ function showDetail(id) {
   document.getElementById('detail-modal').classList.add('open'); document.body.style.overflow='hidden';
   setTimeout(attachModalHandleDrag, 0);
 }
-
 function showEditModal(id) {
   const b = bookings.find(b => b._cloudId === id || String(b.id) === String(id));
   if (!b) return;
@@ -2831,10 +3021,20 @@ function saveEdit(id) {
   b.netPayout    = Math.round((mgmtBase - b.mgmtFee) * 100) / 100;    // owner's take-home
 
   if (!b.status) b.status = 'confirmed';
+  // Refresh stale guestName / checkin on any linked clean records before saving
+  _normalizeBookingCleanState();
   save();
   if (typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(() => {});
   showBanner('✅ Booking saved', 'ok');
   setTimeout(() => { closeDetailModal(); renderAll(); }, 500);
+}
+
+function revealCleanerReassign(id) {
+  if (!confirm('This cleaner is already confirmed. Change the assignment?')) return;
+  const form = document.getElementById('detail-reassign-form');
+  const btn  = document.getElementById('detail-change-cleaner-btn');
+  if (form) form.style.display = '';
+  if (btn)  btn.style.display  = 'none';
 }
 
 function toggleCleanerConfirmed(id) {
@@ -2855,6 +3055,9 @@ function toggleCleanerConfirmed(id) {
   _normalizeBookingCleanState();
   save();
   if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
+  // Fix: also persist the booking's cleaner_confirmed to Supabase so both
+  // tables stay in sync (previously only the clean record was saved).
+  if (typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(() => {});
   showDetail(id);
   renderBookings();
   renderCleaning();
@@ -2919,7 +3122,7 @@ function addBooking() {
 function autoFillCleanDate() {
   const bookingId = Number(document.getElementById('clean-booking-select').value);
   if (!bookingId) return;
-  const booking = bookings.find(b => b.id === bookingId);
+  const booking = bookings.find(b => String(b.id) === String(bookingId));
   if (booking && booking.checkout) {
     document.getElementById('clean-date').value = booking.checkout;
   }
@@ -3130,11 +3333,13 @@ function switchModalTab(tab,btn){
 }
 
 function openQuickAddMenu() {
-  showActionSheet('Quick add', [
-    { label: 'Add Booking', fn: "() => openModal()" },
-    { label: 'Add Expense', fn: "() => { showSection('finance'); window.scrollTo({ top: 0, behavior: 'smooth' }); }" },
-    { label: 'Add Clean', fn: "() => { showSection('cleaning'); document.getElementById('clean-add-card')?.scrollIntoView({behavior:'smooth', block:'start'}); }" }
-  ]);
+  document.getElementById('quick-add-overlay').classList.add('open');
+  document.getElementById('quick-add-fab').classList.add('qa-open');
+}
+
+function closeQuickAddMenu() {
+  document.getElementById('quick-add-overlay').classList.remove('open');
+  document.getElementById('quick-add-fab').classList.remove('qa-open');
 }
 
 async function runFullRefresh() {
@@ -5217,7 +5422,19 @@ const DEFAULT_EXPENSE_CATS = [
 ];
 function getExpenseCats() {
   const saved = localStorage.getItem(lsKey('expense-cats'));
-  return saved ? JSON.parse(saved) : DEFAULT_EXPENSE_CATS;
+  if (!saved) return DEFAULT_EXPENSE_CATS;
+  try {
+    const parsed = JSON.parse(saved);
+    // Validate: must be a non-empty array of non-blank strings.
+    // Falls back to defaults if cloud hydration wrote empty/malformed data.
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(c => typeof c === 'string' && c.trim())) {
+      return parsed;
+    }
+  } catch (e) {
+    // Malformed JSON — clear it so it doesn't keep failing
+    localStorage.removeItem(lsKey('expense-cats'));
+  }
+  return DEFAULT_EXPENSE_CATS;
 }
 function savePropertyData() {
   localStorage.setItem(lsKey('expenses'),    JSON.stringify(expenses));
@@ -5866,6 +6083,17 @@ async function postCleanerAction(cleanId, action) {
     return false;
   }
 }
+function _showCleanerLinkError(msg) {
+  // Repurpose the PIN screen to show a clear error instead of a blank cleaner view.
+  // Removes cleaner-mode so the cleaner shell is hidden, keeps the PIN screen bg.
+  document.body.classList.remove('cleaner-mode');
+  document.body.classList.add('cleaner-pin-active');
+  const dots = document.getElementById('pin-dots');
+  if (dots) dots.style.display = 'none';
+  const errEl = document.getElementById('pin-error');
+  if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+}
+
 function isCleanerAuthed() {
   const { id } = getCleanerParams();
   return localStorage.getItem('gh-cleaner-authed-' + id) === '1';
@@ -5907,10 +6135,14 @@ async function verifyCleanerPin() {
     document.body.classList.remove('cleaner-pin-active');
     document.body.classList.add('cleaner-mode');
     // Hydrate cleaner data from Netlify function before rendering
-    await hydrateCleanerFromFunction();
-    renderCleanerView();
-    // Subscribe cleaner to push after auth
-    setTimeout(() => subscribeToPush('cleaner', id), 1500);
+    const hydrateOk = await hydrateCleanerFromFunction();
+    if (hydrateOk) {
+      renderCleanerView();
+      // Subscribe cleaner to push after auth
+      setTimeout(() => subscribeToPush('cleaner', id), 1500);
+    } else {
+      _showCleanerLinkError('Could not load your cleaning data — check your connection and try again.');
+    }
   } else {
     document.getElementById('pin-error').textContent = 'Incorrect PIN — try again';
     document.getElementById('pin-error').style.display = 'block';
@@ -6215,7 +6447,7 @@ async function cleanerAccept(cleanId) {
   c.cleanerConfirmed = true;
   c.cleanerDeclined = false;
   // Also update booking so owner sees confirmed status in detail
-  const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || _normName(bk.name) === _normName(c.guestName));
+  const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)) || _normName(bk.name) === _normName(c.guestName));
   if (b) b.cleanerConfirmed = true;
   try {
     _normalizeBookingCleanState();
@@ -6258,7 +6490,7 @@ async function cleanerDecline(cleanId) {
   if (!ok) { _releaseLock(_actionLocks, lockKey); return; }
   c.cleanerDeclined = true;
   c.cleanerConfirmed = false;
-  const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || _normName(bk.name) === _normName(c.guestName));
+  const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)) || _normName(bk.name) === _normName(c.guestName));
   if (b) b.cleanerConfirmed = false;
   try {
     _normalizeBookingCleanState();
@@ -6294,7 +6526,7 @@ async function cleanerMarkDone(cleanId) {
   const ok = await showAppModal({ title: '✅ Mark Complete', msg: 'Mark this clean as completed?', confirmText: 'Yes, done!', cancelText: 'Not yet' });
   if (!ok) { _releaseLock(_actionLocks, lockKey); return; }
   c.done = true; c.cleanerConfirmed = true;
-  const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || _normName(bk.name) === _normName(c.guestName));
+  const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)) || _normName(bk.name) === _normName(c.guestName));
   if (b) b.cleanerConfirmed = true;
   try {
     _normalizeBookingCleanState();
@@ -6981,10 +7213,17 @@ async function finishAppInit() {
   document.getElementById('detail-modal').addEventListener('click', function(e) { if (e.target === this) closeDetailModal(); });
   document.getElementById('notify-modal').addEventListener('click', function(e) { if (e.target === this) closeNotifyModal(); });
   if (isCleanerMode()) {
-    if (isCleanerAuthed()) {
+    const { uid } = getCleanerParams();
+    if (!uid) {
+      _showCleanerLinkError('Invalid cleaner link — ask the owner to re-send your link from Settings.');
+    } else if (isCleanerAuthed()) {
       document.body.classList.add('cleaner-mode');
-      await hydrateCleanerFromFunction();
-      renderCleanerView();
+      const ok = await hydrateCleanerFromFunction();
+      if (ok) {
+        renderCleanerView();
+      } else {
+        _showCleanerLinkError('Could not load your cleaning data — check your connection and try again.');
+      }
     } else {
       document.body.classList.add('cleaner-pin-active');
     }
@@ -7024,11 +7263,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('modal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
     document.getElementById('detail-modal').addEventListener('click', function(e) { if (e.target === this) closeDetailModal(); });
     document.getElementById('notify-modal').addEventListener('click', function(e) { if (e.target === this) closeNotifyModal(); });
-    if (isCleanerAuthed()) {
+    const { uid } = getCleanerParams();
+    if (!uid) {
+      _showCleanerLinkError('Invalid cleaner link — ask the owner to re-send your link from Settings.');
+    } else if (isCleanerAuthed()) {
       document.body.classList.add('cleaner-mode');
       // Hydrate from Netlify function (handles home screen PWA with no Supabase session)
-      await hydrateCleanerFromFunction();
-      renderCleanerView();
+      const ok = await hydrateCleanerFromFunction();
+      if (ok) {
+        renderCleanerView();
+      } else {
+        _showCleanerLinkError('Could not load your cleaning data — check your connection and try again.');
+      }
     } else {
       document.body.classList.add('cleaner-pin-active');
     }
@@ -7072,6 +7318,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Refresh in-memory arrays and property UI after cloud hydration
     reloadInMemoryData();
+    // Fix: reconcile bookings vs cleans cleaner_confirmed before first render
+    // so any divergence that existed in Supabase does not reach the UI.
+    _normalizeBookingCleanState();
     initPropertyUI();
 
     // Check if onboarding is needed (new user on fresh device)

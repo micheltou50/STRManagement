@@ -343,13 +343,13 @@
         <div style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:20px;color:white" id="prop-hero-beds">4</div><div style="font-size:10px;color:var(--stone);text-transform:uppercase">Beds</div></div>
         <div style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:20px;color:white" id="prop-hero-guests">8</div><div style="font-size:10px;color:var(--stone);text-transform:uppercase">Guests</div></div>
         <div style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:20px;color:white" id="prop-hero-baths">2.5</div><div style="font-size:10px;color:var(--stone);text-transform:uppercase">Baths</div></div>
-        <div style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:20px;color:white" id="stat-occupancy2">–</div><div style="font-size:10px;color:var(--stone);text-transform:uppercase">Occupancy</div></div>
+        <div style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:20px;color:white" id="stat-occupancy2">–</div><div style="font-size:10px;color:var(--stone);text-transform:uppercase">Annual Occ.</div></div>
       </div>
     </div>
 
     <div class="stats-row">
       <div class="stat-card"><div class="stat-val" id="stat-bookings">0</div><div class="stat-label">Bookings</div></div>
-      <div class="stat-card"><div class="stat-val" id="stat-occupancy">0%</div><div class="stat-label">Occupancy</div></div>
+      <div class="stat-card"><div class="stat-val" id="stat-occupancy">0%</div><div class="stat-label">Annual Occ.</div></div>
       <div class="stat-card"><div class="stat-val" id="stat-revenue">$0</div><div class="stat-label">This Month</div></div>
     </div>
 
@@ -358,10 +358,12 @@
       <div id="dashboard-insights-content" style="font-size:13px;color:var(--text-soft)">No insight data yet.</div>
     </div>
 
-    <div class="card">
+    <div class="card" id="dashboard-this-week-card" style="display:none">
       <div class="card-title">🗓 This Week</div>
       <div id="dashboard-week-content" style="font-size:13px;color:var(--text-soft)">No week activity yet.</div>
     </div>
+
+    <div id="dashboard-cleaner-alert"></div>
 
     <div id="dashboard-product-guidance"></div>
     <div id="dashboard-plan-nudges"></div>
@@ -436,7 +438,6 @@
       <div class="tab-row" style="margin-bottom:10px">
         <button class="tab active" onclick="filterCleans('upcoming',this)">Scheduled</button>
         <button class="tab" onclick="filterCleans('action',this)">Action Needed</button>
-        <button class="tab" onclick="filterCleans('done',this)">Done</button>
       </div>
       <div id="cleaning-list" style="max-height:62vh;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div>
     </div>
@@ -1513,7 +1514,35 @@
   </div>
 </div>
 
-<button class="fab" onclick="openQuickAddMenu()">＋</button>
+<!-- CALENDAR BOOKING PREVIEW -->
+<div id="cal-preview-backdrop" onclick="closeCalPreview()"></div>
+<div id="cal-preview-sheet" role="dialog" aria-modal="true">
+  <div id="cal-preview-handle-row"><div class="modal-handle"></div></div>
+  <div id="cal-preview-content"></div>
+</div>
+
+<!-- QUICK ADD OVERLAY -->
+<div id="quick-add-overlay" onclick="if(event.target===this)closeQuickAddMenu()">
+  <div id="quick-add-menu">
+    <div id="qa-actions">
+      <button class="qa-bubble" onclick="closeQuickAddMenu();openModal()">
+        <div class="qa-icon">📋</div>
+        <div class="qa-label">Add Booking</div>
+      </button>
+      <button class="qa-bubble" onclick="closeQuickAddMenu();showSection('finance');showFinanceSub('expenses');setTimeout(()=>{const p=document.getElementById('expense-add-form-panel');if(p&&p.style.display==='none')toggleExpenseAddForm();},80)">
+        <div class="qa-icon">💳</div>
+        <div class="qa-label">Add Expense</div>
+      </button>
+      <button class="qa-bubble" onclick="closeQuickAddMenu();showSection('cleaning');document.getElementById('clean-add-card')?.scrollIntoView({behavior:'smooth',block:'start'})">
+        <div class="qa-icon">🧹</div>
+        <div class="qa-label">Add Clean</div>
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<button class="fab" id="quick-add-fab" onclick="document.getElementById('quick-add-overlay').classList.contains('open')?closeQuickAddMenu():openQuickAddMenu()">＋</button>
 
 <!-- EDIT EXPENSE MODAL -->
 <div class="modal-overlay" id="expense-edit-modal" onclick="if(event.target===this)closeExpenseEdit()">

@@ -4,3 +4,6 @@
 .DS_Store
 /supabase
 /supabase/functions
+
+# Local Netlify folder
+.netlify
