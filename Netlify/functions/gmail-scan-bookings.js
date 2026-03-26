@@ -91,13 +91,13 @@ exports.handler = async (event) => {
     // Only search from known booking platforms + user's own email (for testing)
     const senders = 'from:(airbnb.com OR vrbo.com OR booking.com OR stayz.com OR expedia.com OR mtoubia96@gmail.com)';
     const searchQueries = [
-      senders + ' subject:(reservation OR booking OR confirmed OR cancelled OR canceled OR modified OR updated OR alteration OR request) after:' + afterStr,
+      senders + ' subject:(reservation OR booking OR confirmed OR cancelled OR canceled OR modified OR updated OR alteration OR request OR arrival) after:' + afterStr,
     ];
 
     const allMessageIds = new Set();
     for (const q of searchQueries) {
       const searchRes = await fetch(
-        'https://www.googleapis.com/gmail/v1/users/me/messages?q=' + encodeURIComponent(q) + '&maxResults=30',
+        'https://www.googleapis.com/gmail/v1/users/me/messages?q=' + encodeURIComponent(q) + '&maxResults=50',
         { headers: { Authorization: 'Bearer ' + accessToken } }
       );
       const searchData = await searchRes.json();
@@ -143,7 +143,7 @@ exports.handler = async (event) => {
 
     // ── 7. Fetch email bodies and parse with Claude ────────────────────
     const results = { imported: 0, updated: 0, cancelled: 0, skipped: 0, errors: 0, details: [] };
-    const batch = newMessageIds.slice(0, 10);
+    const batch = newMessageIds.slice(0, 20);
     const newlySkipped = [];
 
     for (const msgId of batch) {
@@ -170,10 +170,17 @@ exports.handler = async (event) => {
         }
 
         const parsed = await parseBookingEmail(ANTHROPIC_KEY, emailSubject, emailFrom, emailBody, propertyName);
-        if (!parsed || parsed.not_a_booking) {
+        if (!parsed) {
+          // Transient failure (Claude API/network error) — do NOT permanently skip; retry next scan
+          results.errors++;
+          results.details.push({ msgId, status: 'skipped', reason: 'Parse failed — will retry next scan' });
+          continue;
+        }
+        if (parsed.not_a_booking) {
+          // Definitively not a booking — permanently skip
           results.skipped++;
           newlySkipped.push(msgId);
-          results.details.push({ msgId, status: 'skipped', reason: parsed ? 'Not a host booking email' : 'Parse failed' });
+          results.details.push({ msgId, status: 'skipped', reason: 'Not a host booking email' });
           continue;
         }
 
@@ -263,8 +270,8 @@ exports.handler = async (event) => {
 
       } catch (emailErr) {
         console.warn('[gmail-scan] Error processing message', msgId, emailErr.message);
+        // Transient error — do NOT permanently skip; will retry on next scan
         results.errors++;
-        newlySkipped.push(msgId);
       }
     }
 
@@ -461,7 +468,57 @@ function daysBetween(d1, d2) {
 
 async function parseBookingEmail(apiKey, subject, from, body, propertyName) {
   const propContext = propertyName ? ' called "' + propertyName + '"' : '';
-  const prompt = 'You are a booking email parser for a short-term rental HOST who manages a property' + propContext + '.\n\nYou are analysing emails from the HOST\'s inbox. The host receives booking notifications when GUESTS book their property.\n\nCRITICAL DISTINCTION:\n- HOST emails say things like: "You have a new reservation", "Your guest X is arriving", "You\'ll earn $X", "Host payout", "New booking at ' + (propertyName || 'your property') + '"\n- PERSONAL TRAVEL emails say things like: "Your trip to X", "Your stay at Hotel Y", "Your booking at Restaurant Z", "Your flight"\n- Only extract HOST booking notifications. If this looks like a personal travel/hotel/restaurant booking where the email recipient is the traveller, return not_a_booking.\n\nAnalyse this email and return ONLY valid JSON with no other text.\n\nClassify the email type:\n- "new_booking" — a new guest reservation at the host\'s property\n- "cancellation" — a guest booking has been cancelled\n- "modification" — an existing guest booking\'s dates, guests, or payout have changed\n- "not_a_booking" — marketing, review, payout receipt, personal travel booking, message from guest, or anything else\n\nIf not_a_booking, return: {"not_a_booking": true}\n\nOtherwise return:\n{\n  "emailType": "new_booking" or "cancellation" or "modification",\n  "guestName": "Full name of the guest staying at the property",\n  "checkin": "YYYY-MM-DD" (null if not found),\n  "checkout": "YYYY-MM-DD" (null if not found),\n  "guests": number of guests (integer, default 1),\n  "hostPayout": host payout amount as a number (0 if not found),\n  "cleaningFee": cleaning fee as a number (0 if not found),\n  "platform": "airbnb" or "vrbo" or "booking.com" or "stayz" or "direct" or other,\n  "confirmationCode": "confirmation/reservation code",\n  "status": "confirmed" or "cancelled"\n}\n\nRules:\n- Dates must be YYYY-MM-DD. If year missing, assume nearest future date.\n- confirmationCode is CRITICAL for matching cancellations/modifications.\n- hostPayout = amount the HOST receives. Look for "Total payout", "You\'ll earn", "Host payout".\n- Platform: detect from From address (@airbnb.com = "airbnb").\n- Payout receipts ("your payout is on the way") = not_a_booking.\n- Review requests = not_a_booking.\n- Guest messages = not_a_booking.\n\nSubject: ' + subject + '\nFrom: ' + from + '\nBody:\n' + body;
+
+  // Compute today's date server-side so the model has an authoritative anchor.
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+  const currentYear = now.getFullYear();
+  const nextYear = currentYear + 1;
+
+  const yearRule =
+    'Today is ' + todayStr + '. ' +
+    'When a date in the email has no year, infer the year using this exact rule: ' +
+    '(1) Combine the month and day with ' + currentYear + '. ' +
+    '(2) If that date is today or still in the future, use ' + currentYear + '. ' +
+    '(3) If that date has already passed, use ' + nextYear + '. ' +
+    'Never use any year other than ' + currentYear + ' or ' + nextYear + '.';
+
+  const prompt =
+    'You are a booking email parser for a short-term rental HOST who manages a property' + propContext + '.\n\n' +
+    'You are analysing emails from the HOST\'s inbox. The host receives booking notifications when GUESTS book their property.\n\n' +
+    'CRITICAL DISTINCTION:\n' +
+    '- HOST emails say things like: "You have a new reservation", "Your guest X is arriving", "You\'ll earn $X", "Host payout", "New booking at ' + (propertyName || 'your property') + '"\n' +
+    '- PERSONAL TRAVEL emails say things like: "Your trip to X", "Your stay at Hotel Y", "Your booking at Restaurant Z", "Your flight"\n' +
+    '- Only extract HOST booking notifications. If this looks like a personal travel/hotel/restaurant booking where the email recipient is the traveller, return not_a_booking.\n\n' +
+    'Analyse this email and return ONLY valid JSON with no other text.\n\n' +
+    'Classify the email type:\n' +
+    '- "new_booking" — a new guest reservation at the host\'s property\n' +
+    '- "cancellation" — a guest booking has been cancelled\n' +
+    '- "modification" — an existing guest booking\'s dates, guests, or payout have changed\n' +
+    '- "not_a_booking" — marketing, review, payout receipt, personal travel booking, message from guest, or anything else\n\n' +
+    'If not_a_booking, return: {"not_a_booking": true}\n\n' +
+    'Otherwise return:\n' +
+    '{\n' +
+    '  "emailType": "new_booking" or "cancellation" or "modification",\n' +
+    '  "guestName": "Full name of the guest staying at the property",\n' +
+    '  "checkin": "YYYY-MM-DD" (null if not found),\n' +
+    '  "checkout": "YYYY-MM-DD" (null if not found),\n' +
+    '  "guests": number of guests (integer, default 1),\n' +
+    '  "hostPayout": host payout amount as a number (0 if not found),\n' +
+    '  "cleaningFee": cleaning fee as a number (0 if not found),\n' +
+    '  "platform": "airbnb" or "vrbo" or "booking.com" or "stayz" or "direct" or other,\n' +
+    '  "confirmationCode": "confirmation/reservation code",\n' +
+    '  "status": "confirmed" or "cancelled"\n' +
+    '}\n\n' +
+    'Rules:\n' +
+    '- Dates must be YYYY-MM-DD. ' + yearRule + '\n' +
+    '- confirmationCode is CRITICAL for matching cancellations/modifications.\n' +
+    '- hostPayout = amount the HOST receives. Look for "Total payout", "You\'ll earn", "Host payout".\n' +
+    '- Platform: detect from From address (@airbnb.com = "airbnb").\n' +
+    '- Payout receipts ("your payout is on the way") = not_a_booking.\n' +
+    '- Review requests = not_a_booking.\n' +
+    '- Guest messages = not_a_booking.\n\n' +
+    'Subject: ' + subject + '\nFrom: ' + from + '\nBody:\n' + body;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {

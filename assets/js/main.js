@@ -315,7 +315,7 @@ function renderPlanNudges(usageSnapshot, planState) {
 }
 
 function renderConnectionSummary() {
-  const wrap = document.getElementById('conn-summary-list');
+  const wrap = document.getElementById('integrations-conn-list');
   if (!wrap) return;
 
   const user = window._supabaseUser;
@@ -371,6 +371,42 @@ async function connectGmail() {
   const user = await getCurrentSupabaseUser();
   if (!user) { showBanner('⚠ Please sign in first', 'warn'); return; }
   window.location.href = '/.netlify/functions/gmail-oauth-start?state=' + encodeURIComponent(user.id);
+}
+
+// Silent background Gmail scan — runs automatically on boot, throttled to once per 30 min.
+// Does not touch button UI; only refreshes data if bookings changed.
+async function maybeAutoScanGmail() {
+  try {
+    const gmailEmail = localStorage.getItem('gh-gmail-email') || '';
+    if (!gmailEmail) return; // Gmail not connected
+    const user = window._supabaseUser;
+    if (!user) return;
+
+    const THROTTLE_MS = 30 * 60 * 1000; // 30 minutes
+    const lastRun = parseInt(localStorage.getItem('gh-gmail-auto-scan-ts') || '0', 10);
+    if (Date.now() - lastRun < THROTTLE_MS) return; // Already ran recently
+
+    localStorage.setItem('gh-gmail-auto-scan-ts', String(Date.now()));
+
+    const res = await fetch('/.netlify/functions/gmail-scan-bookings?uid=' + encodeURIComponent(user.id));
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const totalChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0);
+    if (totalChanges > 0) {
+      if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
+      reloadInMemoryData();
+      renderAll();
+      const parts = [];
+      if (data.imported) parts.push(data.imported + ' imported');
+      if (data.updated) parts.push(data.updated + ' updated');
+      if (data.cancelled) parts.push(data.cancelled + ' cancelled');
+      showBanner('✓ ' + parts.join(', ') + ' from Gmail', 'ok');
+    }
+  } catch (e) {
+    // Silent — auto-scan errors must never surface to the user
+    console.warn('[gmail-auto-scan] background scan error:', e.message);
+  }
 }
 
 async function scanGmailBookings() {
@@ -892,10 +928,7 @@ function showSection(name) {
     showSection('bookings');
     return;
   } else if (name === 'property') {
-    // Ensure operational sub-view is visible
-    const pf = propFilter || 'expenses';
-    const tabBtn = document.querySelector(`#section-property .tab-row .tab[onclick*="'${pf}'"]`);
-    filterProperty(pf, tabBtn);
+    backToPropertyHub();
   } else if (name === 'settings') {
     // Show settings main menu, hide any open cats/panels
     _resetSettingsToMenu();
@@ -1482,17 +1515,107 @@ function markCleanerConfirmed(id) {
 }
 
 
-let financeTab = 'payouts';
+let financeTab = 'expenses';
+// ── FINANCE HUB NAVIGATION ───────────────────────────────────────────────────
+
+/** Show the top-level Finance hub. Called on back-nav from any Finance sub-view. */
+function backToFinanceHub() {
+  const hub = document.getElementById('finance-hub');
+  if (hub) hub.style.display = 'block';
+  ['finance-expenses-view', 'finance-reports-view'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  financeTab = null;
+}
+
+/** Toggle the Add Expense form panel open/closed. */
+function toggleExpenseAddForm() {
+  const panel   = document.getElementById('expense-add-form-panel');
+  const chevron = document.getElementById('expense-add-chevron');
+  if (!panel) return;
+  const opening = panel.style.display === 'none';
+  panel.style.display = opening ? 'block' : 'none';
+  if (chevron) chevron.textContent = opening ? '∨' : '›';
+  if (opening) {
+    // Populate today's date when opening the form
+    const expDateEl = document.getElementById('exp-date');
+    if (expDateEl && !expDateEl.value) expDateEl.value = new Date().toISOString().split('T')[0];
+    populateExpenseCatSelect();
+    // Scroll the form into view
+    setTimeout(() => panel.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+  }
+}
+
+/** Close the Add Expense form panel (called after a successful save). */
+function closeExpenseAddForm() {
+  const panel   = document.getElementById('expense-add-form-panel');
+  const chevron = document.getElementById('expense-add-chevron');
+  if (panel)   panel.style.display = 'none';
+  if (chevron) chevron.textContent = '›';
+}
+
+/** Navigate into a Finance sub-view (expenses or reports). */
+function showFinanceSub(sub) {
+  financeTab = sub;
+  const hub = document.getElementById('finance-hub');
+  if (hub) hub.style.display = 'none';
+  ['finance-expenses-view', 'finance-reports-view'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  if (sub === 'expenses') {
+    const el = document.getElementById('finance-expenses-view');
+    if (el) el.style.display = 'block';
+    renderExpenses();
+    populateExpenseCatSelect();
+  } else if (sub === 'reports') {
+    const el = document.getElementById('finance-reports-view');
+    if (el) el.style.display = 'block';
+    // Default to Owner Reports sub-tab
+    switchReportsSubTab('reports', document.getElementById('rpt-tab-reports'));
+  }
+}
+
+/** Switch sub-tabs within the Reports section (Owner Reports / Payouts / Management). */
+function switchReportsSubTab(sub, btn) {
+  document.querySelectorAll('#finance-reports-view > .tab-row .tab').forEach(t => t.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const inner   = document.getElementById('finance-reports-inner');
+  const payouts = document.getElementById('finance-payouts-view');
+  const mgmt    = document.getElementById('finance-mgmt-view');
+  if (inner)   inner.style.display   = sub === 'reports'  ? '' : 'none';
+  if (payouts) payouts.style.display = sub === 'payouts'  ? '' : 'none';
+  if (mgmt)    mgmt.style.display    = sub === 'mgmt'     ? '' : 'none';
+  if (sub === 'reports')  renderReport();
+  if (sub === 'payouts')  renderRevenue();
+  if (sub === 'mgmt')     renderManagement();
+}
+
+/**
+ * Open a Finance settings panel from the Finance hub.
+ * Passes returnSection='finance' so the back button returns to Finance, not Settings.
+ */
+function openFinancePanelFromHub(panelId) {
+  openSettingsPanel(panelId, 'finance');
+}
+
+/**
+ * switchFinanceTab — backward-compat shim.
+ * Maps old tab names to the new hub navigation.
+ */
 function switchFinanceTab(tab, btn) {
   financeTab = tab;
-  document.querySelectorAll('#section-finance > .tab-row .tab').forEach(t => t.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  document.getElementById('finance-payouts-view').style.display  = tab === 'payouts'  ? '' : 'none';
-  document.getElementById('finance-mgmt-view').style.display     = tab === 'mgmt'     ? '' : 'none';
-  document.getElementById('finance-reports-view').style.display  = tab === 'reports'  ? '' : 'none';
-  if (tab === 'payouts')  renderRevenue();
-  if (tab === 'mgmt')     renderManagement();
-  if (tab === 'reports')  renderReport();
+  if (tab === 'expenses') { showFinanceSub('expenses'); return; }
+  if (tab === 'reports')  { showFinanceSub('reports');  return; }
+  // payouts and mgmt are now sub-tabs inside Reports
+  if (tab === 'payouts' || tab === 'mgmt') {
+    showFinanceSub('reports');
+    switchReportsSubTab(tab, document.getElementById('rpt-tab-' + tab));
+    return;
+  }
+  // fallback — show hub
+  backToFinanceHub();
 }
 
 function switchPayoutsSubTab(sub, btn) {
@@ -1544,9 +1667,8 @@ function renderMgmtFY() {
 }
 
 function renderFinance() {
-  const tab = financeTab || 'payouts';
-  const btn = document.getElementById('finance-tab-' + tab);
-  switchFinanceTab(tab, btn);
+  // Finance opens on the hub — user taps a row to enter a sub-section
+  backToFinanceHub();
 }
 
 // switchRevTab is superseded by switchPayoutsSubTab / switchReportSubTab
@@ -1991,14 +2113,18 @@ function _ensureSettingsVisible() {
   else window.scrollTo(0, 0);
 }
 
-function openSettingsCat(cat) {
+function openSettingsCat(cat, returnSection) {
   _ensureSettingsVisible();
   const sm = document.getElementById('settings-menu');
   if (sm) sm.style.display = 'none';
   document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
   document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
   const el = document.getElementById('settings-cat-' + cat);
-  if (el) el.style.display = 'block';
+  if (el) {
+    el.style.display = 'block';
+    if (returnSection) el.dataset.returnSection = returnSection;
+    else delete el.dataset.returnSection;
+  }
   if (cat === 'property') {
     setTimeout(updateNotifStatus, 100);
     const sr = document.getElementById('notif-status-row-menu');
@@ -2007,11 +2133,14 @@ function openSettingsCat(cat) {
   if (cat === 'cleaner') { openCleanerSettings(); }
 }
 
-function openSettingsPanel(panelId) {
+function openSettingsPanel(panelId, returnSection) {
   _ensureSettingsVisible();
   // track which cat we came from
   const activeCat = document.querySelector('[id^="settings-cat-"]:not([style*="display: none"]):not([style*="display:none"])');
   const prevCat = activeCat ? activeCat.id.replace('settings-cat-', '') : null;
+  // track which panel we came from (for panel→panel navigation)
+  const activePanel = document.querySelector('[id^="settings-panel-"]:not([style*="display: none"]):not([style*="display:none"])');
+  const prevPanel = activePanel ? activePanel.id.replace('settings-panel-', '') : null;
   const sm = document.getElementById('settings-menu');
   if (sm) sm.style.display = 'none';
   document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
@@ -2021,6 +2150,10 @@ function openSettingsPanel(panelId) {
   panel.style.display = 'block';
   if (prevCat) panel.dataset.prevCat = prevCat;
   else delete panel.dataset.prevCat;
+  if (prevPanel) panel.dataset.prevPanel = prevPanel;
+  else delete panel.dataset.prevPanel;
+  if (returnSection) panel.dataset.returnSection = returnSection;
+  else delete panel.dataset.returnSection;
 
   // populate panel data on open
   if (panelId === 'sms-template') {
@@ -2080,6 +2213,9 @@ function openSettingsPanel(panelId) {
   if (panelId === 'connection-checker') {
     resetConnectionCheckerResults();
   }
+  if (panelId === 'integrations') {
+    renderConnectionSummary();
+  }
   if (panelId === 'owner-report') {
     populateOwnerReportPanel();
   }
@@ -2125,15 +2261,22 @@ function switchActiveProperty(id) {
 
 function closeSettingsPanel() {
   const panel = document.querySelector('[id^="settings-panel-"]:not([style*="display: none"]):not([style*="display:none"])');
-  const returnCat = panel?.dataset.prevCat;
+  const returnCat    = panel?.dataset.prevCat;
+  const returnPanel  = panel?.dataset.prevPanel;
+  const returnSection = panel?.dataset.returnSection; // set when opened from a non-Settings hub
   document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
-  if (returnCat) openSettingsCat(returnCat);
+  if (returnPanel)   openSettingsPanel(returnPanel);
+  else if (returnCat) openSettingsCat(returnCat);
+  else if (returnSection) showSection(returnSection); // e.g. return to Property hub
   else closeSettingsCat();
 }
 
 function closeSettingsCat() {
-  // Return to the settings main menu (stay in settings section)
+  // Read return target from the active cat's data attribute (set by hub wrappers)
+  const activeCat = document.querySelector('[id^="settings-cat-"]:not([style*="display: none"]):not([style*="display:none"])');
+  const returnSection = activeCat && activeCat.dataset.returnSection;
   _resetSettingsToMenu();
+  if (returnSection) showSection(returnSection);
 }
 
 // ── EXPENSE CATEGORY MANAGEMENT ───────────────────────────────────────────
@@ -2982,7 +3125,7 @@ function switchModalTab(tab,btn){
 function openQuickAddMenu() {
   showActionSheet('Quick add', [
     { label: 'Add Booking', fn: "() => openModal()" },
-    { label: 'Add Expense', fn: "() => { showSection('property'); filterProperty('expenses', document.querySelector('#section-property .tab-row .tab:nth-child(1)')); window.scrollTo({ top: 0, behavior: 'smooth' }); }" },
+    { label: 'Add Expense', fn: "() => { showSection('finance'); window.scrollTo({ top: 0, behavior: 'smooth' }); }" },
     { label: 'Add Clean', fn: "() => { showSection('cleaning'); document.getElementById('clean-add-card')?.scrollIntoView({behavior:'smooth', block:'start'}); }" }
   ]);
 }
@@ -3654,29 +3797,66 @@ function populateContractorSelect() {
   sel.innerHTML = '<option value="">None</option>' + people.map(c => `<option value="${c.name}">${c.name} (${c.role||'Cleaner'})</option>`).join('');
 }
 
-// ── PROPERTY TAB NAVIGATION ───────────────────────────────────────────────
-let propFilter = 'expenses';
-function filterProperty(f, btn) {
+// ── PROPERTY HUB NAVIGATION ───────────────────────────────────────────────
+
+let propFilter = 'hub';
+
+/** Show the top-level Property hub (called on tab entry and back-nav) */
+function backToPropertyHub() {
+  propFilter = 'hub';
+  const hub = document.getElementById('prop-hub');
+  if (hub) hub.style.display = 'block';
+  ['expenses', 'maintenance', 'inventory'].forEach(s => {
+    const el = document.getElementById('prop-' + s);
+    if (el) el.style.display = 'none';
+  });
+}
+
+/** Navigate into a Property sub-panel (Maintenance or Inventory) */
+function showPropertySub(f) {
   propFilter = f;
-  document.querySelectorAll('#section-property .tab-row .tab').forEach(t => t.classList.remove('active'));
-  if (btn) {
-    btn.classList.add('active');
-  } else {
-    const fallback = document.querySelector(`#section-property .tab-row .tab[onclick*="'${f}'"]`);
-    if (fallback) fallback.classList.add('active');
-  }
-  ['expenses','maintenance','inventory'].forEach(s => {
+  const hub = document.getElementById('prop-hub');
+  if (hub) hub.style.display = 'none';
+  ['expenses', 'maintenance', 'inventory'].forEach(s => {
     const el = document.getElementById('prop-' + s);
     if (el) el.style.display = s === f ? 'block' : 'none';
   });
   renderProperty();
 }
 
+/**
+ * filterProperty — kept for backward-compat with any external deep-links.
+ * Internal callers now use showPropertySub() directly.
+ */
+function filterProperty(f, btn) {
+  showPropertySub(f);
+}
+
 function renderProperty() {
-  if (propFilter === 'expenses') renderExpenses();
+  // expenses moved to Finance tab — only maintenance and inventory remain in Property
   if (propFilter === 'maintenance') { renderMaintenance(); populateContractorSelect(); }
-  if (propFilter === 'inventory') renderInventory();
-  populateExpenseCatSelect();
+  if (propFilter === 'inventory')   renderInventory();
+}
+
+/** UI-only placeholder — Access & Rules screen to be built in a later step */
+function openPropertyAccessRules() {
+  showBanner('Access & Rules — coming soon', 'info');
+}
+
+/**
+ * Open Property Details from the Property hub.
+ * Passes returnSection='property' so the back button returns to Property, not Settings.
+ */
+function openPropertyDetailsFromHub() {
+  openSettingsCat('property', 'property');
+}
+
+/**
+ * Open Owner Reports panel from the Property hub.
+ * Passes returnSection='property' so the back button returns to Property, not Settings.
+ */
+function openOwnerReportFromHub() {
+  openSettingsPanel('owner-report', 'property');
 }
 
 // ── EXPENSES ──────────────────────────────────────────────────────────────
@@ -3761,18 +3941,64 @@ function hideMerchantSuggest() {
 }
 
 let expenseListExpanded = false;
+// Tracks per-month collapse state. null = defaults (newest open, rest closed).
+// A Set of month-label strings that are currently COLLAPSED.
+let _expMonthCollapsed = null;
+
 function toggleExpenseList() {
-  expenseListExpanded = !expenseListExpanded;
-  const btn = document.getElementById('expenses-toggle-btn');
-  if (btn) btn.textContent = expenseListExpanded ? 'Show less ↑' : 'Show all expenses ↓';
+  // Expand/collapse all months
+  if (!_expMonthCollapsed) {
+    // Default state (newest open) — collapse all
+    _expMonthCollapsed = new Set(_allExpenseMonthKeys());
+    expenseListExpanded = false;
+  } else if (_expMonthCollapsed.size > 0) {
+    // Some collapsed — expand all
+    _expMonthCollapsed = new Set();
+    expenseListExpanded = true;
+  } else {
+    // All expanded — reset to default
+    _expMonthCollapsed = null;
+    expenseListExpanded = false;
+  }
   renderExpenses();
 }
+
+/** Toggle a single month section open/closed. */
+function toggleExpenseMonth(key) {
+  if (!_expMonthCollapsed) {
+    // First explicit toggle — initialise from default state
+    const allKeys = _allExpenseMonthKeys();
+    _expMonthCollapsed = new Set(allKeys.slice(1)); // all except newest are closed
+  }
+  if (_expMonthCollapsed.has(key)) {
+    _expMonthCollapsed.delete(key);
+  } else {
+    _expMonthCollapsed.add(key);
+  }
+  renderExpenses();
+}
+
+/** Returns all month keys (newest first) derived from the current expenses array. */
+function _allExpenseMonthKeys() {
+  const sorted = [...expenses].sort((a, b) => {
+    const da = a.date || ''; const db = b.date || '';
+    return db > da ? 1 : db < da ? -1 : 0;
+  });
+  const keys = [];
+  sorted.forEach(e => {
+    const key = new Date(e.date || Date.now()).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+    if (!keys.includes(key)) keys.push(key);
+  });
+  return keys;
+}
+
 function clearExpenseFilters() {
   const s = document.getElementById('expense-search'); if (s) s.value = '';
   const c = document.getElementById('expense-filter-cat'); if (c) c.value = '';
   const f = document.getElementById('expense-filter-from'); if (f) f.value = '';
   const t = document.getElementById('expense-filter-to'); if (t) t.value = '';
   expenseListExpanded = false;
+  _expMonthCollapsed = null; // reset to defaults on filter clear
   renderExpenses();
 }
 
@@ -4059,57 +4285,113 @@ function renderExpenses() {
     return;
   }
 
-  // ── Show last 3 collapsed unless expanded or filtering ─────────────────────
-  const showAll = expenseListExpanded || isFiltering;
-  const visible = showAll ? filtered : filtered.slice(0, 3);
-  const hasMore = !isFiltering && filtered.length > 3;
-
-  const expRow = e => `
-    <div class="expense-item" data-expense-id="${e.id}" style="-webkit-user-select:none;user-select:none">
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.merchant||'Unknown'}</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-top:1px">${e.description||''}</div>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap">
-          <span class="expense-cat-badge">${e.category||''}</span>
-          <span style="font-size:11px;color:var(--text-soft)">${fmt(e.date)}</span>
-          ${e.driveLink?`<a href="${e.driveLink}" target="_blank" style="font-size:11px;color:var(--moss);font-weight:600">📎 View Receipt</a>`:''}
-          ${!e.driveLink && e.receiptType && e.receiptType!=='missing'?`<span style="font-size:11px;color:var(--moss)">✓ ${e.receiptType==='e-receipt'?'e-Receipt':'Printed'}</span>`:''}
-          ${e.awaitingReceipt?`<span style="font-size:11px;color:var(--amber)">⚠ Awaiting receipt</span>`:''}
-          ${!e.driveLink && (!e.receiptType || e.receiptType==='missing')?`<span style="font-size:11px;color:var(--red)">✕ No receipt</span>`:''}
+  const expRow = e => {
+    const isRefund = Number(e.amount) < 0;
+    const amtColor = isRefund ? '#27AE60' : '#C0392B';
+    const amtLabel = isRefund
+      ? `<span style="font-size:10px;font-weight:600;color:#27AE60;letter-spacing:0.2px">refund</span>`
+      : '';
+    // Receipt badge — stopPropagation so link tap doesn't also fire row tap
+    const receiptBadge = e.driveLink
+      ? `<a href="${e.driveLink}" target="_blank" onclick="event.stopPropagation()" style="font-size:11px;color:var(--moss);font-weight:600;text-decoration:none">📎 receipt</a>`
+      : e.awaitingReceipt
+        ? `<span style="font-size:11px;color:var(--amber)">⚠ awaiting</span>`
+        : (!e.receiptType || e.receiptType === 'missing')
+          ? `<span style="font-size:11px;color:var(--red)">✕ no receipt</span>`
+          : `<span style="font-size:11px;color:var(--moss)">✓ ${e.receiptType === 'e-receipt' ? 'e-receipt' : 'printed'}</span>`;
+    return `
+    <div class="expense-item" data-expense-id="${e.id}"
+         onclick="openExpenseView(${e.id})"
+         style="display:flex;justify-content:space-between;align-items:flex-start;
+                padding:9px 0;border-bottom:1px solid var(--warm);
+                cursor:pointer;-webkit-tap-highlight-color:transparent;
+                -webkit-user-select:none;user-select:none">
+      <div style="flex:1;min-width:0;padding-right:12px">
+        <div style="display:flex;align-items:baseline;gap:6px">
+          <span style="font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;display:inline-block">${e.merchant||'Unknown'}</span>
+          ${e.description ? `<span style="font-size:12px;color:var(--text-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100px;display:inline-block">${escHtml(e.description)}</span>` : ''}
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;margin-top:3px;flex-wrap:wrap">
+          <span style="font-size:10px;color:var(--text-soft)">${e.category||''}</span>
+          <span style="font-size:11px;color:var(--text-soft)">· ${fmt(e.date)}</span>
+          ${receiptBadge}
         </div>
       </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
-        <div style="font-weight:700;font-size:15px;color:${Number(e.amount)<0?'var(--moss)':'var(--red)'}">$${Math.abs(Number(e.amount)).toFixed(2)}</div>
-        <div style="display:flex;gap:6px">
-          <button onclick="openExpenseEdit(${e.id})" style="font-size:11px;color:var(--forest);background:var(--warm);border:none;border-radius:6px;padding:3px 8px;cursor:pointer;font-family:'DM Sans',sans-serif">Edit</button>
-          <button onclick="deleteExpense(${e.id})" style="font-size:13px;color:var(--red);background:#FEF2F2;border:none;border-radius:6px;cursor:pointer;padding:5px 10px;font-family:'DM Sans',sans-serif">🗑</button>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px">
+          <span style="font-family:'DM Serif Display',serif;font-size:15px;font-weight:700;color:${amtColor}">$${Math.abs(Number(e.amount)).toFixed(2)}</span>
+          ${amtLabel}
+        </div>
+        <div style="display:flex;gap:4px">
+          <button onclick="event.stopPropagation();openExpenseEdit(${e.id})"
+                  style="font-size:11px;color:var(--forest);background:none;border:none;
+                         padding:2px 0;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;
+                         text-decoration:underline;text-underline-offset:2px">Edit</button>
+          <button onclick="event.stopPropagation();deleteExpense(${e.id})"
+                  style="font-size:12px;color:var(--red);background:none;border:none;
+                         cursor:pointer;padding:2px 4px;font-family:'DM Sans',sans-serif">✕</button>
         </div>
       </div>
     </div>`;
+  };
 
-  const grouped = visible.reduce((acc, e) => {
+  // ── Group ALL filtered expenses by calendar month (collapse handled per-month) ──
+  const grouped = filtered.reduce((acc, e) => {
     const d = new Date(e.date || Date.now());
     const key = d.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(e);
+    if (!acc[key]) acc[key] = { items: [], total: 0 };
+    acc[key].items.push(e);
+    acc[key].total += Number(e.amount) || 0;
     return acc;
   }, {});
 
-  listEl.innerHTML = Object.entries(grouped).map(([monthLabel, items]) => `
-    <div style="padding:8px 0">
-      <div style="font-size:12px;font-weight:700;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.5px;padding:4px 0 8px">${escHtml(monthLabel)}</div>
-      ${items.map(expRow).join('')}
-    </div>
-  `).join('');
+  const monthKeys = Object.keys(grouped); // newest-first from sort above
+
+  listEl.innerHTML = monthKeys.map((monthLabel, idx) => {
+    const { items, total } = grouped[monthLabel];
+    const count = items.length;
+    const monthTotal = total.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // Default (null): newest month open, all others closed; filter mode: all open
+    const collapsed = isFiltering ? false
+      : _expMonthCollapsed ? _expMonthCollapsed.has(monthLabel)
+      : idx > 0;
+    const safeKey = monthLabel.replace(/[^a-zA-Z0-9]/g, '_');
+    const chevron = collapsed ? '›' : '∨';
+    const escapedLabel = monthLabel.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return `
+    <div class="exp-month-group" style="margin-bottom:4px">
+      <div onclick="toggleExpenseMonth('${escapedLabel}')"
+           style="display:flex;justify-content:space-between;align-items:center;
+                  padding:11px 0 10px;border-bottom:2px solid var(--warm);
+                  cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none">
+        <div style="display:flex;align-items:baseline;gap:0">
+          <span style="font-size:15px;font-weight:700;color:var(--text)">${escHtml(monthLabel)}</span>
+          <span style="font-size:11px;font-weight:400;color:var(--text-soft);margin-left:7px">${count} expense${count !== 1 ? 's' : ''}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-family:'DM Serif Display',serif;font-size:16px;color:var(--forest)">$${monthTotal}</span>
+          <span style="font-size:16px;color:#C7C7CC;font-weight:300;width:14px;text-align:center">${chevron}</span>
+        </div>
+      </div>
+      <div id="exp-month-${safeKey}" style="display:${collapsed ? 'none' : 'block'}">
+        ${items.map(expRow).join('')}
+      </div>
+    </div>`;
+  }).join('');
+
   animateList('#expenses-list');
   setTimeout(attachLongPress, 60);
 
-  // Show/hide "show more" toggle
+  // Show/hide expand-all toggle (repurposes existing expenses-show-more)
   const sm = document.getElementById('expenses-show-more');
   const tb = document.getElementById('expenses-toggle-btn');
   if (sm) {
-    sm.style.display = hasMore || (expenseListExpanded && filtered.length > 3) ? 'block' : 'none';
-    if (tb) tb.textContent = expenseListExpanded ? 'Show less ↑' : `Show all ${filtered.length} expenses ↓`;
+    const hasMultipleMonths = monthKeys.length > 1;
+    sm.style.display = (!isFiltering && hasMultipleMonths) ? 'block' : 'none';
+    if (tb) {
+      const allExpanded = _expMonthCollapsed !== null && _expMonthCollapsed.size === 0;
+      tb.textContent = allExpanded ? 'Collapse months ↑' : 'Expand all months ↓';
+    }
   }
 }
 
@@ -4164,10 +4446,11 @@ function addExpense(opts = {}) {
     if (photoInput) photoInput.value = '';
     document.getElementById('expense-photo-preview').style.display = 'none';
     document.getElementById('expense-extract-status').style.display = 'none';
-    // Scroll back to top of add form
-    const addCard = document.querySelector('#prop-expenses .card');
-    if (addCard) addCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Close the add form and scroll receipts into view
+    closeExpenseAddForm();
     renderExpenses();
+    const receiptsCard = document.querySelector('#finance-expenses-view .card:last-of-type');
+    if (receiptsCard) receiptsCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
     if (!exp.photo) showBanner('✓ Expense saved', 'ok');
     // receipt handled separately via Supabase Storage
     else showBanner('⟳ Uploading receipt...', 'info');
@@ -4716,6 +4999,87 @@ function clearEditExpensePhoto() {
   const e = expenses.find(e => e.id === editingExpenseId);
   document.getElementById('ee-receipt-label').textContent = e && e.driveLink ? 'Upload a replacement receipt' : 'Upload receipt photo';
 }
+function openExpenseView(id) {
+  const e = expenses.find(x => x.id === id);
+  if (!e) return;
+  const isRefund   = Number(e.amount) < 0;
+  const amtColor   = isRefund ? '#27AE60' : '#C0392B';
+  const amtDisplay = (isRefund ? '−' : '') + '$' + Math.abs(Number(e.amount)).toFixed(2);
+
+  // ── Receipt action block ────────────────────────────────────────────────────
+  let receiptBlock;
+  if (e.driveLink) {
+    receiptBlock = `
+      <a href="${e.driveLink}" target="_blank"
+         style="display:flex;align-items:center;justify-content:center;gap:8px;
+                width:100%;padding:11px;box-sizing:border-box;
+                background:var(--mist);border:1.5px solid var(--moss);border-radius:10px;
+                color:var(--moss);font-weight:600;font-size:13px;text-decoration:none;
+                font-family:'DM Sans',sans-serif">
+        📎 View Receipt
+      </a>`;
+  } else if (e.awaitingReceipt) {
+    receiptBlock = `<div style="font-size:13px;color:var(--amber);padding:4px 0">⚠ Receipt awaiting upload</div>`;
+  } else if (!e.receiptType || e.receiptType === 'missing') {
+    receiptBlock = `<div style="font-size:13px;color:var(--red);padding:4px 0">✕ No receipt on file</div>`;
+  } else {
+    receiptBlock = `<div style="font-size:13px;color:var(--moss);padding:4px 0">✓ Receipt on file (${e.receiptType === 'e-receipt' ? 'e-receipt' : 'printed'})</div>`;
+  }
+
+  document.getElementById('detail-content').innerHTML = `
+    <!-- ── Header: merchant + amount ── -->
+    <div style="margin-bottom:16px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+        <div style="min-width:0;flex:1">
+          <div style="font-family:'DM Serif Display',serif;font-size:24px;line-height:1.15;
+                      word-break:break-word">${escHtml(e.merchant||'Unknown')}</div>
+          ${e.description ? `<div style="font-size:13px;color:var(--text-soft);margin-top:4px">${escHtml(e.description)}</div>` : ''}
+        </div>
+        <div style="flex-shrink:0;text-align:right">
+          <div style="font-family:'DM Serif Display',serif;font-size:26px;font-weight:700;
+                      color:${amtColor};line-height:1">${amtDisplay}</div>
+          ${isRefund ? `<div style="font-size:10px;font-weight:600;color:#27AE60;letter-spacing:0.3px;margin-top:2px;text-transform:uppercase">Refund</div>` : ''}
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Supporting details ── -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="detail-row">
+        <span class="detail-label">Date</span>
+        <span class="detail-val">${fmt(e.date)}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Category</span>
+        <span class="detail-val">${escHtml(e.category||'—')}</span>
+      </div>
+      <div class="detail-row" style="${!e.receiptNum ? 'border-bottom:none' : ''}">
+        <span class="detail-label">Receipt type</span>
+        <span class="detail-val">${e.receiptType ? (e.receiptType === 'e-receipt' ? 'e-Receipt' : e.receiptType.charAt(0).toUpperCase() + e.receiptType.slice(1)) : '—'}</span>
+      </div>
+      ${e.receiptNum ? `
+      <div class="detail-row" style="border-bottom:none">
+        <span class="detail-label">Receipt #</span>
+        <span class="detail-val">${escHtml(String(e.receiptNum))}</span>
+      </div>` : ''}
+    </div>
+
+    <!-- ── Receipt access ── -->
+    <div style="margin-bottom:20px">${receiptBlock}</div>
+
+    <!-- ── Primary action ── -->
+    <button class="btn-primary" style="width:100%;margin-bottom:8px"
+            onclick="closeDetailModal();openExpenseEdit(${e.id})">✏️ Edit Expense</button>
+
+    <!-- ── Destructive action (secondary) ── -->
+    <button class="btn-secondary" style="width:100%;margin-bottom:8px;background:#FDECEA;color:var(--red);border-color:#FDECEA"
+            onclick="closeDetailModal();deleteExpense(${e.id})">🗑 Delete Expense</button>
+  `;
+  document.getElementById('detail-modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  setTimeout(attachModalHandleDrag, 0);
+}
+
 function openExpenseEdit(id) {
   const e = expenses.find(e => e.id === id);
   if (!e) return;
@@ -6725,6 +7089,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderAll();
     // Prompt if an owner report is due (non-blocking, runs after UI is visible)
     setTimeout(checkAutoSendReport, 1500);
+    // Auto-scan Gmail for new booking emails (throttled to once per 30 min)
+    setTimeout(maybeAutoScanGmail, 3000);
   } catch (e) {
     console.error('[StayOps] Boot failed:', e);
   } finally {
