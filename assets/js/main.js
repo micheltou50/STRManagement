@@ -2686,7 +2686,7 @@ function showDetail(id) {
           <div class="booking-status status-${b.status}">${b.status}</div>
         </div>
       </div>
-      <button onclick="showEditModal(${b.id})" style="background:var(--amber);color:white;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer">Edit</button>
+      <button onclick="showEditModal('${b._cloudId || b.id}')" style="background:var(--amber);color:white;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer">Edit</button>
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-title">Stay Details</div>
@@ -2754,8 +2754,9 @@ function showDetail(id) {
 }
 
 function showEditModal(id) {
-  const b = bookings.find(b=>b.id===id);
+  const b = bookings.find(b => b._cloudId === id || String(b.id) === String(id));
   if (!b) return;
+  const safeId = b._cloudId || b.id;
   closeDetailModal();
   document.getElementById('detail-content').innerHTML = `
     <div style="font-family:'DM Serif Display',serif;font-size:22px;margin-bottom:16px">Edit Booking</div>
@@ -2782,7 +2783,7 @@ function showEditModal(id) {
     <div style="padding:10px 12px;background:var(--warm);border-radius:var(--radius-sm);font-size:14px;color:var(--text-soft);font-style:italic">
       ${b.platform ? (b.platform==='Airbnb'?'🏠 Airbnb':b.platform==='VRBO'?'🏡 VRBO':'📋 Direct') : 'Not set'}
     </div>
-    <button class="btn-primary" onclick="saveEdit(${b.id})" id="save-edit-btn">Save & Sync to Sheet</button>
+    <button class="btn-primary" onclick="saveEdit('${safeId}')" id="save-edit-btn">Save & Sync</button>
     <button class="btn-secondary" onclick="closeDetailModal()">Cancel</button>
   `;
   document.getElementById('detail-modal').classList.add('open'); document.body.style.overflow='hidden';
@@ -2796,41 +2797,48 @@ function editCalcNights() {
 }
 
 function editCalcNet() {
-  const host=Number(document.getElementById('e-hostpayout').value)||0;
-  const clean=Number(document.getElementById('e-cleaningfee').value)||0;
-  const mgmtPct=Number(document.getElementById('e-mgmtfee').value)||0;
-  const mgmtAmt=Math.round((host-clean)*mgmtPct/100*100)/100;
-  const net=Math.round((host-clean-mgmtAmt)*100)/100;
-  const mgmtEl=document.getElementById('e-mgmtpayout');
-  const netEl=document.getElementById('e-netpayout');
-  if(mgmtEl) mgmtEl.value=mgmtPct?'$'+mgmtAmt.toFixed(2):'';
-  if(netEl) netEl.value=host?'$'+net.toFixed(2):'';
+  const host = Number(document.getElementById('e-hostpayout').value) || 0;
+  const clean = Number(document.getElementById('e-cleaningfee').value) || 0;
+  const mgmtPct = Number(document.getElementById('e-mgmtfee').value) || 0;
+  const mgmtBase = host - clean;
+  const mgmtAmt = Math.round(mgmtBase * mgmtPct / 100 * 100) / 100;
+  const net = Math.round(mgmtBase * 100) / 100;
+  const mgmtEl = document.getElementById('e-mgmtpayout');
+  const netEl  = document.getElementById('e-netpayout');
+  if (mgmtEl) mgmtEl.value = mgmtPct ? '$' + mgmtAmt.toFixed(2) : '';
+  if (netEl)  netEl.value  = host ? '$' + net.toFixed(2) : '';
 }
 
 function saveEdit(id) {
-  const b = bookings.find(b=>b.id===id);
+  const b = bookings.find(b => b._cloudId === id || String(b.id) === String(id));
   if (!b) return;
   const btn = document.getElementById('save-edit-btn');
   btn.textContent = 'Saving...'; btn.disabled = true;
+
   b.name        = document.getElementById('e-name').value.trim();
   b.checkin     = document.getElementById('e-checkin').value;
   b.checkout    = document.getElementById('e-checkout').value;
-  b.nights      = Number(document.getElementById('e-nights').value)||1;
-  b.guests      = Number(document.getElementById('e-guests').value)||1;
-  b.hostPayout  = Number(document.getElementById('e-hostpayout').value)||0;
-  b.cleaningFee = Number(document.getElementById('e-cleaningfee').value)||0;
-  const mgmtPct = Number(document.getElementById('e-mgmtfee').value)||0;
-  b.mgmtFeeRaw  = mgmtPct;
-  // Keep existing lifecycle status; avoid date-only status flips during edit.
-  if (!b.status) b.status = 'upcoming';
+  b.nights      = Number(document.getElementById('e-nights').value) || 1;
+  b.guests      = Number(document.getElementById('e-guests').value) || 1;
+  b.hostPayout  = Number(document.getElementById('e-hostpayout').value) || 0;
+  b.cleaningFee = Number(document.getElementById('e-cleaningfee').value) || 0;
+
+  const mgmtPct  = Number(document.getElementById('e-mgmtfee').value) || 0;
+  const mgmtBase = b.hostPayout - b.cleaningFee;
+  b.mgmtFeeRaw   = mgmtPct;
+  b.mgmtFee      = Math.round(mgmtBase * mgmtPct / 100 * 100) / 100;
+  b.mgmtPayout   = b.mgmtFee;                                          // manager's cut
+  b.netPayout    = Math.round((mgmtBase - b.mgmtFee) * 100) / 100;    // owner's take-home
+
+  if (!b.status) b.status = 'confirmed';
   save();
   if (typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(() => {});
-  showBanner('✅ Booking saved & syncing...', 'ok');
-  setTimeout(() => { closeDetailModal(); render(); }, 500);
+  showBanner('✅ Booking saved', 'ok');
+  setTimeout(() => { closeDetailModal(); renderAll(); }, 500);
 }
 
 function toggleCleanerConfirmed(id) {
-  const b = bookings.find(b=>b.id===id);
+  const b = bookings.find(b => b._cloudId === id || String(b.id) === String(id));
   if (!b) return;
   if (b.status === 'cancelled') {
     showBanner('Cancelled booking — cleaner confirmation is disabled', 'warn');
@@ -3017,9 +3025,9 @@ function addNote() {
   showBanner('✅ Note saved', 'ok');
 }
 async function deleteBooking(id) {
-  const b=bookings.find(b=>b.id===id);
+  const b = bookings.find(b => b._cloudId === id || String(b.id) === String(id));
   const _okBk = await showAppModal({ title: 'Delete Booking', msg: 'Remove this booking? This cannot be undone.', confirmText: 'Delete', confirmColor: 'var(--red)' }); if (!_okBk) return;
-  const deletedBooking = bookings.find(b=>b.id===id);
+  const deletedBooking = bookings.find(b => b._cloudId === id || String(b.id) === String(id));
 
   // Plan (Bug 2): capture linked cleans/notes first, then after save() explicitly delete
   // their Supabase rows by _cloudId or local_id+user_id to prevent orphan re-hydration.
@@ -5601,7 +5609,8 @@ function attachLongPress() {
   document.querySelectorAll('.booking-item').forEach(el => {
     if (el.dataset.lpAttached) return;
     el.dataset.lpAttached = '1';
-    const id = parseInt(el.dataset.bookingId);
+    const rawId = el.dataset.bookingId;
+    const id = isNaN(Number(rawId)) ? rawId : parseInt(rawId);
     if (!id) return;
     let startX = 0, startY = 0;
     el.addEventListener('touchstart', e => {
@@ -5610,12 +5619,13 @@ function attachLongPress() {
       startX = t.clientX; startY = t.clientY;
       clearLP();
       longPressTimer = setTimeout(() => {
-        const b = bookings.find(b => b.id === id);
+        const b = bookings.find(b => b._cloudId === id || String(b.id) === String(id));
         if (!b) return;
+        const safeId = b._cloudId || b.id;
         showActionSheet(b.name, [
-          { label: '✏️ Edit Booking',       fn: `() => showEditModal(${id})` },
+          { label: '✏️ Edit Booking',       fn: `() => showEditModal('${safeId}')` },
           { label: '📱 Notify Cleaner',     fn: `() => { showSection('cleaning'); }` },
-          { label: '🗑 Delete Booking',      fn: `() => deleteBooking(${id})`, destructive: true },
+          { label: '🗑 Delete Booking',      fn: `() => deleteBooking('${safeId}')`, destructive: true },
         ]);
       }, 550);
     }, { passive:true });

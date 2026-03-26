@@ -342,7 +342,7 @@ async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, 
   const cleaning = parsed.cleaningFee || 0;
   const mgmtBase   = payout - cleaning;
   const mgmtFee    = Math.round(mgmtBase * (rate / 100) * 100) / 100;
-  const mgmtPayout = Math.round((mgmtBase - mgmtFee) * 100) / 100;
+  const netPayout  = Math.round((mgmtBase - mgmtFee) * 100) / 100; // owner's take-home
   const booking = {
     user_id: uid,
     property_id: propertyId,
@@ -354,10 +354,10 @@ async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, 
     guests: parsed.guests || 1,
     host_payout: payout,
     cleaning_fee: cleaning,
-    net_payout: payout - cleaning,
+    net_payout: netPayout,       // owner's take-home (after mgmt fee)
     mgmt_fee_raw: rate,
     mgmt_fee: mgmtFee,
-    mgmt_payout: mgmtPayout,
+    mgmt_payout: mgmtFee,        // manager's cut
     platform: parsed.platform || '',
     confirmation_code: parsed.confirmationCode || '',
     status: 'confirmed',
