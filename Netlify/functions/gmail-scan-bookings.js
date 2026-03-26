@@ -76,12 +76,13 @@ exports.handler = async (event) => {
     // ── 3. Get property ID ─────────────────────────────────────────────
     const propRes = await fetch(
       SUPABASE_URL + '/rest/v1/properties?user_id=eq.' + enc(uid) +
-        '&select=id,name&order=updated_at.desc&limit=1',
+        '&select=id,name,mgmt_fee_rate&order=updated_at.desc&limit=1',
       { headers: sbHeaders }
     );
     const props = await propRes.json();
-    const propertyId = (props && props[0]) ? props[0].id : null;
+    const propertyId   = (props && props[0]) ? props[0].id   : null;
     const propertyName = (props && props[0]) ? props[0].name : '';
+    const mgmtFeeRate  = (props && props[0] && props[0].mgmt_fee_rate != null) ? Number(props[0].mgmt_fee_rate) : 0;
 
     // ── 4. Search Gmail ────────────────────────────────────────────────
     const searchDays = 14;
@@ -234,7 +235,7 @@ exports.handler = async (event) => {
             results.updated++;
             results.details.push({ msgId, status: 'updated', guest: parsed.guestName, checkin: parsed.checkin });
           } else if (parsed.checkin && parsed.checkout) {
-            await insertNewBooking(SUPABASE_URL, sbHeaders, uid, propertyId, msgId, parsed);
+            await insertNewBooking(SUPABASE_URL, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate);
             results.imported++;
             results.details.push({ msgId, status: 'imported', guest: parsed.guestName, checkin: parsed.checkin, note: 'modification without matching original' });
           } else {
@@ -266,7 +267,7 @@ exports.handler = async (event) => {
           }
         }
 
-        await insertNewBooking(SUPABASE_URL, sbHeaders, uid, propertyId, msgId, parsed);
+        await insertNewBooking(SUPABASE_URL, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate);
         results.imported++;
         results.details.push({ msgId, status: 'imported', guest: parsed.guestName, checkin: parsed.checkin });
 
@@ -335,7 +336,13 @@ async function updateLastScan(supabaseUrl, headers, uid, skippedIds) {
   });
 }
 
-async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, parsed) {
+async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate) {
+  const rate     = Number(mgmtFeeRate) || 0;
+  const payout   = parsed.hostPayout  || 0;
+  const cleaning = parsed.cleaningFee || 0;
+  const mgmtBase   = payout - cleaning;
+  const mgmtFee    = Math.round(mgmtBase * (rate / 100) * 100) / 100;
+  const mgmtPayout = Math.round((mgmtBase - mgmtFee) * 100) / 100;
   const booking = {
     user_id: uid,
     property_id: propertyId,
@@ -345,9 +352,12 @@ async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, 
     nights: daysBetween(parsed.checkin, parsed.checkout),
     guest_name: parsed.guestName || 'Guest',
     guests: parsed.guests || 1,
-    host_payout: parsed.hostPayout || 0,
-    cleaning_fee: parsed.cleaningFee || 0,
-    net_payout: (parsed.hostPayout || 0) - (parsed.cleaningFee || 0),
+    host_payout: payout,
+    cleaning_fee: cleaning,
+    net_payout: payout - cleaning,
+    mgmt_fee_raw: rate,
+    mgmt_fee: mgmtFee,
+    mgmt_payout: mgmtPayout,
     platform: parsed.platform || '',
     confirmation_code: parsed.confirmationCode || '',
     status: 'confirmed',

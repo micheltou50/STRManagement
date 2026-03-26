@@ -949,6 +949,13 @@
           </div>
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
+        <div class="settings-cat-item" onclick="openSettingsPanel('mgmt-fee')">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:9px;background:#34C759;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">💼</div>
+            <div><div style="font-weight:500;font-size:14px">Management Fee</div><div style="font-size:12px;color:var(--text-soft)">Default fee % applied to imported bookings</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+        </div>
         <div class="settings-cat-item" onclick="openSettingsPanel('owner-report')" style="border-bottom:none">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:9px;background:#FF9500;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📊</div>
@@ -1129,6 +1136,21 @@
     <!-- /PANEL: HOST PROFILE -->
 
     <!-- PANEL: PROPERTY INFO -->
+    <!-- PANEL: MANAGEMENT FEE -->
+    <div id="settings-panel-mgmt-fee" style="display:none">
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Property</div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-title">💼 Management Fee</div>
+        <div style="font-size:12px;color:var(--text-soft);margin-bottom:14px;line-height:1.5">This rate is applied automatically when booking emails are imported. You can still override the fee on individual bookings.</div>
+        <div class="field">
+          <label>Default Management Fee (%)</label>
+          <input type="number" id="settings-mgmt-fee-rate" min="0" max="100" step="0.1" placeholder="e.g. 10" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;background:var(--card-bg)">
+        </div>
+        <button class="btn-primary" onclick="saveMgmtFeeRate()" style="width:100%;margin-top:12px">Save</button>
+        <div id="mgmt-fee-confirm" style="display:none;margin-top:8px;font-size:12px;color:var(--forest);text-align:center">✓ Saved</div>
+      </div>
+    </div>
+
     <div id="settings-panel-property-info" style="display:none">
       <div class="settings-back" onclick="closeSettingsPanel()">‹ Property</div>
       <div class="card">

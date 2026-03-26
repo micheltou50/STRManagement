@@ -2215,6 +2215,9 @@ function openSettingsPanel(panelId, returnSection) {
   if (panelId === 'owner-report') {
     populateOwnerReportPanel();
   }
+  if (panelId === 'mgmt-fee') {
+    populateMgmtFeePanel();
+  }
   if (panelId === 'host-profile') {
     populateHostProfilePanel();
   }
@@ -7324,6 +7327,29 @@ function populateOwnerReportPanel() {
     fyEl.value = currentFY;
   }
 
+}
+
+
+function populateMgmtFeePanel() {
+  const rate = localStorage.getItem(lsKey("mgmt-fee-rate"));
+  const el = document.getElementById("settings-mgmt-fee-rate");
+  if (el) el.value = rate !== null ? rate : "";
+}
+
+async function saveMgmtFeeRate() {
+  const el = document.getElementById("settings-mgmt-fee-rate");
+  if (!el) return;
+  const rate = parseFloat(el.value);
+  if (isNaN(rate) || rate < 0 || rate > 100) { showBanner("⚠ Enter a valid fee between 0 and 100", "warn"); return; }
+  localStorage.setItem(lsKey("mgmt-fee-rate"), String(rate));
+  // Save to properties table in Supabase
+  if (typeof savePropertyToCloud === "function") {
+    const cfg = (typeof getActivePropertyConfig === "function") ? getActivePropertyConfig() : {};
+    savePropertyToCloud(cfg).catch(() => {});
+  }
+  const confirm = document.getElementById("mgmt-fee-confirm");
+  if (confirm) { confirm.style.display = "block"; setTimeout(() => { confirm.style.display = "none"; }, 2000); }
+  showBanner("✓ Management fee rate saved", "ok");
 }
 
 function _setVal(id, val) {

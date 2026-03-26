@@ -175,6 +175,7 @@ async function seedLocalConfigFromCloud() {
     // 4. Also restore API keys to localStorage if present
     if (cloudProp.anthropic_api_key) localStorage.setItem('gh-api-key', cloudProp.anthropic_api_key);
     if (cloudProp.script_url) localStorage.setItem('gh-script-url', cloudProp.script_url);
+    if (cloudProp.mgmt_fee_rate != null) localStorage.setItem(lsKey('mgmt-fee-rate'), String(cloudProp.mgmt_fee_rate));
 
     console.log('[PreFlight] seedLocalConfigFromCloud: DONE — setup gates should now pass');
     return true;
@@ -220,6 +221,7 @@ async function savePropertyToCloud(cfg) {
       report_frequency:        (cfg.owner && cfg.owner.reportFrequency)      || null,
       last_report_sent_at:     (cfg.owner && cfg.owner.lastReportSentAt)     || null,
       anthropic_api_key: localStorage.getItem('gh-api-key')            || null,
+      mgmt_fee_rate:     parseFloat(localStorage.getItem(lsKey('mgmt-fee-rate')) || '0') || null,
       // Use config's own updated_at if present so timestamp reflects when user actually saved
       updated_at:        cfg.updated_at || new Date().toISOString()
     };
@@ -773,6 +775,7 @@ async function hydrateFromCloud() {
 
       // Restore API settings to localStorage
       if (cloudProp.anthropic_api_key) localStorage.setItem('gh-api-key', cloudProp.anthropic_api_key);
+      if (cloudProp.mgmt_fee_rate != null) localStorage.setItem(lsKey('mgmt-fee-rate'), String(cloudProp.mgmt_fee_rate));
 
       const existingCfg = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : {};
       const localUpdatedAt  = existingCfg.updated_at ? new Date(existingCfg.updated_at).getTime()  : 0;
