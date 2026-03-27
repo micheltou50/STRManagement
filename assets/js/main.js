@@ -326,6 +326,9 @@ function renderConnectionSummary() {
   const gmailEmail = localStorage.getItem('gh-gmail-email') || '';
   const gmailConnected = !!gmailEmail;
 
+  const outlookEmail = localStorage.getItem('gh-outlook-email') || '';
+  const outlookConnected = !!outlookEmail;
+
   wrap.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--mist);border-radius:10px">
       <div style="font-size:13px;color:var(--text)">Supabase</div>
@@ -352,6 +355,26 @@ function renderConnectionSummary() {
       `}
     </div>
 
+    <div style="padding:12px;background:var(--mist);border-radius:10px;margin-top:8px">
+      <div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:6px">📧 Outlook — Booking Import</div>
+      ${outlookConnected ? `
+        <div style="font-size:12px;color:var(--moss);margin-bottom:8px">✓ Connected: ${escHtml(outlookEmail)}</div>
+        <div style="display:flex;gap:6px">
+          <button onclick="scanOutlookBookings()" id="outlook-scan-btn"
+            style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">📥 Scan for Bookings</button>
+          <button onclick="connectOutlook()"
+            style="background:var(--warm);color:var(--forest);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">Reconnect</button>
+        </div>
+        <div id="outlook-scan-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;line-height:1.5"></div>
+      ` : `
+        <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.5">Connect your Outlook / Hotmail account to automatically import bookings from Airbnb, VRBO, Booking.com, and other platforms.</div>
+        <button onclick="connectOutlook()"
+          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
+          <img src="https://www.microsoft.com/favicon.ico" width="18" height="18" style="border-radius:3px"> Connect Outlook
+        </button>
+      `}
+    </div>
+
     ${feedUrl ? `
     <div style="padding:12px;background:var(--mist);border-radius:10px;margin-top:8px">
       <div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:6px">📅 Calendar Feed</div>
@@ -371,6 +394,12 @@ async function connectGmail() {
   const user = await getCurrentSupabaseUser();
   if (!user) { showBanner('⚠ Please sign in first', 'warn'); return; }
   window.location.href = '/.netlify/functions/gmail-oauth-start?state=' + encodeURIComponent(user.id);
+}
+
+async function connectOutlook() {
+  const user = await getCurrentSupabaseUser();
+  if (!user) { showBanner('⚠ Please sign in first', 'warn'); return; }
+  window.location.href = '/.netlify/functions/outlook-oauth-start?state=' + encodeURIComponent(user.id);
 }
 
 // Silent background Gmail scan — runs automatically on boot, throttled to once per 30 min.
@@ -464,6 +493,105 @@ async function scanGmailBookings() {
       if (data.updated) parts.push(data.updated + ' updated');
       if (data.cancelled) parts.push(data.cancelled + ' cancelled');
       showBanner('✓ ' + parts.join(', ') + ' from Gmail', 'ok');
+    }
+
+  } catch (e) {
+    if (statusEl) {
+      statusEl.style.background = '#FEF2F2';
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '⚠ Network error — check connection';
+    }
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = '📥 Scan for Bookings'; }
+}
+
+// Silent background Outlook scan — mirrors maybeAutoScanGmail exactly.
+async function maybeAutoScanOutlook() {
+  try {
+    const outlookEmail = localStorage.getItem('gh-outlook-email') || '';
+    if (!outlookEmail) return; // Outlook not connected
+    const user = window._supabaseUser;
+    if (!user) return;
+
+    const res = await fetch('/.netlify/functions/outlook-scan-bookings?uid=' + encodeURIComponent(user.id));
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const totalChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0);
+    if (totalChanges > 0) {
+      if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
+      reloadInMemoryData();
+      renderAll();
+      const parts = [];
+      if (data.imported) parts.push(data.imported + ' imported');
+      if (data.updated) parts.push(data.updated + ' updated');
+      if (data.cancelled) parts.push(data.cancelled + ' cancelled');
+      showBanner('✓ ' + parts.join(', ') + ' from Outlook', 'ok');
+    }
+  } catch (e) {
+    console.warn('[outlook-auto-scan] background scan error:', e.message);
+  }
+}
+
+async function scanOutlookBookings() {
+  const user = window._supabaseUser;
+  if (!user) { showBanner('⚠ Please sign in first', 'warn'); return; }
+
+  const btn = document.getElementById('outlook-scan-btn');
+  const statusEl = document.getElementById('outlook-scan-status');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Scanning…'; }
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.style.background = '#FFF8E1';
+    statusEl.style.color = '#E65100';
+    statusEl.textContent = 'Scanning Outlook for booking confirmations…';
+  }
+
+  try {
+    const res = await fetch('/.netlify/functions/outlook-scan-bookings?uid=' + encodeURIComponent(user.id));
+    const data = await res.json();
+
+    if (!res.ok) {
+      if (statusEl) {
+        statusEl.style.background = '#FEF2F2';
+        statusEl.style.color = 'var(--red)';
+        statusEl.textContent = '⚠ ' + (data.error || 'Scan failed');
+      }
+      if (btn) { btn.disabled = false; btn.textContent = '📥 Scan for Bookings'; }
+      return;
+    }
+
+    if (statusEl) {
+      const hasChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0) > 0;
+      statusEl.style.background = hasChanges ? '#EDF7ED' : 'var(--mist)';
+      statusEl.style.color = hasChanges ? 'var(--forest)' : 'var(--text-soft)';
+
+      let msg = data.message || 'Scan complete';
+      if (data.details && data.details.length) {
+        const actionItems = data.details
+          .filter(d => d.status === 'imported' || d.status === 'updated' || d.status === 'cancelled')
+          .map(d => {
+            const label = d.status === 'cancelled' ? '❌' : d.status === 'updated' ? '✏️' : '✅';
+            return label + ' ' + (d.guest || 'Guest') + (d.checkin ? ' (' + d.checkin + ')' : '');
+          })
+          .join(', ');
+        if (actionItems) msg += ': ' + actionItems;
+      }
+      if (data.remaining > 0) msg += ' · ' + data.remaining + ' more emails to process — scan again';
+      statusEl.textContent = (hasChanges ? '✓ ' : '') + msg;
+    }
+
+    const totalChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0);
+    if (totalChanges > 0) {
+      if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
+      reloadInMemoryData();
+      renderAll();
+      const parts = [];
+      if (data.imported) parts.push(data.imported + ' imported');
+      if (data.updated) parts.push(data.updated + ' updated');
+      if (data.cancelled) parts.push(data.cancelled + ' cancelled');
+      showBanner('✓ ' + parts.join(', ') + ' from Outlook', 'ok');
     }
 
   } catch (e) {
@@ -7622,6 +7750,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (oauthSuccess === 'google') {
       localStorage.setItem('gh-gmail-email', decodeURIComponent(oauthEmail));
     }
+    // Save Outlook connection for connection summary UI
+    if (oauthSuccess === 'microsoft') {
+      localStorage.setItem('gh-outlook-email', decodeURIComponent(oauthEmail));
+    }
     // Show onboarding step 2 connected state after app loads
     window._oauthConnected = { provider: oauthSuccess, email: decodeURIComponent(oauthEmail) };
   }
@@ -7723,8 +7855,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderAll();
     // Prompt if an owner report is due (non-blocking, runs after UI is visible)
     setTimeout(checkAutoSendReport, 1500);
-    // Auto-scan Gmail for new booking emails (throttled to once per 30 min)
+    // Auto-scan Gmail for new booking emails
     setTimeout(maybeAutoScanGmail, 3000);
+    // Auto-scan Outlook for new booking emails
+    setTimeout(maybeAutoScanOutlook, 4500);
   } catch (e) {
     console.error('[StayOps] Boot failed:', e);
   } finally {
@@ -7902,6 +8036,15 @@ async function onboardFinish() {
 
 // Check if onboarding is needed
 function isOnboardingComplete() {
+  // A real property must exist in the list before any other flag matters.
+  // gh-setup-complete is set by the property setup overlay on submit regardless
+  // of whether valid property data was actually saved (e.g. empty name field).
+  // Without this guard, an authenticated user with 0 cloud properties lands on
+  // a blank "NSW / 0 beds" dashboard instead of the Add Property / onboarding screen.
+  try {
+    const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
+    if (!props.length) return false;
+  } catch(e) {}
   if (localStorage.getItem('gh-setup-complete') === '1') return true;
   try {
     const cfg = typeof getActivePropertyConfig === 'function' ? getActivePropertyConfig() : null;

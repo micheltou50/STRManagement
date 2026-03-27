@@ -483,9 +483,16 @@ export function migrateConfigFromLegacySettings() {
   if (ownerName)  updates.owner.name = ownerName;
   if (baseRate)   updates.pricing = { baseRate: Number(baseRate) || 350 };
 
-  savePropertyConfig(updates);
-  localStorage.setItem(MIGRATION_FLAG, '1');
+  // Only write if there is something real to migrate.
+  // Calling savePropertyConfig with an empty payload triggers the first-save
+  // path which creates a phantom property from _cloneDefaults() (state:'NSW',
+  // no name) in a fresh private/incognito session — bypassing onboarding and
+  // rendering a blank "0 beds / NSW" dashboard instead.
+  if (email || ownerName || baseRate) {
+    savePropertyConfig(updates);
+  }
 
+  localStorage.setItem(MIGRATION_FLAG, '1');
   _syncLegacyMirrorsFromActive();
 }
 

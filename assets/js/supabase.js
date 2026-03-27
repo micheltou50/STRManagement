@@ -110,6 +110,32 @@ async function loadPropertyFromCloud() {
 export async function seedLocalConfigFromCloud() {
   console.log('[StayOps] seedLocalConfigFromCloud: starting...');
   try {
+    // ── Cross-user guard ──────────────────────────────────────────────────
+    // gh-properties, gh-property-config, gh-active-property-id, and
+    // gh-setup-complete are ALL global (not user-scoped) — see _GLOBAL_GH_KEYS
+    // in config.js. When a different Supabase account signs in on the same
+    // browser, those keys still hold the previous user's properties.
+    // Compare the signed-in user's ID against the last stored user ID and
+    // wipe all global property keys before any hydration if they differ.
+    // This is safe for same-user offline: IDs match → no wipe, local cache
+    // is preserved. First-ever login: storedUserId is null → no wipe.
+    const _authUser = await getCurrentSupabaseUser();
+    if (_authUser) {
+      const storedUserId = localStorage.getItem('gh-current-user-id');
+      if (storedUserId && storedUserId !== _authUser.id) {
+        console.log('[StayOps] seedLocalConfigFromCloud: user changed — clearing stale local property store');
+        localStorage.removeItem('gh-properties');
+        localStorage.removeItem('gh-property-config');
+        localStorage.removeItem('gh-active-property-id');
+        localStorage.removeItem('gh-setup-complete');
+        localStorage.removeItem('gh-config-migrated-v1');
+        localStorage.removeItem('gh-gmail-email');
+        localStorage.removeItem('gh-outlook-email');
+      }
+      localStorage.setItem('gh-current-user-id', _authUser.id);
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     const cloudProps = await loadPropertyFromCloud();
     if (!Array.isArray(cloudProps) || !cloudProps.length) {
       console.log('[StayOps] seedLocalConfigFromCloud: no cloud properties');
@@ -1333,6 +1359,16 @@ export async function handleLoginSubmit() {
     if (errEl) errEl.textContent = (typeof error === 'object' ? error.message : error) || 'Sign in failed.';
     return;
   }
+
+  // Auth succeeded — immediately hide the login screen and reset the button
+  // BEFORE the boot sequence runs. This is critical: boot steps like
+  // ensureHostIdentityAndRestore() show modals via #app-modal-overlay
+  // (z-index 9999) which are blocked by the login screen (z-index 10000)
+  // if it stays visible, causing the boot to hang indefinitely.
+  const loginEl = document.getElementById('stayops-login-screen');
+  if (loginEl) loginEl.style.display = 'none';
+  if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; }
+
   // Successful sign in — run the full boot sequence
   try {
     if (typeof migrateConfigFromLegacySettings === 'function') migrateConfigFromLegacySettings();
@@ -1353,9 +1389,14 @@ export async function handleLoginSubmit() {
     if (typeof renderAll === 'function') renderAll();
     setTimeout(() => { if (typeof checkAutoSendReport === 'function') checkAutoSendReport(); }, 1500);
     setTimeout(() => { if (typeof maybeAutoScanGmail === 'function') maybeAutoScanGmail(); }, 3000);
+    setTimeout(() => { if (typeof maybeAutoScanOutlook === 'function') maybeAutoScanOutlook(); }, 4500);
   } catch (e) {
     console.error('[StayOps] Boot after login failed:', e);
   } finally {
+    // Backstop: ensure button is always clean and chrome transition always
+    // completes, even if boot throws or login screen is shown again later
+    // (e.g. after sign-out).
+    if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; }
     if (typeof showAppChrome === 'function') showAppChrome();
   }
 }
@@ -1363,23 +1404,10 @@ export async function handleLoginSubmit() {
 export function toggleSignUp() {
   const loginForm  = document.getElementById('login-signin-section');
   const signupForm = document.getElementById('login-signup-section');
-  const toggleBtn  = document.getElementById('login-toggle-link');
   if (!loginForm || !signupForm) return;
   const isLogin = loginForm.style.display !== 'none';
-  // isLogin=true  → switching FROM sign-in TO sign-up
-  // isLogin=false → switching FROM sign-up TO sign-in
   loginForm.style.display  = isLogin ? 'none' : '';
   signupForm.style.display = isLogin ? '' : 'none';
-  if (toggleBtn) {
-    toggleBtn.textContent = isLogin
-      ? 'Already have an account? Sign in'
-      : "Don't have an account? Create one";
-  }
-  // Clear success banner when user manually navigates back to sign-up
-  if (isLogin) {
-    const successEl = document.getElementById('login-success');
-    if (successEl) { successEl.textContent = ''; successEl.style.display = 'none'; }
-  }
 }
 
 export async function handleSignUpSubmit() {
@@ -1398,13 +1426,7 @@ export async function handleSignUpSubmit() {
     if (errEl) errEl.textContent = (typeof error === 'object' ? error.message : error) || 'Sign up failed.';
     return;
   }
-  // Success — switch to sign-in mode and show a clear confirmation banner
-  toggleSignUp(); // switches view, updates toggle text, clears any sign-up error
-  const successEl = document.getElementById('login-success');
-  if (successEl) {
-    successEl.textContent = '✅ Account created — check your email to confirm, then sign in.';
-    successEl.style.display = 'block';
-  }
+  if (errEl) errEl.textContent = 'Check your email to confirm your account.';
 }
 
 
