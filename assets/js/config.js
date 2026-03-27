@@ -19,7 +19,7 @@ const ACTIVE_PROPERTY_ID_KEY = 'gh-active-property-id';
  * @param {string} key  Short key name without prefix, e.g. 'bookings'.
  * @returns {string}
  */
-function lsKey(key) {
+export function lsKey(key) {
   try {
     const raw  = localStorage.getItem(PROPERTY_CONFIG_KEY);
     const id   = (raw ? JSON.parse(raw).propertyId : null) || 'glenhaven';
@@ -32,8 +32,8 @@ function lsKey(key) {
 }
 
 // ── DEFAULTS ───────────────────────────────────────────────────────────────────
-const DEFAULT_PROPERTY_CONFIG = {
-  propertyId: 'glenhaven',
+export const DEFAULT_PROPERTY_CONFIG = {
+  propertyId: '',
   name:       '',
   address:    '',
   suburb:     '',
@@ -47,9 +47,9 @@ const DEFAULT_PROPERTY_CONFIG = {
   },
 
   property: {
-    bedrooms:  4,
-    maxGuests: 8,
-    bathrooms: 2.5,
+    bedrooms:  0,
+    maxGuests: 0,
+    bathrooms: 0,
     type:      'house',
   },
 
@@ -70,7 +70,7 @@ const DEFAULT_PROPERTY_CONFIG = {
   },
 
   pricing: {
-    baseRate:        350,
+    baseRate:        0,
     locationContext: '',
     locationFactors: '',
     currency:        'AUD',
@@ -164,7 +164,7 @@ function _normalisePropertyId(raw, fallbackName) {
   return base + '-' + i;
 }
 
-function getAllProperties() {
+export function getAllProperties() {
   try {
     const raw = localStorage.getItem(PROPERTIES_KEY);
     if (!raw) return [];
@@ -172,6 +172,7 @@ function getAllProperties() {
     if (!Array.isArray(list)) return [];
     return list
       .filter(Boolean)
+      .filter(p => p.name || p.propertyId !== 'property')
       .map(p => {
         const merged = _deepMerge(_cloneDefaults(), p || {});
         merged.propertyId = merged.propertyId || merged.id || _normalisePropertyId('', merged.name);
@@ -202,14 +203,14 @@ function saveAllProperties(list) {
   }
 }
 
-function getActivePropertyId() {
+export function getActivePropertyId() {
   const id = localStorage.getItem(ACTIVE_PROPERTY_ID_KEY);
   if (id) return id;
   const list = getAllProperties();
   return (list[0] && list[0].propertyId) || null;
 }
 
-function setActivePropertyId(id) {
+export function setActivePropertyId(id) {
   const list = getAllProperties();
   const found = list.find(p => p.propertyId === id || p.id === id);
   if (!found) return false;
@@ -218,23 +219,38 @@ function setActivePropertyId(id) {
   return true;
 }
 
-function getPropertyById(id) {
+export function getPropertyById(id) {
   const list = getAllProperties();
   const hit = list.find(p => p.propertyId === id || p.id === id);
   return hit ? _deepMerge(_cloneDefaults(), hit) : null;
 }
 
-function getActivePropertyConfig() {
+export function getActivePropertyConfig() {
   const activeId = getActivePropertyId();
   if (!activeId) return _cloneDefaults();
   return getPropertyById(activeId) || _cloneDefaults();
 }
 
-function addPropertyConfig(property) {
+export function addPropertyConfig(property) {
   const list = getAllProperties();
   const next = _deepMerge(_cloneDefaults(), property || {});
+
+  const makeUuid = () => {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : ((r & 0x3) | 0x8);
+      return v.toString(16);
+    });
+  };
+
   next.propertyId = _normalisePropertyId(next.propertyId || next.id, next.name);
   next.id = next.propertyId;
+  next.supabaseId = next.supabaseId || makeUuid();
+  next.updated_at = next.updated_at || new Date().toISOString();
+
   list.push(next);
   saveAllProperties(list);
   localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, next.propertyId);
@@ -310,7 +326,7 @@ function migrateLegacySinglePropertyConfig() {
 
 
 // ── FIRST-BOOT DETECTION ───────────────────────────────────────────────────────
-function hasValidPropertyConfig() {
+export function hasValidPropertyConfig() {
   if (localStorage.getItem('gh-setup-complete') === '1') return true;
   const active = getActivePropertyConfig();
   return !!(active && active.name);
@@ -318,42 +334,65 @@ function hasValidPropertyConfig() {
 
 
 // ── COMPAT: SINGLE-PROPERTY API NOW TARGETS ACTIVE PROPERTY ───────────────────
-function getPropertyConfig() {
+export function getPropertyConfig() {
   return getActivePropertyConfig();
 }
 
-function savePropertyConfig(updates) {
+export function savePropertyConfig(updates) {
   const active = getActivePropertyConfig();
   const activeId = getActivePropertyId();
+
+  const makeUuid = () => {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : ((r & 0x3) | 0x8);
+      return v.toString(16);
+    });
+  };
+
+  const ts = (updates && updates.updated_at) || new Date().toISOString();
 
   // First save path on fresh setup where no property exists yet.
   if (!activeId || !getPropertyById(activeId)) {
     const first = _deepMerge(active, updates || {});
     first.propertyId = _normalisePropertyId(first.propertyId, first.name);
-    first.updated_at = new Date().toISOString();
+    first.id = first.propertyId;
+    first.supabaseId = first.supabaseId || makeUuid();
+    first.updated_at = ts;
+
     saveAllProperties([first]);
     localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, first.propertyId);
     localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(first));
     _syncLegacyMirrorsFromActive();
-    // Only sync to cloud when not hydrating — during hydration cloud is already source of truth
+
     if (!window._stayOpsHydrating && typeof saveHostConfigToCloud === 'function') {
       saveHostConfigToCloud(first);
     }
     return first;
   }
 
-  const merged = updatePropertyConfig(activeId, updates || {});
-  if (merged) {
-    merged.updated_at = new Date().toISOString();
-    // Re-save with timestamp
-    const list = getAllProperties();
-    const idx = list.findIndex(p => p.propertyId === activeId || p.id === activeId);
-    if (idx !== -1) { list[idx] = merged; saveAllProperties(list); }
-    localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(merged));
-    // Only sync to cloud when not hydrating
-    if (!window._stayOpsHydrating && typeof saveHostConfigToCloud === 'function') {
-      saveHostConfigToCloud(merged);
-    }
+  const current = getPropertyById(activeId) || active || {};
+  const merged = _deepMerge(current, updates || {});
+  merged.propertyId = current.propertyId || activeId;
+  merged.id = merged.propertyId;
+  merged.supabaseId = merged.supabaseId || current.supabaseId || makeUuid();
+  merged.updated_at = ts;
+
+  const list = getAllProperties();
+  const idx = list.findIndex(p => p.propertyId === activeId || p.id === activeId);
+  if (idx !== -1) {
+    list[idx] = merged;
+    saveAllProperties(list);
+  }
+
+  localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(merged));
+  _syncLegacyMirrorsFromActive();
+
+  if (!window._stayOpsHydrating && typeof saveHostConfigToCloud === 'function') {
+    saveHostConfigToCloud(merged);
   }
   return merged;
 }
@@ -361,7 +400,7 @@ function savePropertyConfig(updates) {
 
 // ── ACCESSOR HELPERS ───────────────────────────────────────────────────────────
 
-function getCurrentPropertyName() {
+export function getCurrentPropertyName() {
   return getActivePropertyConfig().name || 'Property';
 }
 
@@ -371,32 +410,43 @@ function getCurrentPropertySubtitle() {
   return [c.suburb, c.state].filter(Boolean).join(' · ');
 }
 
-function getCurrentPropertyTagline() {
+export function getCurrentPropertyTagline() {
   const c = getActivePropertyConfig();
   if (c.branding && c.branding.tagline) return c.branding.tagline;
   return [[c.suburb, c.state].filter(Boolean).join(', '), c.region].filter(Boolean).join(' · ');
 }
 
-function getCurrentOwnerEmail() {
+// getCurrentHostEmail — YOUR email as the host/manager (from host_config).
+// Use this for notifications, test emails, anything sent to/about you.
+export function getCurrentHostEmail() {
+  try {
+    const profile = JSON.parse(localStorage.getItem('gh-host-profile') || 'null');
+    if (profile && profile.email) return profile.email;
+  } catch (e) {}
+  return localStorage.getItem('gh-inv-email') || '';
+}
+
+// getCurrentOwnerEmail — the PROPERTY OWNER's email (the investor/client).
+// Use this ONLY for owner reports. Do NOT use for host notifications.
+export function getCurrentOwnerEmail() {
   const c = getActivePropertyConfig();
   return (c.owner && c.owner.email)
-    || localStorage.getItem('gh-inv-email')
     || localStorage.getItem('gh-owner-email')
     || '';
 }
 
-function getVapidPublicKey() {
+export function getVapidPublicKey() {
   const c = getActivePropertyConfig();
   if (c.integrations && c.integrations.vapidPublicKey) return c.integrations.vapidPublicKey;
   return (typeof VAPID_PUBLIC_KEY !== 'undefined') ? VAPID_PUBLIC_KEY : '';
 }
 
-function getPushFunctionUrl() {
+export function getPushFunctionUrl() {
   const c = getActivePropertyConfig();
   return (c.integrations && c.integrations.pushFunctionUrl) || '/.netlify/functions/send-push';
 }
 
-function getPropertyStats() {
+export function getPropertyStats() {
   const c = getActivePropertyConfig();
   return {
     bedrooms:  (c.property && c.property.bedrooms)  || 0,
@@ -405,17 +455,17 @@ function getPropertyStats() {
   };
 }
 
-function getPricingConfig() {
+export function getPricingConfig() {
   return getActivePropertyConfig().pricing || DEFAULT_PROPERTY_CONFIG.pricing;
 }
 
-function getPropertyConfigGaps() {
+export function getPropertyConfigGaps() {
   // All data is stored in Supabase — no external service gaps to check.
   return [];
 }
 
 // ── MIGRATION ──────────────────────────────────────────────────────────────────
-function migrateConfigFromLegacySettings() {
+export function migrateConfigFromLegacySettings() {
   const MIGRATION_FLAG = 'gh-config-migrated-v1';
   if (localStorage.getItem(MIGRATION_FLAG)) {
     migrateLegacySinglePropertyConfig();
@@ -441,7 +491,7 @@ function migrateConfigFromLegacySettings() {
 
 
 // ── DOM INIT ───────────────────────────────────────────────────────────────────
-function initPropertyUI() {
+export function initPropertyUI() {
   const cfg = getActivePropertyConfig();
   const stats = getPropertyStats();
 
@@ -507,3 +557,30 @@ function _deepMerge(target, source) {
   }
   return out;
 }
+
+// ── BACKWARD-COMPAT WINDOW ASSIGNMENTS ────────────────────────────────────────
+// Prepares for ES module conversion. These are redundant while config.js is a
+// classic script (globals are already on window), but will become load-bearing
+// once config.js is converted to type="module". Safe to add now — no side effects.
+window.lsKey                        = lsKey;
+window.getAllProperties              = getAllProperties;
+window.getActivePropertyId          = getActivePropertyId;
+window.setActivePropertyId          = setActivePropertyId;
+window.getPropertyById              = getPropertyById;
+window.getActivePropertyConfig      = getActivePropertyConfig;
+window.addPropertyConfig            = addPropertyConfig;
+window.hasValidPropertyConfig       = hasValidPropertyConfig;
+window.getPropertyConfig            = getPropertyConfig;
+window.savePropertyConfig           = savePropertyConfig;
+window.getCurrentPropertyName       = getCurrentPropertyName;
+window.getCurrentPropertyTagline    = getCurrentPropertyTagline;
+window.getCurrentHostEmail          = getCurrentHostEmail;
+window.getCurrentOwnerEmail         = getCurrentOwnerEmail;
+window.getVapidPublicKey            = getVapidPublicKey;
+window.getPushFunctionUrl           = getPushFunctionUrl;
+window.getPropertyStats             = getPropertyStats;
+window.getPricingConfig             = getPricingConfig;
+window.getPropertyConfigGaps        = getPropertyConfigGaps;
+window.migrateConfigFromLegacySettings = migrateConfigFromLegacySettings;
+window.initPropertyUI               = initPropertyUI;
+window.DEFAULT_PROPERTY_CONFIG      = DEFAULT_PROPERTY_CONFIG;

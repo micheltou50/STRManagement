@@ -24,7 +24,7 @@
  * In the normal case (config exists) it resolves synchronously.
  * @returns {Promise<void>}
  */
-function showSetupIfNeeded() {
+export function showSetupIfNeeded() {
   if (hasValidPropertyConfig()) return Promise.resolve();
   return _setupShowOverlay(false);
 }
@@ -33,11 +33,11 @@ function showSetupIfNeeded() {
  * Re-open the setup form in edit mode from the Settings screen.
  * Pre-fills all fields from the current config. Does not block the app.
  */
-function reopenPropertySetup() {
+export function reopenPropertySetup() {
   _setupShowOverlay(true, false).catch(() => {});
 }
 
-function openAddPropertySetup() {
+export function openAddPropertySetup() {
   _setupShowOverlay(true, true).catch(() => {});
 }
 
@@ -48,11 +48,19 @@ function _setupShowOverlay(editMode, createMode) {
   return new Promise(resolve => {
     _setupInjectStyles();
 
+    // ── Blur backdrop — separate from the scrollable overlay.
+    // backdrop-filter is silently ignored when applied to an element that also
+    // has overflow:auto/scroll, so the blur lives on its own non-scrolling div.
+    const blurBg = document.createElement('div');
+    blurBg.id = 'setup-blur-bg';
+
     const overlay = _setupBuildOverlay(editMode, createMode, () => {
-      // Clean up and unblock app boot.
+      // Animate both out together.
+      blurBg.style.opacity    = '0';
       overlay.style.opacity   = '0';
       overlay.style.transform = 'translateY(16px)';
       setTimeout(() => {
+        if (blurBg.parentNode)  blurBg.parentNode.removeChild(blurBg);
         if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
         document.body.style.overflow = '';
         // Clean up the global submit handler.
@@ -61,13 +69,26 @@ function _setupShowOverlay(editMode, createMode) {
       }, 280);
     });
 
+    // Set "from" state before appending so browsers have a keyframe to ease from.
+    blurBg.style.opacity    = '0';
+    overlay.style.opacity   = '0';
+    overlay.style.transform = 'translateY(14px)';
+
+    document.body.appendChild(blurBg);
     document.body.appendChild(overlay);
     document.body.style.overflow = 'hidden';
 
-    // Focus first text input for accessibility / mobile keyboards.
+    // Double rAF: first frame paints the hidden state, second triggers the
+    // transition to visible. Single rAF can be optimised away by the browser.
     requestAnimationFrame(() => {
-      const first = overlay.querySelector('input[type="text"], input[type="url"]');
-      if (first) first.focus();
+      requestAnimationFrame(() => {
+        blurBg.style.opacity    = '1';
+        overlay.style.opacity   = '1';
+        overlay.style.transform = 'translateY(0)';
+        // Focus after animation starts so the keyboard doesn't interrupt the blur fade.
+        const first = overlay.querySelector('input[type="text"], input[type="url"]');
+        if (first) first.focus();
+      });
     });
   });
 }
@@ -87,19 +108,11 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
     .replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
   // ── Helper: should we pre-fill a default value?
-  // In first-boot mode we leave Glenhaven defaults blank so the host types
-  // their own values. In edit mode we always show whatever is saved.
-  const preGlenhaven = {
-    name:        'Glenhaven',
-    suburb:      'Katoomba',
-    state:       'NSW',
-    region:      'Blue Mountains',
-    tagline:     'Katoomba, NSW · Blue Mountains',
-  };
+  // In edit mode: always show saved value.
+  // In first-boot or createMode: always blank — host types their own values.
   const pre = (field, saved) => {
     if (editMode) return ea(saved);
-    // First-boot: suppress the Glenhaven default so the field appears empty.
-    return (saved && saved !== preGlenhaven[field]) ? ea(saved) : '';
+    return '';
   };
 
   const overlay = document.createElement('div');
@@ -145,6 +158,15 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
                 `<option value="${t}" ${stats.type === t ? 'selected' : ''}>${t.charAt(0).toUpperCase()+t.slice(1)}</option>`
               ).join('')}
             </select>
+          </div>
+        </div>
+
+        <div class="ss-row">
+          <div class="ss-field ss-wide">
+            <label class="ss-lbl" for="s-address">Street Address <span class="ss-req" aria-hidden="true">*</span></label>
+            <input type="text" id="s-address" class="ss-inp"
+              placeholder="e.g. 12 Ocean Street"
+              value="${ea(cfg.address || '')}">
           </div>
         </div>
 
@@ -228,19 +250,19 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
         </div>
 
         <!-- ══ SECTION: OWNER ══ -->
-        <div class="ss-label">Your Contact Details</div>
+        <div class="ss-label">Property Owner Details</div>
 
         <div class="ss-row">
           <div class="ss-field">
-            <label class="ss-lbl" for="s-owner-name">Your Name</label>
+            <label class="ss-lbl" for="s-owner-name">Owner Name</label>
             <input type="text" id="s-owner-name" class="ss-inp"
               placeholder="e.g. Alex Smith" autocomplete="name"
               value="${ea(owner.name || '')}">
           </div>
           <div class="ss-field">
-            <label class="ss-lbl" for="s-owner-email">Your Email <span class="ss-req" aria-hidden="true">*</span></label>
+            <label class="ss-lbl" for="s-owner-email">Owner Email <span class="ss-opt">(optional)</span></label>
             <input type="email" id="s-owner-email" class="ss-inp"
-              placeholder="you@example.com" autocomplete="email"
+              placeholder="owner@example.com" autocomplete="email"
               value="${ea(owner.email || '')}">
           </div>
         </div>
@@ -293,7 +315,8 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
 
     const newCfg = _setupBuildConfig(overlay, createMode);
     if (createMode && typeof addPropertyConfig === 'function') {
-      addPropertyConfig(newCfg);
+      const created = addPropertyConfig(newCfg);
+      if (typeof savePropertyToCloud === 'function') savePropertyToCloud(created).catch(e => console.warn('[StayOps] savePropertyToCloud failed', e));
     } else {
       savePropertyConfig(newCfg);
     }
@@ -350,6 +373,7 @@ function _setupValidate(overlay) {
   const email     = v('s-owner-email').trim();
 
   if (!name)   errors.push('Property name is required.');
+  if (!v('s-address').trim()) errors.push('Street address is required.');
   if (!suburb) errors.push('Suburb / town is required.');
   if (!state)  errors.push('State is required.');
 
@@ -359,9 +383,6 @@ function _setupValidate(overlay) {
 
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     errors.push('Owner email doesn\'t look valid (e.g. you@example.com).');
-  }
-  if (!onboardingMode && !email) {
-    errors.push('Owner email is required.');
   }
 
 
@@ -386,19 +407,18 @@ function _setupBuildConfig(overlay, createMode) {
   const region = v('s-region');
   const tagline = v('s-tagline');
 
-  // Read existing config once here so integrations AND pricing blocks can
-  // both use it without separate getPropertyConfig() calls (fix #6).
-  const _existing      = getPropertyConfig();
+  // In createMode: never fall back to the active property config — every value
+  // must come from the form only to avoid cloning the existing property.
+  const _existing      = createMode ? {} : getPropertyConfig();
   const _existingInteg = _existing.integrations || {};
   const _existingPrice = _existing.pricing      || {};
-  const _activeId = (typeof getActivePropertyId === 'function') ? getActivePropertyId() : null;
-  const _hasExistingProperty = !!(_activeId && typeof getPropertyById === 'function' && getPropertyById(_activeId));
 
   return {
     propertyId: createMode
       ? undefined
       : (_existing.propertyId || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'property'),
     name,
+    address: v('s-address') || undefined,
     suburb,
     state,
     region:  region  || undefined,
@@ -406,7 +426,7 @@ function _setupBuildConfig(overlay, createMode) {
 
     branding: {
       subtitle: [suburb, state].filter(Boolean).join(' · '),
-      tagline:  tagline || ((_existing.branding || {}).tagline) || [[suburb, state].filter(Boolean).join(', '), region].filter(Boolean).join(' · '),
+      tagline:  tagline || [[suburb, state].filter(Boolean).join(', '), region].filter(Boolean).join(' · '),
     },
 
     property: {
@@ -423,7 +443,6 @@ function _setupBuildConfig(overlay, createMode) {
     },
 
     integrations: {
-      // Preserve existing push config — not in the form.
       vapidPublicKey:  _existingInteg.vapidPublicKey
                          || (typeof VAPID_PUBLIC_KEY !== 'undefined' ? VAPID_PUBLIC_KEY : ''),
       pushFunctionUrl: _existingInteg.pushFunctionUrl || '/.netlify/functions/send-push',
@@ -433,10 +452,7 @@ function _setupBuildConfig(overlay, createMode) {
       baseRate:        parseFloat(v('s-rate')) || 350,
       currency:        (v('s-currency') || 'AUD').toUpperCase(),
       locationContext: [suburb, state, v('s-country') || 'Australia'].filter(Boolean).join(', '),
-      // Preserve any locationFactors the host configured elsewhere.
-      // On a brand-new install this is '' (empty default), which lets the AI
-      // pricing prompt fall back to generic STR principles.
-      locationFactors: _existingPrice.locationFactors || '',
+      locationFactors: '',
     },
   };
 }
@@ -473,12 +489,26 @@ function _setupInjectStyles() {
   const s = document.createElement('style');
   s.id = 'setup-styles';
   s.textContent = `
-    /* ── Overlay backdrop ── */
+    /* ── Blur backdrop — sits behind the scrollable overlay.
+       Kept as a separate element because backdrop-filter is silently
+       ignored by browsers when overflow:auto is on the same element. ── */
+    #setup-blur-bg {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: rgba(8, 18, 12, 0.62);
+      backdrop-filter: blur(14px) saturate(0.85);
+      -webkit-backdrop-filter: blur(14px) saturate(0.85);
+      pointer-events: none;
+      transition: opacity 0.28s ease;
+    }
+
+    /* ── Scrollable overlay — transparent so blur shows through ── */
     #setup-overlay {
       position: fixed;
       inset: 0;
       z-index: 10000;
-      background: rgba(8, 18, 12, 0.74);
+      background: transparent;
       display: flex;
       align-items: flex-start;
       justify-content: center;
@@ -675,3 +705,10 @@ function _setupInjectStyles() {
   `;
   document.head.appendChild(s);
 }
+
+// ── BACKWARD-COMPAT WINDOW ASSIGNMENTS ────────────────────────────────────────
+// Redundant while setup.js is a classic script, but will become load-bearing
+// once setup.js is converted to type="module".
+window.showSetupIfNeeded  = showSetupIfNeeded;
+window.reopenPropertySetup = reopenPropertySetup;
+window.openAddPropertySetup = openAddPropertySetup;

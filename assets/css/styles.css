@@ -1430,8 +1430,8 @@ label {
 /* Hero occupancy: visually quieter than the three property facts
    so it doesn't compete with the stats row below */
 #stat-occupancy2 {
-  font-size: 15px !important;
-  opacity: 0.75;
+  font-size: 20px !important;
+  opacity: 1;
 }
 
 /* ── Dashboard section spacing pass ──────────────────────────────────────
@@ -1733,4 +1733,156 @@ label {
   font-size: 12px;
   font-weight: 600;
   flex-shrink: 0;
+}
+
+/* ── Phase 2: motion & interaction polish (visual-only) ───────────────────────
+   No layout, sizing, logic, or selector-scope changes.
+   Appended last so all rules win the cascade cleanly.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* Modal backdrop — fade instead of snap.
+   JS exclusively uses .open class (never checks display), so switching to
+   visibility+opacity is safe. position:fixed means display:flex has no
+   layout impact on the rest of the page. */
+.modal-overlay {
+  display: flex !important;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.24s ease, visibility 0s linear 0.24s;
+}
+.modal-overlay.open {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 0.24s ease, visibility 0s linear 0s;
+}
+
+/* Action sheet backdrop — same fade treatment */
+.action-sheet-overlay {
+  display: flex !important;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease, visibility 0s linear 0.22s;
+}
+.action-sheet-overlay.open {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 0.22s ease, visibility 0s linear 0s;
+}
+
+/* Tab switching — smooth instead of instant color snap */
+.tab {
+  transition: background 0.25s ease, color 0.25s ease,
+              box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+/* FAB tap feedback — scale press (won't conflict with rotation on .qa-open
+   because that transform wins via specificity; use filter instead) */
+.fab:active {
+  filter: brightness(0.88);
+  transition: filter 0.08s ease;
+}
+
+/* btn-secondary press state — matches the btn-primary:active feel */
+.btn-secondary:active {
+  filter: brightness(0.96);
+  transform: translateY(1px);
+  transition: filter 0.08s ease, transform 0.08s ease;
+}
+
+/* Nav btn — replace expensive 'all' with specific props */
+.nav-btn {
+  transition: color 0.18s ease;
+}
+.nav-btn .icon {
+  transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+/* ── Tappable card press feedback ─────────────────────────────────────────────
+   Only fires on cards that have a cursor:pointer (i.e. are clickable).
+   Subtle scale so it feels physical without being distracting. ── */
+.card[onclick],
+.card[style*="cursor:pointer"] {
+  transition: transform 0.12s cubic-bezier(0.32, 0.72, 0, 1),
+              box-shadow 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.card[onclick]:active,
+.card[style*="cursor:pointer"]:active {
+  transform: scale(0.982);
+  box-shadow: 0 1px 4px rgba(18, 46, 34, 0.08);
+}
+
+/* ── Confirm dialog fade + card pop ──────────────────────────────────────────
+   Overlay fades via opacity (display toggled by JS).
+   Inner card scales up from 96% for a subtle "materialise" feel. ── */
+#app-modal-overlay {
+  transition: opacity 0.2s ease;
+}
+#app-modal-overlay > div {
+  transform: scale(0.96);
+  transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+#app-modal-overlay[style*="opacity: 1"] > div {
+  transform: scale(1);
+}
+
+/* ── Settings panel slide-in ──────────────────────────────────────────────────
+   CSS animation fires automatically when JS sets display:block on a panel.
+   Slide-in only — close path has complex panel→panel→cat→section chains
+   so we leave it alone. Pure CSS, no JS changes. ── */
+@keyframes settingsPanelIn {
+  from { opacity: 0; transform: translateX(18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+[id^="settings-panel-"][style*="display: block"],
+[id^="settings-panel-"][style*="display:block"] {
+  animation: settingsPanelIn 0.22s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+/* Settings panel slide-out (back navigation) */
+@keyframes settingsPanelOut {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(18px); }
+}
+
+/* ── Settings category slide-in (same pattern as panels) ─────────────────── */
+@keyframes settingsCatIn {
+  from { opacity: 0; transform: translateX(14px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+[id^="settings-cat-"][style*="display: block"],
+[id^="settings-cat-"][style*="display:block"] {
+  animation: settingsCatIn 0.2s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+/* Settings category slide-out (back navigation) */
+@keyframes settingsCatOut {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(14px); }
+}
+
+/* ── Settings main menu fade-in ───────────────────────────────────────────────
+   _resetSettingsToMenu sets display:'' (empty string) on #settings-menu,
+   so we can't use the display:block selector trick. Instead a short
+   animation is applied permanently — it only plays when the element
+   transitions from hidden to visible, which is imperceptible when it's
+   already showing. ── */
+@keyframes settingsMenuIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+#settings-menu {
+  animation: settingsMenuIn 0.22s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+/* ── Calendar slide animation — clip overflow so grid slides don't spill ── */
+.dashboard-calendar {
+  overflow: hidden;
+}
+#cal-grid {
+  will-change: transform, opacity;
 }

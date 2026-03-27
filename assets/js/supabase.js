@@ -47,7 +47,7 @@ async function supabaseSignOut() {
   window._supabaseUser = null;
 }
 
-async function getSupabaseSession() {
+export async function getSupabaseSession() {
   if (!window._sb) return null;
   try {
     const { data } = await window._sb.auth.getSession();
@@ -57,7 +57,7 @@ async function getSupabaseSession() {
   }
 }
 
-async function getCurrentSupabaseUser() {
+export async function getCurrentSupabaseUser() {
   if (!window._sb) return null;
   if (window._supabaseUser) return window._supabaseUser;
   try {
@@ -76,20 +76,28 @@ async function getCurrentSupabaseUser() {
 async function loadPropertyFromCloud() {
   try {
     const user = await getCurrentSupabaseUser();
-    if (!user) { console.log('[PreFlight] loadPropertyFromCloud: no user'); return null; }
+    if (!user) {
+      console.log('[StayOps] loadPropertyFromCloud: no user');
+      return [];
+    }
+
     const { data, error } = await window._sb
       .from('properties')
       .select('*')
       .eq('user_id', user.id)
-      .order('updated_at', { ascending: false })
-      .limit(1);
-    if (error) { console.warn('[PreFlight] loadPropertyFromCloud query error:', error); return null; }
-    if (!data || !data.length) { console.log('[PreFlight] loadPropertyFromCloud: no rows'); return null; }
-    console.log('[PreFlight] loadPropertyFromCloud: found property "' + data[0].name + '" id=' + data[0].id);
-    return data[0];
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      console.warn('[StayOps] loadPropertyFromCloud query error:', error);
+      return [];
+    }
+
+    const rows = Array.isArray(data) ? data : [];
+    console.log('[StayOps] loadPropertyFromCloud: found', rows.length, 'properties');
+    return rows;
   } catch (e) {
-    console.warn('[PreFlight] loadPropertyFromCloud exception:', e);
-    return null;
+    console.warn('[StayOps] loadPropertyFromCloud exception:', e);
+    return [];
   }
 }
 
@@ -99,162 +107,274 @@ async function loadPropertyFromCloud() {
  * so hasValidPropertyConfig() and isOnboardingComplete() pass.
  * Non-blocking: returns true if seeded, false if not (new user or error).
  */
-async function seedLocalConfigFromCloud() {
-  console.log('[PreFlight] seedLocalConfigFromCloud: starting...');
+export async function seedLocalConfigFromCloud() {
+  console.log('[StayOps] seedLocalConfigFromCloud: starting...');
   try {
-    const cloudProp = await loadPropertyFromCloud();
-    if (!cloudProp || !cloudProp.name) {
-      console.log('[PreFlight] seedLocalConfigFromCloud: no cloud property with name — new user, onboarding will show');
+    const cloudProps = await loadPropertyFromCloud();
+    if (!Array.isArray(cloudProps) || !cloudProps.length) {
+      console.log('[StayOps] seedLocalConfigFromCloud: no cloud properties');
       return false;
     }
 
-    console.log('[PreFlight] seedLocalConfigFromCloud: found "' + cloudProp.name + '", seeding localStorage...');
+    const normaliseLocalId = (raw) => String(raw || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 40);
 
-    // 1. Set the setup-complete flag so hasValidPropertyConfig() returns true
+    const toLocalPatch = (row, existing) => {
+      existing = existing || {};
+      const exBrand = existing.branding || {};
+      const exProp  = existing.property || {};
+      const exOwner = existing.owner || {};
+      const exInteg = existing.integrations || {};
+      const exPrice = existing.pricing || {};
+      const suburb  = row.suburb || existing.suburb || '';
+      const state   = row.state || existing.state || '';
+      return {
+        supabaseId: row.id,
+        name: row.name || existing.name || '',
+        address: row.address || existing.address || '',
+        suburb, state,
+        region: row.region || existing.region || '',
+        country: row.country || existing.country || 'Australia',
+        branding: {
+          subtitle: [suburb, state].filter(Boolean).join(' · '),
+          tagline: row.tagline || exBrand.tagline || [suburb, state].filter(Boolean).join(', ')
+        },
+        property: {
+          bedrooms:  row.bedrooms   != null ? row.bedrooms   : (exProp.bedrooms  || 0),
+          bathrooms: row.bathrooms  != null ? row.bathrooms  : (exProp.bathrooms || 0),
+          maxGuests: row.max_guests != null ? row.max_guests : (exProp.maxGuests || 0),
+          type:      row.property_type || exProp.type || 'house'
+        },
+        owner: {
+          name:  row.owner_name  || exOwner.name  || '',
+          email: row.owner_email || exOwner.email || '',
+          phone: row.owner_phone || exOwner.phone || '',
+          reportEmailSubject: row.report_email_subject != null ? row.report_email_subject : (exOwner.reportEmailSubject || ''),
+          reportEmailBody:    row.report_email_body    != null ? row.report_email_body    : (exOwner.reportEmailBody || ''),
+          autoSendReport:     row.auto_send_report     != null ? row.auto_send_report     : !!exOwner.autoSendReport,
+          reportFrequency:    row.report_frequency || exOwner.reportFrequency || 'monthly',
+          lastReportSentAt:   row.last_report_sent_at || exOwner.lastReportSentAt || null
+        },
+        integrations: {
+          sheetCsvUrl:    row.sheets_url || exInteg.sheetCsvUrl || '',
+          syncUrl:        row.script_url || exInteg.syncUrl || '',
+          vapidPublicKey: row.vapid_public_key || exInteg.vapidPublicKey || ''
+        },
+        pricing: {
+          baseRate: row.base_rate != null ? row.base_rate : (exPrice.baseRate || 0)
+        },
+        updated_at: row.updated_at || existing.updated_at || new Date().toISOString()
+      };
+    };
+
     localStorage.setItem('gh-setup-complete', '1');
-    console.log('[PreFlight] gh-setup-complete set to 1');
-
-    // 2. Cache the cloud property ID for booking saves
-    window._cloudPropertyId = cloudProp.id;
-    console.log('[PreFlight] _cloudPropertyId set to', cloudProp.id);
-
-    // 3. Seed the full property config into localStorage
-    //    Wrap in _stayOpsHydrating to suppress cloud write-back
     window._stayOpsHydrating = true;
-    try {
-      if (typeof savePropertyConfig === 'function') {
-        const localCfg = {
-          name:    cloudProp.name,
-          suburb:  cloudProp.suburb  || '',
-          state:   cloudProp.state   || '',
-          region:  cloudProp.region  || '',
-          country: cloudProp.country || 'Australia',
-          branding: {
-            subtitle: [cloudProp.suburb, cloudProp.state].filter(Boolean).join(' · '),
-            tagline:  cloudProp.tagline || [cloudProp.suburb, cloudProp.state].filter(Boolean).join(', '),
-          },
-          property: {
-            bedrooms:  cloudProp.bedrooms      || 4,
-            maxGuests: cloudProp.max_guests    || 8,
-            bathrooms: cloudProp.bathrooms     || 2,
-            type:      cloudProp.property_type || 'house',
-          },
-          owner: {
-            name:  cloudProp.owner_name  || '',
-            email: cloudProp.owner_email || '',
-            phone: cloudProp.owner_phone || '',
-          },
-          integrations: {
-            sheetCsvUrl:    cloudProp.sheets_url       || '',
-            syncUrl:      cloudProp.script_url       || '',
-            vapidPublicKey: cloudProp.vapid_public_key || '',
-          },
-          pricing: {
-            baseRate: cloudProp.base_rate || 350,
-          },
-          updated_at: cloudProp.updated_at || new Date().toISOString(),
-        };
-        savePropertyConfig(localCfg);
-        console.log('[PreFlight] savePropertyConfig() called successfully');
+    window._cloudPropertyIds = window._cloudPropertyIds || {};
 
-        // Verify it worked
-        if (typeof getActivePropertyConfig === 'function') {
-          const verify = getActivePropertyConfig();
-          console.log('[PreFlight] Verify — getActivePropertyConfig().name =', verify && verify.name);
+    const originalActiveId = (typeof window.getActivePropertyId === 'function')
+      ? window.getActivePropertyId() : null;
+    let preferredActiveId = null;
+
+    try {
+      for (const row of cloudProps) {
+        const localList = (typeof window.getAllProperties === 'function') ? window.getAllProperties() : [];
+        const byNameSlug = normaliseLocalId(row.name);
+        let match = localList.find(p => p && p.supabaseId === row.id);
+        if (!match && byNameSlug) match = localList.find(p => p && p.propertyId === byNameSlug);
+        if (!match && row.name) {
+          const lowerName = String(row.name).trim().toLowerCase();
+          match = localList.find(p => String((p && p.name) || '').trim().toLowerCase() === lowerName);
         }
-        if (typeof hasValidPropertyConfig === 'function') {
-          console.log('[PreFlight] Verify — hasValidPropertyConfig() =', hasValidPropertyConfig());
+
+        if (match) {
+          const localTs = match.updated_at ? new Date(match.updated_at).getTime() : 0;
+          const cloudTs = row.updated_at   ? new Date(row.updated_at).getTime()   : 0;
+          if (typeof window.setActivePropertyId === 'function') window.setActivePropertyId(match.propertyId);
+          if (cloudTs >= localTs) {
+            if (typeof window.savePropertyConfig === 'function') window.savePropertyConfig(toLocalPatch(row, match));
+          } else {
+            if (typeof window.savePropertyConfig === 'function') window.savePropertyConfig({ supabaseId: row.id, updated_at: match.updated_at || row.updated_at || new Date().toISOString() });
+          }
+          window._cloudPropertyIds[match.propertyId] = row.id;
+          if (!preferredActiveId) preferredActiveId = match.propertyId;
+        } else {
+          const created = (typeof window.addPropertyConfig === 'function') ? window.addPropertyConfig(toLocalPatch(row, {})) : null;
+          if (created && created.propertyId) {
+            window._cloudPropertyIds[created.propertyId] = row.id;
+            if (!preferredActiveId) preferredActiveId = created.propertyId;
+          }
         }
-      } else {
-        console.warn('[PreFlight] savePropertyConfig not available — config.js may not be loaded yet');
       }
     } finally {
+      const finalList = (typeof window.getAllProperties === 'function') ? window.getAllProperties() : [];
+      if (originalActiveId && finalList.find(p => p.propertyId === originalActiveId)) {
+        if (typeof window.setActivePropertyId === 'function') window.setActivePropertyId(originalActiveId);
+      } else if (preferredActiveId) {
+        if (typeof window.setActivePropertyId === 'function') window.setActivePropertyId(preferredActiveId);
+      } else if (finalList[0] && typeof window.setActivePropertyId === 'function') {
+        window.setActivePropertyId(finalList[0].propertyId);
+      }
       window._stayOpsHydrating = false;
     }
 
-    // 4. Also restore API keys to localStorage if present
-    if (cloudProp.anthropic_api_key) localStorage.setItem('gh-api-key', cloudProp.anthropic_api_key);
-    if (cloudProp.script_url) localStorage.setItem('gh-script-url', cloudProp.script_url);
-    if (cloudProp.mgmt_fee_rate != null) localStorage.setItem(lsKey('mgmt-fee-rate'), String(cloudProp.mgmt_fee_rate));
+    const activeCfg = (typeof window.getActivePropertyConfig === 'function') ? window.getActivePropertyConfig() : null;
+    const activeCloud = activeCfg && activeCfg.supabaseId ? cloudProps.find(p => p.id === activeCfg.supabaseId) : null;
+    if (activeCloud) {
+      if (activeCloud.anthropic_api_key) localStorage.setItem('gh-api-key', activeCloud.anthropic_api_key);
+      if (activeCloud.script_url) localStorage.setItem('gh-script-url', activeCloud.script_url);
+      if (activeCloud.mgmt_fee_rate != null && typeof window.lsKey === 'function') localStorage.setItem(window.lsKey('mgmt-fee-rate'), String(activeCloud.mgmt_fee_rate));
+    }
 
-    console.log('[PreFlight] seedLocalConfigFromCloud: DONE — setup gates should now pass');
+    console.log('[StayOps] seedLocalConfigFromCloud: merged', cloudProps.length, 'properties');
     return true;
   } catch (e) {
-    console.warn('[PreFlight] seedLocalConfigFromCloud failed (non-fatal, onboarding may show):', e);
+    console.warn('[StayOps] seedLocalConfigFromCloud failed:', e);
     window._stayOpsHydrating = false;
     return false;
   }
 }
 
-async function savePropertyToCloud(cfg) {
+
+export async function savePropertyToCloud(cfg) {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user || !cfg) return null;
 
-    // Build payload — only include fields that have real values
-    // Never write empty strings — let the existing cloud value stand
+    const makeUuid = () => {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : ((r & 0x3) | 0x8);
+        return v.toString(16);
+      });
+    };
+
+    const activeCfg = (typeof window.getActivePropertyConfig === 'function') ? window.getActivePropertyConfig() : {};
+    const activePropertyId = (typeof window.getActivePropertyId === 'function') ? window.getActivePropertyId() : null;
+    const localPropertyId = cfg.propertyId || activeCfg.propertyId || activePropertyId || null;
+    let cloudId = cfg.supabaseId || cfg._cloudId || activeCfg.supabaseId || null;
+    if (!cloudId) cloudId = makeUuid();
+
+    window._cloudPropertyIds = window._cloudPropertyIds || {};
+    if (localPropertyId) window._cloudPropertyIds[localPropertyId] = cloudId;
+
     const raw = {
+      id:                cloudId,
       user_id:           user.id,
-      name:              cfg.name         || null,
-      address:           cfg.address      || null,
-      suburb:            cfg.suburb       || null,
-      state:             cfg.state        || null,
-      country:           cfg.country      || null,
-      region:            cfg.region       || null,
-      tagline:           (cfg.branding && cfg.branding.tagline)       || null,
-      bedrooms:          (cfg.property && cfg.property.bedrooms)      || null,
-      bathrooms:         (cfg.property && cfg.property.bathrooms)     || null,
-      max_guests:        (cfg.property && cfg.property.maxGuests)     || null,
-      property_type:     (cfg.property && cfg.property.type)          || null,
+      name:              cfg.name || null,
+      address:           cfg.address || null,
+      suburb:            cfg.suburb || null,
+      state:             cfg.state || null,
+      country:           cfg.country || null,
+      region:            cfg.region || null,
+      tagline:           (cfg.branding && cfg.branding.tagline) || null,
+      bedrooms:          (cfg.property && cfg.property.bedrooms  != null) ? cfg.property.bedrooms  : null,
+      bathrooms:         (cfg.property && cfg.property.bathrooms != null) ? cfg.property.bathrooms : null,
+      max_guests:        (cfg.property && cfg.property.maxGuests != null) ? cfg.property.maxGuests : null,
+      property_type:     (cfg.property && cfg.property.type) || null,
       timezone:          'Australia/Sydney',
-      sheets_url:        (cfg.integrations && cfg.integrations.sheetCsvUrl)   || null,
-      script_url:        (cfg.integrations && cfg.integrations.syncUrl)     || null,
+      sheets_url:        (cfg.integrations && cfg.integrations.sheetCsvUrl) || null,
+      script_url:        (cfg.integrations && cfg.integrations.syncUrl) || null,
       calendar_id:       null,
       vapid_public_key:  (cfg.integrations && cfg.integrations.vapidPublicKey) || null,
-      base_rate:         (cfg.pricing && cfg.pricing.baseRate)         || null,
-      owner_name:              (cfg.owner && cfg.owner.name)                 || null,
-      owner_email:             (cfg.owner && cfg.owner.email)                || null,
-      owner_phone:             (cfg.owner && cfg.owner.phone)                || null,
-      report_email_subject:    (cfg.owner && cfg.owner.reportEmailSubject)   || null,
-      report_email_body:       (cfg.owner && cfg.owner.reportEmailBody)      || null,
-      auto_send_report:        (cfg.owner && cfg.owner.autoSendReport != null) ? cfg.owner.autoSendReport : null,
-      report_frequency:        (cfg.owner && cfg.owner.reportFrequency)      || null,
-      last_report_sent_at:     (cfg.owner && cfg.owner.lastReportSentAt)     || null,
-      anthropic_api_key: localStorage.getItem('gh-api-key')            || null,
-      mgmt_fee_rate:     parseFloat(localStorage.getItem(lsKey('mgmt-fee-rate')) || '0') || null,
-      // Use config's own updated_at if present so timestamp reflects when user actually saved
+      base_rate:         (cfg.pricing && cfg.pricing.baseRate != null) ? cfg.pricing.baseRate : null,
+      owner_name:        (cfg.owner && cfg.owner.name) || null,
+      owner_email:       (cfg.owner && cfg.owner.email) || null,
+      owner_phone:       (cfg.owner && cfg.owner.phone) || null,
+      report_email_subject: (cfg.owner && cfg.owner.reportEmailSubject) || null,
+      report_email_body:    (cfg.owner && cfg.owner.reportEmailBody) || null,
+      auto_send_report:     (cfg.owner && cfg.owner.autoSendReport != null) ? cfg.owner.autoSendReport : null,
+      report_frequency:     (cfg.owner && cfg.owner.reportFrequency) || null,
+      last_report_sent_at:  (cfg.owner && cfg.owner.lastReportSentAt) || null,
+      anthropic_api_key: localStorage.getItem('gh-api-key') || null,
+      mgmt_fee_rate:     (typeof window.lsKey === 'function') ? (parseFloat(localStorage.getItem(window.lsKey('mgmt-fee-rate')) || '0') || null) : null,
       updated_at:        cfg.updated_at || new Date().toISOString()
     };
 
-    // Strip null values so we never overwrite real cloud data with nulls
     const payload = Object.fromEntries(
-      Object.entries(raw).filter(([_, v]) => v !== null && v !== '')
+      Object.entries(raw).filter(([key, value]) => {
+        if (key === 'id' || key === 'user_id' || key === 'updated_at') return true;
+        return value !== null && value !== '';
+      })
     );
-    // Always include user_id and updated_at even if stripped
-    payload.user_id    = user.id;
-    payload.updated_at = raw.updated_at;
 
     const { data, error } = await window._sb
       .from('properties')
-      .upsert(payload, { onConflict: 'user_id' })
+      .upsert(payload, { onConflict: 'id' })
       .select()
       .single();
+
     if (error) { console.warn('[StayOps] savePropertyToCloud error', error); return null; }
-    window._cloudPropertyId = data && data.id;
-    return data;
+
+    const savedId = (data && data.id) || cloudId;
+    if (localPropertyId) window._cloudPropertyIds[localPropertyId] = savedId;
+
+    const isActiveProperty = !!(activePropertyId && localPropertyId === activePropertyId);
+    if (isActiveProperty && typeof window.savePropertyConfig === 'function') {
+      const prevHydrating = window._stayOpsHydrating;
+      window._stayOpsHydrating = true;
+      try {
+        window.savePropertyConfig({ supabaseId: savedId, updated_at: payload.updated_at });
+      } finally {
+        window._stayOpsHydrating = prevHydrating;
+      }
+    }
+
+    return data || { id: savedId, ...payload };
   } catch (e) {
     console.warn('[StayOps] savePropertyToCloud failed', e);
     return null;
   }
 }
 
-async function getCloudPropertyId() {
-  if (window._cloudPropertyId) return window._cloudPropertyId;
-  const prop = await loadPropertyFromCloud();
-  if (prop) { window._cloudPropertyId = prop.id; return prop.id; }
-  return null;
-}
 
+async function getCloudPropertyId() {
+  window._cloudPropertyIds = window._cloudPropertyIds || {};
+
+  const activeCfg = (typeof window.getActivePropertyConfig === 'function') ? window.getActivePropertyConfig() : null;
+  const activePropertyId = (activeCfg && activeCfg.propertyId)
+    || ((typeof window.getActivePropertyId === 'function') ? window.getActivePropertyId() : null);
+
+  if (!activePropertyId) return null;
+
+  if (activeCfg && activeCfg.supabaseId) {
+    window._cloudPropertyIds[activePropertyId] = activeCfg.supabaseId;
+    return activeCfg.supabaseId;
+  }
+
+  if (window._cloudPropertyIds[activePropertyId]) return window._cloudPropertyIds[activePropertyId];
+
+  const cloudProps = await loadPropertyFromCloud();
+  if (!Array.isArray(cloudProps) || !cloudProps.length) return null;
+
+  const normaliseLocalId = (raw) => String(raw || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+  const activeName = String((activeCfg && activeCfg.name) || '').trim().toLowerCase();
+
+  const match =
+    cloudProps.find(p => activeCfg && activeCfg.supabaseId && p.id === activeCfg.supabaseId) ||
+    cloudProps.find(p => normaliseLocalId(p.name) === activePropertyId) ||
+    cloudProps.find(p => String(p.name || '').trim().toLowerCase() === activeName) ||
+    null;
+
+  if (!match) return null;
+
+  window._cloudPropertyIds[activePropertyId] = match.id;
+
+  if (typeof window.savePropertyConfig === 'function') {
+    const prevHydrating = window._stayOpsHydrating;
+    window._stayOpsHydrating = true;
+    try {
+      window.savePropertyConfig({ supabaseId: match.id, updated_at: (activeCfg && activeCfg.updated_at) || match.updated_at || new Date().toISOString() });
+    } finally {
+      window._stayOpsHydrating = prevHydrating;
+    }
+  }
+
+  return match.id;
+}
 
 // ── HOST CONFIG ───────────────────────────────────────────────────────────────
 
@@ -294,7 +414,7 @@ async function loadCleanersFromCloud() {
   }
 }
 
-async function saveCleanersToCloud(cleanerList) {
+export async function saveCleanersToCloud(cleanerList) {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user || !Array.isArray(cleanerList)) return;
@@ -329,15 +449,14 @@ async function saveCleanersToCloud(cleanerList) {
 
 // ── CLEANS ────────────────────────────────────────────────────────────────────
 
-async function loadCleansFromCloud() {
+export async function loadCleansFromCloud() {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user) return null;
-    const { data, error } = await window._sb
-      .from('cleans')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('clean_date', { ascending: true });
+    const propertyId = await getCloudPropertyId();
+    let query = window._sb.from('cleans').select('*').eq('user_id', user.id);
+    if (propertyId) query = query.eq('property_id', propertyId);
+    const { data, error } = await query.order('clean_date', { ascending: true });
     if (error || !data) return null;
     return data.map(c => ({
       id:               c.local_id ? Number(c.local_id) || c.local_id : c.id,
@@ -362,7 +481,7 @@ async function loadCleansFromCloud() {
   }
 }
 
-async function saveCleanToCloud(clean) {
+export async function saveCleanToCloud(clean) {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user || !clean) return;
@@ -400,13 +519,13 @@ async function saveCleanToCloud(clean) {
   }
 }
 
-async function saveCleansToCloud(cleansList) {
+export async function saveCleansToCloud(cleansList) {
   if (!Array.isArray(cleansList)) return;
   for (const c of cleansList) await saveCleanToCloud(c);
 }
 
 // Keep old name working for backward compat
-async function saveCleaningJobToCloud(job) { return saveCleanToCloud(job); }
+export async function saveCleaningJobToCloud(job) { return saveCleanToCloud(job); }
 async function loadCleaningJobsFromCloud() { return loadCleansFromCloud(); }
 
 
@@ -416,11 +535,10 @@ async function loadNotesFromCloud() {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user) return null;
-    const { data, error } = await window._sb
-      .from('notes')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: true });
+    const propertyId = await getCloudPropertyId();
+    let query = window._sb.from('notes').select('*').eq('user_id', user.id);
+    if (propertyId) query = query.eq('property_id', propertyId);
+    const { data, error } = await query.order('created_at', { ascending: true });
     if (error || !data) return null;
     return data.map(n => ({
       id:       n.local_id ? Number(n.local_id) || n.local_id : n.id,
@@ -460,7 +578,7 @@ async function saveNoteToCloud(note) {
   }
 }
 
-async function saveNotesToCloud(notesList) {
+export async function saveNotesToCloud(notesList) {
   if (!Array.isArray(notesList)) return;
   for (const n of notesList) await saveNoteToCloud(n);
 }
@@ -472,11 +590,10 @@ async function loadExpensesFromCloud() {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user) return null;
-    const { data, error } = await window._sb
-      .from('expenses')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('date', { ascending: false });
+    const propertyId = await getCloudPropertyId();
+    let query = window._sb.from('expenses').select('*').eq('user_id', user.id);
+    if (propertyId) query = query.eq('property_id', propertyId);
+    const { data, error } = await query.order('date', { ascending: false });
     if (error || !data) return null;
     return data.map(e => ({
       id:          e.local_id ? Number(e.local_id) || e.local_id : e.id,
@@ -497,7 +614,7 @@ async function loadExpensesFromCloud() {
   }
 }
 
-async function saveExpenseToCloud(expense) {
+export async function saveExpenseToCloud(expense) {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user || !expense) return;
@@ -535,7 +652,7 @@ async function saveExpensesToCloud(expensesList) {
   for (const e of expensesList) await saveExpenseToCloud(e);
 }
 
-async function deleteExpenseFromCloud(expense) {
+export async function deleteExpenseFromCloud(expense) {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user || !expense) return;
@@ -558,11 +675,10 @@ async function loadInventoryFromCloud() {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user) return null;
-    const { data, error } = await window._sb
-      .from('inventory')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: true });
+    const propertyId = await getCloudPropertyId();
+    let query = window._sb.from('inventory').select('*').eq('user_id', user.id);
+    if (propertyId) query = query.eq('property_id', propertyId);
+    const { data, error } = await query.order('created_at', { ascending: true });
     if (error || !data) return null;
     return data.map(i => ({
       id:        i.local_id ? Number(i.local_id) || i.local_id : i.id,
@@ -607,7 +723,7 @@ async function saveInventoryItemToCloud(item) {
   }
 }
 
-async function saveInventoryToCloud(inventoryList) {
+export async function saveInventoryToCloud(inventoryList) {
   if (!Array.isArray(inventoryList)) return;
   for (const i of inventoryList) await saveInventoryItemToCloud(i);
 }
@@ -635,11 +751,10 @@ async function loadMaintenanceFromCloud() {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user) return null;
-    const { data, error } = await window._sb
-      .from('maintenance')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('date', { ascending: false });
+    const propertyId = await getCloudPropertyId();
+    let query = window._sb.from('maintenance').select('*').eq('user_id', user.id);
+    if (propertyId) query = query.eq('property_id', propertyId);
+    const { data, error } = await query.order('date', { ascending: false });
     if (error || !data) return null;
     return data.map(m => ({
       id:          m.local_id ? Number(m.local_id) || m.local_id : m.id,
@@ -686,12 +801,12 @@ async function saveMaintenanceItemToCloud(item) {
   }
 }
 
-async function saveMaintenanceToCloud(maintenanceList) {
+export async function saveMaintenanceToCloud(maintenanceList) {
   if (!Array.isArray(maintenanceList)) return;
   for (const m of maintenanceList) await saveMaintenanceItemToCloud(m);
 }
 
-async function deleteMaintenanceFromCloud(item) {
+export async function deleteMaintenanceFromCloud(item) {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user || !item) return;
@@ -715,122 +830,298 @@ async function deleteMaintenanceFromCloud(item) {
  * keys are already established. Pulls all cloud data into localStorage
  * then triggers a re-render.
  */
-async function hydrateFromCloud() {
+
+// ── BOOKINGS ──────────────────────────────────────────────────────────────────
+
+async function loadBookingsFromCloud() {
   try {
-    // Set hydration flag — suppresses cloud writes and renders during hydration
+    const user = await getCurrentSupabaseUser();
+    if (!user) return null;
+    const propertyId = await getCloudPropertyId();
+    let query = window._sb.from('bookings').select('*').eq('user_id', user.id);
+    if (propertyId) query = query.eq('property_id', propertyId);
+    const { data, error } = await query.order('checkin', { ascending: true });
+    if (error || !data) return null;
+    return data.map(b => ({
+      id:               b.local_id ? (isNaN(Number(b.local_id)) ? b.local_id : Number(b.local_id)) : b.id,
+      _cloudId:         b.id,
+      checkin:          b.checkin   || '',
+      checkout:         b.checkout  || '',
+      nights:           b.nights    || 0,
+      name:             b.guest_name || '',
+      guests:           b.guests    || 1,
+      hostPayout:       b.host_payout  || 0,
+      cleaningFee:      b.cleaning_fee || 0,
+      mgmtFee:          b.mgmt_fee     || 0,
+      mgmtFeeRaw:       b.mgmt_fee_raw || 0,
+      mgmtPayout:       b.mgmt_payout  || 0,
+      netPayout:        b.net_payout   || 0,
+      platform:         b.platform     || '',
+      confirmCode:      b.confirmation_code || '',
+      status:           b.status       || 'confirmed',
+      cleanerConfirmed: b.cleaner_confirmed || false,
+      source:           b.source        || 'sheet',
+      phone:            b.phone         || '',
+      email:            b.email         || '',
+    }));
+  } catch (e) {
+    console.warn('[StayOps] loadBookingsFromCloud failed', e);
+    return null;
+  }
+}
+
+export async function saveBookingToCloud(booking) {
+  const user = await getCurrentSupabaseUser();
+  if (!user || !booking) return;
+  const propertyId = await getCloudPropertyId();
+  const payload = {
+    user_id:            user.id,
+    property_id:        propertyId || null,
+    local_id:           String(booking.id),
+    checkin:            booking.checkin   ? String(booking.checkin).slice(0,10)   : null,
+    checkout:           booking.checkout  ? String(booking.checkout).slice(0,10)  : null,
+    nights:             booking.nights    || null,
+    guest_name:         booking.name      || '',
+    guests:             booking.guests    || 1,
+    host_payout:        Number(booking.hostPayout)  || 0,
+    cleaning_fee:       Number(booking.cleaningFee) || 0,
+    mgmt_fee:           Number(booking.mgmtFee)     || 0,
+    mgmt_fee_raw:       Number(booking.mgmtFeeRaw)  || 0,
+    mgmt_payout:        Number(booking.mgmtPayout)  || 0,
+    net_payout:         Number(booking.netPayout)   || 0,
+    platform:           booking.platform    || '',
+    confirmation_code:  booking.confirmCode || null,
+    status:             booking.status      || 'confirmed',
+    cleaner_confirmed:  booking.cleanerConfirmed || false,
+    source:             booking.source      || 'sheet',
+    phone:              booking.phone       || null,
+    email:              booking.email       || null,
+    updated_at:         new Date().toISOString(),
+  };
+  if (booking._cloudId) {
+    await window._sb.from('bookings').update(payload).eq('id', booking._cloudId);
+  } else {
+    const { data } = await window._sb.from('bookings').upsert(payload, { onConflict: 'local_id,user_id' }).select().single();
+    if (data) booking._cloudId = data.id;
+  }
+}
+
+export async function saveBookingsToCloud(bookingsList) {
+  if (!Array.isArray(bookingsList) || !bookingsList.length) return;
+  const user = await getCurrentSupabaseUser();
+  if (!user) throw new Error('Not signed in — cannot save bookings to cloud');
+  const propertyId = await getCloudPropertyId();
+  const payload = bookingsList.map(b => ({
+    user_id:            user.id,
+    property_id:        propertyId || null,
+    local_id:           String(b.id),
+    checkin:            b.checkin   ? String(b.checkin).slice(0,10)   : null,
+    checkout:           b.checkout  ? String(b.checkout).slice(0,10)  : null,
+    nights:             b.nights    || null,
+    guest_name:         b.name      || '',
+    guests:             b.guests    || 1,
+    host_payout:        Number(b.hostPayout)  || 0,
+    cleaning_fee:       Number(b.cleaningFee) || 0,
+    mgmt_fee:           Number(b.mgmtFee)     || 0,
+    mgmt_fee_raw:       Number(b.mgmtFeeRaw)  || 0,
+    mgmt_payout:        Number(b.mgmtPayout)  || 0,
+    net_payout:         Number(b.netPayout)   || 0,
+    platform:           b.platform    || '',
+    confirmation_code:  b.confirmCode || null,
+    status:             b.status      || 'confirmed',
+    cleaner_confirmed:  b.cleanerConfirmed || false,
+    source:             b.source      || 'sheet',
+    phone:              b.phone       || null,
+    email:              b.email       || null,
+    updated_at:         new Date().toISOString(),
+  }));
+  const { error } = await window._sb
+    .from('bookings')
+    .upsert(payload, { onConflict: 'local_id,user_id' });
+  if (error) {
+    console.warn('[StayOps] saveBookingsToCloud bulk upsert error', error);
+    throw new Error(error.message || 'Supabase upsert failed');
+  }
+}
+
+export async function deleteBookingFromCloud(booking) {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user || !booking) return;
+    if (booking._cloudId) {
+      await window._sb.from('bookings').delete().eq('id', booking._cloudId);
+    } else {
+      await window._sb.from('bookings').delete()
+        .eq('user_id', user.id)
+        .eq('local_id', String(booking.id));
+    }
+  } catch (e) {
+    console.warn('[StayOps] deleteBookingFromCloud failed', e);
+  }
+}
+
+
+// ── RECEIPTS (Supabase Storage) ───────────────────────────────────────────────
+
+export async function uploadReceiptToStorage(file, expenseId) {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user || !file) return null;
+    const propertyId = await getCloudPropertyId();
+    const ext = file.name.split('.').pop();
+    const path = `${user.id}/${propertyId || 'default'}/${expenseId || Date.now()}.${ext}`;
+    const { data, error } = await window._sb.storage.from('receipts').upload(path, file, { upsert: true });
+    if (error) { console.warn('[StayOps] uploadReceiptToStorage error', error); return null; }
+    const { data: urlData } = window._sb.storage.from('receipts').getPublicUrl(path);
+    return urlData && urlData.publicUrl ? urlData.publicUrl : null;
+  } catch (e) {
+    console.warn('[StayOps] uploadReceiptToStorage failed', e);
+    return null;
+  }
+}
+
+export async function hydrateFromCloud() {
+  try {
     window._stayOpsHydrating = true;
-    console.log('[StayOps] hydrateFromCloud starting…');
+    window._cloudPropertyIds = window._cloudPropertyIds || {};
+    console.log('[StayOps] hydrateFromCloud starting...');
 
-    // 1. Cleaners — cloud is source of truth
-    const cloudCleaners = await loadCleanersFromCloud();
-    if (Array.isArray(cloudCleaners)) {
-      localStorage.setItem(lsKey('cleaners'), JSON.stringify(cloudCleaners));
-      console.log('[StayOps] Hydrated', cloudCleaners.length, 'cleaners from cloud');
-    }
+    const normaliseLocalId = (raw) => String(raw || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
-    // 0. Bookings — primary source now Supabase (replaces Sheet CSV)
-    const cloudBookings = await loadBookingsFromCloud();
-    if (Array.isArray(cloudBookings)) {
-      localStorage.setItem(lsKey('bookings'), JSON.stringify(cloudBookings));
-      console.log('[StayOps] Hydrated', cloudBookings.length, 'bookings from cloud');
-    }
+    const toLocalPatch = (row, existing) => {
+      existing = existing || {};
+      const exBrand = existing.branding || {};
+      const exProp  = existing.property || {};
+      const exOwner = existing.owner || {};
+      const exInteg = existing.integrations || {};
+      const exPrice = existing.pricing || {};
+      const suburb = row.suburb || existing.suburb || '';
+      const state  = row.state || existing.state || '';
+      return {
+        supabaseId: row.id,
+        name: row.name || existing.name || '',
+        address: row.address || existing.address || '',
+        suburb, state,
+        region: row.region || existing.region || '',
+        country: row.country || existing.country || 'Australia',
+        branding: {
+          subtitle: [suburb, state].filter(Boolean).join(' · '),
+          tagline: row.tagline || exBrand.tagline || [suburb, state].filter(Boolean).join(', ')
+        },
+        property: {
+          bedrooms:  row.bedrooms   != null ? row.bedrooms   : (exProp.bedrooms  || 0),
+          bathrooms: row.bathrooms  != null ? row.bathrooms  : (exProp.bathrooms || 0),
+          maxGuests: row.max_guests != null ? row.max_guests : (exProp.maxGuests || 0),
+          type:      row.property_type || exProp.type || 'house'
+        },
+        owner: {
+          name:  row.owner_name  || exOwner.name  || '',
+          email: row.owner_email || exOwner.email || '',
+          phone: row.owner_phone || exOwner.phone || '',
+          reportEmailSubject: row.report_email_subject != null ? row.report_email_subject : (exOwner.reportEmailSubject || ''),
+          reportEmailBody:    row.report_email_body    != null ? row.report_email_body    : (exOwner.reportEmailBody || ''),
+          autoSendReport:     row.auto_send_report     != null ? row.auto_send_report     : !!exOwner.autoSendReport,
+          reportFrequency:    row.report_frequency || exOwner.reportFrequency || 'monthly',
+          lastReportSentAt:   row.last_report_sent_at || exOwner.lastReportSentAt || null
+        },
+        integrations: {
+          sheetCsvUrl:    row.sheets_url || exInteg.sheetCsvUrl || '',
+          syncUrl:        row.script_url || exInteg.syncUrl || '',
+          vapidPublicKey: row.vapid_public_key || exInteg.vapidPublicKey || ''
+        },
+        pricing: {
+          baseRate: row.base_rate != null ? row.base_rate : (exPrice.baseRate || 0)
+        },
+        updated_at: row.updated_at || existing.updated_at || new Date().toISOString()
+      };
+    };
 
-    // 2. Cleans — cloud is source of truth
-    const cloudCleans = await loadCleansFromCloud();
-    if (Array.isArray(cloudCleans)) {
-      localStorage.setItem(lsKey('cleans'), JSON.stringify(cloudCleans));
-      console.log('[StayOps] Hydrated', cloudCleans.length, 'cleans from cloud');
-    }
+    // 0. Merge all cloud properties into local list
+    const cloudProps = await loadPropertyFromCloud();
+    const originalActiveId = (typeof window.getActivePropertyId === 'function') ? window.getActivePropertyId() : null;
+    let preferredActiveId = null;
 
-    // 3. Notes
-    const cloudNotes = await loadNotesFromCloud();
-    if (Array.isArray(cloudNotes)) {
-      localStorage.setItem(lsKey('notes'), JSON.stringify(cloudNotes));
-      console.log('[StayOps] Hydrated', cloudNotes.length, 'notes from cloud');
-    }
+    if (Array.isArray(cloudProps) && cloudProps.length) {
+      localStorage.setItem('gh-setup-complete', '1');
 
-    // 4. Expenses
-    const cloudExpenses = await loadExpensesFromCloud();
-    if (Array.isArray(cloudExpenses)) {
-      localStorage.setItem(lsKey('expenses'), JSON.stringify(cloudExpenses));
-      console.log('[StayOps] Hydrated', cloudExpenses.length, 'expenses from cloud');
-    }
+      for (const row of cloudProps) {
+        const localList = (typeof window.getAllProperties === 'function') ? window.getAllProperties() : [];
+        const byNameSlug = normaliseLocalId(row.name);
+        let match = localList.find(p => p && p.supabaseId === row.id);
+        if (!match && byNameSlug) match = localList.find(p => p && p.propertyId === byNameSlug);
+        if (!match && row.name) {
+          const lowerName = String(row.name).trim().toLowerCase();
+          match = localList.find(p => String((p && p.name) || '').trim().toLowerCase() === lowerName);
+        }
 
-    // 5. Inventory
-    const cloudInventory = await loadInventoryFromCloud();
-    if (Array.isArray(cloudInventory)) {
-      localStorage.setItem(lsKey('inventory'), JSON.stringify(cloudInventory));
-      console.log('[StayOps] Hydrated', cloudInventory.length, 'inventory items from cloud');
-    }
-
-    // 5b. Maintenance
-    const cloudMaintenance = await loadMaintenanceFromCloud();
-    if (Array.isArray(cloudMaintenance)) {
-      localStorage.setItem(lsKey('maintenance'), JSON.stringify(cloudMaintenance));
-      console.log('[StayOps] Hydrated', cloudMaintenance.length, 'maintenance items from cloud');
-    }
-
-    // 6. Property config — timestamp-based merge: newer wins
-    const cloudProp = await loadPropertyFromCloud();
-    if (cloudProp) {
-      window._cloudPropertyId = cloudProp.id;
-
-      // Restore API settings to localStorage
-      if (cloudProp.anthropic_api_key) localStorage.setItem('gh-api-key', cloudProp.anthropic_api_key);
-      if (cloudProp.mgmt_fee_rate != null) localStorage.setItem(lsKey('mgmt-fee-rate'), String(cloudProp.mgmt_fee_rate));
-
-      const existingCfg = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : {};
-      const localUpdatedAt  = existingCfg.updated_at ? new Date(existingCfg.updated_at).getTime()  : 0;
-      const cloudUpdatedAt  = cloudProp.updated_at   ? new Date(cloudProp.updated_at).getTime()    : 0;
-
-      // Cloud wins if it's newer OR if local has no timestamp (fresh device)
-      if (cloudUpdatedAt >= localUpdatedAt) {
-        const updates = {
-          name:    cloudProp.name    || existingCfg.name,
-          address: cloudProp.address || existingCfg.address,
-          suburb:  cloudProp.suburb  || existingCfg.suburb,
-          state:   cloudProp.state   || existingCfg.state,
-          region:  cloudProp.region  || existingCfg.region,
-          country: cloudProp.country || existingCfg.country,
-          branding: {
-            tagline: cloudProp.tagline || (existingCfg.branding && existingCfg.branding.tagline) || ''
-          },
-          property: {
-            bedrooms:  cloudProp.bedrooms   || (existingCfg.property && existingCfg.property.bedrooms),
-            bathrooms: cloudProp.bathrooms  || (existingCfg.property && existingCfg.property.bathrooms),
-            maxGuests: cloudProp.max_guests || (existingCfg.property && existingCfg.property.maxGuests),
-            type:      cloudProp.property_type || (existingCfg.property && existingCfg.property.type) || 'house'
-          },
-          owner: {
-            name:  cloudProp.owner_name  || (existingCfg.owner && existingCfg.owner.name)  || '',
-            email: cloudProp.owner_email || (existingCfg.owner && existingCfg.owner.email) || '',
-            phone: cloudProp.owner_phone || (existingCfg.owner && existingCfg.owner.phone) || '',
-            reportEmailSubject: cloudProp.report_email_subject || (existingCfg.owner && existingCfg.owner.reportEmailSubject) || '',
-            reportEmailBody:    cloudProp.report_email_body    || (existingCfg.owner && existingCfg.owner.reportEmailBody)    || '',
-            autoSendReport:     cloudProp.auto_send_report     != null ? cloudProp.auto_send_report : ((existingCfg.owner && existingCfg.owner.autoSendReport) || false),
-            reportFrequency:    cloudProp.report_frequency     || (existingCfg.owner && existingCfg.owner.reportFrequency)    || 'monthly',
-            lastReportSentAt:   cloudProp.last_report_sent_at  || (existingCfg.owner && existingCfg.owner.lastReportSentAt)   || null,
-          },
-          integrations: {
-            sheetCsvUrl:    cloudProp.sheets_url      || (existingCfg.integrations && existingCfg.integrations.sheetCsvUrl),
-            syncUrl:      cloudProp.script_url      || (existingCfg.integrations && existingCfg.integrations.syncUrl),
-            vapidPublicKey: cloudProp.vapid_public_key || (existingCfg.integrations && existingCfg.integrations.vapidPublicKey),
-          },
-          pricing: {
-            baseRate: cloudProp.base_rate || (existingCfg.pricing && existingCfg.pricing.baseRate)
-          },
-          // Preserve the cloud timestamp so next merge comparison is accurate
-          updated_at: cloudProp.updated_at
-        };
-        // savePropertyConfig is called with hydrating=true so it won't trigger cloud write or render
-        if (typeof savePropertyConfig === 'function') savePropertyConfig(updates);
-        console.log('[StayOps] Property config: cloud wins (cloud newer or fresh device)');
-      } else {
-        console.log('[StayOps] Property config: local wins (local is newer)');
+        if (match) {
+          const localTs = match.updated_at ? new Date(match.updated_at).getTime() : 0;
+          const cloudTs = row.updated_at   ? new Date(row.updated_at).getTime()   : 0;
+          if (typeof window.setActivePropertyId === 'function') window.setActivePropertyId(match.propertyId);
+          if (cloudTs >= localTs) {
+            if (typeof window.savePropertyConfig === 'function') window.savePropertyConfig(toLocalPatch(row, match));
+          } else {
+            if (typeof window.savePropertyConfig === 'function') window.savePropertyConfig({ supabaseId: row.id, updated_at: match.updated_at || row.updated_at || new Date().toISOString() });
+          }
+          window._cloudPropertyIds[match.propertyId] = row.id;
+          if (!preferredActiveId) preferredActiveId = match.propertyId;
+        } else {
+          const created = (typeof window.addPropertyConfig === 'function') ? window.addPropertyConfig(toLocalPatch(row, {})) : null;
+          if (created && created.propertyId) {
+            window._cloudPropertyIds[created.propertyId] = row.id;
+            if (!preferredActiveId) preferredActiveId = created.propertyId;
+          }
+        }
       }
+
+      const finalList = (typeof window.getAllProperties === 'function') ? window.getAllProperties() : [];
+      if (originalActiveId && finalList.find(p => p.propertyId === originalActiveId)) {
+        if (typeof window.setActivePropertyId === 'function') window.setActivePropertyId(originalActiveId);
+      } else if (preferredActiveId) {
+        if (typeof window.setActivePropertyId === 'function') window.setActivePropertyId(preferredActiveId);
+      } else if (finalList[0] && typeof window.setActivePropertyId === 'function') {
+        window.setActivePropertyId(finalList[0].propertyId);
+      }
+
+      const activeCfg = (typeof window.getActivePropertyConfig === 'function') ? window.getActivePropertyConfig() : null;
+      const activeCloud = activeCfg && activeCfg.supabaseId ? cloudProps.find(p => p.id === activeCfg.supabaseId) : null;
+      if (activeCloud) {
+        if (activeCloud.anthropic_api_key) localStorage.setItem('gh-api-key', activeCloud.anthropic_api_key);
+        if (activeCloud.mgmt_fee_rate != null && typeof window.lsKey === 'function') localStorage.setItem(window.lsKey('mgmt-fee-rate'), String(activeCloud.mgmt_fee_rate));
+      }
+
+      console.log('[StayOps] Hydrated', cloudProps.length, 'properties from cloud');
     }
 
-    // 7b. App config (push subs, templates, expense cats)
+    // 1. Cleaners
+    const cloudCleaners = await loadCleanersFromCloud();
+    if (Array.isArray(cloudCleaners)) { localStorage.setItem(lsKey('cleaners'), JSON.stringify(cloudCleaners)); console.log('[StayOps] Hydrated', cloudCleaners.length, 'cleaners from cloud'); }
+
+    // 2. Bookings
+    const cloudBookings = await loadBookingsFromCloud();
+    if (Array.isArray(cloudBookings)) { localStorage.setItem(lsKey('bookings'), JSON.stringify(cloudBookings)); console.log('[StayOps] Hydrated', cloudBookings.length, 'bookings from cloud'); }
+
+    // 3. Cleans
+    const cloudCleans = await loadCleansFromCloud();
+    if (Array.isArray(cloudCleans)) { localStorage.setItem(lsKey('cleans'), JSON.stringify(cloudCleans)); console.log('[StayOps] Hydrated', cloudCleans.length, 'cleans from cloud'); }
+
+    // 4. Notes
+    const cloudNotes = await loadNotesFromCloud();
+    if (Array.isArray(cloudNotes)) { localStorage.setItem(lsKey('notes'), JSON.stringify(cloudNotes)); console.log('[StayOps] Hydrated', cloudNotes.length, 'notes from cloud'); }
+
+    // 5. Expenses
+    const cloudExpenses = await loadExpensesFromCloud();
+    if (Array.isArray(cloudExpenses)) { localStorage.setItem(lsKey('expenses'), JSON.stringify(cloudExpenses)); console.log('[StayOps] Hydrated', cloudExpenses.length, 'expenses from cloud'); }
+
+    // 6. Inventory
+    const cloudInventory = await loadInventoryFromCloud();
+    if (Array.isArray(cloudInventory)) { localStorage.setItem(lsKey('inventory'), JSON.stringify(cloudInventory)); console.log('[StayOps] Hydrated', cloudInventory.length, 'inventory items from cloud'); }
+
+    // 7. Maintenance
+    const cloudMaintenance = await loadMaintenanceFromCloud();
+    if (Array.isArray(cloudMaintenance)) { localStorage.setItem(lsKey('maintenance'), JSON.stringify(cloudMaintenance)); console.log('[StayOps] Hydrated', cloudMaintenance.length, 'maintenance items from cloud'); }
+
+    // 8. App config
     const cloudAppConfig = await loadAppConfigFromCloud();
     if (cloudAppConfig) {
       if (cloudAppConfig.sms_template) localStorage.setItem(lsKey('sms-template'), cloudAppConfig.sms_template);
@@ -840,11 +1131,10 @@ async function hydrateFromCloud() {
       console.log('[StayOps] Hydrated app config from cloud');
     }
 
-    // 7. Host profile
+    // 9. Host profile
     const cloudHost = await loadHostConfigFromSupabase();
     if (cloudHost && cloudHost.hostId) {
       const existing = typeof getHostProfile === 'function' ? getHostProfile() : null;
-      // Cloud wins if local has no profile or cloud is more complete
       if (!existing || cloudHost.name) {
         if (typeof saveHostProfile === 'function') saveHostProfile(cloudHost);
         console.log('[StayOps] Hydrated host profile from cloud');
@@ -855,80 +1145,51 @@ async function hydrateFromCloud() {
   } catch (e) {
     console.warn('[StayOps] hydrateFromCloud error', e);
   } finally {
-    // Always clear the hydration flag
     window._stayOpsHydrating = false;
   }
 }
 
-/**
- * migrateLocalDataToCloud — one-time push of all localStorage data to Supabase.
- * Run once from the console: migrateLocalDataToCloud()
- */
-async function migrateLocalDataToCloud() {
-  console.log('[StayOps] Starting migration to cloud…');
 
-  // Property config first (needed for property_id on other tables)
-  const cfg = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : null;
-  if (cfg) {
-    await savePropertyToCloud(cfg);
-    console.log('[StayOps] ✓ Property config migrated');
+
+// ── APP CONFIG ────────────────────────────────────────────────────────────────
+
+async function loadAppConfigFromCloud() {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user) return null;
+    const { data, error } = await window._sb
+      .from('app_config')
+      .select('*')
+      .eq('user_id', user.id)
+      .limit(1);
+    if (error || !data || !data.length) return null;
+    return data[0];
+  } catch (e) {
+    console.warn('[StayOps] loadAppConfigFromCloud failed', e);
+    return null;
   }
+}
 
-  // Cleaners
-  const cleaners = (typeof loadCleaners === 'function') ? loadCleaners() : [];
-  if (cleaners.length) {
-    await saveCleanersToCloud(cleaners);
-    if (typeof saveCleaners === 'function') saveCleaners(cleaners); // save back with _cloudId
-    console.log('[StayOps] ✓', cleaners.length, 'cleaners migrated');
+export async function saveAppConfigToCloud(patch) {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user) return;
+    const payload = {
+      user_id:    user.id,
+      updated_at: new Date().toISOString(),
+      ...patch,
+    };
+    await window._sb.from('app_config')
+      .upsert(payload, { onConflict: 'user_id' });
+  } catch (e) {
+    console.warn('[StayOps] saveAppConfigToCloud failed', e);
   }
-
-  // Cleans
-  const cleans = JSON.parse(localStorage.getItem(lsKey('cleans')) || '[]');
-  if (cleans.length) {
-    await saveCleansToCloud(cleans);
-    localStorage.setItem(lsKey('cleans'), JSON.stringify(cleans));
-    console.log('[StayOps] ✓', cleans.length, 'cleans migrated');
-  }
-
-  // Notes
-  const notes = JSON.parse(localStorage.getItem(lsKey('notes')) || '[]');
-  if (notes.length) {
-    await saveNotesToCloud(notes);
-    localStorage.setItem(lsKey('notes'), JSON.stringify(notes));
-    console.log('[StayOps] ✓', notes.length, 'notes migrated');
-  }
-
-  // Expenses
-  const expenses = JSON.parse(localStorage.getItem(lsKey('expenses')) || '[]');
-  if (expenses.length) {
-    await saveExpensesToCloud(expenses);
-    localStorage.setItem(lsKey('expenses'), JSON.stringify(expenses));
-    console.log('[StayOps] ✓', expenses.length, 'expenses migrated');
-  }
-
-  // Inventory
-  const inventory = JSON.parse(localStorage.getItem(lsKey('inventory')) || '[]');
-  if (inventory.length) {
-    await saveInventoryToCloud(inventory);
-    localStorage.setItem(lsKey('inventory'), JSON.stringify(inventory));
-    console.log('[StayOps] ✓', inventory.length, 'inventory items migrated');
-  }
-
-  // Maintenance
-  const maintenance = JSON.parse(localStorage.getItem(lsKey('maintenance')) || '[]');
-  if (maintenance.length) {
-    await saveMaintenanceToCloud(maintenance);
-    localStorage.setItem(lsKey('maintenance'), JSON.stringify(maintenance));
-    console.log('[StayOps] ✓', maintenance.length, 'maintenance items migrated');
-  }
-
-  console.log('[StayOps] Migration complete! Run hydrateFromCloud() on other devices.');
 }
 
 
-// ── HOST CONFIG ───────────────────────────────────────────────────────────────
+// ── HOST CONFIG (Supabase) ─────────────────────────────────────────────────────
 
-async function saveHostConfigToSupabase(profile) {
+export async function saveHostConfigToSupabase(profile) {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user || !profile) return null;
@@ -946,7 +1207,6 @@ async function saveHostConfigToSupabase(profile) {
       updated_at: new Date().toISOString(),
     };
 
-    // Strip nulls so we never overwrite real data with nulls
     const clean = Object.fromEntries(
       Object.entries(payload).filter(([_, v]) => v !== null && v !== '')
     );
@@ -995,358 +1255,198 @@ async function loadHostConfigFromSupabase() {
 }
 
 
-// ── BOOKINGS ──────────────────────────────────────────────────────────────────
+// ── EMAIL ─────────────────────────────────────────────────────────────────────
 
-async function loadBookingsFromCloud() {
-  try {
-    const user = await getCurrentSupabaseUser();
-    if (!user) return null;
-    const propertyId = await getCloudPropertyId();
-    let query = window._sb.from('bookings').select('*').eq('user_id', user.id);
-    if (propertyId) query = query.eq('property_id', propertyId);
-    const { data, error } = await query.order('checkin', { ascending: true });
-    if (error || !data) return null;
-    return data.map(b => ({
-      id:               b.local_id ? (isNaN(Number(b.local_id)) ? b.local_id : Number(b.local_id)) : b.id,
-      _cloudId:         b.id,
-      checkin:          b.checkin   || '',
-      checkout:         b.checkout  || '',
-      nights:           b.nights    || 0,
-      name:             b.guest_name || '',
-      guests:           b.guests    || 1,
-      hostPayout:       b.host_payout  || 0,
-      cleaningFee:      b.cleaning_fee || 0,
-      mgmtFee:          b.mgmt_fee     || 0,
-      mgmtFeeRaw:       b.mgmt_fee_raw || 0,
-      mgmtPayout:       b.mgmt_payout  || 0,
-      netPayout:        b.net_payout   || 0,
-      platform:         b.platform     || '',
-      confirmCode:      b.confirmation_code || '',
-      status:           b.status       || 'confirmed',
-      cleanerConfirmed: b.cleaner_confirmed || false,
-      source:           b.source        || 'sheet',
-    }));
-  } catch (e) {
-    console.warn('[StayOps] loadBookingsFromCloud failed', e);
-    return null;
-  }
-}
-
-async function saveBookingToCloud(booking) {
-  const user = await getCurrentSupabaseUser();
-  if (!user || !booking) return;
-  const propertyId = await getCloudPropertyId();
-  const payload = {
-    user_id:            user.id,
-    property_id:        propertyId || null,
-    local_id:           String(booking.id),
-    checkin:            booking.checkin   ? String(booking.checkin).slice(0,10)   : null,
-    checkout:           booking.checkout  ? String(booking.checkout).slice(0,10)  : null,
-    nights:             booking.nights    || null,
-    guest_name:         booking.name      || '',
-    guests:             booking.guests    || 1,
-    host_payout:        Number(booking.hostPayout)  || 0,
-    cleaning_fee:       Number(booking.cleaningFee) || 0,
-    mgmt_fee:           Number(booking.mgmtFee)     || 0,
-    mgmt_fee_raw:       Number(booking.mgmtFeeRaw)  || 0,
-    mgmt_payout:        Number(booking.mgmtPayout)  || 0,
-    net_payout:         Number(booking.netPayout)   || 0,
-    platform:           booking.platform    || '',
-    confirmation_code:  booking.confirmCode || null,
-    status:             booking.status      || 'confirmed',
-    cleaner_confirmed:  booking.cleanerConfirmed || false,
-    source:             booking.source      || 'sheet',
-    updated_at:         new Date().toISOString(),
-  };
-  if (booking._cloudId) {
-    const { error } = await window._sb.from('bookings').upsert({ id: booking._cloudId, ...payload });
-    if (error) { console.warn('[StayOps] saveBookingToCloud upsert error', error); throw error; }
-  } else {
-    const { data, error } = await window._sb
-      .from('bookings')
-      .upsert(payload, { onConflict: 'local_id,user_id' })
-      .select().single();
-    if (error) { console.warn('[StayOps] saveBookingToCloud insert error', error); throw error; }
-    if (data) booking._cloudId = data.id;
-  }
-}
-
-async function saveBookingsToCloud(bookingsList) {
-  if (!Array.isArray(bookingsList) || !bookingsList.length) return;
-  const user = await getCurrentSupabaseUser();
-  if (!user) throw new Error('Not signed in — cannot save bookings to cloud');
-  const propertyId = await getCloudPropertyId();
-  const payload = bookingsList.map(b => ({
-    user_id:            user.id,
-    property_id:        propertyId || null,
-    local_id:           String(b.id),
-    checkin:            b.checkin   ? String(b.checkin).slice(0,10)   : null,
-    checkout:           b.checkout  ? String(b.checkout).slice(0,10)  : null,
-    nights:             b.nights    || null,
-    guest_name:         b.name      || '',
-    guests:             b.guests    || 1,
-    host_payout:        Number(b.hostPayout)  || 0,
-    cleaning_fee:       Number(b.cleaningFee) || 0,
-    mgmt_fee:           Number(b.mgmtFee)     || 0,
-    mgmt_fee_raw:       Number(b.mgmtFeeRaw)  || 0,
-    mgmt_payout:        Number(b.mgmtPayout)  || 0,
-    net_payout:         Number(b.netPayout)   || 0,
-    platform:           b.platform    || '',
-    confirmation_code:  b.confirmCode || null,
-    status:             b.status      || 'confirmed',
-    cleaner_confirmed:  b.cleanerConfirmed || false,
-    source:             b.source      || 'sheet',
-    updated_at:         new Date().toISOString(),
-  }));
-  const { error } = await window._sb
-    .from('bookings')
-    .upsert(payload, { onConflict: 'local_id,user_id' });
-  if (error) {
-    console.warn('[StayOps] saveBookingsToCloud bulk upsert error', error);
-    throw new Error(error.message || 'Supabase upsert failed');
-  }
-}
-
-async function deleteBookingFromCloud(booking) {
-  try {
-    const user = await getCurrentSupabaseUser();
-    if (!user || !booking) return;
-    if (booking._cloudId) {
-      await window._sb.from('bookings').delete().eq('id', booking._cloudId);
-    } else {
-      await window._sb.from('bookings').delete()
-        .eq('user_id', user.id)
-        .eq('local_id', String(booking.id));
+const DB = {
+  async sendEmail(to, subject, html, text) {
+    try {
+      const res = await fetch('/.netlify/functions/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to, subject, html, text }),
+      });
+      return await res.json();
+    } catch (e) {
+      console.warn('[StayOps] DB.sendEmail failed', e);
+      return { ok: false };
     }
-  } catch (e) {
-    console.warn('[StayOps] deleteBookingFromCloud failed', e);
   }
+};
+window.DB = DB;
+
+
+// ── LOADING / LOGIN SCREEN ────────────────────────────────────────────────────
+
+export function showLoadingScreen(msg) {
+  const el = document.getElementById('stayops-loading-screen');
+  if (el) el.style.display = 'flex';
+  if (msg) setLoadingStatus(msg);
 }
 
-// ── RECEIPTS (Supabase Storage) ───────────────────────────────────────────────
-
-async function uploadReceiptToStorage(file, expenseId) {
-  try {
-    const user = await getCurrentSupabaseUser();
-    if (!user || !file) return null;
-    const propertyId = await getCloudPropertyId();
-    const ext = file.name ? file.name.split('.').pop() : 'pdf';
-    const path = `${user.id}/${propertyId || 'default'}/${expenseId || Date.now()}.${ext}`;
-    const { data, error } = await window._sb.storage
-      .from('receipts')
-      .upload(path, file, { upsert: true, contentType: file.type || 'application/pdf' });
-    if (error) { console.warn('[StayOps] Receipt upload error', error); return null; }
-    // Get public URL — storage is private so use signed URL (1 year expiry)
-    const { data: urlData } = await window._sb.storage
-      .from('receipts')
-      .createSignedUrl(path, 365 * 24 * 60 * 60);
-    return urlData?.signedUrl || null;
-  } catch (e) {
-    console.warn('[StayOps] uploadReceiptToStorage failed', e);
-    return null;
-  }
+export function hideLoadingScreen() {
+  const el = document.getElementById('stayops-loading-screen');
+  if (el) el.style.display = 'none';
 }
 
-async function getReceiptUrl(expenseId, userId, propertyId) {
-  try {
-    const path = `${userId}/${propertyId || 'default'}/${expenseId}`;
-    const { data } = await window._sb.storage
-      .from('receipts')
-      .createSignedUrl(path, 60 * 60); // 1 hour
-    return data?.signedUrl || null;
-  } catch (e) {
-    return null;
-  }
+export function setLoadingStatus(msg) {
+  const el = document.getElementById('loading-status');
+  if (el) el.textContent = msg || '';
 }
 
-// ── APP CONFIG (push subs, templates, expense cats) ───────────────────────────
-
-async function loadAppConfigFromCloud() {
-  try {
-    const user = await getCurrentSupabaseUser();
-    if (!user) return null;
-    const { data, error } = await window._sb
-      .from('app_config')
-      .select('*')
-      .eq('user_id', user.id)
-      .limit(1);
-    if (error || !data || !data.length) return null;
-    return data[0];
-  } catch (e) {
-    console.warn('[StayOps] loadAppConfigFromCloud failed', e);
-    return null;
-  }
+export function showLoginScreen() {
+  const login = document.getElementById('stayops-login-screen');
+  const app   = document.getElementById('main-content');
+  const nav   = document.querySelector('.nav');
+  const hdr   = document.querySelector('.header');
+  if (login) login.style.display = 'flex';
+  if (app)   app.style.display   = 'none';
+  if (nav)   nav.style.display   = 'none';
+  if (hdr)   hdr.style.display   = 'none';
+  hideLoadingScreen();
 }
 
-async function saveAppConfigToCloud(patch) {
-  try {
-    const user = await getCurrentSupabaseUser();
-    if (!user) return;
-    const payload = {
-      user_id:    user.id,
-      updated_at: new Date().toISOString(),
-      ...patch,
-    };
-    await window._sb.from('app_config')
-      .upsert(payload, { onConflict: 'user_id' });
-  } catch (e) {
-    console.warn('[StayOps] saveAppConfigToCloud failed', e);
-  }
+export function showAppChrome() {
+  const login = document.getElementById('stayops-login-screen');
+  const app   = document.getElementById('main-content');
+  const nav   = document.querySelector('.nav');
+  const hdr   = document.querySelector('.header');
+  if (login) login.style.display = 'none';
+  if (app)   app.style.display   = '';
+  if (nav)   nav.style.display   = '';
+  if (hdr)   hdr.style.display   = '';
+  hideLoadingScreen();
 }
 
-
-// ── LOADING SCREEN ────────────────────────────────────────────────────────────
-
-function _setHostChrome(show) {
-  const app = document.getElementById('main-content');
-  const nav = document.querySelector('.nav');
-  const hdr = document.querySelector('.header');
-  const val = show ? '' : 'none';
-  if (app) app.style.display = val;
-  if (nav) nav.style.display = val;
-  if (hdr) hdr.style.display = val;
-}
-
-function showLoadingScreen(msg) {
-  document.getElementById('stayops-login-screen').style.display = 'none';
-  document.getElementById('stayops-loading-screen').style.display = 'flex';
-  const s = document.getElementById('loading-status');
-  if (s) s.textContent = msg || 'Loading…';
-  _setHostChrome(false);
-}
-
-function hideLoadingScreen() {
-  document.getElementById('stayops-loading-screen').style.display = 'none';
-  // Do NOT restore host chrome here — caller decides what comes next
-}
-
-function showLoginScreen() {
-  document.getElementById('stayops-loading-screen').style.display = 'none';
-  document.getElementById('stayops-login-screen').style.display = 'flex';
-  _setHostChrome(false);
-}
-
-function hideLoginScreen() {
-  document.getElementById('stayops-login-screen').style.display = 'none';
-}
-
-function showAppChrome() {
-  document.getElementById('stayops-loading-screen').style.display = 'none';
-  document.getElementById('stayops-login-screen').style.display = 'none';
-  _setHostChrome(true);
-}
-
-function setLoadingStatus(msg) {
-  const s = document.getElementById('loading-status');
-  if (s) s.textContent = msg || '';
-}
-
-
-// ── LOGIN UI ──────────────────────────────────────────────────────────────────
-
-async function handleLoginSubmit() {
+export async function handleLoginSubmit() {
   const email    = (document.getElementById('login-email')    || {}).value || '';
   const password = (document.getElementById('login-password') || {}).value || '';
   const errEl    = document.getElementById('login-error');
-  const btn      = document.getElementById('login-btn');
-
-  if (!email || !password) {
-    if (errEl) errEl.textContent = 'Please enter your email and password.';
-    return;
-  }
-  if (btn) { btn.disabled = true; btn.textContent = 'Signing in…'; }
   if (errEl) errEl.textContent = '';
-
-  const { data, error } = await supabaseSignIn(email, password);
-
-  if (error || !data || !data.user) {
-    if (errEl) errEl.textContent = typeof error === 'string' ? error : (error && error.message) || 'Sign in failed — check your email and password.';
+  if (!email || !password) { if (errEl) errEl.textContent = 'Enter your email and password.'; return; }
+  const btn = document.getElementById('login-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Signing in…'; }
+  showLoadingScreen('Signing you in…');
+  const { error } = await supabaseSignIn(email, password);
+  if (error) {
+    hideLoadingScreen();
     if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; }
+    if (errEl) errEl.textContent = (typeof error === 'object' ? error.message : error) || 'Sign in failed.';
     return;
   }
-
-  hideLoginScreen();
-  showLoadingScreen('Signing you in…');
-
+  // Successful sign in — run the full boot sequence
   try {
-    // ── Pre-flight: check Supabase for an existing property BEFORE finishAppInit ──
-    // On a fresh device localStorage is empty, so hasValidPropertyConfig() and
-    // isOnboardingComplete() both fail. Seed from cloud so returning users skip setup.
-    setLoadingStatus('Checking your account…');
-    await seedLocalConfigFromCloud();
-    console.log('[StayOps] Login boot: seedLocalConfigFromCloud complete');
-    setLoadingStatus('Starting app…');
+    if (typeof migrateConfigFromLegacySettings === 'function') migrateConfigFromLegacySettings();
+    if (typeof setLoadingStatus === 'function') setLoadingStatus('Checking your account…');
+    if (typeof seedLocalConfigFromCloud === 'function') await seedLocalConfigFromCloud();
+    if (typeof ensureHostIdentityAndRestore === 'function') await ensureHostIdentityAndRestore();
+    if (typeof setLoadingStatus === 'function') setLoadingStatus('Starting app…');
     if (typeof finishAppInit === 'function') await finishAppInit();
-    console.log('[StayOps] Login boot: finishAppInit complete');
-    setLoadingStatus('Loading your data…');
-    await hydrateFromCloud();
-    console.log('[StayOps] Login boot: hydrateFromCloud complete');
-
-    // Refresh in-memory arrays and property UI after cloud hydration
+    if (typeof setLoadingStatus === 'function') setLoadingStatus('Loading your data…');
+    if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
     if (typeof reloadInMemoryData === 'function') reloadInMemoryData();
+    if (typeof _normalizeBookingCleanState === 'function') _normalizeBookingCleanState();
     if (typeof initPropertyUI === 'function') initPropertyUI();
-
-    // Check if onboarding is needed (new user)
     if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) {
       if (typeof showOnboarding === 'function') showOnboarding();
       return;
     }
-
-    if (typeof renderHeaderDateBadge === 'function') renderHeaderDateBadge();
     if (typeof renderAll === 'function') renderAll();
-    // Prompt if an owner report is due
     setTimeout(() => { if (typeof checkAutoSendReport === 'function') checkAutoSendReport(); }, 1500);
+    setTimeout(() => { if (typeof maybeAutoScanGmail === 'function') maybeAutoScanGmail(); }, 3000);
   } catch (e) {
-    console.error('[StayOps] Login boot failed:', e);
+    console.error('[StayOps] Boot after login failed:', e);
   } finally {
-    showAppChrome();
+    if (typeof showAppChrome === 'function') showAppChrome();
   }
 }
 
-function toggleSignUp() {
-  const signInFields = document.getElementById('login-signin-section');
-  const signUpFields = document.getElementById('login-signup-section');
-  const toggle       = document.getElementById('login-toggle-link');
-  if (!signInFields || !signUpFields) return;
-  const isSignUp = signUpFields.style.display !== 'none';
-  signInFields.style.display = isSignUp ? '' : 'none';
-  signUpFields.style.display = isSignUp ? 'none' : '';
-  if (toggle) toggle.textContent = isSignUp ? "Don't have an account? Create one" : 'Already have an account? Sign in';
+export function toggleSignUp() {
+  const loginForm  = document.getElementById('login-signin-section');
+  const signupForm = document.getElementById('login-signup-section');
+  const toggleBtn  = document.getElementById('login-toggle-link');
+  if (!loginForm || !signupForm) return;
+  const isLogin = loginForm.style.display !== 'none';
+  // isLogin=true  → switching FROM sign-in TO sign-up
+  // isLogin=false → switching FROM sign-up TO sign-in
+  loginForm.style.display  = isLogin ? 'none' : '';
+  signupForm.style.display = isLogin ? '' : 'none';
+  if (toggleBtn) {
+    toggleBtn.textContent = isLogin
+      ? 'Already have an account? Sign in'
+      : "Don't have an account? Create one";
+  }
+  // Clear success banner when user manually navigates back to sign-up
+  if (isLogin) {
+    const successEl = document.getElementById('login-success');
+    if (successEl) { successEl.textContent = ''; successEl.style.display = 'none'; }
+  }
 }
 
-async function handleSignUpSubmit() {
+export async function handleSignUpSubmit() {
   const email    = (document.getElementById('signup-email')    || {}).value || '';
   const password = (document.getElementById('signup-password') || {}).value || '';
   const errEl    = document.getElementById('signup-error');
-  const btn      = document.getElementById('signup-btn');
-
-  if (!email || !password) {
-    if (errEl) errEl.textContent = 'Please enter an email and password.';
-    return;
-  }
-  if (password.length < 6) {
-    if (errEl) errEl.textContent = 'Password must be at least 6 characters.';
-    return;
-  }
-  if (btn) { btn.disabled = true; btn.textContent = 'Creating account…'; }
   if (errEl) errEl.textContent = '';
-
-  const { data, error } = await supabaseSignUp(email, password);
+  if (!email || !password) { if (errEl) errEl.textContent = 'Enter your email and password.'; return; }
+  const btn = document.getElementById('signup-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating account…'; }
+  showLoadingScreen('Creating your account…');
+  const { error } = await supabaseSignUp(email, password);
+  hideLoadingScreen();
+  if (btn) { btn.disabled = false; btn.textContent = 'Create Account'; }
   if (error) {
-    if (errEl) errEl.textContent = (error && error.message) || 'Sign up failed.';
-    if (btn) { btn.disabled = false; btn.textContent = 'Create Account'; }
+    if (errEl) errEl.textContent = (typeof error === 'object' ? error.message : error) || 'Sign up failed.';
     return;
   }
-  if (errEl) {
-    errEl.style.color = 'var(--moss, #4A7C59)';
-    errEl.textContent = '✓ Account created! Check your email to confirm, then sign in.';
+  // Success — switch to sign-in mode and show a clear confirmation banner
+  toggleSignUp(); // switches view, updates toggle text, clears any sign-up error
+  const successEl = document.getElementById('login-success');
+  if (successEl) {
+    successEl.textContent = '✅ Account created — check your email to confirm, then sign in.';
+    successEl.style.display = 'block';
   }
-  if (btn) { btn.disabled = false; btn.textContent = 'Create Account'; }
 }
 
-async function hostSignOut() {
+
+export async function hostSignOut() {
   await supabaseSignOut();
+  window._cloudPropertyIds = {};
   window._cloudPropertyId = null;
   window._supabaseUser = null;
   showLoginScreen();
 }
+
+// ── BACKWARD-COMPAT WINDOW ASSIGNMENTS ────────────────────────────────────────
+// Redundant while supabase.js is a classic script, but will become load-bearing
+// once supabase.js is converted to type="module".
+window.getSupabaseSession        = getSupabaseSession;
+window.getCurrentSupabaseUser    = getCurrentSupabaseUser;
+window.seedLocalConfigFromCloud  = seedLocalConfigFromCloud;
+window.savePropertyToCloud       = savePropertyToCloud;
+window.saveCleanersToCloud       = saveCleanersToCloud;
+window.loadCleansFromCloud       = loadCleansFromCloud;
+window.saveCleanToCloud          = saveCleanToCloud;
+window.saveCleansToCloud         = saveCleansToCloud;
+window.saveCleaningJobToCloud    = saveCleaningJobToCloud;
+window.saveNotesToCloud          = saveNotesToCloud;
+window.saveExpenseToCloud        = saveExpenseToCloud;
+window.deleteExpenseFromCloud    = deleteExpenseFromCloud;
+window.saveInventoryToCloud      = saveInventoryToCloud;
+window.saveMaintenanceToCloud    = saveMaintenanceToCloud;
+window.deleteMaintenanceFromCloud = deleteMaintenanceFromCloud;
+window.hydrateFromCloud          = hydrateFromCloud;
+window.saveHostConfigToSupabase  = saveHostConfigToSupabase;
+window.saveBookingToCloud        = saveBookingToCloud;
+window.saveBookingsToCloud       = saveBookingsToCloud;
+window.deleteBookingFromCloud    = deleteBookingFromCloud;
+window.uploadReceiptToStorage    = uploadReceiptToStorage;
+window.saveAppConfigToCloud      = saveAppConfigToCloud;
+window.showLoadingScreen         = showLoadingScreen;
+window.hideLoadingScreen         = hideLoadingScreen;
+window.showLoginScreen           = showLoginScreen;
+window.showAppChrome             = showAppChrome;
+window.setLoadingStatus          = setLoadingStatus;
+window.handleLoginSubmit         = handleLoginSubmit;
+window.toggleSignUp              = toggleSignUp;
+window.handleSignUpSubmit        = handleSignUpSubmit;
+window.hostSignOut               = hostSignOut;

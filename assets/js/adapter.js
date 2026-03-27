@@ -1,13 +1,12 @@
-/*
-  Data adapter layer — Supabase-native.
-  Provides sendEmail via Netlify function.
-*/
+// ES module.
+// window.DataAdapter and window.SupabaseAdapter are preserved so main.js
+// (classic script) can reference SupabaseAdapter at the top level unchanged.
 
-class DataAdapter {
+export class DataAdapter {
   async sendEmail() { throw new Error('sendEmail() not implemented'); }
 }
 
-class SupabaseAdapter extends DataAdapter {
+export class SupabaseAdapter extends DataAdapter {
   async sendEmail(to, subject, html, text) {
     const res = await fetch('/.netlify/functions/send-email', {
       method: 'POST',
@@ -30,3 +29,8 @@ class SupabaseAdapter extends DataAdapter {
     return Object.assign({ success: true, status: 'ok' }, data || {});
   }
 }
+
+// Backward compat: main.js is a classic script and reads these from window.
+// Safe to remove only after main.js is also converted to a module.
+window.DataAdapter = DataAdapter;
+window.SupabaseAdapter = SupabaseAdapter;

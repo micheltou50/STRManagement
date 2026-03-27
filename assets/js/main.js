@@ -591,6 +591,37 @@ function _normalizeBookingCleanState() {
     }
   });
 
+  // Dedup: if multiple active cleans share the same bookingId, keep only the newest
+  const seen = Object.create(null);
+  const toRemove = new Set();
+  cleans.forEach((c, i) => {
+    if (!c || !c.bookingId) return;
+    // Normalise key: prefer numeric local id, but also track _cloudId aliases
+    const booking = bookings.find(b => String(b.id) === String(c.bookingId) || (b._cloudId && String(b._cloudId) === String(c.bookingId)));
+    const key = booking ? String(booking.id) : String(c.bookingId);
+    if (seen[key] === undefined) {
+      seen[key] = i;
+    } else {
+      // Keep the one with the later assignedAt; mark the other for removal
+      const prev = cleans[seen[key]];
+      const prevTime = new Date(prev.assignedAt || 0).getTime();
+      const currTime = new Date(c.assignedAt || 0).getTime();
+      if (currTime >= prevTime) {
+        toRemove.add(seen[key]);
+        seen[key] = i;
+      } else {
+        toRemove.add(i);
+      }
+      cleansChanged = true;
+    }
+  });
+  if (toRemove.size) {
+    // Filter out duplicates (iterate backwards to keep indices stable)
+    const kept = cleans.filter((_, i) => !toRemove.has(i));
+    cleans.length = 0;
+    kept.forEach(c => cleans.push(c));
+  }
+
   if (cleansChanged) localStorage.setItem(lsKey('cleans'), JSON.stringify(cleans));
   if (bookingsChanged) localStorage.setItem(lsKey('bookings'), JSON.stringify(bookings));
   return cleansChanged || bookingsChanged;
@@ -748,7 +779,9 @@ async function _sendCleanerAssignmentNotifications(booking, cleanerObj, date, ta
       guestName: booking.name || 'Guest',
       checkin: fmt(booking.checkin),
       checkout: fmt(booking.checkout),
-      cleanerLink: cleanerLinkForId(cleanerObj)
+      cleanerLink: cleanerLinkForId(cleanerObj),
+      guests: booking.guests ? String(booking.guests) : '',
+      nights: booking.nights ? String(booking.nights) : ''
     });
     emailSent = !!(emailRes && emailRes.ok);
     if (!emailSent && emailRes && emailRes.reason !== 'no-key' && emailRes.reason !== 'no-email') {
@@ -765,16 +798,15 @@ async function quickAssignLastCleaner(bookingId) {
     const booking = bookings.find(b => String(b.id) === String(bookingId));
     if (!booking) return;
     const preferred = _getSuggestedCleanerForBooking(booking);
-    const confirmed = await showAppModal({ title: '⚡ Assign to last cleaner?', msg: `Assign ${preferred ? preferred.name : 'last cleaner'} to ${booking.name} (checkout ${fmt(booking.checkout)})?`, confirmText: 'Assign', cancelText: 'Cancel' });
-    if (!confirmed) return;
+    if (!preferred) {
+      showBanner('⚠ No preferred cleaner yet — assign one from booking details first.', 'warn');
+      return;
+    }
     if (booking.status === 'cancelled' || new Date(booking.checkout) < new Date()) {
       showBanner('Past/cancelled booking — cleaner assignment is disabled', 'warn');
       return;
     }
-    if (!preferred) {
-      showBanner('⚠ No preferred cleaner yet. Assign once from booking details first.', 'warn');
-      return;
-    }
+    if (!window.confirm(`Assign ${preferred.name} to ${booking.name} (checkout ${fmt(booking.checkout)})?`)) return;
     const matched = _findMatchingCleanForBooking(booking, booking.checkout);
     const existingIdx = matched ? cleans.findIndex(c => c.id === matched.id) : -1;
     const prev = existingIdx >= 0 ? cleans[existingIdx] : null;
@@ -788,6 +820,7 @@ async function quickAssignLastCleaner(bookingId) {
     }
     const newClean = {
       id: prev ? prev.id : Date.now(),
+      _cloudId: prev ? prev._cloudId : undefined,
       bookingId: booking.id,
       guestName: booking.name,
       cleaner: preferred.name,
@@ -797,7 +830,8 @@ async function quickAssignLastCleaner(bookingId) {
       done: false,
       notified: false,
       cleanerDeclined: false,
-      cleanerConfirmed: false
+      cleanerConfirmed: false,
+      assignedAt: (prev && prev.cleanerId && String(prev.cleanerId) === String(preferred.id)) ? (prev.assignedAt || new Date().toISOString()) : new Date().toISOString()
     };
     if (existingIdx >= 0) cleans[existingIdx] = newClean;
     else cleans.push(newClean);
@@ -805,27 +839,21 @@ async function quickAssignLastCleaner(bookingId) {
     _recordCleanerAssignmentUsage(preferred);
     _normalizeBookingCleanState();
     save();
-    if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
+    if (typeof saveCleanToCloud === 'function') saveCleanToCloud(newClean).catch(() => {});
+    if (typeof saveBookingToCloud === 'function') saveBookingToCloud(booking).catch(() => {});
     showBanner('✓ Assigned to ' + preferred.name + ' — awaiting cleaner response', 'ok');
     renderBookings();
     renderNotes();
     populateSelects();
     if (currentSection === 'cleaning') renderCleaning();
-    // Send push + email silently (same as assignCleanerToBooking)
     _sendCleanerAssignmentNotifications(booking, preferred, booking.checkout, 'quick-assign-' + bookingId)
-      .then(notify => {
-        if (notify.emailSent) showBanner('✉️ Email sent to ' + preferred.name, 'ok');
-      }).catch(() => {});
-    // Prompt to send SMS — same flow as regular assignment
-    showAppModal({ title: '💬 Send SMS?', msg: `Notify ${preferred.name} about this booking now?`, confirmText: 'Send SMS', cancelText: 'Later' })
-      .then(ok => {
-        if (ok) {
-          newClean.notified = true;
-          save();
-          openNotifyModal(newClean.id);
-        }
-      })
+      .then(notify => { if (notify.emailSent) showBanner('✉️ Email sent to ' + preferred.name, 'ok'); })
       .catch(() => {});
+    if (window.confirm('Notify ' + preferred.name + ' via SMS?')) {
+      newClean.notified = true;
+      save();
+      openNotifyModal(newClean.id);
+    }
   } finally {
     _releaseLock(_actionLocks, lockKey);
   }
@@ -1178,15 +1206,28 @@ function renderDashboard() {
     if (upcoming.length > 0) {
       const b = upcoming[0];
       const detailId = b._cloudId || b.id;
-      nc.innerHTML = `<div class="booking-item" style="border:none;padding:0;cursor:pointer" onclick="showDetail('${detailId}')">
-        ${platformIcon(b.platform, 42)}
-        <div class="booking-info">
-          <div class="booking-name">${b.name}</div>
-          <div class="booking-dates">${fmt(b.checkin)} → ${fmt(b.checkout)}</div>
-          <div class="booking-guests">${b.guests} guests · ${b.nights} night${b.nights!==1?'s':''}</div>
+      const ciDays = Math.ceil((parseLocalDayStart(b.checkin) - todayStart) / 86400000);
+      const ciPill = ciDays <= 0 ? 'Today' : ciDays === 1 ? 'Tomorrow' : `In ${ciDays}d`;
+      const ciPillColor = ciDays <= 2 ? 'background:#fef3e2;color:#854f0b' : 'background:#e8f4ed;color:#1a4f3a';
+      nc.innerHTML = `<div onclick="showDetail('${detailId}')" style="cursor:pointer">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft)">Next check-in</div>
+          <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;${ciPillColor}">${ciPill}</span>
         </div>
-        <div class="booking-right">
-          <div class="booking-amount">$${Number(b.hostPayout||0).toLocaleString()}</div>
+        <div style="font-size:17px;font-weight:600;color:var(--text);margin-bottom:8px">${escHtml(b.name)}</div>
+        <div style="display:flex;gap:16px">
+          <div style="display:flex;flex-direction:column">
+            <span style="font-size:15px;font-weight:600;color:var(--text)">${fmt(b.checkin)}</span>
+            <span style="font-size:11px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px">Arrives</span>
+          </div>
+          <div style="display:flex;flex-direction:column">
+            <span style="font-size:15px;font-weight:600;color:var(--text)">${b.nights}</span>
+            <span style="font-size:11px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px">Night${b.nights!==1?'s':''}</span>
+          </div>
+          <div style="display:flex;flex-direction:column">
+            <span style="font-size:15px;font-weight:600;color:var(--text)">${b.guests}</span>
+            <span style="font-size:11px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px">Guests</span>
+          </div>
         </div>
       </div>`;
     } else {
@@ -1274,12 +1315,46 @@ function renderDashboard() {
     const clickAttr = linkedBookingId
       ? `onclick="showDetail('${linkedBookingId}')" style="cursor:pointer"`
       : `onclick="jumpToCleaningActionNeeded()" style="cursor:pointer"`;
-    ncc.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center" ${clickAttr}>
-      <div>
-        <div style="font-weight:600;font-size:14px">${c.name}</div>
-        <div style="font-size:12px;color:var(--text-soft)">${c.sub} · ${fmt(c.date)}</div>
+    const csState = linkedBookingId
+      ? getBookingCleanerState(bookings.find(bk => (bk._cloudId || String(bk.id)) === String(linkedBookingId)) || {})
+      : { key: 'pending', tone: 'warn' };
+    // Override: if the allNextCleans entry came from the raw cleans array,
+    // read confirmed/declined directly from it rather than via booking lookup.
+    const rawClean = c.bookingId
+      ? cleans.find(cl => String(cl.bookingId) === String(c.bookingId) && cl.date === c.date)
+      : null;
+    const effectiveKey = rawClean
+      ? (rawClean.done ? 'done' : rawClean.cleanerDeclined ? 'declined' : rawClean.cleanerConfirmed ? 'confirmed' : 'pending')
+      : csState.key;
+    const effectiveCleanId = rawClean ? rawClean.id : (csState.clean ? csState.clean.id : null);
+    const csPillStyle = effectiveKey === 'done' || effectiveKey === 'confirmed'
+      ? 'background:#e8f4ed;color:#1a4f3a'
+      : effectiveKey === 'declined'
+      ? 'background:#fef0f0;color:#993c1d'
+      : 'background:#fef3e2;color:#854f0b';
+    const csLabel = effectiveKey === 'done' ? '✓ Done'
+      : effectiveKey === 'confirmed' ? '✓ Confirmed'
+      : effectiveKey === 'declined' ? '✕ Declined'
+      : 'Awaiting reply';
+    const cleanId = effectiveCleanId;
+    const initials = c.name && c.name !== '—'
+      ? c.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()
+      : '?';
+    ncc.innerHTML = `<div style="padding:14px 16px">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:10px">Next clean</div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:34px;height:34px;border-radius:50%;background:#e8f4ed;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#1a4f3a;flex-shrink:0">${initials}</div>
+          <div>
+            <div style="font-size:15px;font-weight:600;color:var(--text)">${escHtml(c.name)}</div>
+            <div style="font-size:12px;color:var(--text-soft)">${fmt(c.date)} · after checkout</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+          <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;${csPillStyle}">${csLabel}</span>
+          ${cleanId ? `<button onclick="event.stopPropagation();openNotifyModal('${cleanId}')" style="-webkit-tap-highlight-color:transparent;background:#1a4f3a;color:#fff;border:none;border-radius:8px;padding:5px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">SMS</button>` : ''}
+        </div>
       </div>
-      <div class="clean-urgency ${urgClass}">${urgText}</div>
     </div>`;
   } else if (ncc) {
     ncc.innerHTML = '<div style="color:var(--text-soft);font-size:13px;">No cleans scheduled</div>';
@@ -1445,7 +1520,27 @@ function renderBookings(filter) {
         const statusClass = isCancelled ? 'status-cancelled' : isHosting ? 'status-upcoming' : isPast ? 'status-completed' : 'status-upcoming';
         const statusLabel = isCancelled ? '✕ Cancelled' : isHosting ? '🏡 Hosting' : isPast ? 'Past' : 'Upcoming';
 
-        return `<div class="card" onclick="showDetail('${b._cloudId || b.id}')" style="cursor:pointer${isCancelled?';opacity:0.6':''}" data-booking-id="${b.id}"><div class="booking-item" style="border:none;padding:0" data-booking-id="${b.id}">${platformIcon(b.platform, 42)}<div class="booking-info"><div class="booking-name">${escHtml(b.name)}</div><div class="booking-dates">${escHtml(fmt(b.checkin))} → ${escHtml(fmt(b.checkout))}</div><div class="booking-guests">${escHtml(b.guests)} guests · ${escHtml(b.nights)} night${b.nights!==1?'s':''}</div></div><div class="booking-right"><div class="booking-amount" style="${isCancelled?'text-decoration:line-through;color:var(--text-soft)':''}">$${Number(b.hostPayout||0).toLocaleString()}</div><div class="booking-status ${statusClass}">${statusLabel}</div></div></div></div>`;
+        // Cleaner row — only for upcoming and currently hosting bookings
+        const showCleaner = !isCancelled && !isPast;
+        let cleanerRowHtml = '';
+        if (showCleaner) {
+          const cs = getBookingCleanerState(b);
+          const cleanerName = cs.clean ? escHtml(cs.clean.cleaner || 'Unknown') : 'Not assigned';
+          const iconBg = cs.tone === 'ok' ? 'background:#e8f4ed' : cs.tone === 'bad' ? 'background:#fef0f0' : 'background:#fef3e2';
+          const pillStyle = cs.tone === 'ok'
+            ? 'background:#e8f4ed;color:#1a4f3a'
+            : cs.tone === 'bad'
+            ? 'background:#fef0f0;color:#993c1d'
+            : 'background:#fef3e2;color:#854f0b';
+          const pillLabel = cs.key === 'done' ? '✓ Done'
+            : cs.key === 'confirmed' ? '✓ Confirmed'
+            : cs.key === 'declined' ? '✕ Declined'
+            : cs.key === 'pending' ? 'Awaiting reply'
+            : '⚠ Needs assignment';
+          cleanerRowHtml = `<div style="border-top:1px solid var(--warm);margin-top:8px;padding-top:7px;display:flex;align-items:center;gap:6px"><span style="font-size:12px;opacity:0.7">🧹</span><span style="font-size:12px;color:var(--text-soft)">${cleanerName}</span><span style="font-size:11px;font-weight:600;padding:2px 7px;border-radius:20px;margin-left:auto;${pillStyle}">${pillLabel}</span></div>`;
+        }
+
+        return `<div class="card" onclick="showDetail('${b._cloudId || b.id}')" style="cursor:pointer${isCancelled?';opacity:0.6':''}" data-booking-id="${b.id}"><div class="booking-item" style="border:none;padding:0" data-booking-id="${b.id}">${platformIcon(b.platform, 42)}<div class="booking-info"><div class="booking-name">${escHtml(b.name)}</div><div class="booking-dates">${escHtml(fmt(b.checkin))} → ${escHtml(fmt(b.checkout))}</div><div class="booking-guests">${escHtml(b.guests)} guests · ${escHtml(b.nights)} night${b.nights!==1?'s':''}</div></div><div class="booking-right"><div class="booking-amount" style="${isCancelled?'text-decoration:line-through;color:var(--text-soft)':''}">$${Number(b.hostPayout||0).toLocaleString()}</div><div class="booking-status ${statusClass}">${statusLabel}</div></div></div>${cleanerRowHtml}</div>`;
       }).join('')}
     </div>`).join('');
 
@@ -1520,8 +1615,8 @@ function renderCleaning() {
     list.innerHTML = upcoming.map(c => {
       const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)) || _normName(bk.name) === _normName(c.guestName));
       const extra = `<div style="display:flex;gap:8px">
-        <button onclick="openNotifyModal(${c.id})" style="flex:1;background:var(--forest-light);color:var(--sage);border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">💬 SMS</button>
-        <button onclick="reassignClean(${c.id})" style="flex:1;background:var(--mist);color:var(--text);border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">↺ Reassign</button>
+        <button onclick="openNotifyModal('${c.id}')" style="flex:1;background:var(--forest-light);color:var(--sage);border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">💬 SMS</button>
+        <button onclick="reassignClean('${c.id}')" style="flex:1;background:var(--mist);color:var(--text);border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">↺ Reassign</button>
       </div>`;
       return cleanCard(c, b, extra);
     }).join('');
@@ -1555,9 +1650,13 @@ function renderCleaning() {
       html += awaiting.map(c => {
         const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)) || _normName(bk.name) === _normName(c.guestName));
         const meta = getAwaitingResponseMeta(c, now);
-        const extra = `<div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button onclick="sendCleanerReminder(${c.id})" style="flex:1;min-width:110px;background:${meta.isOverdue ? 'var(--amber)' : 'var(--forest-light)'};color:${meta.isOverdue ? 'white' : 'var(--sage)'};border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">${meta.isOverdue ? '⚠️ Remind now' : '💬 Send reminder'}</button>
-          <button onclick="reassignClean(${c.id})" style="flex:1;min-width:110px;background:var(--mist);color:var(--text);border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">↺ Reassign</button>
+        const extra = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+          <button onclick="markCleanerConfirmed('${c.id}')" style="flex:1;min-width:100px;background:rgba(46,113,87,0.10);color:var(--moss);border:1px solid rgba(46,113,87,0.20);border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">✓ Confirm</button>
+          <button onclick="markCleanDeclined('${c.id}')" style="flex:1;min-width:100px;background:rgba(192,57,43,0.08);color:var(--red);border:1px solid rgba(192,57,43,0.18);border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">✕ Decline</button>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button onclick="sendCleanerReminder('${c.id}')" style="flex:1;min-width:100px;background:${meta.isOverdue ? 'var(--amber)' : 'var(--mist)'};color:${meta.isOverdue ? 'white' : 'var(--text-soft)'};border:none;border-radius:8px;padding:7px 9px;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">${meta.isOverdue ? '⚠️ Remind now' : '💬 Remind'}</button>
+          <button onclick="reassignClean('${c.id}')" style="flex:1;min-width:100px;background:var(--mist);color:var(--text-soft);border:none;border-radius:8px;padding:7px 9px;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">↺ Reassign</button>
         </div>`;
         return cleanCard(c, b, extra);
       }).join('');
@@ -1567,8 +1666,11 @@ function renderCleaning() {
       html += declined.map(({ booking, state }) => {
         const c = state.clean;
         const preferred = _getSuggestedCleanerForBooking(booking);
+        const assignLastBtn = preferred
+          ? `<button onclick="quickAssignLastCleaner('${booking.id}')" style="flex:1;background:var(--mist);color:var(--text);border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">⚡ Assign Last</button>`
+          : '';
         const extra = c
-          ? `<div style="display:flex;gap:8px"><button onclick="reassignClean(${c.id})" style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">↺ Reassign Cleaner</button>${preferred ? `<button onclick="quickAssignLastCleaner(${booking.id})" style="flex:1;background:var(--mist);color:var(--text);border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">⚡ Assign Last</button>` : ''}</div>`
+          ? `<div style="display:flex;gap:8px"><button onclick="reassignClean('${c.id}')" style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">↺ Reassign Cleaner</button>${assignLastBtn}</div>`
           : '';
         return cleanCard(c || { date: booking.checkout, cleaner: '', guestName: booking.name, cleanerDeclined: true }, booking, extra);
       }).join('');
@@ -1594,7 +1696,7 @@ function renderCleaning() {
               <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;background:${uUrgBg};color:${uUrgColor}">${uUrgText}</span>
             </div>
           </div>
-          ${preferred ? `<div><button onclick="quickAssignLastCleaner(${b.id})" style="width:100%;background:var(--mist);color:var(--text);border:none;border-radius:10px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">⚡ Assign to last cleaner (${escHtml(preferred.name || 'Cleaner')})</button></div>` : ''}
+          ${preferred ? `<div><button onclick="quickAssignLastCleaner('${b.id}')" style="width:100%;background:var(--mist);color:var(--text);border:none;border-radius:10px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">⚡ Assign to last cleaner (${escHtml(preferred.name || 'Cleaner')})</button></div>` : ''}
         </div>`;
       }).join('');
     }
@@ -1620,7 +1722,7 @@ function renderCleaning() {
 }
 
 function reassignClean(cleanId) {
-  const c = cleans.find(cl => cl.id === cleanId);
+  const c = cleans.find(cl => String(cl.id) === String(cleanId));
   if (!c) return;
   // Reset the clean so it can be reassigned from the booking detail
   const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)) || _normName(bk.name) === _normName(c.guestName));
@@ -1632,18 +1734,36 @@ function reassignClean(cleanId) {
 }
 
 function markCleanerConfirmed(id) {
-  const c = cleans.find(c => c.id === id);
-  if (c) {
-    c.cleanerConfirmed = true;
-    save();
-    if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
-    if (typeof saveCleaningJobToCloud === 'function') saveCleaningJobToCloud(c);
-    showBanner('✅ Cleaner confirmed', 'ok');
-    cleanFilter = 'upcoming';
-    document.querySelectorAll('#clean-schedule-card .tab-row .tab').forEach((t,i) => t.classList.toggle('active', i===0));
-    renderCleaning();
-    renderBookings();
-  }
+  const c = cleans.find(c => String(c.id) === String(id));
+  if (!c) return;
+  c.cleanerConfirmed = true;
+  c.cleanerDeclined  = false;
+  const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)));
+  if (b) b.cleanerConfirmed = true;
+  _normalizeBookingCleanState();
+  save();
+  if (typeof saveCleanToCloud === 'function') saveCleanToCloud(c).catch(() => {});
+  if (b && typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(() => {});
+  showBanner('✅ Cleaner confirmed', 'ok');
+  renderCleaning();
+  renderBookings();
+}
+
+function markCleanDeclined(id) {
+  if (!window.confirm('Mark this cleaner as unavailable? The clean will need reassigning.')) return;
+  const c = cleans.find(c => String(c.id) === String(id));
+  if (!c) return;
+  c.cleanerDeclined  = true;
+  c.cleanerConfirmed = false;
+  const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)));
+  if (b) b.cleanerConfirmed = false;
+  _normalizeBookingCleanState();
+  save();
+  if (typeof saveCleanToCloud === 'function') saveCleanToCloud(c).catch(() => {});
+  if (b && typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(() => {});
+  showBanner('Clean marked as declined — reassign when ready', 'warn');
+  renderCleaning();
+  renderBookings();
 }
 
 
@@ -2108,15 +2228,26 @@ function confirmInvoiceClient() {
   buildInvoicePDF(pendingInvoiceBookings, client);
   pendingInvoiceBookings = [];
 }
-function buildInvoicePDF(selected, client) {
-  const inv = {
-    name: localStorage.getItem(lsKey('inv-name')) || '',
-    company: localStorage.getItem(lsKey('inv-company')) || '',
-    abn: localStorage.getItem(lsKey('inv-abn')) || '',
-    acn: localStorage.getItem(lsKey('inv-acn')) || '',
-    email: localStorage.getItem(lsKey('inv-email')) || '',
-    address: localStorage.getItem(lsKey('inv-address')) || ''
+// ── Invoice identity helper ───────────────────────────────────────────────
+// Returns the HOST's business identity (the "issued by" side of the invoice).
+// Owner = the property owner/client (bill-to). Host = you/your business.
+// host_config has no live Supabase row yet, so host identity reads from
+// Prefers host_config (Supabase via getHostProfile) then falls back to
+// legacy inv-* localStorage keys for backward compatibility.
+function _getInvoiceIdentity() {
+  const host = (typeof getHostProfile === 'function') ? (getHostProfile() || {}) : {};
+  const ls   = k => localStorage.getItem(lsKey(k)) || '';
+  return {
+    name:    host.name    || ls('inv-name'),
+    email:   host.email   || ls('inv-email'),
+    address: host.address || ls('inv-address'),
+    company: host.company || ls('inv-company'),
+    abn:     host.abn     || ls('inv-abn'),
+    acn:     host.acn     || ls('inv-acn'),
   };
+}
+function buildInvoicePDF(selected, client) {
+  const inv = _getInvoiceIdentity();
   const bank = {
     name: localStorage.getItem(lsKey('bank-name')) || '',
     bsb: localStorage.getItem(lsKey('bank-bsb')) || '',
@@ -2231,7 +2362,13 @@ function renderNotes() {
 function _resetSettingsToMenu() {
   // Show main menu, hide all cats and panels
   const sm = document.getElementById('settings-menu');
-  if (sm) sm.style.display = '';
+  if (sm) {
+    sm.style.display = '';
+    // Retrigger the fade-in animation each time the menu is shown.
+    sm.style.animation = 'none';
+    sm.offsetHeight; // force reflow
+    sm.style.animation = '';
+  }
   document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
   document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
 }
@@ -2396,22 +2533,38 @@ function switchActiveProperty(id) {
 
 function closeSettingsPanel() {
   const panel = document.querySelector('[id^="settings-panel-"]:not([style*="display: none"]):not([style*="display:none"])');
-  const returnCat    = panel?.dataset.prevCat;
-  const returnPanel  = panel?.dataset.prevPanel;
-  const returnSection = panel?.dataset.returnSection; // set when opened from a non-Settings hub
-  document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
-  if (returnPanel)   openSettingsPanel(returnPanel);
-  else if (returnCat) openSettingsCat(returnCat);
-  else if (returnSection) showSection(returnSection); // e.g. return to Property hub
-  else closeSettingsCat();
+  const returnCat     = panel?.dataset.prevCat;
+  const returnPanel   = panel?.dataset.prevPanel;
+  const returnSection = panel?.dataset.returnSection;
+  const _doClose = () => {
+    document.querySelectorAll('[id^="settings-panel-"]').forEach(el => { el.style.display = 'none'; el.style.animation = ''; });
+    if (returnPanel)        openSettingsPanel(returnPanel);
+    else if (returnCat)     openSettingsCat(returnCat);
+    else if (returnSection) showSection(returnSection);
+    else                    closeSettingsCat();
+  };
+  if (panel) {
+    panel.style.animation = 'settingsPanelOut 0.18s cubic-bezier(0.32,0.72,0,1) both';
+    setTimeout(_doClose, 170);
+  } else {
+    _doClose();
+  }
 }
 
 function closeSettingsCat() {
-  // Read return target from the active cat's data attribute (set by hub wrappers)
   const activeCat = document.querySelector('[id^="settings-cat-"]:not([style*="display: none"]):not([style*="display:none"])');
   const returnSection = activeCat && activeCat.dataset.returnSection;
-  _resetSettingsToMenu();
-  if (returnSection) showSection(returnSection);
+  const _doClose = () => {
+    if (activeCat) { activeCat.style.animation = ''; }
+    _resetSettingsToMenu();
+    if (returnSection) showSection(returnSection);
+  };
+  if (activeCat) {
+    activeCat.style.animation = 'settingsCatOut 0.18s cubic-bezier(0.32,0.72,0,1) both';
+    setTimeout(_doClose, 170);
+  } else {
+    _doClose();
+  }
 }
 
 // ── EXPENSE CATEGORY MANAGEMENT ───────────────────────────────────────────
@@ -2749,13 +2902,15 @@ function populateSelects() {
     .filter(b => b.status !== 'cancelled' && new Date(b.checkout) >= now)
     .sort((a,b) => new Date(a.checkin) - new Date(b.checkin));
   const allOpts = '<option value="">Select upcoming booking...</option>' + upcomingForNotes.map(b=>`<option value="${b.id}">${b.name} (${fmt(b.checkin)})</option>`).join('');
-  // For clean form: only show future bookings not yet notified
-  const unnotified = bookings.filter(b => {
-    const isFuture = new Date(b.checkout) >= now;
-    const cleanerState = getBookingCleanerState(b).key;
-    return isFuture && (cleanerState === 'unassigned' || cleanerState === 'declined');
-  });
-  const cleanOpts = '<option value="">Select booking...</option>' + unnotified.map(b=>`<option value="${b.id}">${b.name} (${fmt(b.checkin)})</option>`).join('');
+  // For clean form: exclude bookings that already have a confirmed or done clean
+  const cleanBookings = bookings
+    .filter(b => {
+      if (b.status === 'cancelled' || new Date(b.checkout) < now) return false;
+      const st = getBookingCleanerState(b).key;
+      return st !== 'confirmed' && st !== 'done';
+    })
+    .sort((a,b) => new Date(a.checkin) - new Date(b.checkin));
+  const cleanOpts = '<option value="">Select booking...</option>' + cleanBookings.map(b=>`<option value="${b.id}">${b.name} (${fmt(b.checkin)})</option>`).join('');
   document.getElementById('clean-booking-select').innerHTML = cleanOpts;
   document.getElementById('note-booking-select').innerHTML = allOpts;
   populateCleanerSelect();
@@ -2894,7 +3049,7 @@ function showDetail(id) {
             <div style="font-size:13px;font-weight:500;color:var(--moss)">✓ Cleaner confirmed</div>
           </div>
           <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--warm)">
-            <button onclick="revealCleanerReassign(${b.id})" id="detail-change-cleaner-btn" style="width:100%;background:var(--warm);color:var(--text);border:1px solid var(--card-border);border-radius:10px;padding:9px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Change Cleaner</button>
+            <button onclick="revealCleanerReassign('${b._cloudId || b.id}')" id="detail-change-cleaner-btn" style="width:100%;background:var(--warm);color:var(--text);border:1px solid var(--card-border);border-radius:10px;padding:9px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Change Cleaner</button>
             <div id="detail-reassign-form" style="display:none;margin-top:12px">${(()=>{
               const cls = loadCleaners().filter(c => isCleanerPerson(c));
               const assigned = bc[0];
@@ -3120,9 +3275,9 @@ function addBooking() {
   showBanner('✅ Booking added', 'ok');
 }
 function autoFillCleanDate() {
-  const bookingId = Number(document.getElementById('clean-booking-select').value);
-  if (!bookingId) return;
-  const booking = bookings.find(b => String(b.id) === String(bookingId));
+  const bookingIdRaw = document.getElementById('clean-booking-select').value;
+  if (!bookingIdRaw) return;
+  const booking = bookings.find(b => String(b.id) === String(bookingIdRaw) || (b._cloudId && String(b._cloudId) === String(bookingIdRaw)));
   if (booking && booking.checkout) {
     document.getElementById('clean-date').value = booking.checkout;
   }
@@ -3160,20 +3315,32 @@ function updateCleanerLearning(cleanerObj, assignmentSource) {
 
 function addClean() {
   if (!_acquireLock(_actionLocks, 'addClean')) return;
-  const bookingId=Number(document.getElementById('clean-booking-select').value);
+  const bookingIdRaw = document.getElementById('clean-booking-select').value;
   const selectEl = document.getElementById('clean-name-select');
   const cleaner = selectEl ? selectEl.value.trim() : document.getElementById('clean-name').value.trim();
   const date=document.getElementById('clean-date').value;
-  if (!bookingId||!cleaner||!date){showBanner('⚠ Please fill all fields','warn'); _releaseLock(_actionLocks, 'addClean'); return;}
+  if (!bookingIdRaw||!cleaner||!date){showBanner('⚠ Please fill all fields','warn'); _releaseLock(_actionLocks, 'addClean'); return;}
   localStorage.setItem(lsKey('last-cleaner'), cleaner);
-  const booking=bookings.find(b=>b.id===bookingId);
+  const booking = bookings.find(b => String(b.id) === String(bookingIdRaw) || (b._cloudId && String(b._cloudId) === String(bookingIdRaw)));
   if (!booking) { showBanner('⚠ Booking not found — it may have been deleted', 'warn'); _releaseLock(_actionLocks, 'addClean'); return; }
+  const bookingId = booking.id;
   // Find cleaner ID from the saved cleaners list
   const cleanerObj = loadCleaners().find(c => c.name === cleaner);
   const cleanerId = cleanerObj ? cleanerObj.id : null;
   if (cleanerObj) updateCleanerLearning(cleanerObj, 'manual');
-  const newClean = {id:Date.now(), bookingId, guestName:booking.name, cleaner, cleanerId, checkin: booking.checkin, date, done:false, notified:false, cleanerConfirmed:false, assignedAt:new Date().toISOString()};
-  cleans.push(newClean);
+  // Upsert: reuse existing clean record for this booking if one exists
+  const existingIdx = cleans.findIndex(c => String(c.bookingId) === String(booking.id) || (booking._cloudId && String(c.bookingId) === String(booking._cloudId)));
+  const prev = existingIdx >= 0 ? cleans[existingIdx] : null;
+  const newClean = {
+    id: prev ? prev.id : Date.now(),
+    _cloudId: prev ? prev._cloudId : undefined,
+    bookingId, guestName: booking.name, cleaner, cleanerId,
+    checkin: booking.checkin, date,
+    done: false, notified: false, cleanerConfirmed: false, cleanerDeclined: false,
+    assignedAt: (prev && prev.cleanerId && String(prev.cleanerId) === String(cleanerId)) ? (prev.assignedAt || new Date().toISOString()) : new Date().toISOString()
+  };
+  if (existingIdx >= 0) cleans[existingIdx] = newClean;
+  else cleans.push(newClean);
   booking.cleanerConfirmed = false;
   if (cleanerObj) _recordCleanerAssignmentUsage(cleanerObj);
   save();
@@ -3284,6 +3451,105 @@ async function deleteBooking(id) {
 }
 
 // ── CSV IMPORT ────────────────────────────────────────────────────────────
+function importAirbnbCSV(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    const lines = e.target.result.trim().split('\n');
+    if (lines.length < 2) return;
+
+    // Parse header row to get column indices by name
+    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+    const col = name => headers.indexOf(name);
+
+    const iCode     = col('confirmation code');
+    const iStatus   = col('status');
+    const iName     = col('guest name');
+    const iContact  = col('contact');
+    const iAdults   = col('# of adults');
+    const iChildren = col('# of children');
+    const iStart    = col('start date');
+    const iEnd      = col('end date');
+    const iNights   = col('# of nights');
+    const iEarnings = col('earnings');
+
+    if (iName === -1 || iStart === -1) {
+      document.getElementById('import-preview').textContent = '✕ This does not look like an Airbnb reservations CSV.';
+      return;
+    }
+
+    const existingCodes = new Set(bookings.map(b => (b.confirmCode || b.confirmation_code || '')));
+    let imported = 0, skipped = 0;
+
+    const newBookings = [];
+    lines.forEach((line, i) => {
+      if (i === 0) return;
+      const p = parseCSVLine(line);
+      if (!p[iName] && !p[iStart]) return;
+
+      const confirmCode = p[iCode] ? p[iCode].trim() : '';
+      if (confirmCode && existingCodes.has(confirmCode)) { skipped++; return; }
+
+      const statusRaw = (p[iStatus] || '').trim().toLowerCase();
+      const status = statusRaw === 'cancelled' ? 'cancelled' : 'confirmed';
+      const adults   = parseInt(p[iAdults]   || '0', 10) || 0;
+      const children = parseInt(p[iChildren] || '0', 10) || 0;
+      const guests   = adults + children || 1;
+      const checkin  = toISO((p[iStart] || '').trim());
+      const checkout = toISO((p[iEnd]   || '').trim());
+      const nights   = parseInt(p[iNights] || '0', 10) || 0;
+      const payout   = toNum(p[iEarnings] || '');
+      const name     = (p[iName] || '').trim();
+      const phone    = iContact !== -1 ? (p[iContact] || '').trim() : '';
+
+      if (!name || !checkin) return;
+
+      newBookings.push({
+        id:           Date.now() + i,
+        checkin, checkout, nights, name, guests,
+        hostPayout:   payout,
+        cleaningFee:  0,
+        mgmtFee:      0,
+        mgmtPayout:   0,
+        netPayout:    payout,
+        mgmtFeeRaw:   0,
+        platform:     'Airbnb',
+        status,
+        confirmCode,
+        phone,
+        cleanerConfirmed: false,
+        _local: true,
+      });
+      existingCodes.add(confirmCode);
+      imported++;
+    });
+
+    if (!newBookings.length) {
+      const msg = skipped > 0
+        ? `All ${skipped} booking${skipped!==1?'s':''} already exist — nothing new to import.`
+        : 'No valid bookings found in this file.';
+      document.getElementById('airbnb-import-preview').textContent = msg;
+      return;
+    }
+
+    bookings.push(...newBookings);
+    save();
+
+    // Push to Supabase
+    if (typeof saveBookingsToCloud === 'function') {
+      try { await saveBookingsToCloud(newBookings); } catch(e) { console.warn('[Import] Cloud save failed', e); }
+    }
+
+    const msg = skipped > 0
+      ? `✓ Imported ${imported} booking${imported!==1?'s':''}. Skipped ${skipped} duplicate${skipped!==1?'s':''}.`
+      : `✓ Imported ${imported} booking${imported!==1?'s':''} from Airbnb.`;
+    document.getElementById('airbnb-import-preview').textContent = msg;
+    setTimeout(() => { closeModal(); render(); }, 1400);
+  };
+  reader.readAsText(file);
+}
+
 function importCSV(input) {
   const file=input.files[0]; if (!file) return;
   const reader=new FileReader();
@@ -3582,7 +3848,7 @@ function saveSMSTemplate() {
 
 // ── SAVE CLEANING FEE ────────────────────────────────────────────────────────
 function saveCleaningFee(bookingId) {
-  const b = bookings.find(b => b.id === bookingId);
+  const b = bookings.find(b => String(b.id) === String(bookingId) || (b._cloudId && String(b._cloudId) === String(bookingId)));
   const input = document.getElementById('actual-clean-fee');
   if (!b || !input) return;
   b.cleaningFee = Number(input.value) || 0;
@@ -3697,22 +3963,41 @@ async function ensureHostIdentityAndRestore() {
   if (isCleanerMode()) return;
   let host = getHostProfile();
 
-  // Try to seed identity from existing owner config first.
-  if (!host) {
-    const ownerName = ((getPropertyConfig().owner || {}).name || '').trim();
-    const ownerEmail = ((getPropertyConfig().owner || {}).email || '').trim();
-    if (ownerName || ownerEmail) {
-      const base = (ownerEmail || ownerName || 'host').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || ('host-' + Date.now());
-      host = { hostId: base, name: ownerName || 'Host', email: ownerEmail || '', createdAt: new Date().toISOString() };
-      saveHostProfile(host);
+  // One-time migration: push inv-* localStorage to host_config in Supabase.
+  // Owner fields (owner_name, owner_email) are NOT used here.
+  // Host and owner are distinct identities in StayOps.
+  const migrationKey = 'gh-host-migrated-v2';
+  if (!localStorage.getItem(migrationKey) && typeof saveHostConfigToSupabase === 'function') {
+    const ls = k => localStorage.getItem(lsKey(k)) || '';
+    const invName = ls('inv-name');
+    if (invName) {
+      const hostId = 'host-' + invName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) + '-' + Date.now().toString().slice(-6);
+      const migrated = {
+        hostId,
+        name:    invName,
+        company: ls('inv-company'),
+        abn:     ls('inv-abn'),
+        acn:     ls('inv-acn'),
+        email:   ls('inv-email'),
+        address: ls('inv-address'),
+        createdAt: new Date().toISOString(),
+      };
+      saveHostProfile(migrated);
+      saveHostConfigToSupabase(migrated).then(() => {
+        localStorage.setItem(migrationKey, '1');
+        console.log('[StayOps] Host identity migrated to Supabase');
+      }).catch(e => console.warn('[StayOps] Host migration failed', e));
+      host = migrated;
+    } else {
+      localStorage.setItem(migrationKey, '1');
     }
   }
 
   // Beginner-friendly prompt once, non-blocking if skipped.
   if (!host) {
     const entered = await showAppModal({
-      title: '👋 Welcome',
-      msg: 'What should we call you? We\'ll use this to restore your non-sensitive settings on this device.',
+      title: 'Welcome',
+      msg: "What should we call you? We'll use this to restore your non-sensitive settings on this device.",
       confirmText: 'Continue',
       cancelText: 'Skip',
       hasInput: true,
@@ -3724,7 +4009,10 @@ async function ensureHostIdentityAndRestore() {
       const hostId = ('host-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) + '-' + Date.now().toString().slice(-6)).slice(0, 48);
       host = { hostId, name, email: '', createdAt: new Date().toISOString() };
       saveHostProfile(host);
-      showBanner('✓ Host profile created', 'ok');
+      if (typeof saveHostConfigToSupabase === 'function') {
+        saveHostConfigToSupabase(host).catch(e => console.warn('[StayOps] host config sync failed', e));
+      }
+      showBanner('Host profile created', 'ok');
     }
   }
 
@@ -3739,22 +4027,16 @@ async function manageHostIdentity() {
 function populateHostProfilePanel() {
   const existing = getHostProfile() || {};
   const cfg = getActivePropertyConfig();
-  // Pre-populate from invoice details if host profile is empty
-  const invName    = localStorage.getItem(lsKey('inv-name'))    || '';
-  const invCompany = localStorage.getItem(lsKey('inv-company')) || '';
-  const invAbn     = localStorage.getItem(lsKey('inv-abn'))     || '';
-  const invAcn     = localStorage.getItem(lsKey('inv-acn'))     || '';
-  const invEmail   = localStorage.getItem(lsKey('inv-email'))   || '';
-  const invAddress = localStorage.getItem(lsKey('inv-address')) || '';
-
+  // Pre-populate: existing host profile > active property config > legacy inv-* keys
+  const _inv = _getInvoiceIdentity();
   const _v = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
-  _v('host-profile-name',    existing.name    || invName);
-  _v('host-profile-company', existing.company || invCompany);
-  _v('host-profile-abn',     existing.abn     || invAbn);
-  _v('host-profile-acn',     existing.acn     || invAcn);
-  _v('host-profile-email',   existing.email   || invEmail);
+  _v('host-profile-name',    existing.name    || _inv.name);
+  _v('host-profile-company', existing.company || _inv.company);
+  _v('host-profile-abn',     existing.abn     || _inv.abn);
+  _v('host-profile-acn',     existing.acn     || _inv.acn);
+  _v('host-profile-email',   existing.email   || _inv.email);
   _v('host-profile-phone',   existing.phone   || '');
-  _v('host-profile-address', existing.address || invAddress);
+  _v('host-profile-address', existing.address || _inv.address);
 }
 
 async function saveHostProfilePanel() {
@@ -3820,8 +4102,8 @@ function openPropertySwitcherSheet() {
     const propRows = props.map(p => {
       const isActive = p.propertyId === activeId;
       return '<div onclick="switchPropertyFromSheet(\'' + p.propertyId + '\')" style="display:flex;align-items:center;justify-content:space-between;padding:14px 4px;border-bottom:1px solid var(--border);cursor:pointer">' +
-        '<div style="font-weight:' + (isActive ? '600' : '400') + ';font-size:15px">' + escHtml(p.name || p.propertyId) + '</div>' +
-        (isActive ? '<div style="color:var(--forest);font-size:13px">✓ Active</div>' : '') +
+        '<div style="font-weight:' + (isActive ? '700' : '400') + ';font-size:15px;color:var(--text,#1A1A1A)">' + escHtml(p.name || p.propertyId) + '</div>' +
+        (isActive ? '<div style="background:var(--forest,#1E3A2F);color:#fff;font-size:11px;font-weight:700;letter-spacing:0.4px;padding:4px 10px;border-radius:20px">✓ Active</div>' : '') +
         '</div>';
     }).join('');
     const addRow = '<div onclick="closePropertySwitcherSheet();openAddPropertySetup()" style="display:flex;align-items:center;gap:12px;padding:14px 4px;cursor:pointer;color:var(--forest)">' +
@@ -3833,6 +4115,14 @@ function openPropertySwitcherSheet() {
   if (!sheet) { console.error('[StayOps] property-switcher-sheet element not found'); return; }
   _propSwitcherOpenedAt = Date.now();
   sheet.style.display = 'flex';
+  // Double rAF: first frame paints display:flex at opacity 0, second triggers transition.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      sheet.style.opacity = '1';
+      const inner = sheet.querySelector(':scope > div');
+      if (inner) inner.style.transform = 'translateY(0)';
+    });
+  });
   console.log('[StayOps] Sheet shown:', sheet.style.display);
 }
 
@@ -3842,7 +4132,11 @@ function closePropertySwitcherSheet() {
   // immediately closing the sheet. Ignore close requests within 350ms of open.
   if (Date.now() - _propSwitcherOpenedAt < 350) return;
   const sheet = document.getElementById('property-switcher-sheet');
-  if (sheet) sheet.style.display = 'none';
+  if (!sheet) return;
+  sheet.style.opacity = '0';
+  const inner = sheet.querySelector(':scope > div');
+  if (inner) inner.style.transform = 'translateY(100%)';
+  setTimeout(() => { if (sheet) sheet.style.display = 'none'; }, 300);
 }
 
 function switchPropertyFromSheet(id) {
@@ -5566,18 +5860,24 @@ function showAppModal({ title, msg, confirmText='Confirm', confirmColor='var(--f
     document.getElementById('app-modal-cancel').textContent = cancelText;
     const overlay = document.getElementById('app-modal-overlay');
     overlay.style.display = 'flex';
+    overlay.style.opacity = '0';
+    requestAnimationFrame(() => requestAnimationFrame(() => { overlay.style.opacity = '1'; }));
   });
 }
 
 function appModalConfirm() {
   const inp = document.getElementById('app-modal-input');
   const val = inp.style.display !== 'none' ? inp.value : true;
-  document.getElementById('app-modal-overlay').style.display = 'none';
+  const overlay = document.getElementById('app-modal-overlay');
+  overlay.style.opacity = '0';
+  setTimeout(() => { overlay.style.display = 'none'; }, 200);
   if (_modalResolve) { _modalResolve(val); _modalResolve = null; }
 }
 
 function appModalCancel() {
-  document.getElementById('app-modal-overlay').style.display = 'none';
+  const overlay = document.getElementById('app-modal-overlay');
+  overlay.style.opacity = '0';
+  setTimeout(() => { overlay.style.display = 'none'; }, 200);
   if (_modalResolve) { _modalResolve(null); _modalResolve = null; }
 }
 
@@ -5700,6 +6000,7 @@ if (isCleanerMode()) {
         loadCleansFromCloud().then(cloudCleans => {
           if (Array.isArray(cloudCleans) && cloudCleans.length) {
             localStorage.setItem(lsKey('cleans'), JSON.stringify(cloudCleans));
+            cleans = cloudCleans;  // keep in-memory in sync so renderAll() uses fresh data
             if (typeof renderAll === 'function') renderAll();
           }
         }).catch(() => {});
@@ -6604,7 +6905,7 @@ async function assignCleanerToBooking(bookingId) {
   if (!cleanerId || !date) { showBanner('⚠ Select a cleaner and date', 'warn'); _releaseLock(_actionLocks, lockKey); return; }
   const cleanerObj = loadCleaners().find(c => String(c.id) === cleanerId);
   if (!cleanerObj) { showBanner('⚠ Cleaner not found', 'warn'); _releaseLock(_actionLocks, lockKey); return; }
-  const booking = bookings.find(b => b.id === bookingId);
+  const booking = bookings.find(b => String(b.id) === String(bookingId) || (b._cloudId && String(b._cloudId) === String(bookingId)));
   if (!booking) { _releaseLock(_actionLocks, lockKey); return; }
   if (booking.status === 'cancelled') { showBanner('Cancelled booking — cleaner assignment is disabled', 'warn'); _releaseLock(_actionLocks, lockKey); return; }
   // Plan (Bug 1): Reuse an existing clean's local/cloud IDs by bookingId during reassignment,
@@ -6636,7 +6937,7 @@ async function assignCleanerToBooking(bookingId) {
     cleaner: cleanerObj.name, cleanerId: cleanerObj.id,
     checkin: booking.checkin,
     date,
-    assignedAt: prev ? (prev.assignedAt || new Date().toISOString()) : new Date().toISOString(),
+    assignedAt: (prev && prev.cleanerId && String(prev.cleanerId) === String(cleanerObj.id)) ? (prev.assignedAt || new Date().toISOString()) : new Date().toISOString(),
     done: false,
     notified: false,
     cleanerDeclined: false,
@@ -6682,7 +6983,9 @@ async function assignCleanerToBooking(bookingId) {
         guestName: booking.name || 'Guest',
         checkin: fmt(booking.checkin),
         checkout: fmt(booking.checkout),
-        cleanerLink: cleanerLinkForId(cleanerObj)
+        cleanerLink: cleanerLinkForId(cleanerObj),
+        guests: booking.guests ? String(booking.guests) : '',
+        nights: booking.nights ? String(booking.nights) : ''
       }).then(result => {
         if (result.ok) showBanner('✉️ Email sent to ' + cleanerObj.name, 'ok');
         else if (result.reason !== 'no-key' && result.reason !== 'no-email') console.warn('Email failed:', result);
@@ -6980,45 +7283,118 @@ function updateEmailPreview(type) {
     </div>`;
 }
 function applyEmailTemplate(type, vars) {
-  const tpl = loadEmailTemplate(type);
-  function fill(str) {
-    return str
-      .replace(/{{cleaner_name}}/g, vars.cleanerName || '')
-      .replace(/{{guest_name}}/g,   vars.guestName   || '')
-      .replace(/{{checkin}}/g,      vars.checkin      || '')
-      .replace(/{{checkout}}/g,     vars.checkout     || '')
-      .replace(/{{clean_date}}/g,   vars.cleanDate    || vars.checkin || '')
-      .replace(/{{cleaner_link}}/g, vars.cleanerLink  || '');
+  const propName    = getCurrentPropertyName();
+  const propConfig  = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : ((typeof getPropertyConfig === 'function') ? getPropertyConfig() : {});
+  // Address comes from properties table in Supabase via getActivePropertyConfig()
+  const addressLine = propConfig.address || [propConfig.suburb, propConfig.state].filter(Boolean).join(', ') || '';
+
+  const headerColors = { assignment: '#1a4f3a', reminder: '#7a3a00', cancellation: '#5a1a1a' };
+  const pillLabels   = { assignment: 'Clean assignment', reminder: 'Reminder', cancellation: 'Cancellation' };
+  const color = headerColors[type] || '#1a4f3a';
+  const pill  = pillLabels[type]   || 'Notification';
+
+  const cleanerFirst = (vars.cleanerName || 'there').split(' ')[0];
+
+  // ── Build subject ──
+  const subjects = {
+    assignment:   `Clean assignment — ${propName}, ${vars.cleanDate || vars.checkout || ''}`,
+    reminder:     `Reminder: ${propName} clean tomorrow, ${vars.cleanDate || vars.checkout || ''}`,
+    cancellation: `Clean cancelled — ${propName}, ${vars.cleanDate || vars.checkout || ''}`
+  };
+  const subject = subjects[type] || subjects.assignment;
+
+  // ── Build detail rows ──
+  function detailRow(label, value) {
+    if (!value) return '';
+    return `<tr>
+      <td style="padding:9px 14px;font-size:11px;font-weight:500;color:#999;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap;border-bottom:1px solid #f0ede8">${label}</td>
+      <td style="padding:9px 14px;font-size:13px;color:#1a1a1a;text-align:right;border-bottom:1px solid #f0ede8">${value}</td>
+    </tr>`;
   }
-  const subject = fill(tpl.subject || EMAIL_TEMPLATE_DEFAULTS[type].subject);
-  const bodyText = fill(tpl.body   || EMAIL_TEMPLATE_DEFAULTS[type].body);
-  const color    = tpl.color || EMAIL_TEMPLATE_DEFAULTS[type].color;
-  // Convert plain text body to HTML (preserve line breaks, make link a button)
-  const bodyHtml = bodyText
-    .split('\n')
-    .map(line => line.trim() === '' ? '<br>' : `<p style="margin:0 0 8px">${line}</p>`)
-    .join('');
-  const html = `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;color:#1a1a1a">
-    <div style="background:${color};padding:20px 24px;border-radius:10px 10px 0 0">
-      <h1 style="color:white;margin:0;font-size:20px">🏡 ${getCurrentPropertyName()}</h1>
-    </div>
-    <div style="background:#f9f7f4;padding:24px;border-radius:0 0 10px 10px;border:1px solid #e8e0d8;border-top:none">
-      ${bodyHtml}
-      <div style="margin-top:20px">
-        <a href="${vars.cleanerLink||'#'}" style="display:block;background:${color};color:white;text-align:center;padding:14px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">Open My Cleaner App →</a>
+
+  let rows = '';
+  if (type === 'assignment') {
+    rows += detailRow('Clean date',      vars.cleanDate || vars.checkout || '');
+    rows += detailRow('Available from',  vars.checkoutTime ? vars.checkoutTime + ' (after checkout)' : 'After checkout');
+    rows += detailRow('Required by',     vars.checkinTime  ? vars.checkinTime  + ' (next check-in)'  : '');
+    rows += detailRow('Departing guest', vars.guestName || '');
+    rows += detailRow('Party size',      vars.guests && vars.nights ? `${vars.guests} guests · ${vars.nights} night${vars.nights!=='1'?'s':''}` : (vars.guests ? `${vars.guests} guests` : ''));
+  } else if (type === 'reminder') {
+    rows += detailRow('Clean date',      vars.cleanDate || vars.checkout || '');
+    rows += detailRow('Available from',  vars.checkoutTime ? vars.checkoutTime + ' (after checkout)' : 'After checkout');
+    rows += detailRow('Required by',     vars.checkinTime  ? vars.checkinTime  + (vars.windowHours ? ` · ${vars.windowHours}-hour window` : ' (next check-in)') : '');
+    rows += detailRow('Departing guest', vars.guestName || '');
+    rows += detailRow('Arriving guest',  vars.nextGuestName ? vars.nextGuestName + (vars.nextGuests ? ` · ${vars.nextGuests} guests` : '') : '');
+  } else if (type === 'cancellation') {
+    rows += detailRow('Clean date', `<span style="text-decoration:line-through;color:#bbb">${vars.cleanDate || vars.checkout || ''}</span>`);
+    rows += detailRow('Guest',      `<span style="text-decoration:line-through;color:#bbb">${vars.guestName || ''}</span>`);
+  }
+  // Remove last row's border
+  rows = rows.replace(/border-bottom:1px solid #f0ede8([^"]*)"([^>]*)>(?![\s\S]*border-bottom:1px solid #f0ede8)/g, (m) => m.replace('border-bottom:1px solid #f0ede8', 'border-bottom:none'));
+
+  // ── Intro text ──
+  const intros = {
+    assignment:   `A cleaning assignment has been scheduled for you at ${propName}. Please confirm your availability using the buttons below.`,
+    reminder:     `This is a reminder that your cleaning assignment at ${propName} is scheduled for tomorrow.`,
+    cancellation: `Please be advised that the following cleaning assignment has been cancelled. No action is required on your part.`
+  };
+
+  // ── Note (reminder only) ──
+  const noteHtml = (type === 'reminder' && vars.checkinTime)
+    ? `<div style="font-size:12px;color:#5a4a2a;line-height:1.55;margin-bottom:16px;padding:10px 14px;background:#fef9f0;border-left:3px solid #e89020;border-radius:0 6px 6px 0">The property must be ready by ${vars.checkinTime}. Please allow sufficient time for a full turnaround.</div>`
+    : '';
+
+  // ── CTA buttons ──
+  const ctaHtml = type === 'assignment'
+    ? `<table style="width:100%;border-collapse:collapse;margin-bottom:4px"><tr>
+        <td style="padding-right:6px"><a href="${vars.cleanerLink||'#'}" style="display:block;background:#1a4f3a;color:white;text-align:center;padding:13px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px">Confirm availability</a></td>
+        <td style="padding-left:6px"><a href="${(vars.cleanerLink||'#') + '?action=decline'}" style="display:block;background:#f7f5f2;color:#444;text-align:center;padding:13px;border-radius:8px;text-decoration:none;font-size:13px;border:1px solid #e0dbd4">Decline</a></td>
+      </tr></table>`
+    : type === 'reminder'
+    ? `<a href="${vars.cleanerLink||'#'}" style="display:block;background:#7a3a00;color:white;text-align:center;padding:13px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px;margin-bottom:4px">Open cleaner app</a>`
+    : '';
+
+  const detailsOpacity = type === 'cancellation' ? 'opacity:0.55;' : '';
+
+  const html = `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+    <div style="background:${color};padding:20px 24px 16px;border-radius:10px 10px 0 0">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
+        <span style="font-size:17px;font-weight:700;color:#fff">${propName}</span>
+        <span style="font-size:10px;font-weight:600;padding:3px 9px;border-radius:20px;background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.8);letter-spacing:0.5px;text-transform:uppercase">${pill}</span>
       </div>
+      ${addressLine ? `<div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:1px">${addressLine}</div>` : ''}
+    </div>
+    <div style="background:white;padding:22px 24px;border:1px solid #ebe7e2;border-top:none">
+      <p style="font-size:14px;color:#1a1a1a;margin:0 0 10px">Dear ${cleanerFirst},</p>
+      <p style="font-size:13px;color:#444;margin:0 0 16px;line-height:1.55">${intros[type]}</p>
+      ${rows ? `<table style="width:100%;border-collapse:collapse;border:1px solid #ebe7e2;border-radius:8px;overflow:hidden;margin-bottom:16px;${detailsOpacity}">${rows}</table>` : ''}
+      ${noteHtml}
+      ${ctaHtml}
+    </div>
+    <div style="padding:13px 24px;background:#f7f5f2;border:1px solid #ebe7e2;border-top:none;border-radius:0 0 10px 10px">
+      <p style="font-size:11px;color:#bbb;margin:0;line-height:1.5">Sent via StayOps &middot; Replies go directly to your host</p>
     </div>
   </div>`;
-  return { subject, html, text: bodyText };
+
+  const textLines = [
+    `Dear ${cleanerFirst},`, '',
+    intros[type], '',
+    type !== 'cancellation' ? `Clean date: ${vars.cleanDate || vars.checkout || ''}` : `Cancelled: ${vars.cleanDate || vars.checkout || ''}`,
+    vars.guestName ? `Guest: ${vars.guestName}` : '',
+    vars.guests ? `Guests: ${vars.guests}` : '',
+  ].filter(l => l !== undefined).join('\n');
+
+  return { subject, html, text: textLines };
 }
-async function sendCleanerEmail({ cleanerName, cleanerEmail, guestName, checkin, checkout, cleanerLink, cleanDate, type }) {
+async function sendCleanerEmail({ cleanerName, cleanerEmail, guestName, checkin, checkout, cleanerLink, cleanDate, type, guests, nights, checkoutTime, checkinTime, nextGuestName, nextGuests, windowHours }) {
   if (!cleanerEmail) return { ok: false, reason: 'no-email' };
   const emailType = type || 'assignment';
   const { subject, html, text } = applyEmailTemplate(emailType, {
     cleanerName: String(cleanerName || 'Cleaner').split(' ')[0],
     guestName, checkin, checkout,
-    cleanDate: cleanDate || checkin,
-    cleanerLink
+    cleanDate: cleanDate || checkout,
+    cleanerLink,
+    guests, nights, checkoutTime, checkinTime, nextGuestName, nextGuests, windowHours
   });
   try {
     const data = await DB.sendEmail(cleanerEmail, subject, html, text);
@@ -7056,7 +7432,7 @@ function resetConnectionCheckerResults() {
 async function testNotificationConfig() {
   _setConnectionCheckResult('conn-notif-result', 'loading', 'Checking notification/email configuration…');
 
-  const ownerEmail = (getCurrentOwnerEmail() || '').trim();
+  const ownerEmail = (getCurrentHostEmail() || '').trim(); // host email, not owner/investor
   const pushFunctionUrl = (getPushFunctionUrl() || '').trim();
   const pushSupported = ('Notification' in window);
   const perm = pushSupported ? Notification.permission : 'unsupported';
@@ -7096,7 +7472,7 @@ async function testCleanerEmail() {
     return;
   }
   const c = cleaners[0];
-  const testTo = getCurrentOwnerEmail() || c.email;
+  const testTo = getCurrentHostEmail() || c.email; // send test to host, not property owner
   const result = await sendCleanerEmail({
     cleanerName: c.name, cleanerEmail: testTo,
     guestName: 'Test Guest', checkin: 'Tomorrow', checkout: 'Day after',
@@ -7526,9 +7902,7 @@ async function onboardFinish() {
 
 // Check if onboarding is needed
 function isOnboardingComplete() {
-  // Source of truth is Supabase — checked via the property config
-  // that was loaded during hydrateFromCloud() before this is called.
-  // If the user has a property with a name in Supabase, they're set up.
+  if (localStorage.getItem('gh-setup-complete') === '1') return true;
   try {
     const cfg = typeof getActivePropertyConfig === 'function' ? getActivePropertyConfig() : null;
     if (cfg && cfg.name) return true;
@@ -7993,3 +8367,84 @@ function exportReportCSV() {
   a.click(); URL.revokeObjectURL(url);
   showBanner('✅ CSV downloaded','success');
 }
+
+// ── Calendar swipe navigation + slide animation ───────────────────────────
+(function() {
+  var _calSwipeX = 0, _calSwipeY = 0;
+  var _calAnimating = false;
+
+  function _calReset(grid) {
+    grid.style.transition = 'none';
+    grid.style.transform  = '';
+    grid.style.opacity    = '1';
+  }
+
+  function _calNavigate(direction) {
+    var grid = document.getElementById('cal-grid');
+    if (!grid || _calAnimating) return;
+    _calAnimating = true;
+
+    var outX = direction === 'next' ? '-60%' : '60%';
+    var inX  = direction === 'next' ? '60%'  : '-60%';
+
+    // Step 1: fade + slide out
+    grid.style.transition = 'transform 0.16s cubic-bezier(0.32,0.72,0,1), opacity 0.16s ease';
+    grid.style.transform  = 'translateX(' + outX + ')';
+    grid.style.opacity    = '0';
+
+    setTimeout(function() {
+      // Step 2: update month data
+      if (direction === 'next') calNext(); else calPrev();
+
+      // Step 3: snap to incoming side (no transition)
+      grid.style.transition = 'none';
+      grid.style.transform  = 'translateX(' + inX + ')';
+      grid.style.opacity    = '0';
+
+      // Step 4: double rAF to slide in
+      requestAnimationFrame(function() {
+        requestAnimationFrame(function() {
+          grid.style.transition = 'transform 0.2s cubic-bezier(0.32,0.72,0,1), opacity 0.16s ease';
+          grid.style.transform  = 'translateX(0)';
+          grid.style.opacity    = '1';
+          // Step 5: clean up after animation
+          setTimeout(function() {
+            _calReset(grid);
+            _calAnimating = false;
+          }, 220);
+        });
+      });
+    }, 160);
+  }
+
+  function attachCalSwipe() {
+    var el = document.querySelector('.dashboard-calendar');
+    if (!el) return;
+
+    // Ensure grid starts visible
+    var grid = document.getElementById('cal-grid');
+    if (grid) _calReset(grid);
+
+    el.addEventListener('touchstart', function(e) {
+      var t = e.touches[0];
+      _calSwipeX = t.clientX;
+      _calSwipeY = t.clientY;
+    }, { passive: true });
+
+    el.addEventListener('touchend', function(e) {
+      var t = e.changedTouches[0];
+      var dx = t.clientX - _calSwipeX;
+      var dy = t.clientY - _calSwipeY;
+      if (Math.abs(dx) < 44 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+      _calNavigate(dx < 0 ? 'next' : 'prev');
+    }, { passive: true });
+  }
+
+  window._calNavigate = _calNavigate;
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', attachCalSwipe);
+  } else {
+    attachCalSwipe();
+  }
+})();
