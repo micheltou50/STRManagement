@@ -870,10 +870,12 @@ function _maybeAutoAssignPreferredCleaner(booking, reason) {
     notified: false,
     cleanerDeclined: false,
     cleanerConfirmed: false,
+    assignedAt: new Date().toISOString(),
     autoAssigned: true,
     autoAssignReason: reason || 'preferred-cleaner'
   };
   cleans.push(newClean);
+  if (typeof saveCleanToCloud === 'function') saveCleanToCloud(newClean).catch(() => console.log('[StayOps]', 'saveCleanToCloud failed (auto-assign)'));
   booking.cleanerConfirmed = false;
   _recordCleanerAssignmentUsage(preferred);
   return true;
@@ -975,13 +977,18 @@ async function quickAssignLastCleaner(bookingId) {
     populateSelects();
     if (currentSection === 'cleaning') renderCleaning();
     _sendCleanerAssignmentNotifications(booking, preferred, booking.checkout, 'quick-assign-' + bookingId)
-      .then(notify => { if (notify.emailSent) showBanner('✉️ Email sent to ' + preferred.name, 'ok'); })
+      .then(notify => {
+        if (notify.emailSent) {
+          showBanner('✉️ Email sent to ' + preferred.name, 'ok');
+        } else {
+          if (window.confirm('Notify ' + preferred.name + ' via SMS?')) {
+            newClean.notified = true;
+            save();
+            openNotifyModal(newClean.id);
+          }
+        }
+      })
       .catch(() => {});
-    if (window.confirm('Notify ' + preferred.name + ' via SMS?')) {
-      newClean.notified = true;
-      save();
-      openNotifyModal(newClean.id);
-    }
   } finally {
     _releaseLock(_actionLocks, lockKey);
   }
@@ -1851,8 +1858,18 @@ function renderCleaning() {
 
 function reassignClean(cleanId) {
   const c = cleans.find(cl => String(cl.id) === String(cleanId));
-  if (!c) return;
-  // Reset the clean so it can be reassigned from the booking detail
+  if (c) {
+    c.cleanerDeclined = false;
+    c.cleanerConfirmed = false;
+    c.notified = false;
+    _normalizeBookingCleanState();
+    save();
+    if (typeof saveCleanToCloud === 'function') saveCleanToCloud(c).catch(() => {});
+  } else {
+    console.log('[StayOps]] reassignClean: clean not found', cleanId);
+    showDetail(cleanId);
+    return;
+  }
   const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)) || _normName(bk.name) === _normName(c.guestName));
   if (b) {
     showDetail(b.id);
@@ -3058,11 +3075,6 @@ function _findMatchingCleanForBooking(booking, preferredDate) {
   if (name && targetDate) {
     const byGuestAndDate = cleans.find(c => _normName(c.guestName) === name && String(c.date || '').slice(0, 10) === targetDate);
     if (byGuestAndDate) return byGuestAndDate;
-  }
-
-  if (name) {
-    const byGuestOnly = cleans.find(c => _normName(c.guestName) === name);
-    if (byGuestOnly) return byGuestOnly;
   }
 
   return null;
@@ -7048,7 +7060,8 @@ async function assignCleanerToBooking(bookingId) {
     console.log('[StayOps] Creating new clean for booking:', bookingId);
   }
   const sameAssignment = !!(prev && String(prev.cleanerId) === String(cleanerObj.id) && String(prev.date || '').slice(0, 10) === String(date || '').slice(0, 10));
-  if (sameAssignment) {
+  const alreadyConfirmed = !!(prev && prev.cleanerConfirmed);
+  if (sameAssignment && !alreadyConfirmed) {
     booking.cleanerConfirmed = !!prev.cleanerConfirmed;
     _normalizeBookingCleanState();
     save();
