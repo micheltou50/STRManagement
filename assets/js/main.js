@@ -7,8 +7,10 @@ import {
   getActivePropertyId,
   setActivePropertyId,
   getActivePropertyConfig,
+  addPropertyConfig,
   getPropertyConfig,
   savePropertyConfig,
+  saveAllProperties,
   hasValidPropertyConfig,
   getCurrentPropertyName,
   getCurrentPropertyTagline,
@@ -49,6 +51,10 @@ import {
   setLoadingStatus,
   showLoginScreen,
   showAppChrome,
+  handleLoginSubmit,
+  handleSignUpSubmit,
+  toggleSignUp,
+  hostSignOut,
 } from './supabase.js';
 
 // ── HTML ESCAPE HELPER — use for any user/sheet data injected into innerHTML ──
@@ -461,7 +467,8 @@ async function maybeAutoScanGmail() {
 
     // No throttle — scan runs every time the app is opened
 
-    const res = await fetch('/.netlify/functions/gmail-scan-bookings?uid=' + encodeURIComponent(user.id));
+    const _pid = (window._cloudPropertyIds && window._cloudPropertyIds[getActivePropertyId()]) || '';
+    const res = await fetch('/.netlify/functions/gmail-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
     if (!res.ok) return;
     const data = await res.json();
 
@@ -497,7 +504,8 @@ async function scanGmailBookings() {
   }
 
   try {
-    const res = await fetch('/.netlify/functions/gmail-scan-bookings?uid=' + encodeURIComponent(user.id));
+    const _pid = (window._cloudPropertyIds && window._cloudPropertyIds[getActivePropertyId()]) || '';
+    const res = await fetch('/.netlify/functions/gmail-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
     const data = await res.json();
 
     if (!res.ok) {
@@ -562,7 +570,8 @@ async function maybeAutoScanOutlook() {
     const user = window._supabaseUser;
     if (!user) return;
 
-    const res = await fetch('/.netlify/functions/outlook-scan-bookings?uid=' + encodeURIComponent(user.id));
+    const _pid = (window._cloudPropertyIds && window._cloudPropertyIds[getActivePropertyId()]) || '';
+    const res = await fetch('/.netlify/functions/outlook-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
     if (!res.ok) return;
     const data = await res.json();
 
@@ -597,7 +606,8 @@ async function scanOutlookBookings() {
   }
 
   try {
-    const res = await fetch('/.netlify/functions/outlook-scan-bookings?uid=' + encodeURIComponent(user.id));
+    const _pid = (window._cloudPropertyIds && window._cloudPropertyIds[getActivePropertyId()]) || '';
+    const res = await fetch('/.netlify/functions/outlook-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
     const data = await res.json();
 
     if (!res.ok) {
@@ -7797,137 +7807,6 @@ async function finishAppInit() {
   }
 }
 
-// Init on load
-document.addEventListener('DOMContentLoaded', async () => {
-  // Handle OAuth redirect back from Google/Microsoft
-  const urlParams = new URLSearchParams(window.location.search);
-  const oauthSuccess = urlParams.get('oauth_success');
-  const oauthEmail   = urlParams.get('oauth_email') || urlParams.get('email');
-  const oauthError   = urlParams.get('oauth_error');
-  if (oauthSuccess && oauthEmail) {
-    // Clean URL
-    window.history.replaceState({}, '', window.location.pathname);
-    // Save Gmail connection for connection summary UI
-    if (oauthSuccess === 'google') {
-      localStorage.setItem('gh-gmail-email', decodeURIComponent(oauthEmail));
-    }
-    // Save Outlook connection for connection summary UI
-    if (oauthSuccess === 'microsoft') {
-      localStorage.setItem('gh-outlook-email', decodeURIComponent(oauthEmail));
-    }
-    // Show onboarding step 2 connected state after app loads
-    window._oauthConnected = { provider: oauthSuccess, email: decodeURIComponent(oauthEmail) };
-  }
-  if (oauthError) {
-    window.history.replaceState({}, '', window.location.pathname);
-    window._oauthError = decodeURIComponent(oauthError);
-  }
-
-  // Cleaner mode bypasses host auth entirely
-  if (isCleanerMode()) {
-    migrateConfigFromLegacySettings();
-    initPropertyUI();
-    attachButtonPress();
-    attachModalHandleDrag();
-    document.getElementById('modal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
-    document.getElementById('detail-modal').addEventListener('click', function(e) { if (e.target === this) closeDetailModal(); });
-    document.getElementById('notify-modal').addEventListener('click', function(e) { if (e.target === this) closeNotifyModal(); });
-    const { uid } = getCleanerParams();
-    if (!uid) {
-      _showCleanerLinkError('Invalid cleaner link — ask the owner to re-send your link from Settings.');
-    } else if (isCleanerAuthed()) {
-      document.body.classList.add('cleaner-mode');
-      // Hydrate from Netlify function (handles home screen PWA with no Supabase session)
-      const ok = await hydrateCleanerFromFunction();
-      if (ok) {
-        renderCleanerView();
-      } else {
-        _showCleanerLinkError('Could not load your cleaning data — check your connection and try again.');
-      }
-    } else {
-      document.body.classList.add('cleaner-pin-active');
-    }
-    return;
-  }
-
-  if (typeof showLoadingScreen === 'function') showLoadingScreen('Checking your session…');
-
-  // Check for active Supabase session
-  let session = null;
-  if (typeof getSupabaseSession === 'function') {
-    session = await getSupabaseSession();
-  }
-
-  if (!session) {
-    // No session — show login screen and wait
-    console.log('[StayOps] No session — showing login screen');
-    if (typeof showLoginScreen === 'function') showLoginScreen();
-    else if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
-    return;
-  }
-
-  // Existing session — init app FIRST (establishes property/storage keys),
-  // THEN hydrate from cloud so data lands under the correct scoped keys.
-  console.log('[StayOps] Boot step: session found, starting boot');
-  if (typeof showLoadingScreen === 'function') showLoadingScreen('Signing you in…');
-
-  try {
-    migrateConfigFromLegacySettings();
-    if (typeof setLoadingStatus === 'function') setLoadingStatus('Checking your account…');
-    if (typeof seedLocalConfigFromCloud === 'function') await seedLocalConfigFromCloud();
-    console.log('[StayOps] Boot step: seedLocalConfigFromCloud complete');
-    await ensureHostIdentityAndRestore();
-    console.log('[StayOps] Boot step: ensureHostIdentityAndRestore complete');
-    if (typeof setLoadingStatus === 'function') setLoadingStatus('Starting app…');
-    await finishAppInit();
-    console.log('[StayOps] Boot step: finishAppInit complete');
-    if (typeof setLoadingStatus === 'function') setLoadingStatus('Loading your data…');
-    if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
-    console.log('[StayOps] Boot step: hydrateFromCloud complete');
-
-    // Refresh in-memory arrays and property UI after cloud hydration
-    reloadInMemoryData();
-    // Fix: reconcile bookings vs cleans cleaner_confirmed before first render
-    // so any divergence that existed in Supabase does not reach the UI.
-    _normalizeBookingCleanState();
-    initPropertyUI();
-
-    // Check if onboarding is needed (new user on fresh device)
-    if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) {
-      if (typeof showOnboarding === 'function') {
-        showOnboarding();
-        // If returning from OAuth flow, jump to step 2 and show connected state
-        if (window._oauthConnected) {
-          _obGoToStep(2);
-          onboardEmailConnected(window._oauthConnected.provider, window._oauthConnected.email);
-          delete window._oauthConnected;
-        }
-        if (window._oauthError) {
-          _obGoToStep(2);
-          const errEl = document.getElementById('ob-step2-error');
-          if (errEl) errEl.textContent = '⚠ Connection failed: ' + window._oauthError;
-          delete window._oauthError;
-        }
-      }
-      return;
-    }
-
-    console.log('[StayOps] Boot step: renderAll called');
-    renderAll();
-    // Prompt if an owner report is due (non-blocking, runs after UI is visible)
-    setTimeout(checkAutoSendReport, 1500);
-    // Auto-scan Gmail for new booking emails
-    setTimeout(maybeAutoScanGmail, 3000);
-    // Auto-scan Outlook for new booking emails
-    setTimeout(maybeAutoScanOutlook, 4500);
-  } catch (e) {
-    console.error('[StayOps] Boot failed:', e);
-  } finally {
-    if (typeof showAppChrome === 'function') showAppChrome();
-  }
-});
-
-
 // ── ONBOARDING FLOW ───────────────────────────────────────────────────────────
 
 const _OB_PLATFORMS = new Set();
@@ -8658,6 +8537,10 @@ let _calNavigate;
 // HTML, and cross-module calls depend on.
 
 // Called from index.html onclick/onchange handlers
+window.handleLoginSubmit        = handleLoginSubmit;
+window.handleSignUpSubmit       = handleSignUpSubmit;
+window.toggleSignUp             = toggleSignUp;
+window.hostSignOut              = hostSignOut;
 window.addBooking               = addBooking;
 window.addClean                 = addClean;
 window.addCleaner               = addCleaner;
@@ -8821,6 +8704,14 @@ window.toggleExpenseMonth       = toggleExpenseMonth;
 window.toggleMgmtSelect         = toggleMgmtSelect;
 
 // Called from supabase.js typeof window.X guards (boot sequence)
+window.getAllProperties          = getAllProperties;
+window.getActivePropertyId      = getActivePropertyId;
+window.setActivePropertyId      = setActivePropertyId;
+window.getActivePropertyConfig  = getActivePropertyConfig;
+window.addPropertyConfig        = addPropertyConfig;
+window.savePropertyConfig       = savePropertyConfig;
+window.lsKey                    = lsKey;
+window.hasValidPropertyConfig   = hasValidPropertyConfig;
 window.ensureHostIdentityAndRestore = ensureHostIdentityAndRestore;
 window.finishAppInit            = finishAppInit;
 window.reloadInMemoryData       = reloadInMemoryData;
@@ -8837,3 +8728,133 @@ window._calNavigate             = _calNavigate;
 
 // DB adapter instance
 window.DB = new SupabaseAdapter();
+
+// Init on load
+(async () => {
+  // Handle OAuth redirect back from Google/Microsoft
+  const urlParams = new URLSearchParams(window.location.search);
+  const oauthSuccess = urlParams.get('oauth_success');
+  const oauthEmail   = urlParams.get('oauth_email') || urlParams.get('email');
+  const oauthError   = urlParams.get('oauth_error');
+  if (oauthSuccess && oauthEmail) {
+    // Clean URL
+    window.history.replaceState({}, '', window.location.pathname);
+    // Save Gmail connection for connection summary UI
+    if (oauthSuccess === 'google') {
+      localStorage.setItem('gh-gmail-email', decodeURIComponent(oauthEmail));
+    }
+    // Save Outlook connection for connection summary UI
+    if (oauthSuccess === 'microsoft') {
+      localStorage.setItem('gh-outlook-email', decodeURIComponent(oauthEmail));
+    }
+    // Show onboarding step 2 connected state after app loads
+    window._oauthConnected = { provider: oauthSuccess, email: decodeURIComponent(oauthEmail) };
+  }
+  if (oauthError) {
+    window.history.replaceState({}, '', window.location.pathname);
+    window._oauthError = decodeURIComponent(oauthError);
+  }
+
+  // Cleaner mode bypasses host auth entirely
+  if (isCleanerMode()) {
+    migrateConfigFromLegacySettings();
+    initPropertyUI();
+    attachButtonPress();
+    attachModalHandleDrag();
+    document.getElementById('modal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
+    document.getElementById('detail-modal').addEventListener('click', function(e) { if (e.target === this) closeDetailModal(); });
+    document.getElementById('notify-modal').addEventListener('click', function(e) { if (e.target === this) closeNotifyModal(); });
+    const { uid } = getCleanerParams();
+    if (!uid) {
+      _showCleanerLinkError('Invalid cleaner link — ask the owner to re-send your link from Settings.');
+    } else if (isCleanerAuthed()) {
+      document.body.classList.add('cleaner-mode');
+      // Hydrate from Netlify function (handles home screen PWA with no Supabase session)
+      const ok = await hydrateCleanerFromFunction();
+      if (ok) {
+        renderCleanerView();
+      } else {
+        _showCleanerLinkError('Could not load your cleaning data — check your connection and try again.');
+      }
+    } else {
+      document.body.classList.add('cleaner-pin-active');
+    }
+    return;
+  }
+
+  if (typeof showLoadingScreen === 'function') showLoadingScreen('Checking your session…');
+
+  // Check for active Supabase session
+  let session = null;
+  if (typeof getSupabaseSession === 'function') {
+    session = await getSupabaseSession();
+  }
+
+  if (!session) {
+    // No session — show login screen and wait
+    console.log('[StayOps] No session — showing login screen');
+    if (typeof showLoginScreen === 'function') showLoginScreen();
+    else if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
+    return;
+  }
+
+  // Existing session — init app FIRST (establishes property/storage keys),
+  // THEN hydrate from cloud so data lands under the correct scoped keys.
+  console.log('[StayOps] Boot step: session found, starting boot');
+  if (typeof showLoadingScreen === 'function') showLoadingScreen('Signing you in…');
+
+  try {
+    migrateConfigFromLegacySettings();
+    if (typeof setLoadingStatus === 'function') setLoadingStatus('Checking your account…');
+    if (typeof seedLocalConfigFromCloud === 'function') await seedLocalConfigFromCloud();
+    console.log('[StayOps] Boot step: seedLocalConfigFromCloud complete');
+    await ensureHostIdentityAndRestore();
+    console.log('[StayOps] Boot step: ensureHostIdentityAndRestore complete');
+    if (typeof setLoadingStatus === 'function') setLoadingStatus('Starting app…');
+    await finishAppInit();
+    console.log('[StayOps] Boot step: finishAppInit complete');
+    if (typeof setLoadingStatus === 'function') setLoadingStatus('Loading your data…');
+    if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
+    console.log('[StayOps] Boot step: hydrateFromCloud complete');
+
+    // Refresh in-memory arrays and property UI after cloud hydration
+    reloadInMemoryData();
+    // Fix: reconcile bookings vs cleans cleaner_confirmed before first render
+    // so any divergence that existed in Supabase does not reach the UI.
+    _normalizeBookingCleanState();
+    initPropertyUI();
+
+    // Check if onboarding is needed (new user on fresh device)
+    if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) {
+      if (typeof showOnboarding === 'function') {
+        showOnboarding();
+        // If returning from OAuth flow, jump to step 2 and show connected state
+        if (window._oauthConnected) {
+          _obGoToStep(2);
+          onboardEmailConnected(window._oauthConnected.provider, window._oauthConnected.email);
+          delete window._oauthConnected;
+        }
+        if (window._oauthError) {
+          _obGoToStep(2);
+          const errEl = document.getElementById('ob-step2-error');
+          if (errEl) errEl.textContent = '⚠ Connection failed: ' + window._oauthError;
+          delete window._oauthError;
+        }
+      }
+      return;
+    }
+
+    console.log('[StayOps] Boot step: renderAll called');
+    renderAll();
+    // Prompt if an owner report is due (non-blocking, runs after UI is visible)
+    setTimeout(checkAutoSendReport, 1500);
+    // Auto-scan Gmail for new booking emails
+    setTimeout(maybeAutoScanGmail, 3000);
+    // Auto-scan Outlook for new booking emails
+    setTimeout(maybeAutoScanOutlook, 4500);
+  } catch (e) {
+    console.error('[StayOps] Boot failed:', e);
+  } finally {
+    if (typeof showAppChrome === 'function') showAppChrome();
+  }
+})();

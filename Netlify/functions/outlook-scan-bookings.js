@@ -98,16 +98,39 @@ exports.handler = async (event) => {
       { method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=minimal' }, body: JSON.stringify(tokenPatch) }
     );
 
-    // ── 3. Get property ───────────────────────────────────────────────
-    const propRes = await fetch(
-      SUPABASE_URL + '/rest/v1/properties?user_id=eq.' + enc(uid) +
-        '&select=id,name,mgmt_fee_rate&order=updated_at.desc&limit=1',
-      { headers: sbHeaders }
-    );
-    const props = await propRes.json();
-    const propertyId   = (props && props[0]) ? props[0].id   : null;
-    const propertyName = (props && props[0]) ? props[0].name : '';
-    const mgmtFeeRate  = (props && props[0] && props[0].mgmt_fee_rate != null) ? Number(props[0].mgmt_fee_rate) : 0;
+    // ── 3. Get property ID ─────────────────────────────────────────────
+    const pidParam = (event.queryStringParameters || {}).pid || '';
+    let propertyId = null, propertyName = '', mgmtFeeRate = 0;
+
+    if (pidParam) {
+      // Explicit property passed from frontend — use it directly
+      const propRes = await fetch(
+        SUPABASE_URL + '/rest/v1/properties?id=eq.' + enc(pidParam) +
+          '&user_id=eq.' + enc(uid) + '&select=id,name,mgmt_fee_rate&limit=1',
+        { headers: sbHeaders }
+      );
+      const props = await propRes.json();
+      if (props && props[0]) {
+        propertyId   = props[0].id;
+        propertyName = props[0].name || '';
+        mgmtFeeRate  = props[0].mgmt_fee_rate != null ? Number(props[0].mgmt_fee_rate) : 0;
+      }
+    }
+
+    if (!propertyId) {
+      // Fallback — first created property (stable, not affected by edits)
+      const propRes = await fetch(
+        SUPABASE_URL + '/rest/v1/properties?user_id=eq.' + enc(uid) +
+          '&select=id,name,mgmt_fee_rate&order=created_at.asc&limit=1',
+        { headers: sbHeaders }
+      );
+      const props = await propRes.json();
+      if (props && props[0]) {
+        propertyId   = props[0].id;
+        propertyName = props[0].name || '';
+        mgmtFeeRate  = props[0].mgmt_fee_rate != null ? Number(props[0].mgmt_fee_rate) : 0;
+      }
+    }
 
     // ── 4. Search Outlook via Microsoft Graph ────────────────────────
     // Graph filter: messages from booking platforms in the last 14 days
