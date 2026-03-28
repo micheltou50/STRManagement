@@ -23,7 +23,3 @@ export const AIService = {
   request,
   endpoint: AI_ENDPOINT
 };
-
-// Backward compat: main.js is a classic script and reads AIService from window.
-// This assignment is safe to remove only after main.js is also converted to a module.
-window.AIService = AIService;

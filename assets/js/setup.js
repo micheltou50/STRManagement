@@ -1,3 +1,4 @@
+import { hasValidPropertyConfig } from './config.js';
 /* ═══════════════════════════════════════════════════════════════════════════
    SETUP FLOW — Glenhaven Property Manager (Product Version)
    ═══════════════════════════════════════════════════════════════════════════

@@ -185,7 +185,7 @@ export function getAllProperties() {
   }
 }
 
-function saveAllProperties(list) {
+export function saveAllProperties(list) {
   try {
     const safe = (Array.isArray(list) ? list : [])
       .filter(Boolean)
@@ -564,30 +564,3 @@ function _deepMerge(target, source) {
   }
   return out;
 }
-
-// ── BACKWARD-COMPAT WINDOW ASSIGNMENTS ────────────────────────────────────────
-// Prepares for ES module conversion. These are redundant while config.js is a
-// classic script (globals are already on window), but will become load-bearing
-// once config.js is converted to type="module". Safe to add now — no side effects.
-window.lsKey                        = lsKey;
-window.getAllProperties              = getAllProperties;
-window.getActivePropertyId          = getActivePropertyId;
-window.setActivePropertyId          = setActivePropertyId;
-window.getPropertyById              = getPropertyById;
-window.getActivePropertyConfig      = getActivePropertyConfig;
-window.addPropertyConfig            = addPropertyConfig;
-window.hasValidPropertyConfig       = hasValidPropertyConfig;
-window.getPropertyConfig            = getPropertyConfig;
-window.savePropertyConfig           = savePropertyConfig;
-window.getCurrentPropertyName       = getCurrentPropertyName;
-window.getCurrentPropertyTagline    = getCurrentPropertyTagline;
-window.getCurrentHostEmail          = getCurrentHostEmail;
-window.getCurrentOwnerEmail         = getCurrentOwnerEmail;
-window.getVapidPublicKey            = getVapidPublicKey;
-window.getPushFunctionUrl           = getPushFunctionUrl;
-window.getPropertyStats             = getPropertyStats;
-window.getPricingConfig             = getPricingConfig;
-window.getPropertyConfigGaps        = getPropertyConfigGaps;
-window.migrateConfigFromLegacySettings = migrateConfigFromLegacySettings;
-window.initPropertyUI               = initPropertyUI;
-window.DEFAULT_PROPERTY_CONFIG      = DEFAULT_PROPERTY_CONFIG;

@@ -1,3 +1,13 @@
+import {
+  lsKey,
+  getAllProperties,
+  getActivePropertyId,
+  setActivePropertyId,
+  getActivePropertyConfig,
+  savePropertyConfig,
+  addPropertyConfig,
+  saveAllProperties,
+} from './config.js';
 /* ═══════════════════════════════════════════════════════════════════════════
    STAYOPS — Supabase Integration Layer v2
    Tables: host_config, properties, cleaners, cleaning_jobs,
@@ -198,13 +208,12 @@ export async function seedLocalConfigFromCloud() {
     window._stayOpsHydrating = true;
     window._cloudPropertyIds = window._cloudPropertyIds || {};
 
-    const originalActiveId = (typeof window.getActivePropertyId === 'function')
-      ? window.getActivePropertyId() : null;
+    const originalActiveId = getActivePropertyId();
     let preferredActiveId = null;
 
     try {
       for (const row of cloudProps) {
-        const localList = (typeof window.getAllProperties === 'function') ? window.getAllProperties() : [];
+        const localList = getAllProperties();
         const byNameSlug = normaliseLocalId(row.name);
         let match = localList.find(p => p && p.supabaseId === row.id);
         if (!match && byNameSlug) match = localList.find(p => p && p.propertyId === byNameSlug);
@@ -216,16 +225,16 @@ export async function seedLocalConfigFromCloud() {
         if (match) {
           const localTs = match.updated_at ? new Date(match.updated_at).getTime() : 0;
           const cloudTs = row.updated_at   ? new Date(row.updated_at).getTime()   : 0;
-          if (typeof window.setActivePropertyId === 'function') window.setActivePropertyId(match.propertyId);
+          setActivePropertyId(match.propertyId);
           if (cloudTs >= localTs) {
-            if (typeof window.savePropertyConfig === 'function') window.savePropertyConfig(toLocalPatch(row, match));
+            savePropertyConfig(toLocalPatch(row, match));
           } else {
-            if (typeof window.savePropertyConfig === 'function') window.savePropertyConfig({ supabaseId: row.id, updated_at: match.updated_at || row.updated_at || new Date().toISOString() });
+            savePropertyConfig({ supabaseId: row.id, updated_at: match.updated_at || row.updated_at || new Date().toISOString() });
           }
           window._cloudPropertyIds[match.propertyId] = row.id;
           if (!preferredActiveId) preferredActiveId = match.propertyId;
         } else {
-          const created = (typeof window.addPropertyConfig === 'function') ? window.addPropertyConfig(toLocalPatch(row, {})) : null;
+          const created = addPropertyConfig(toLocalPatch(row, {}));
           if (created && created.propertyId) {
             window._cloudPropertyIds[created.propertyId] = row.id;
             if (!preferredActiveId) preferredActiveId = created.propertyId;
@@ -233,23 +242,23 @@ export async function seedLocalConfigFromCloud() {
         }
       }
     } finally {
-      const finalList = (typeof window.getAllProperties === 'function') ? window.getAllProperties() : [];
+      const finalList = getAllProperties();
       if (originalActiveId && finalList.find(p => p.propertyId === originalActiveId)) {
-        if (typeof window.setActivePropertyId === 'function') window.setActivePropertyId(originalActiveId);
+        setActivePropertyId(originalActiveId);
       } else if (preferredActiveId) {
-        if (typeof window.setActivePropertyId === 'function') window.setActivePropertyId(preferredActiveId);
-      } else if (finalList[0] && typeof window.setActivePropertyId === 'function') {
-        window.setActivePropertyId(finalList[0].propertyId);
+        setActivePropertyId(preferredActiveId);
+      } else if (finalList[0]) {
+        setActivePropertyId(finalList[0].propertyId);
       }
       window._stayOpsHydrating = false;
     }
 
-    const activeCfg = (typeof window.getActivePropertyConfig === 'function') ? window.getActivePropertyConfig() : null;
+    const activeCfg = getActivePropertyConfig();
     const activeCloud = activeCfg && activeCfg.supabaseId ? cloudProps.find(p => p.id === activeCfg.supabaseId) : null;
     if (activeCloud) {
       if (activeCloud.anthropic_api_key) localStorage.setItem('gh-api-key', activeCloud.anthropic_api_key);
       if (activeCloud.script_url) localStorage.setItem('gh-script-url', activeCloud.script_url);
-      if (activeCloud.mgmt_fee_rate != null && typeof window.lsKey === 'function') localStorage.setItem(window.lsKey('mgmt-fee-rate'), String(activeCloud.mgmt_fee_rate));
+      if (activeCloud.mgmt_fee_rate != null) localStorage.setItem(lsKey('mgmt-fee-rate'), String(activeCloud.mgmt_fee_rate));
     }
 
     console.log('[StayOps] seedLocalConfigFromCloud: merged', cloudProps.length, 'properties');
@@ -276,8 +285,8 @@ export async function savePropertyToCloud(cfg) {
       });
     };
 
-    const activeCfg = (typeof window.getActivePropertyConfig === 'function') ? window.getActivePropertyConfig() : {};
-    const activePropertyId = (typeof window.getActivePropertyId === 'function') ? window.getActivePropertyId() : null;
+    const activeCfg = getActivePropertyConfig();
+    const activePropertyId = getActivePropertyId();
     const localPropertyId = cfg.propertyId || activeCfg.propertyId || activePropertyId || null;
     let cloudId = cfg.supabaseId || cfg._cloudId || activeCfg.supabaseId || null;
     if (!cloudId) cloudId = makeUuid();
@@ -314,7 +323,7 @@ export async function savePropertyToCloud(cfg) {
       report_frequency:     (cfg.owner && cfg.owner.reportFrequency) || null,
       last_report_sent_at:  (cfg.owner && cfg.owner.lastReportSentAt) || null,
       anthropic_api_key: localStorage.getItem('gh-api-key') || null,
-      mgmt_fee_rate:     (typeof window.lsKey === 'function') ? (parseFloat(localStorage.getItem(window.lsKey('mgmt-fee-rate')) || '0') || null) : null,
+      mgmt_fee_rate:     (parseFloat(localStorage.getItem(lsKey('mgmt-fee-rate')) || '0') || null),
       updated_at:        cfg.updated_at || new Date().toISOString()
     };
 
@@ -337,11 +346,11 @@ export async function savePropertyToCloud(cfg) {
     if (localPropertyId) window._cloudPropertyIds[localPropertyId] = savedId;
 
     const isActiveProperty = !!(activePropertyId && localPropertyId === activePropertyId);
-    if (isActiveProperty && typeof window.savePropertyConfig === 'function') {
+    if (isActiveProperty) {
       const prevHydrating = window._stayOpsHydrating;
       window._stayOpsHydrating = true;
       try {
-        window.savePropertyConfig({ supabaseId: savedId, updated_at: payload.updated_at });
+        savePropertyConfig({ supabaseId: savedId, updated_at: payload.updated_at });
       } finally {
         window._stayOpsHydrating = prevHydrating;
       }
@@ -358,9 +367,9 @@ export async function savePropertyToCloud(cfg) {
 async function getCloudPropertyId() {
   window._cloudPropertyIds = window._cloudPropertyIds || {};
 
-  const activeCfg = (typeof window.getActivePropertyConfig === 'function') ? window.getActivePropertyConfig() : null;
+  const activeCfg = getActivePropertyConfig();
   const activePropertyId = (activeCfg && activeCfg.propertyId)
-    || ((typeof window.getActivePropertyId === 'function') ? window.getActivePropertyId() : null);
+    || getActivePropertyId();
 
   if (!activePropertyId) return null;
 
@@ -387,14 +396,12 @@ async function getCloudPropertyId() {
 
   window._cloudPropertyIds[activePropertyId] = match.id;
 
-  if (typeof window.savePropertyConfig === 'function') {
-    const prevHydrating = window._stayOpsHydrating;
-    window._stayOpsHydrating = true;
-    try {
-      window.savePropertyConfig({ supabaseId: match.id, updated_at: (activeCfg && activeCfg.updated_at) || match.updated_at || new Date().toISOString() });
-    } finally {
-      window._stayOpsHydrating = prevHydrating;
-    }
+  const prevHydrating = window._stayOpsHydrating;
+  window._stayOpsHydrating = true;
+  try {
+    savePropertyConfig({ supabaseId: match.id, updated_at: (activeCfg && activeCfg.updated_at) || match.updated_at || new Date().toISOString() });
+  } finally {
+    window._stayOpsHydrating = prevHydrating;
   }
 
   return match.id;
@@ -1062,14 +1069,14 @@ export async function hydrateFromCloud() {
 
     // 0. Merge all cloud properties into local list
     const cloudProps = await loadPropertyFromCloud();
-    const originalActiveId = (typeof window.getActivePropertyId === 'function') ? window.getActivePropertyId() : null;
+    const originalActiveId = getActivePropertyId();
     let preferredActiveId = null;
 
     if (Array.isArray(cloudProps) && cloudProps.length) {
       localStorage.setItem('gh-setup-complete', '1');
 
       for (const row of cloudProps) {
-        const localList = (typeof window.getAllProperties === 'function') ? window.getAllProperties() : [];
+        const localList = getAllProperties();
         const byNameSlug = normaliseLocalId(row.name);
         let match = localList.find(p => p && p.supabaseId === row.id);
         if (!match && byNameSlug) match = localList.find(p => p && p.propertyId === byNameSlug);
@@ -1081,16 +1088,16 @@ export async function hydrateFromCloud() {
         if (match) {
           const localTs = match.updated_at ? new Date(match.updated_at).getTime() : 0;
           const cloudTs = row.updated_at   ? new Date(row.updated_at).getTime()   : 0;
-          if (typeof window.setActivePropertyId === 'function') window.setActivePropertyId(match.propertyId);
+          setActivePropertyId(match.propertyId);
           if (cloudTs >= localTs) {
-            if (typeof window.savePropertyConfig === 'function') window.savePropertyConfig(toLocalPatch(row, match));
+            savePropertyConfig(toLocalPatch(row, match));
           } else {
-            if (typeof window.savePropertyConfig === 'function') window.savePropertyConfig({ supabaseId: row.id, updated_at: match.updated_at || row.updated_at || new Date().toISOString() });
+            savePropertyConfig({ supabaseId: row.id, updated_at: match.updated_at || row.updated_at || new Date().toISOString() });
           }
           window._cloudPropertyIds[match.propertyId] = row.id;
           if (!preferredActiveId) preferredActiveId = match.propertyId;
         } else {
-          const created = (typeof window.addPropertyConfig === 'function') ? window.addPropertyConfig(toLocalPatch(row, {})) : null;
+          const created = addPropertyConfig(toLocalPatch(row, {}));
           if (created && created.propertyId) {
             window._cloudPropertyIds[created.propertyId] = row.id;
             if (!preferredActiveId) preferredActiveId = created.propertyId;
@@ -1106,7 +1113,7 @@ export async function hydrateFromCloud() {
       // Properties with no supabaseId (locally-created, never synced to cloud)
       // are intentionally preserved so offline-created properties are not lost.
       const cloudIds = new Set(cloudProps.map(p => p.id));
-      const listBeforePrune = (typeof window.getAllProperties === 'function') ? window.getAllProperties() : [];
+      const listBeforePrune = getAllProperties();
       const listAfterPrune = listBeforePrune.filter(p => {
         if (!p.supabaseId) return true;          // no cloud link — keep (offline-created)
         return cloudIds.has(p.supabaseId);        // only keep if present in cloud response
@@ -1114,29 +1121,24 @@ export async function hydrateFromCloud() {
       if (listAfterPrune.length !== listBeforePrune.length) {
         const pruned = listBeforePrune.length - listAfterPrune.length;
         console.log('[StayOps] hydrateFromCloud: pruned', pruned, 'stale local propert' + (pruned === 1 ? 'y' : 'ies') + ' not in cloud');
-        if (typeof window.saveAllProperties === 'function') {
-          window.saveAllProperties(listAfterPrune);
-        } else {
-          // saveAllProperties is not exported — write directly via the public API
-          localStorage.setItem('gh-properties', JSON.stringify(listAfterPrune));
-        }
+        saveAllProperties(listAfterPrune);
       }
       // ─────────────────────────────────────────────────────────────────────
 
-      const finalList = (typeof window.getAllProperties === 'function') ? window.getAllProperties() : [];
+      const finalList = getAllProperties();
       if (originalActiveId && finalList.find(p => p.propertyId === originalActiveId)) {
-        if (typeof window.setActivePropertyId === 'function') window.setActivePropertyId(originalActiveId);
+        setActivePropertyId(originalActiveId);
       } else if (preferredActiveId) {
-        if (typeof window.setActivePropertyId === 'function') window.setActivePropertyId(preferredActiveId);
-      } else if (finalList[0] && typeof window.setActivePropertyId === 'function') {
-        window.setActivePropertyId(finalList[0].propertyId);
+        setActivePropertyId(preferredActiveId);
+      } else if (finalList[0]) {
+        setActivePropertyId(finalList[0].propertyId);
       }
 
-      const activeCfg = (typeof window.getActivePropertyConfig === 'function') ? window.getActivePropertyConfig() : null;
+      const activeCfg = getActivePropertyConfig();
       const activeCloud = activeCfg && activeCfg.supabaseId ? cloudProps.find(p => p.id === activeCfg.supabaseId) : null;
       if (activeCloud) {
         if (activeCloud.anthropic_api_key) localStorage.setItem('gh-api-key', activeCloud.anthropic_api_key);
-        if (activeCloud.mgmt_fee_rate != null && typeof window.lsKey === 'function') localStorage.setItem(window.lsKey('mgmt-fee-rate'), String(activeCloud.mgmt_fee_rate));
+        if (activeCloud.mgmt_fee_rate != null) localStorage.setItem(lsKey('mgmt-fee-rate'), String(activeCloud.mgmt_fee_rate));
       }
 
       console.log('[StayOps] Hydrated', cloudProps.length, 'properties from cloud');
@@ -1321,7 +1323,6 @@ const DB = {
     }
   }
 };
-window.DB = DB;
 
 
 // ── LOADING / LOGIN SCREEN ────────────────────────────────────────────────────
@@ -1383,6 +1384,10 @@ export async function handleLoginSubmit() {
     return;
   }
   // Successful sign in — run the full boot sequence
+  // Hide login screen immediately so boot-sequence modals are not blocked
+  const loginEl = document.getElementById('stayops-login-screen');
+  if (loginEl) loginEl.style.display = 'none';
+  if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; }
   try {
     if (typeof migrateConfigFromLegacySettings === 'function') migrateConfigFromLegacySettings();
     if (typeof setLoadingStatus === 'function') setLoadingStatus('Checking your account…');
@@ -1402,6 +1407,7 @@ export async function handleLoginSubmit() {
     if (typeof renderAll === 'function') renderAll();
     setTimeout(() => { if (typeof checkAutoSendReport === 'function') checkAutoSendReport(); }, 1500);
     setTimeout(() => { if (typeof maybeAutoScanGmail === 'function') maybeAutoScanGmail(); }, 3000);
+    setTimeout(() => { if (typeof maybeAutoScanOutlook === 'function') maybeAutoScanOutlook(); }, 4500);
   } catch (e) {
     console.error('[StayOps] Boot after login failed:', e);
   } finally {
@@ -1445,38 +1451,3 @@ export async function hostSignOut() {
   window._supabaseUser = null;
   showLoginScreen();
 }
-
-// ── BACKWARD-COMPAT WINDOW ASSIGNMENTS ────────────────────────────────────────
-// Redundant while supabase.js is a classic script, but will become load-bearing
-// once supabase.js is converted to type="module".
-window.getSupabaseSession        = getSupabaseSession;
-window.getCurrentSupabaseUser    = getCurrentSupabaseUser;
-window.seedLocalConfigFromCloud  = seedLocalConfigFromCloud;
-window.savePropertyToCloud       = savePropertyToCloud;
-window.saveCleanersToCloud       = saveCleanersToCloud;
-window.loadCleansFromCloud       = loadCleansFromCloud;
-window.saveCleanToCloud          = saveCleanToCloud;
-window.saveCleansToCloud         = saveCleansToCloud;
-window.saveCleaningJobToCloud    = saveCleaningJobToCloud;
-window.saveNotesToCloud          = saveNotesToCloud;
-window.saveExpenseToCloud        = saveExpenseToCloud;
-window.deleteExpenseFromCloud    = deleteExpenseFromCloud;
-window.saveInventoryToCloud      = saveInventoryToCloud;
-window.saveMaintenanceToCloud    = saveMaintenanceToCloud;
-window.deleteMaintenanceFromCloud = deleteMaintenanceFromCloud;
-window.hydrateFromCloud          = hydrateFromCloud;
-window.saveHostConfigToSupabase  = saveHostConfigToSupabase;
-window.saveBookingToCloud        = saveBookingToCloud;
-window.saveBookingsToCloud       = saveBookingsToCloud;
-window.deleteBookingFromCloud    = deleteBookingFromCloud;
-window.uploadReceiptToStorage    = uploadReceiptToStorage;
-window.saveAppConfigToCloud      = saveAppConfigToCloud;
-window.showLoadingScreen         = showLoadingScreen;
-window.hideLoadingScreen         = hideLoadingScreen;
-window.showLoginScreen           = showLoginScreen;
-window.showAppChrome             = showAppChrome;
-window.setLoadingStatus          = setLoadingStatus;
-window.handleLoginSubmit         = handleLoginSubmit;
-window.toggleSignUp              = toggleSignUp;
-window.handleSignUpSubmit        = handleSignUpSubmit;
-window.hostSignOut               = hostSignOut;
