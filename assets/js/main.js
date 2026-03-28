@@ -1,3 +1,56 @@
+import { AIService }     from './ai-logic.js';
+import { SupabaseAdapter } from './adapter.js';
+import { showSetupIfNeeded } from './setup.js';
+import {
+  lsKey,
+  getAllProperties,
+  getActivePropertyId,
+  setActivePropertyId,
+  getActivePropertyConfig,
+  getPropertyConfig,
+  savePropertyConfig,
+  hasValidPropertyConfig,
+  getCurrentPropertyName,
+  getCurrentPropertyTagline,
+  getCurrentHostEmail,
+  getVapidPublicKey,
+  getPushFunctionUrl,
+  getPropertyStats,
+  getPricingConfig,
+  getPropertyConfigGaps,
+  migrateConfigFromLegacySettings,
+  initPropertyUI,
+} from './config.js';
+import {
+  getSupabaseSession,
+  getCurrentSupabaseUser,
+  seedLocalConfigFromCloud,
+  hydrateFromCloud,
+  savePropertyToCloud,
+  saveCleanersToCloud,
+  loadCleansFromCloud,
+  saveCleanToCloud,
+  saveCleansToCloud,
+  saveCleaningJobToCloud,
+  saveNotesToCloud,
+  saveExpenseToCloud,
+  deleteExpenseFromCloud,
+  saveInventoryToCloud,
+  saveMaintenanceToCloud,
+  deleteMaintenanceFromCloud,
+  saveBookingToCloud,
+  saveBookingsToCloud,
+  deleteBookingFromCloud,
+  uploadReceiptToStorage,
+  saveAppConfigToCloud,
+  saveHostConfigToSupabase,
+  showLoadingScreen,
+  hideLoadingScreen,
+  setLoadingStatus,
+  showLoginScreen,
+  showAppChrome,
+} from './supabase.js';
+
 // ── HTML ESCAPE HELPER — use for any user/sheet data injected into innerHTML ──
 function escHtml(s) {
   if (s == null) return '';
@@ -40,11 +93,6 @@ function getAwaitingResponseMeta(clean, nowRef) {
 // ── CONFIG ────────────────────────────────────────────────────────────────
 const VAPID_PUBLIC_KEY = 'BO-fP_0TOY1foiCQtOZ40N7io1MAzoMUui6pmeHPJ3jLxbdNGh0SrRjxtvWVhuf4QKvf4q83eyS_wcICiS4cgc4';
 const PUSH_FUNCTION_URL = '/.netlify/functions/send-push';
-
-// ── DATA ADAPTER ──────────────────────────────────────────────────────────────
-// Instantiated here so CONFIG constants above are in scope as fallbacks.
-// Both arguments are thunks so URLs are read live from config on every call.
-window.DB = new SupabaseAdapter();
 
 // ── PUSH NOTIFICATIONS ────────────────────────────────────────────────────────
 function urlBase64ToUint8Array(base64String) {
@@ -8525,6 +8573,7 @@ function exportReportCSV() {
 }
 
 // ── Calendar swipe navigation + slide animation ───────────────────────────
+let _calNavigate;
 (function() {
   var _calSwipeX = 0, _calSwipeY = 0;
   var _calAnimating = false;
@@ -8535,7 +8584,7 @@ function exportReportCSV() {
     grid.style.opacity    = '1';
   }
 
-  function _calNavigate(direction) {
+  _calNavigate = function _calNavigate(direction) {
     var grid = document.getElementById('cal-grid');
     if (!grid || _calAnimating) return;
     _calAnimating = true;
@@ -8596,11 +8645,195 @@ function exportReportCSV() {
     }, { passive: true });
   }
 
-  window._calNavigate = _calNavigate;
-
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', attachCalSwipe);
   } else {
     attachCalSwipe();
   }
 })();
+
+// ── GLOBAL SCOPE ASSIGNMENTS ───────────────────────────────────────────────────
+// ES modules are scoped — functions are not automatically global.
+// These expose functions that index.html onclick handlers, dynamically generated
+// HTML, and cross-module calls depend on.
+
+// Called from index.html onclick/onchange handlers
+window.addBooking               = addBooking;
+window.addClean                 = addClean;
+window.addCleaner               = addCleaner;
+window.addExpense               = addExpense;
+window.addExpenseCat            = addExpenseCat;
+window.addInventoryItem         = addInventoryItem;
+window.addMaintenance           = addMaintenance;
+window.addNote                  = addNote;
+window.analyseExpenses          = analyseExpenses;
+window.appModalCancel           = appModalCancel;
+window.appModalConfirm          = appModalConfirm;
+window.attachEditExpensePhoto   = attachEditExpensePhoto;
+window.attachExpenseFile        = attachExpenseFile;
+window.autoFillCleanDate        = autoFillCleanDate;
+window.backToFinanceHub         = backToFinanceHub;
+window.backToPropertyHub        = backToPropertyHub;
+window.calcNet                  = calcNet;
+window.calcNights               = calcNights;
+window.cleanerAddInventoryItem  = cleanerAddInventoryItem;
+window.cleanerRefresh           = cleanerRefresh;
+window.cleanerSignOut           = cleanerSignOut;
+window.clearCacheAndResync      = clearCacheAndResync;
+window.clearEditExpensePhoto    = clearEditExpensePhoto;
+window.clearExpenseFilters      = clearExpenseFilters;
+window.clearExpensePhoto        = clearExpensePhoto;
+window.closeActionSheet         = closeActionSheet;
+window.closeCalPreview          = closeCalPreview;
+window.closeDetailModal         = closeDetailModal;
+window.closeExpenseEdit         = closeExpenseEdit;
+window.closeInvEdit             = closeInvEdit;
+window.closeModal               = closeModal;
+window.closeNotifyModal         = closeNotifyModal;
+window.closePropertySwitcherSheet = closePropertySwitcherSheet;
+window.closeQuickAddMenu        = closeQuickAddMenu;
+window.closeSettingsCat         = closeSettingsCat;
+window.closeSettingsPanel       = closeSettingsPanel;
+window.confirmInvoiceClient     = confirmInvoiceClient;
+window.deleteInventoryItemFromEdit = deleteInventoryItemFromEdit;
+window.enableCleanerNotifications = enableCleanerNotifications;
+window.enableNotificationsManually = enableNotificationsManually;
+window.extractBookingFromScreenshot = extractBookingFromScreenshot;
+window.extractExpenseFromReceipt = extractExpenseFromReceipt;
+window.filterBookings           = filterBookings;
+window.filterCleans             = filterCleans;
+window.fyNext                   = fyNext;
+window.fyPrev                   = fyPrev;
+window.generateInvoice          = generateInvoice;
+window.getSmartPricing          = getSmartPricing;
+window.importAirbnbCSV          = importAirbnbCSV;
+window.importCSV                = importCSV;
+window.merchantAutocomplete     = merchantAutocomplete;
+window.mgmtNext                 = mgmtNext;
+window.mgmtPrev                 = mgmtPrev;
+window.onboardConnectGoogle     = onboardConnectGoogle;
+window.onboardConnectMicrosoft  = onboardConnectMicrosoft;
+window.onboardFinish            = onboardFinish;
+window.onboardStep1Next         = onboardStep1Next;
+window.onboardTogglePlatform    = onboardTogglePlatform;
+window.openFinancePanelFromHub  = openFinancePanelFromHub;
+window.openModal                = openModal;
+window.openOwnerReportFromHub   = openOwnerReportFromHub;
+window.openPropertyAccessRules  = openPropertyAccessRules;
+window.openPropertyDetailsFromHub = openPropertyDetailsFromHub;
+window.openPropertySettingsMenu = openPropertySettingsMenu;
+window.openPropertySwitcherSheet = openPropertySwitcherSheet;
+window.openSettingsCat          = openSettingsCat;
+window.openSettingsPanel        = openSettingsPanel;
+window.ownerAutoSendToggle      = ownerAutoSendToggle;
+window.pickContact              = pickContact;
+window.pinDelete                = pinDelete;
+window.pinPress                 = pinPress;
+window.readBookingScreenshot    = readBookingScreenshot;
+window.renderAIIgnoreList       = renderAIIgnoreList;
+window.renderExpenses           = renderExpenses;
+window.renderStorageViewer      = renderStorageViewer;
+window.resetExpenseCats         = resetExpenseCats;
+window.resetPushOnly            = resetPushOnly;
+window.revNext                  = revNext;
+window.revPrev                  = revPrev;
+window.runFullRefresh           = runFullRefresh;
+window.saveApiKey               = saveApiKey;
+window.saveBankDetails          = saveBankDetails;
+window.saveExpenseEdit          = saveExpenseEdit;
+window.saveHostProfilePanel     = saveHostProfilePanel;
+window.saveInvEdit              = saveInvEdit;
+window.saveMgmtFeeRate          = saveMgmtFeeRate;
+window.saveOwnerReportSettings  = saveOwnerReportSettings;
+window.saveSMSTemplate          = saveSMSTemplate;
+window.saveFxSetting            = saveFxSetting;
+window.sendOwnerReport          = sendOwnerReport;
+window.sendSMS                  = sendSMS;
+window.setInvView               = setInvView;
+window.showFinanceSub           = showFinanceSub;
+window.showPropertySub          = showPropertySub;
+window.showSection              = showSection;
+window.switchActiveProperty     = switchActiveProperty;
+window.switchCleanerCleanTab    = switchCleanerCleanTab;
+window.switchCleanerTab         = switchCleanerTab;
+window.switchMgmtSubTab         = switchMgmtSubTab;
+window.switchModalTab           = switchModalTab;
+window.switchPayoutsSubTab      = switchPayoutsSubTab;
+window.switchReportsSubTab      = switchReportsSubTab;
+window.testCleanerEmail         = testCleanerEmail;
+window.testNotificationConfig   = testNotificationConfig;
+window.toggleAutoAssignCleaner  = toggleAutoAssignCleaner;
+window.toggleExpenseAddForm     = toggleExpenseAddForm;
+window.toggleExpenseList        = toggleExpenseList;
+
+// Called from dynamically generated HTML (onclick strings in template literals)
+window.adjustStock              = adjustStock;
+window.applyPreset              = applyPreset;
+window.assignCleanerToBooking   = assignCleanerToBooking;
+window.cleanerAccept            = cleanerAccept;
+window.cleanerAdjustStock       = cleanerAdjustStock;
+window.cleanerDecline           = cleanerDecline;
+window.cleanerMarkDone          = cleanerMarkDone;
+window.clearCleanerPinById      = clearCleanerPinById;
+window.connectGmail             = connectGmail;
+window.connectOutlook           = connectOutlook;
+window.copyCalendarFeedUrl      = copyCalendarFeedUrl;
+window.copyCleanerLinkById      = copyCleanerLinkById;
+window.deleteBooking            = deleteBooking;
+window.deleteCleaner            = deleteCleaner;
+window.deleteClient             = deleteClient;
+window.deleteExpenseCat         = deleteExpenseCat;
+window.deleteMaintenance        = deleteMaintenance;
+window.exportReportCSV          = exportReportCSV;
+window.exportReportPDF          = exportReportPDF;
+window.insertTemplateVar        = insertTemplateVar;
+window.jumpToCleaningActionNeeded = jumpToCleaningActionNeeded;
+window.markCleanDeclined        = markCleanDeclined;
+window.markCleanerConfirmed     = markCleanerConfirmed;
+window.openCalPreview           = openCalPreview;
+window.openCleanerProfile       = openCleanerProfile;
+window.openExpenseView          = openExpenseView;
+window.openInvEdit              = openInvEdit;
+window.openNotifyModal          = openNotifyModal;
+window.promptIgnore             = promptIgnore;
+window.quickAssignLastCleaner   = quickAssignLastCleaner;
+window.reassignClean            = reassignClean;
+window.removeAIIgnoreItem       = removeAIIgnoreItem;
+window.resetEmailTemplate       = resetEmailTemplate;
+window.resolveIssue             = resolveIssue;
+window.restockItem              = restockItem;
+window.revealCleanerReassign    = revealCleanerReassign;
+window.saveCleanerContact       = saveCleanerContact;
+window.saveCleanerPinById       = saveCleanerPinById;
+window.saveCleaningFee          = saveCleaningFee;
+window.saveEdit                 = saveEdit;
+window.saveEmailTemplate        = saveEmailTemplate;
+window.scanGmailBookings        = scanGmailBookings;
+window.scanOutlookBookings      = scanOutlookBookings;
+window.sendCleanerReminder      = sendCleanerReminder;
+window.setMaintInProgress       = setMaintInProgress;
+window.showAppModal             = showAppModal;
+window.showDetail               = showDetail;
+window.showEditModal            = showEditModal;
+window.switchPropertyFromSheet  = switchPropertyFromSheet;
+window.toggleCleanerConfirmed   = toggleCleanerConfirmed;
+window.toggleExpenseMonth       = toggleExpenseMonth;
+window.toggleMgmtSelect         = toggleMgmtSelect;
+
+// Called from supabase.js typeof window.X guards (boot sequence)
+window.ensureHostIdentityAndRestore = ensureHostIdentityAndRestore;
+window.finishAppInit            = finishAppInit;
+window.reloadInMemoryData       = reloadInMemoryData;
+window._normalizeBookingCleanState = _normalizeBookingCleanState;
+window.isOnboardingComplete     = isOnboardingComplete;
+window.showOnboarding           = showOnboarding;
+window.renderAll                = renderAll;
+window.checkAutoSendReport      = checkAutoSendReport;
+window.maybeAutoScanGmail       = maybeAutoScanGmail;
+window.maybeAutoScanOutlook     = maybeAutoScanOutlook;
+
+// Internal reference used by calendar navigation
+window._calNavigate             = _calNavigate;
+
+// DB adapter instance
+window.DB = new SupabaseAdapter();
