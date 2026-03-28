@@ -29,8 +29,3 @@ export class SupabaseAdapter extends DataAdapter {
     return Object.assign({ success: true, status: 'ok' }, data || {});
   }
 }
-
-// Backward compat: main.js is a classic script and reads these from window.
-// Safe to remove only after main.js is also converted to a module.
-window.DataAdapter = DataAdapter;
-window.SupabaseAdapter = SupabaseAdapter;
