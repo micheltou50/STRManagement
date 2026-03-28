@@ -110,15 +110,13 @@ async function loadPropertyFromCloud() {
 export async function seedLocalConfigFromCloud() {
   console.log('[StayOps] seedLocalConfigFromCloud: starting...');
   try {
-    // ── Cross-user guard ──────────────────────────────────────────────────
-    // gh-properties, gh-property-config, gh-active-property-id, and
-    // gh-setup-complete are ALL global (not user-scoped) — see _GLOBAL_GH_KEYS
-    // in config.js. When a different Supabase account signs in on the same
-    // browser, those keys still hold the previous user's properties.
-    // Compare the signed-in user's ID against the last stored user ID and
-    // wipe all global property keys before any hydration if they differ.
-    // This is safe for same-user offline: IDs match → no wipe, local cache
-    // is preserved. First-ever login: storedUserId is null → no wipe.
+    // ── Cross-user guard ─────────────────────────────────────────────────────
+    // gh-properties is a global (unscoped) localStorage key shared across all
+    // accounts on the same device. When a different user signs in, their boot
+    // sequence would merge cloud properties on top of the previous user's local
+    // list. This guard detects a user change and wipes the global property keys
+    // before any hydration runs, so the new user starts from a clean slate.
+    // Safe for same-user offline: IDs match → no wipe, local cache preserved.
     const _authUser = await getCurrentSupabaseUser();
     if (_authUser) {
       const storedUserId = localStorage.getItem('gh-current-user-id');
@@ -134,7 +132,7 @@ export async function seedLocalConfigFromCloud() {
       }
       localStorage.setItem('gh-current-user-id', _authUser.id);
     }
-    // ─────────────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────────────────────────────────
 
     const cloudProps = await loadPropertyFromCloud();
     if (!Array.isArray(cloudProps) || !cloudProps.length) {
@@ -1100,6 +1098,31 @@ export async function hydrateFromCloud() {
         }
       }
 
+      // ── Pruning step — cloud is source of truth ───────────────────────────
+      // After merging, remove any local property whose supabaseId is present
+      // but not found in the cloud response for this user. This handles:
+      //   • stale properties from a previously signed-in account on this device
+      //   • properties the user deleted on another device
+      // Properties with no supabaseId (locally-created, never synced to cloud)
+      // are intentionally preserved so offline-created properties are not lost.
+      const cloudIds = new Set(cloudProps.map(p => p.id));
+      const listBeforePrune = (typeof window.getAllProperties === 'function') ? window.getAllProperties() : [];
+      const listAfterPrune = listBeforePrune.filter(p => {
+        if (!p.supabaseId) return true;          // no cloud link — keep (offline-created)
+        return cloudIds.has(p.supabaseId);        // only keep if present in cloud response
+      });
+      if (listAfterPrune.length !== listBeforePrune.length) {
+        const pruned = listBeforePrune.length - listAfterPrune.length;
+        console.log('[StayOps] hydrateFromCloud: pruned', pruned, 'stale local propert' + (pruned === 1 ? 'y' : 'ies') + ' not in cloud');
+        if (typeof window.saveAllProperties === 'function') {
+          window.saveAllProperties(listAfterPrune);
+        } else {
+          // saveAllProperties is not exported — write directly via the public API
+          localStorage.setItem('gh-properties', JSON.stringify(listAfterPrune));
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       const finalList = (typeof window.getAllProperties === 'function') ? window.getAllProperties() : [];
       if (originalActiveId && finalList.find(p => p.propertyId === originalActiveId)) {
         if (typeof window.setActivePropertyId === 'function') window.setActivePropertyId(originalActiveId);
@@ -1359,16 +1382,6 @@ export async function handleLoginSubmit() {
     if (errEl) errEl.textContent = (typeof error === 'object' ? error.message : error) || 'Sign in failed.';
     return;
   }
-
-  // Auth succeeded — immediately hide the login screen and reset the button
-  // BEFORE the boot sequence runs. This is critical: boot steps like
-  // ensureHostIdentityAndRestore() show modals via #app-modal-overlay
-  // (z-index 9999) which are blocked by the login screen (z-index 10000)
-  // if it stays visible, causing the boot to hang indefinitely.
-  const loginEl = document.getElementById('stayops-login-screen');
-  if (loginEl) loginEl.style.display = 'none';
-  if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; }
-
   // Successful sign in — run the full boot sequence
   try {
     if (typeof migrateConfigFromLegacySettings === 'function') migrateConfigFromLegacySettings();
@@ -1389,14 +1402,9 @@ export async function handleLoginSubmit() {
     if (typeof renderAll === 'function') renderAll();
     setTimeout(() => { if (typeof checkAutoSendReport === 'function') checkAutoSendReport(); }, 1500);
     setTimeout(() => { if (typeof maybeAutoScanGmail === 'function') maybeAutoScanGmail(); }, 3000);
-    setTimeout(() => { if (typeof maybeAutoScanOutlook === 'function') maybeAutoScanOutlook(); }, 4500);
   } catch (e) {
     console.error('[StayOps] Boot after login failed:', e);
   } finally {
-    // Backstop: ensure button is always clean and chrome transition always
-    // completes, even if boot throws or login screen is shown again later
-    // (e.g. after sign-out).
-    if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; }
     if (typeof showAppChrome === 'function') showAppChrome();
   }
 }
