@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "StayOps property manager",
   "dependencies": {
-    "web-push": "^3.6.7",
-    "@supabase/supabase-js": "^2.39.0"
+    "@supabase/supabase-js": "^2.100.1",
+    "web-push": "^3.6.7"
   }
 }

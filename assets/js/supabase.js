@@ -493,6 +493,7 @@ export async function loadCleansFromCloud() {
     return data.map(c => ({
       id:               c.local_id ? Number(c.local_id) || c.local_id : c.id,
       _cloudId:         c.id,
+      _propertyId:      c.property_id || null,
       bookingId:        c.booking_id   || '',
       guestName:        c.guest_name   || '',
       cleaner:          c.cleaner      || '',
@@ -575,6 +576,7 @@ async function loadNotesFromCloud() {
     return data.map(n => ({
       id:       n.local_id ? Number(n.local_id) || n.local_id : n.id,
       _cloudId: n.id,
+      _propertyId: n.property_id || null,
       content:  n.content || '',
       date:     n.created_at || ''
     }));
@@ -630,6 +632,7 @@ async function loadExpensesFromCloud() {
     return data.map(e => ({
       id:          e.local_id ? Number(e.local_id) || e.local_id : e.id,
       _cloudId:    e.id,
+      _propertyId: e.property_id || null,
       date:        e.date        || '',
       merchant:    e.merchant    || '',
       description: e.description || '',
@@ -715,6 +718,7 @@ async function loadInventoryFromCloud() {
     return data.map(i => ({
       id:        i.local_id ? Number(i.local_id) || i.local_id : i.id,
       _cloudId:  i.id,
+      _propertyId: i.property_id || null,
       name:      i.name      || '',
       stock:     i.stock     || 0,
       threshold: i.threshold || 0,
@@ -791,6 +795,7 @@ async function loadMaintenanceFromCloud() {
     return data.map(m => ({
       id:          m.local_id ? Number(m.local_id) || m.local_id : m.id,
       _cloudId:    m.id,
+      _propertyId: m.property_id || null,
       description: m.description || '',
       status:      m.status      || 'open',
       cost:        m.cost        || 0,
@@ -877,6 +882,7 @@ async function loadBookingsFromCloud() {
     return data.map(b => ({
       id:               b.local_id ? (isNaN(Number(b.local_id)) ? b.local_id : Number(b.local_id)) : b.id,
       _cloudId:         b.id,
+      _propertyId:      b.property_id || null,
       checkin:          b.checkin   || '',
       checkout:         b.checkout  || '',
       nights:           b.nights    || 0,
@@ -1180,6 +1186,12 @@ export async function hydrateFromCloud() {
       if (cloudAppConfig.expense_cats) localStorage.setItem(lsKey('expense-cats'), JSON.stringify(cloudAppConfig.expense_cats));
       if (cloudAppConfig.email_templates) localStorage.setItem(lsKey('email-tpl-cache'), JSON.stringify(cloudAppConfig.email_templates));
       if (cloudAppConfig.push_subs) localStorage.setItem(lsKey('push-subs'), JSON.stringify(cloudAppConfig.push_subs));
+      if (cloudAppConfig.gmail_email) localStorage.setItem('gh-gmail-email', cloudAppConfig.gmail_email);
+      if (cloudAppConfig.outlook_email) localStorage.setItem('gh-outlook-email', cloudAppConfig.outlook_email);
+      if (cloudAppConfig.ai_ignore != null) localStorage.setItem(lsKey('ai-ignore'), JSON.stringify(cloudAppConfig.ai_ignore));
+      if (cloudAppConfig.auto_assign_cleaner != null) {
+        localStorage.setItem(lsKey('auto-assign-cleaner'), cloudAppConfig.auto_assign_cleaner ? 'on' : 'off');
+      }
       console.log('[StayOps] Hydrated app config from cloud');
     }
 
@@ -1408,11 +1420,16 @@ export async function handleLoginSubmit() {
     if (typeof reloadInMemoryData === 'function') reloadInMemoryData();
     if (typeof _normalizeBookingCleanState === 'function') _normalizeBookingCleanState();
     if (typeof initPropertyUI === 'function') initPropertyUI();
+    if (typeof window.applyPortfolioModeAfterHostHydrate === 'function') {
+      await window.applyPortfolioModeAfterHostHydrate();
+    }
     if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) {
       if (typeof showOnboarding === 'function') showOnboarding();
       return;
     }
-    if (typeof renderAll === 'function') renderAll();
+    if (typeof window.isPortfolioMode === 'function' && !window.isPortfolioMode() && typeof renderAll === 'function') {
+      renderAll();
+    }
     setTimeout(() => { if (typeof checkAutoSendReport === 'function') checkAutoSendReport(); }, 1500);
     setTimeout(() => { if (typeof maybeAutoScanGmail === 'function') maybeAutoScanGmail(); }, 3000);
     setTimeout(() => { if (typeof maybeAutoScanOutlook === 'function') maybeAutoScanOutlook(); }, 4500);

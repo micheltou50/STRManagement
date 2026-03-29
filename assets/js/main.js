@@ -1792,6 +1792,20 @@ function renderDashboard() {
   if (singleDash) singleDash.style.display = '';
   if (portfolioDash) portfolioDash.style.display = 'none';
 
+  const backLink = document.getElementById('back-to-portfolio-link');
+  if (backLink) {
+    const hasMultiple = typeof getAllProperties === 'function' && getAllProperties().length > 1;
+    if (hasMultiple && !isPortfolioMode()) {
+      backLink.style.display = '';
+      backLink.onclick = () => {
+        sessionStorage.setItem('stayops-portfolio-mode', 'true');
+        if (typeof enterPortfolioMode === 'function') enterPortfolioMode();
+      };
+    } else {
+      backLink.style.display = 'none';
+    }
+  }
+
   const statBookings = document.getElementById('stat-bookings');
   if (statBookings) statBookings.textContent = bookings.filter(b => b.status !== 'cancelled').length;
   renderCalendar();
@@ -1952,11 +1966,10 @@ function renderDashboard() {
   if (nc) {
     if (upcoming.length > 0) {
       const b = upcoming[0];
-      const detailId = b._cloudId || b.id;
       const ciDays = Math.ceil((parseLocalDayStart(b.checkin) - todayStart) / 86400000);
       const ciPill = ciDays <= 0 ? 'Today' : ciDays === 1 ? 'Tomorrow' : `In ${ciDays}d`;
       const ciPillColor = ciDays <= 2 ? 'background:#fef3e2;color:#854f0b' : 'background:#e8f4ed;color:#1a4f3a';
-      nc.innerHTML = `<div onclick="showDetail('${detailId}')" style="cursor:pointer">
+      nc.innerHTML = `<div onclick="showDetail('${escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id))}')" style="cursor:pointer">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
           <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft)">Next check-in</div>
           <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;${ciPillColor}">${ciPill}</span>
@@ -2060,7 +2073,7 @@ function renderDashboard() {
         ? (bk => bk._cloudId || bk.id)(bookings.find(bk => bk.name && c.sub && c.sub.includes(bk.name)))
         : null);
     const clickAttr = linkedBookingId
-      ? `onclick="showDetail('${linkedBookingId}')" style="cursor:pointer"`
+      ? `onclick="showDetail('${escapeJsSingleQuotedHtmlAttr(String(linkedBookingId))}')" style="cursor:pointer"`
       : `onclick="jumpToCleaningActionNeeded()" style="cursor:pointer"`;
     const csState = linkedBookingId
       ? getBookingCleanerState(bookings.find(bk => (bk._cloudId || String(bk.id)) === String(linkedBookingId)) || {})
@@ -2180,7 +2193,7 @@ function renderCalendar() {
     const isMid    = mids.has(d);
     const isBooked = isStart || isEnd || isMid;
     const classes  = ['cal-day', isStart?'booked-start':'', isEnd?'booked-end':'', isMid?'booked-mid':'', isToday?'today':''].filter(Boolean).join(' ');
-    const click    = isBooked ? ` onclick="openCalPreview('${dayBooking[d]}')" style="cursor:pointer"` : '';
+    const click    = isBooked ? ` onclick="openCalPreview('${escHtml(dayBooking[d])}')" style="cursor:pointer"` : '';
     html += `<div class="${classes}"${click}><span class="cal-num">${d}</span></div>`;
   }
   document.getElementById('cal-grid').innerHTML = html;
@@ -2202,7 +2215,7 @@ function openCalPreview(bookingId) {
     </div>
     ${payout ? `<div class="cp-payout">$${payout.toLocaleString()}</div><div class="cp-payout-label">Host payout</div>` : ''}
     <div class="cp-actions">
-      <button class="cp-btn-primary" onclick="closeCalPreview();showDetail('${b._cloudId || b.id}')">View booking</button>
+      <button class="cp-btn-primary" onclick="closeCalPreview();showDetail('${escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id))}')">View booking</button>
       <button class="cp-btn-ghost" onclick="closeCalPreview()">Close</button>
     </div>`;
   document.getElementById('cal-preview-backdrop').classList.add('open');
@@ -2290,8 +2303,8 @@ function renderPortfolioBookings(filter) {
           (b.platform ? '<span style="font-size:11px;color:var(--stone)"> · </span><span style="font-size:11px;color:var(--text-soft)">' + escHtml(b.platform) + '</span>' : '') +
           '</div>';
 
-        const detailId = JSON.stringify(String(b._cloudId || b.id));
-        return '<div class="card" onclick="showDetail(' + detailId + ')" ' +
+        const detailId = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
+        return '<div class="card" onclick="showDetail(\'' + detailId + '\')" ' +
           'style="cursor:pointer;border-left:3px solid ' + colour + ';border-radius:0;border-top-right-radius:12px;border-bottom-right-radius:12px' +
           (isCancelled ? ';opacity:0.6' : '') + '">' +
           '<div class="booking-item" style="border:none;padding:0">' +
@@ -2387,7 +2400,7 @@ function renderBookings(filter) {
           cleanerRowHtml = `<div style="border-top:1px solid var(--warm);margin-top:8px;padding-top:7px;display:flex;align-items:center;gap:6px"><span style="font-size:12px;opacity:0.7">🧹</span><span style="font-size:12px;color:var(--text-soft)">${cleanerName}</span><span style="font-size:11px;font-weight:600;padding:2px 7px;border-radius:20px;margin-left:auto;${pillStyle}">${pillLabel}</span></div>`;
         }
 
-        return `<div class="card" onclick="showDetail('${b._cloudId || b.id}')" style="cursor:pointer${isCancelled?';opacity:0.6':''}" data-booking-id="${b.id}"><div class="booking-item" style="border:none;padding:0" data-booking-id="${b.id}">${platformIcon(b.platform, 42)}<div class="booking-info"><div class="booking-name">${escHtml(b.name)}</div><div class="booking-dates">${escHtml(fmt(b.checkin))} → ${escHtml(fmt(b.checkout))}</div><div class="booking-guests">${escHtml(b.guests)} guests · ${escHtml(b.nights)} night${b.nights!==1?'s':''}</div></div><div class="booking-right"><div class="booking-amount" style="${isCancelled?'text-decoration:line-through;color:var(--text-soft)':''}">$${Number(b.hostPayout||0).toLocaleString()}</div><div class="booking-status ${statusClass}">${statusLabel}</div></div></div>${cleanerRowHtml}</div>`;
+        return `<div class="card" onclick="showDetail('${escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id))}')" style="cursor:pointer${isCancelled?';opacity:0.6':''}" data-booking-id="${b.id}"><div class="booking-item" style="border:none;padding:0" data-booking-id="${b.id}">${platformIcon(b.platform, 42)}<div class="booking-info"><div class="booking-name">${escHtml(b.name)}</div><div class="booking-dates">${escHtml(fmt(b.checkin))} → ${escHtml(fmt(b.checkout))}</div><div class="booking-guests">${escHtml(b.guests)} guests · ${escHtml(b.nights)} night${b.nights!==1?'s':''}</div></div><div class="booking-right"><div class="booking-amount" style="${isCancelled?'text-decoration:line-through;color:var(--text-soft)':''}">$${Number(b.hostPayout||0).toLocaleString()}</div><div class="booking-status ${statusClass}">${statusLabel}</div></div></div>${cleanerRowHtml}</div>`;
       }).join('')}
     </div>`).join('');
 
@@ -3461,6 +3474,10 @@ function buildInvoicePDF(selected, client) {
 
 function renderNotes() {
   const list = document.getElementById('notes-list');
+  if (typeof isPortfolioMode === 'function' && isPortfolioMode()) {
+    list.innerHTML = '<div class="card" style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">📝</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">Select a property to view notes</div><div style="font-size:12px;color:var(--text-soft)">Notes are per property — open the property switcher and choose one property.</div></div>';
+    return;
+  }
   if (!notes.length) { list.innerHTML='<div class="card" style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">📝</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">No notes yet</div><div style="font-size:12px;color:var(--text-soft)">Add notes about guests, special requests or anything useful</div></div>'; return; }
   list.innerHTML = [...notes].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(n=>`
     <div class="note-item">
@@ -3661,8 +3678,10 @@ function localPropertyIdFromCloudPropertyId(cloudPid) {
 
 function jumpToPropertyCleaningAction(localId) {
   portfolioMode = false;
+  sessionStorage.setItem('stayops-portfolio-mode', 'false');
   if (typeof getActivePropertyId === 'function' && getActivePropertyId() === localId) {
-    sessionStorage.setItem('stayops-portfolio-mode', 'false');
+    reloadInMemoryData();
+    if (typeof initPropertyUI === 'function') initPropertyUI();
     showSection('cleaning');
     cleanFilter = 'action';
     renderCleaning();
@@ -5265,7 +5284,7 @@ function openPropertySwitcherSheet() {
   if (list) {
     const propRows = props.map(p => {
       const isActive = !portfolioMode && p.propertyId === activeId;
-      return '<div onclick="switchPropertyFromSheet(\'' + p.propertyId + '\')" style="display:flex;align-items:center;justify-content:space-between;padding:14px 4px;border-bottom:1px solid var(--border);cursor:pointer">' +
+      return '<div onclick="switchPropertyFromSheet(\'' + escHtml(p.propertyId) + '\')" style="display:flex;align-items:center;justify-content:space-between;padding:14px 4px;border-bottom:1px solid var(--border);cursor:pointer">' +
         '<div style="font-weight:' + (isActive ? '700' : '400') + ';font-size:15px;color:var(--text,#1A1A1A)">' + escHtml(p.name || p.propertyId) + '</div>' +
         (isActive ? '<div style="background:var(--forest,#1E3A2F);color:#fff;font-size:11px;font-weight:700;letter-spacing:0.4px;padding:4px 10px;border-radius:20px">✓ Active</div>' : '') +
         '</div>';
@@ -7117,6 +7136,7 @@ async function loadPortfolioData() {
 async function enterPortfolioMode() {
   if (typeof getAllProperties !== 'function' || getAllProperties().length < 2) return;
   portfolioMode = true;
+  sessionStorage.setItem('stayops-portfolio-mode', 'true');
   try {
     await loadPortfolioData();
     initPropertyUI();
@@ -7132,6 +7152,7 @@ async function enterPortfolioMode() {
 
 function exitPortfolioMode() {
   portfolioMode = false;
+  sessionStorage.setItem('stayops-portfolio-mode', 'false');
   reloadInMemoryData();
   initPropertyUI();
   renderAll();
@@ -9310,8 +9331,9 @@ async function onboardFinish() {
   if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
   reloadInMemoryData();
   if (typeof initPropertyUI === 'function') initPropertyUI();
+  if (typeof applyPortfolioModeAfterHostHydrate === 'function') await applyPortfolioModeAfterHostHydrate();
   if (typeof showAppChrome === 'function') showAppChrome();
-  if (typeof renderAll === 'function') renderAll();
+  if (!(typeof isPortfolioMode === 'function' && isPortfolioMode()) && typeof renderAll === 'function') renderAll();
   setTimeout(() => { if (typeof checkAutoSendReport === 'function') checkAutoSendReport(); }, 1500);
 }
 
@@ -9956,6 +9978,8 @@ window.pinPress                 = pinPress;
 window.readBookingScreenshot    = readBookingScreenshot;
 window.renderAIIgnoreList       = renderAIIgnoreList;
 window.renderExpenses           = renderExpenses;
+window.renderMgmtFY             = renderMgmtFY;
+window.renderReport             = renderReport;
 window.renderStorageViewer      = renderStorageViewer;
 window.resetExpenseCats         = resetExpenseCats;
 window.resetPushOnly            = resetPushOnly;
@@ -10028,12 +10052,14 @@ window.resolveIssue             = resolveIssue;
 window.restockItem              = restockItem;
 window.revealCleanerReassign    = revealCleanerReassign;
 window.saveCleanerContact       = saveCleanerContact;
+window.saveCleanerPerm          = saveCleanerPerm;
 window.saveCleanerPinById       = saveCleanerPinById;
 window.saveCleaningFee          = saveCleaningFee;
 window.saveEdit                 = saveEdit;
 window.saveEmailTemplate        = saveEmailTemplate;
 window.scanGmailBookings        = scanGmailBookings;
 window.scanOutlookBookings      = scanOutlookBookings;
+window.selectMerchantSuggest    = selectMerchantSuggest;
 window.sendCleanerReminder      = sendCleanerReminder;
 window.setMaintInProgress       = setMaintInProgress;
 window.showAppModal             = showAppModal;
@@ -10070,12 +10096,43 @@ window.renderAll                = renderAll;
 window.checkAutoSendReport      = checkAutoSendReport;
 window.maybeAutoScanGmail       = maybeAutoScanGmail;
 window.maybeAutoScanOutlook     = maybeAutoScanOutlook;
+window._obGoToStep              = _obGoToStep;
 
 // Internal reference used by calendar navigation
 window._calNavigate             = _calNavigate;
 
 // DB adapter instance
 window.DB = new SupabaseAdapter();
+
+/**
+ * After hydrate + reloadInMemoryData + normalize + initPropertyUI, apply multi-property
+ * portfolio mode when appropriate. Used by boot IIFE and post-login (handleLoginSubmit).
+ */
+async function applyPortfolioModeAfterHostHydrate() {
+  const storedPortfolioChoice = sessionStorage.getItem('stayops-portfolio-mode');
+  sessionStorage.removeItem('stayops-portfolio-mode');
+  const hasMultipleProperties = typeof getAllProperties === 'function' && getAllProperties().length > 1;
+  console.log('[StayOps] Portfolio check:', {
+    hasMultipleProperties,
+    storedPortfolioChoice,
+    propCount: typeof getAllProperties === 'function' ? getAllProperties().length : 'N/A',
+    willEnterPortfolio: hasMultipleProperties && storedPortfolioChoice !== 'false'
+  });
+  if (hasMultipleProperties && storedPortfolioChoice !== 'false') {
+    portfolioMode = true;
+    try {
+      await loadPortfolioData();
+      initPropertyUI();
+      renderAll();
+    } catch (e) {
+      console.warn('[StayOps] Portfolio auto-load failed, falling back to single property', e);
+      portfolioMode = false;
+      reloadInMemoryData();
+      initPropertyUI();
+    }
+  }
+}
+window.applyPortfolioModeAfterHostHydrate = applyPortfolioModeAfterHostHydrate;
 
 // Init on load
 (async () => {
@@ -10172,22 +10229,7 @@ window.DB = new SupabaseAdapter();
     _normalizeBookingCleanState();
     initPropertyUI();
 
-    // Portfolio mode: respect last explicit choice (sessionStorage); default to portfolio for multi-property
-    const storedPortfolioChoice = sessionStorage.getItem('stayops-portfolio-mode');
-    const hasMultipleProperties = typeof getAllProperties === 'function' && getAllProperties().length > 1;
-    if (hasMultipleProperties && storedPortfolioChoice !== 'false') {
-      portfolioMode = true;
-      try {
-        await loadPortfolioData();
-        initPropertyUI();
-        renderAll();
-      } catch (e) {
-        console.warn('[StayOps] Portfolio auto-load failed, falling back to single property', e);
-        portfolioMode = false;
-        reloadInMemoryData();
-        initPropertyUI();
-      }
-    }
+    await applyPortfolioModeAfterHostHydrate();
 
     // Check if onboarding is needed (new user on fresh device)
     if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) {

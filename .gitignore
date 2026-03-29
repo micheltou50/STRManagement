@@ -9,3 +9,4 @@
 .netlify
 /assets
 /assets
+node_modules
