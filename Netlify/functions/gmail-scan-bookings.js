@@ -12,7 +12,10 @@
    Required Netlify env vars:
      GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
      SUPABASE_URL, SUPABASE_SERVICE_KEY, ANTHROPIC_API_KEY
+     VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY (optional; push skipped if missing)
    ═══════════════════════════════════════════════════════════════════════════ */
+
+const webpush = require('web-push');
 
 exports.handler = async (event) => {
   const uid = (event.queryStringParameters || {}).uid;
@@ -38,7 +41,7 @@ exports.handler = async (event) => {
     // ── 1. Get Gmail config from app_config ─────────────────────────────
     const cfgRes = await fetch(
       SUPABASE_URL + '/rest/v1/app_config?user_id=eq.' + enc(uid) +
-        '&select=gmail_refresh_token,gmail_email,gmail_last_scan,gmail_skipped_ids&limit=1',
+        '&select=gmail_refresh_token,gmail_email,gmail_last_scan,gmail_skipped_ids,push_subscription&limit=1',
       { headers: sbHeaders }
     );
     const cfgRows = await cfgRes.json();
@@ -47,6 +50,7 @@ exports.handler = async (event) => {
     }
     const refreshToken = cfgRows[0].gmail_refresh_token;
     const userGmailAddress = cfgRows[0].gmail_email || '';
+    const ownerPushSub = parsePushSubscription(cfgRows[0].push_subscription);
 
     // Load previously skipped message IDs
     let skippedIds = new Set();
@@ -255,6 +259,17 @@ exports.handler = async (event) => {
             );
             results.cancelled++;
             results.details.push({ msgId, status: 'cancelled', guest: parsed.guestName || match.guest_name, confCode });
+            {
+              const pname = (propMap.find(p => p.id === match.property_id) || {}).name || propertyName;
+              const guest = parsed.guestName || match.guest_name || 'Guest';
+              const ci = match.checkin || '';
+              const co = match.checkout || '';
+              await sendStayOpsPush(
+                ownerPushSub,
+                'Booking Cancelled — ' + pname,
+                guest + ' · ' + ci + ' → ' + co
+              );
+            }
           } else {
             results.skipped++;
             newlySkipped.push(msgId);
@@ -267,6 +282,9 @@ exports.handler = async (event) => {
         if (emailType === 'modification') {
           const match = findExistingBooking(existingBookings, confCode, parsed.guestName, null);
           if (match) {
+            const datesChanged =
+              (parsed.checkin && parsed.checkin !== match.checkin) ||
+              (parsed.checkout && parsed.checkout !== match.checkout);
             const patch = { updated_at: new Date().toISOString(), gmail_message_id: msgId };
             if (parsed.checkin) patch.checkin = parsed.checkin;
             if (parsed.checkout) patch.checkout = parsed.checkout;
@@ -285,9 +303,30 @@ exports.handler = async (event) => {
             );
             results.updated++;
             results.details.push({ msgId, status: 'updated', guest: parsed.guestName, checkin: parsed.checkin });
+            if (datesChanged) {
+              const modPropName = (propMap.find(p => p.id === match.property_id) || {}).name || propertyName;
+              const newCi = parsed.checkin || match.checkin;
+              const newCo = parsed.checkout || match.checkout;
+              const guest = parsed.guestName || match.guest_name || 'Guest';
+              console.log('[StayOps] sending push (booking modified)');
+              await sendStayOpsPush(
+                ownerPushSub,
+                'Booking Modified — ' + modPropName,
+                guest + ' · dates changed to ' + newCi + ' → ' + newCo
+              );
+            }
           } else if (parsed.checkin && parsed.checkout) {
-            await insertNewBooking(SUPABASE_URL, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed);
-            results.imported++;
+            const inserted = await insertNewBooking(SUPABASE_URL, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed, emailFrom);
+            if (inserted) {
+              results.imported++;
+              const platformLabel = detectPlatform(emailFrom);
+              const guest = parsed.guestName || 'Guest';
+              await sendStayOpsPush(
+                ownerPushSub,
+                'New Booking — ' + propertyName,
+                guest + ' · ' + parsed.checkin + ' → ' + parsed.checkout + ' · ' + platformLabel
+              );
+            }
             results.details.push({ msgId, status: 'imported', guest: parsed.guestName, checkin: parsed.checkin, note: 'modification without matching original' });
             if (propertyUnconfirmed) {
               needsReview.push({
@@ -328,8 +367,17 @@ exports.handler = async (event) => {
           }
         }
 
-        await insertNewBooking(SUPABASE_URL, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed);
-        results.imported++;
+        const insertedNew = await insertNewBooking(SUPABASE_URL, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed, emailFrom);
+        if (insertedNew) {
+          results.imported++;
+          const platformLabel = detectPlatform(emailFrom);
+          const guest = parsed.guestName || 'Guest';
+          await sendStayOpsPush(
+            ownerPushSub,
+            'New Booking — ' + propertyName,
+            guest + ' · ' + parsed.checkin + ' → ' + parsed.checkout + ' · ' + platformLabel
+          );
+        }
         results.details.push({ msgId, status: 'imported', guest: parsed.guestName, checkin: parsed.checkin });
         if (propertyUnconfirmed) {
           needsReview.push({
@@ -408,7 +456,7 @@ async function updateLastScan(supabaseUrl, headers, uid, skippedIds) {
   });
 }
 
-async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed) {
+async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed, emailFrom) {
   const rate     = Number(mgmtFeeRate) || 0;
   const payout   = parsed.hostPayout  || 0;
   const cleaning = parsed.cleaningFee || 0;
@@ -431,7 +479,7 @@ async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, 
     mgmt_fee_raw: rate,
     mgmt_fee: mgmtFee,
     mgmt_payout: mgmtFee,        // manager's cut
-    platform: parsed.platform || '',
+    platform: detectPlatform(emailFrom),
     confirmation_code: parsed.confirmationCode || '',
     status: 'confirmed',
     source: 'gmail',
@@ -448,6 +496,46 @@ async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, 
   if (!res.ok && res.status !== 201) {
     const errText = await res.text();
     console.warn('[gmail-scan] Insert failed for', msgId, errText);
+    return false;
+  }
+  return true;
+}
+
+function parsePushSubscription(raw) {
+  if (raw == null || raw === '') return null;
+  try {
+    const o = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (o && typeof o.endpoint === 'string' && o.keys && o.keys.p256dh && o.keys.auth) return o;
+  } catch (_) {}
+  return null;
+}
+
+let _stayOpsWebPushConfigured = false;
+function ensureStayOpsWebPush() {
+  if (_stayOpsWebPushConfigured) return true;
+  const pub = process.env.VAPID_PUBLIC_KEY;
+  const priv = process.env.VAPID_PRIVATE_KEY;
+  if (!pub || !priv) return false;
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT || 'mailto:admin@glenhaven21.netlify.app',
+    pub,
+    priv
+  );
+  _stayOpsWebPushConfigured = true;
+  return true;
+}
+
+async function sendStayOpsPush(subscription, title, body) {
+  if (!subscription) return;
+  if (!ensureStayOpsWebPush()) return;
+  console.log('[StayOps] sending push:', title);
+  try {
+    await webpush.sendNotification(
+      subscription,
+      JSON.stringify({ title, body: body || '', url: '/', tag: 'stayops-booking' })
+    );
+  } catch (err) {
+    console.warn('[StayOps] push failed:', err.message || err);
   }
 }
 
@@ -486,6 +574,15 @@ function findExistingBooking(bookings, confCode, guestName, checkin) {
   }
 
   return null;
+}
+
+function detectPlatform(from) {
+  const f = (from || '').toLowerCase();
+  if (f.includes('@airbnb')) return 'Airbnb';
+  if (f.includes('@vrbo') || f.includes('@homeaway')) return 'VRBO';
+  if (f.includes('@booking.com')) return 'Booking.com';
+  if (f.includes('@stayz')) return 'Stayz';
+  return 'Direct';
 }
 
 function getHeader(headers, name) {

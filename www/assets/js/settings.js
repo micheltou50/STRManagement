@@ -1,0 +1,1110 @@
+/**
+ * StayOps — settings UI and integrations (Pass 8).
+ */
+import { lsKey, getActivePropertyId, getActivePropertyConfig, getCurrentPropertyName, getAllProperties, getPropertyConfigGaps } from './config.js';
+import { loadJSON } from './state.js';
+import { escHtml } from './utils.js';
+import {
+  getCurrentSupabaseUser,
+  saveAppConfigToCloud,
+  saveCleanersToCloud,
+  saveHostConfigToSupabase,
+  savePropertyToCloud,
+} from './supabase.js';
+import { updateNotifStatus, cleanerLinkForId } from './notifications.js';
+import { renderPropertySwitcher, populateOwnerReportPanel } from './property.js';
+import { reopenPropertySetup } from './setup.js';
+import {
+  populateCleanerSelect,
+  isCleanerPerson,
+} from './cleaning.js';
+import {
+  renderExpenseCatSettings,
+  renderClientsList,
+  populateMgmtFeePanel,
+  _getInvoiceIdentity,
+} from './finance.js';
+import { renderAIIgnoreList } from './ai.js';
+
+function renderConnectionSummary() {
+  const wrap = document.getElementById('integrations-conn-list');
+  if (!wrap) return;
+
+  const gmailEmail = localStorage.getItem('gh-gmail-email') || '';
+  const gmailConnected = !!gmailEmail;
+
+  const outlookEmail = localStorage.getItem('gh-outlook-email') || '';
+  const outlookConnected = !!outlookEmail;
+
+  wrap.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--mist);border-radius:10px">
+      <div style="font-size:13px;color:var(--text)">Supabase</div>
+      <div style="font-size:12px;color:var(--moss)">✓ Connected</div>
+    </div>
+
+    <div style="padding:12px;background:var(--mist);border-radius:10px;margin-top:8px">
+      <div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:6px">📧 Gmail — Booking Import</div>
+      ${gmailConnected ? `
+        <div style="font-size:12px;color:var(--moss);margin-bottom:8px">✓ Connected: ${escHtml(gmailEmail)}</div>
+        <div style="display:flex;gap:6px">
+          <button onclick="scanGmailBookings()" id="gmail-scan-btn"
+            style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">📥 Scan for Bookings</button>
+          <button onclick="connectGmail()" 
+            style="background:var(--warm);color:var(--forest);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">Reconnect</button>
+        </div>
+        <div id="gmail-scan-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;line-height:1.5"></div>
+      ` : `
+        <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.5">Connect your Gmail to automatically import bookings from Airbnb, VRBO, Booking.com, and other platforms.</div>
+        <button onclick="connectGmail()"
+          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
+          <img src="https://www.google.com/favicon.ico" width="18" height="18" style="border-radius:3px"> Connect Gmail
+        </button>
+      `}
+    </div>
+
+    <div style="padding:12px;background:var(--mist);border-radius:10px;margin-top:8px">
+      <div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:6px">📧 Outlook — Booking Import</div>
+      ${outlookConnected ? `
+        <div style="font-size:12px;color:var(--moss);margin-bottom:8px">✓ Connected: ${escHtml(outlookEmail)}</div>
+        <div style="display:flex;gap:6px">
+          <button onclick="scanOutlookBookings()" id="outlook-scan-btn"
+            style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">📥 Scan for Bookings</button>
+          <button onclick="connectOutlook()"
+            style="background:var(--warm);color:var(--forest);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">Reconnect</button>
+        </div>
+        <div id="outlook-scan-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;line-height:1.5"></div>
+      ` : `
+        <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.5">Connect your Outlook / Hotmail account to automatically import bookings from Airbnb, VRBO, Booking.com, and other platforms.</div>
+        <button onclick="connectOutlook()"
+          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
+          <img src="https://www.microsoft.com/favicon.ico" width="18" height="18" style="border-radius:3px"> Connect Outlook
+        </button>
+      `}
+    </div>`
+  ;
+}
+async function connectGmail() {
+  const user = await getCurrentSupabaseUser();
+  if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
+  window.location.href = '/.netlify/functions/gmail-oauth-start?state=' + encodeURIComponent(user.id);
+}
+
+async function connectOutlook() {
+  const user = await getCurrentSupabaseUser();
+  if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
+  window.location.href = '/.netlify/functions/outlook-oauth-start?state=' + encodeURIComponent(user.id);
+}
+async function maybeAutoScanGmail() {
+  try {
+    const gmailEmail = localStorage.getItem('gh-gmail-email') || '';
+    if (!gmailEmail) return; // Gmail not connected
+    const user = window._supabaseUser;
+    if (!user) return;
+
+    // No throttle — scan runs every time the app is opened
+
+    const _pid = (window._cloudPropertyIds && window._cloudPropertyIds[getActivePropertyId()]) || '';
+    const res = await fetch('/.netlify/functions/gmail-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const totalChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0);
+    if (totalChanges > 0) {
+      if (typeof hydrateFromCloud === 'function') await globalThis.hydrateFromCloud();
+      globalThis.reloadInMemoryData();
+      globalThis.renderAll();
+      const parts = [];
+      if (data.imported) parts.push(data.imported + ' imported');
+      if (data.updated) parts.push(data.updated + ' updated');
+      if (data.cancelled) parts.push(data.cancelled + ' cancelled');
+      globalThis.showBanner('✓ ' + parts.join(', ') + ' from Gmail', 'ok');
+    }
+    await globalThis.processScanNeedsReview(data);
+  } catch (e) {
+    // Silent — auto-scan errors must never surface to the user
+    console.warn('[gmail-auto-scan] background scan error:', e.message);
+  }
+}
+
+async function scanGmailBookings() {
+  const user = window._supabaseUser;
+  if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
+
+  const btn = document.getElementById('gmail-scan-btn');
+  const statusEl = document.getElementById('gmail-scan-status');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Scanning…'; }
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.style.background = '#FFF8E1';
+    statusEl.style.color = '#E65100';
+    statusEl.textContent = 'Scanning Gmail for booking confirmations…';
+  }
+
+  try {
+    const _pid = (window._cloudPropertyIds && window._cloudPropertyIds[getActivePropertyId()]) || '';
+    const res = await fetch('/.netlify/functions/gmail-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
+    const data = await res.json();
+
+    if (!res.ok) {
+      if (statusEl) {
+        statusEl.style.background = '#FEF2F2';
+        statusEl.style.color = 'var(--red)';
+        statusEl.textContent = '⚠ ' + (data.error || 'Scan failed');
+      }
+      if (btn) { btn.disabled = false; btn.textContent = '📥 Scan for Bookings'; }
+      return;
+    }
+
+    if (statusEl) {
+      const hasChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0) > 0;
+      statusEl.style.background = hasChanges ? '#EDF7ED' : 'var(--mist)';
+      statusEl.style.color = hasChanges ? 'var(--forest)' : 'var(--text-soft)';
+
+      let msg = data.message || 'Scan complete';
+      if (data.details && data.details.length) {
+        const actionItems = data.details
+          .filter(d => d.status === 'imported' || d.status === 'updated' || d.status === 'cancelled')
+          .map(d => {
+            const label = d.status === 'cancelled' ? '❌' : d.status === 'updated' ? '✏️' : '✅';
+            return label + ' ' + (d.guest || 'Guest') + (d.checkin ? ' (' + d.checkin + ')' : '');
+          })
+          .join(', ');
+        if (actionItems) msg += ': ' + actionItems;
+      }
+      if (data.remaining > 0) msg += ' · ' + data.remaining + ' more emails to process — scan again';
+      statusEl.textContent = (hasChanges ? '✓ ' : '') + msg;
+    }
+
+    // Refresh data if any bookings changed
+    const totalChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0);
+    if (totalChanges > 0) {
+      if (typeof hydrateFromCloud === 'function') await globalThis.hydrateFromCloud();
+      globalThis.reloadInMemoryData();
+      globalThis.renderAll();
+      const parts = [];
+      if (data.imported) parts.push(data.imported + ' imported');
+      if (data.updated) parts.push(data.updated + ' updated');
+      if (data.cancelled) parts.push(data.cancelled + ' cancelled');
+      globalThis.showBanner('✓ ' + parts.join(', ') + ' from Gmail', 'ok');
+    }
+
+    await globalThis.processScanNeedsReview(data);
+
+  } catch (e) {
+    if (statusEl) {
+      statusEl.style.background = '#FEF2F2';
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '⚠ Network error — check connection';
+    }
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = '📥 Scan for Bookings'; }
+}
+
+// Silent background Outlook scan — mirrors maybeAutoScanGmail exactly.
+async function maybeAutoScanOutlook() {
+  try {
+    const outlookEmail = localStorage.getItem('gh-outlook-email') || '';
+    if (!outlookEmail) return; // Outlook not connected
+    const user = window._supabaseUser;
+    if (!user) return;
+
+    const _pid = (window._cloudPropertyIds && window._cloudPropertyIds[getActivePropertyId()]) || '';
+    const res = await fetch('/.netlify/functions/outlook-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const totalChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0);
+    if (totalChanges > 0) {
+      if (typeof hydrateFromCloud === 'function') await globalThis.hydrateFromCloud();
+      globalThis.reloadInMemoryData();
+      globalThis.renderAll();
+      const parts = [];
+      if (data.imported) parts.push(data.imported + ' imported');
+      if (data.updated) parts.push(data.updated + ' updated');
+      if (data.cancelled) parts.push(data.cancelled + ' cancelled');
+      globalThis.showBanner('✓ ' + parts.join(', ') + ' from Outlook', 'ok');
+    }
+    await globalThis.processScanNeedsReview(data);
+  } catch (e) {
+    console.warn('[outlook-auto-scan] background scan error:', e.message);
+  }
+}
+
+async function scanOutlookBookings() {
+  const user = window._supabaseUser;
+  if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
+
+  const btn = document.getElementById('outlook-scan-btn');
+  const statusEl = document.getElementById('outlook-scan-status');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Scanning…'; }
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.style.background = '#FFF8E1';
+    statusEl.style.color = '#E65100';
+    statusEl.textContent = 'Scanning Outlook for booking confirmations…';
+  }
+
+  try {
+    const _pid = (window._cloudPropertyIds && window._cloudPropertyIds[getActivePropertyId()]) || '';
+    const res = await fetch('/.netlify/functions/outlook-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
+    const data = await res.json();
+
+    if (!res.ok) {
+      if (statusEl) {
+        statusEl.style.background = '#FEF2F2';
+        statusEl.style.color = 'var(--red)';
+        statusEl.textContent = '⚠ ' + (data.error || 'Scan failed');
+      }
+      if (btn) { btn.disabled = false; btn.textContent = '📥 Scan for Bookings'; }
+      return;
+    }
+
+    if (statusEl) {
+      const hasChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0) > 0;
+      statusEl.style.background = hasChanges ? '#EDF7ED' : 'var(--mist)';
+      statusEl.style.color = hasChanges ? 'var(--forest)' : 'var(--text-soft)';
+
+      let msg = data.message || 'Scan complete';
+      if (data.details && data.details.length) {
+        const actionItems = data.details
+          .filter(d => d.status === 'imported' || d.status === 'updated' || d.status === 'cancelled')
+          .map(d => {
+            const label = d.status === 'cancelled' ? '❌' : d.status === 'updated' ? '✏️' : '✅';
+            return label + ' ' + (d.guest || 'Guest') + (d.checkin ? ' (' + d.checkin + ')' : '');
+          })
+          .join(', ');
+        if (actionItems) msg += ': ' + actionItems;
+      }
+      if (data.remaining > 0) msg += ' · ' + data.remaining + ' more emails to process — scan again';
+      statusEl.textContent = (hasChanges ? '✓ ' : '') + msg;
+    }
+
+    const totalChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0);
+    if (totalChanges > 0) {
+      if (typeof hydrateFromCloud === 'function') await globalThis.hydrateFromCloud();
+      globalThis.reloadInMemoryData();
+      globalThis.renderAll();
+      const parts = [];
+      if (data.imported) parts.push(data.imported + ' imported');
+      if (data.updated) parts.push(data.updated + ' updated');
+      if (data.cancelled) parts.push(data.cancelled + ' cancelled');
+      globalThis.showBanner('✓ ' + parts.join(', ') + ' from Outlook', 'ok');
+    }
+
+    await globalThis.processScanNeedsReview(data);
+
+  } catch (e) {
+    if (statusEl) {
+      statusEl.style.background = '#FEF2F2';
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '⚠ Network error — check connection';
+    }
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = '📥 Scan for Bookings'; }
+}
+const CALENDAR_FEED_PUBLIC_URL = 'https://strmanagement.netlify.app/.netlify/functions/calendar-feed';
+
+async function populateCalendarFeedPanel() {
+  const input = document.getElementById('settings-calendar-feed-url');
+  const hint = document.getElementById('settings-calendar-feed-unavailable');
+  const confirmEl = document.getElementById('settings-calendar-feed-copy-confirm');
+  if (confirmEl) confirmEl.style.display = 'none';
+  let user = window._supabaseUser;
+  if (!user && typeof getCurrentSupabaseUser === 'function') {
+    try { user = await getCurrentSupabaseUser(); } catch (e) { user = null; }
+  }
+  if (input) {
+    input.value = user && user.id ? CALENDAR_FEED_PUBLIC_URL + '?uid=' + encodeURIComponent(user.id) : '';
+  }
+  if (hint) hint.style.display = user && user.id ? 'none' : 'block';
+}
+
+function copyCalendarFeedUrl() {
+  const input = document.getElementById('settings-calendar-feed-url') || document.getElementById('calendar-feed-url');
+  const btn = document.getElementById('settings-calendar-feed-copy-btn') || document.getElementById('copy-feed-btn');
+  const confirmEl = document.getElementById('settings-calendar-feed-copy-confirm');
+  if (!input) return;
+  const url = String(input.value || '').trim();
+  if (!url) {
+    if (typeof showBanner === 'function') globalThis.showBanner('⚠ Sign in to copy your calendar feed URL', 'warn');
+    return;
+  }
+  const defaultLabel = btn && btn.id === 'settings-calendar-feed-copy-btn' ? 'Copy URL' : 'Copy';
+  const done = () => {
+    if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = defaultLabel; }, 2000); }
+    if (confirmEl) { confirmEl.style.display = 'block'; setTimeout(() => { confirmEl.style.display = 'none'; }, 2000); }
+  };
+  navigator.clipboard.writeText(url).then(done).catch(() => {
+    input.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    done();
+  });
+}
+let _connectionSummaryTimer = null;
+function refreshConnectionSummarySoon() {
+  clearTimeout(_connectionSummaryTimer);
+  _connectionSummaryTimer = setTimeout(() => {
+    try { renderConnectionSummary(); } catch (e) { console.warn('renderConnectionSummary failed', e); }
+  }, 120);
+}
+// ── SETTINGS NAVIGATION ──────────────────────────────────────────────────────
+// Settings lives in its own section (section-settings). These functions manage
+// navigation within that section: main menu → category → panel → back.
+
+function _resetSettingsToMenu() {
+  // Show main menu, hide all cats and panels
+  const sm = document.getElementById('settings-menu');
+  if (sm) {
+    sm.style.display = '';
+    // Retrigger the fade-in animation each time the menu is shown.
+    sm.style.animation = 'none';
+    sm.offsetHeight; // force reflow
+    sm.style.animation = '';
+  }
+  document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
+}
+
+function _ensureSettingsVisible() {
+  // If we're not on the settings section, switch to it
+  const sec = typeof globalThis.getCurrentSection === 'function' ? globalThis.getCurrentSection() : '';
+  if (sec !== 'settings') globalThis.showSection('settings');
+  // Scroll to top so the panel is visible
+  const mc = document.getElementById('main-content');
+  if (mc) mc.scrollTop = 0;
+  else window.scrollTo(0, 0);
+}
+
+function openSettingsCat(cat, returnSection) {
+  _ensureSettingsVisible();
+  const sm = document.getElementById('settings-menu');
+  if (sm) sm.style.display = 'none';
+  document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
+  const el = document.getElementById('settings-cat-' + cat);
+  if (el) {
+    el.style.display = 'block';
+    if (returnSection) el.dataset.returnSection = returnSection;
+    else delete el.dataset.returnSection;
+  }
+  if (cat === 'property') {
+    setTimeout(updateNotifStatus, 100);
+    const sr = document.getElementById('notif-status-row-menu');
+    if (sr) { const p = Notification.permission; sr.textContent = p === 'granted' ? '✅ Enabled' : p === 'denied' ? '❌ Blocked' : 'Tap to set up'; }
+  }
+  if (cat === 'cleaner') { openCleanerSettings(); }
+}
+
+function openSettingsPanel(panelId, returnSection) {
+  _ensureSettingsVisible();
+  // track which cat we came from
+  const activeCat = document.querySelector('[id^="settings-cat-"]:not([style*="display: none"]):not([style*="display:none"])');
+  const prevCat = activeCat ? activeCat.id.replace('settings-cat-', '') : null;
+  // track which panel we came from (for panel→panel navigation)
+  const activePanel = document.querySelector('[id^="settings-panel-"]:not([style*="display: none"]):not([style*="display:none"])');
+  const prevPanel = activePanel ? activePanel.id.replace('settings-panel-', '') : null;
+  const sm = document.getElementById('settings-menu');
+  if (sm) sm.style.display = 'none';
+  document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
+  const panel = document.getElementById('settings-panel-' + panelId);
+  if (!panel) return;
+  panel.style.display = 'block';
+  if (prevCat) panel.dataset.prevCat = prevCat;
+  else delete panel.dataset.prevCat;
+  if (prevPanel) panel.dataset.prevPanel = prevPanel;
+  else delete panel.dataset.prevPanel;
+  if (returnSection) panel.dataset.returnSection = returnSection;
+  else delete panel.dataset.returnSection;
+
+  // populate panel data on open
+  if (panelId === 'sms-template') {
+    const defaultTemplate = `Hi {cleanerFirstName}\n\nNew Booking - please see below\n\nCheck in: {checkin}\nCheck out: {checkout}\nName: {guestFirstName}\nNumber of guests: {guests}\n\nPlease let me know if you are available`;
+    const el = document.getElementById('settings-sms-template');
+    if (el) el.value = localStorage.getItem(lsKey('sms-template')) || defaultTemplate;
+  }
+  if (panelId === 'team') {
+    renderTeamList();
+    _renderAutoAssignToggle();
+  }
+  if (panelId === 'property-switcher') {
+    renderPropertySwitcher();
+  }
+  if (panelId === 'notifications') {
+    setTimeout(updateNotifStatus, 100);
+  }
+  if (panelId === 'expense-cats') {
+    renderExpenseCatSettings();
+  }
+  if (panelId === 'invoice-details') {
+    ['name','company','abn','acn','email','address'].forEach(k => {
+      const el = document.getElementById('inv-'+k);
+      if (el) el.value = localStorage.getItem(lsKey('inv-'+k)) || '';
+    });
+  }
+  if (panelId === 'bank-details') {
+    ['name','bsb','acc','bank'].forEach(k => {
+      const el = document.getElementById('inv-bank-'+k);
+      if (el) el.value = localStorage.getItem(lsKey('inv-bank-'+k)) || '';
+    });
+  }
+  if (panelId === 'invoice-clients') {
+    renderClientsList();
+  }
+  if (panelId === 'backup') {
+    const el = document.getElementById('backup-last-time');
+    if (el) el.textContent = localStorage.getItem(lsKey('last-backup')) || 'Never';
+  }
+  if (panelId === 'ai-import') {
+    const el = document.getElementById('settings-api-key');
+    if (el) el.value = localStorage.getItem('gh-api-key') || '';
+  }
+  if (panelId === 'smart-pricing') {
+    const saved = localStorage.getItem(lsKey('base-rate'));
+    if (saved) { const el = document.getElementById('pricing-base-rate'); if (el) el.value = saved; }
+  }
+  if (panelId === 'ai-ignore') {
+    renderAIIgnoreList();
+  }
+  if (panelId === 'app-data') {
+    renderStorageViewer();
+  }
+  if (panelId === 'feel') {
+    initFxSettings();
+  }
+  if (panelId === 'connection-checker') {
+    resetConnectionCheckerResults();
+  }
+  if (panelId === 'calendar-feed') {
+    populateCalendarFeedPanel();
+  }
+  if (panelId === 'integrations') {
+    renderConnectionSummary();
+  }
+  if (panelId === 'owner-report') {
+    populateOwnerReportPanel();
+  }
+  if (panelId === 'mgmt-fee') {
+    populateMgmtFeePanel();
+  }
+  if (panelId === 'host-profile') {
+    populateHostProfilePanel();
+  }
+}
+function closeSettingsPanel() {
+  const panel = document.querySelector('[id^="settings-panel-"]:not([style*="display: none"]):not([style*="display:none"])');
+  const returnCat     = panel?.dataset.prevCat;
+  const returnPanel   = panel?.dataset.prevPanel;
+  const returnSection = panel?.dataset.returnSection;
+  const _doClose = () => {
+    document.querySelectorAll('[id^="settings-panel-"]').forEach(el => { el.style.display = 'none'; el.style.animation = ''; });
+    if (returnPanel)        openSettingsPanel(returnPanel);
+    else if (returnCat)     openSettingsCat(returnCat);
+    else if (returnSection) globalThis.showSection(returnSection);
+    else                    closeSettingsCat();
+  };
+  if (panel) {
+    panel.style.animation = 'settingsPanelOut 0.18s cubic-bezier(0.32,0.72,0,1) both';
+    setTimeout(_doClose, 170);
+  } else {
+    _doClose();
+  }
+}
+
+function closeSettingsCat() {
+  const activeCat = document.querySelector('[id^="settings-cat-"]:not([style*="display: none"]):not([style*="display:none"])');
+  const returnSection = activeCat && activeCat.dataset.returnSection;
+  const _doClose = () => {
+    if (activeCat) { activeCat.style.animation = ''; }
+    _resetSettingsToMenu();
+    if (returnSection) globalThis.showSection(returnSection);
+  };
+  if (activeCat) {
+    activeCat.style.animation = 'settingsCatOut 0.18s cubic-bezier(0.32,0.72,0,1) both';
+    setTimeout(_doClose, 170);
+  } else {
+    _doClose();
+  }
+}
+
+
+function renderSettings() {
+  renderHostProfileRow();
+  renderConnectionSummary();
+  // Quick actions — only show if setup has gaps
+  const qaWrap = document.getElementById('settings-quick-actions');
+  const fixBtn = document.getElementById('settings-fix-setup-btn');
+  const setupGaps = (typeof getPropertyConfigGaps === 'function') ? getPropertyConfigGaps() : [];
+  if (qaWrap) qaWrap.style.display = setupGaps.length ? '' : 'none';
+  if (fixBtn) fixBtn.onclick = () => { openSettingsCat('property'); reopenPropertySetup(); };
+  // Team count on main menu
+  const teamMenuEl = document.getElementById('team-count-row-menu');
+  if (teamMenuEl) {
+    const cleaners = loadCleaners ? loadCleaners() : [];
+    teamMenuEl.textContent = cleaners.length ? cleaners.length + ' people' : 'Cleaners & contractors';
+  }
+  // Header property name + chevron
+  const headerName = document.getElementById('header-property-name');
+  if (headerName) headerName.textContent = getCurrentPropertyName();
+  const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
+  // Always show chevron — even with 1 property, tap opens sheet with Add Property
+  const chevron = document.getElementById('prop-switcher-chevron');
+  if (chevron) chevron.style.display = '';
+  const chevronHeader = document.getElementById('prop-switcher-chevron-header');
+  if (chevronHeader) chevronHeader.style.display = '';
+  setTimeout(updateNotifStatus, 100);
+}
+function chooseGoogleAccount() {}
+
+function syncToSheet() {}
+function clearCacheAndResync() {
+  globalThis.showAppModal({
+    title: '🗑 Clear booking cache?',
+    msg: 'This will clear synced bookings, cleans, notes and expenses, then re-pull from Legacy Sheets.\n\nYour inventory, cleaners, maintenance records and all settings will be kept.',
+    confirmText: 'Clear & Re-sync',
+    cancelText: 'Cancel'
+  }).then(ok => {
+    if (!ok) return;
+    // Only clear the data that comes from the sheet — preserve everything else
+    ['gh-bookings','gh-cleans','gh-notes','gh-expenses','gh-last-sync'].map(k => lsKey(k.replace('gh-',''))).forEach(k => localStorage.removeItem(k));
+    window.location.href = window.location.origin + window.location.pathname;
+  });
+}
+function saveSMSTemplate() {
+  const val = document.getElementById('settings-sms-template');
+  if (!val) return;
+  localStorage.setItem(lsKey('sms-template'), val.value);
+  if (typeof saveAppConfigToCloud === 'function') {
+    saveAppConfigToCloud({ sms_template: val.value }).catch(() => {});
+  }
+  globalThis.showBanner('✓ SMS template saved', 'ok');
+}
+function saveGeminiKey() {
+  const key = document.getElementById('settings-gemini-key').value.trim();
+  if (!key) { globalThis.showBanner('⚠ Could not save: Gemini key is empty', 'warn'); return; }
+  localStorage.setItem('gh-gemini-key', key);
+  const el = document.getElementById('gemini-key-confirm');
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 2000);
+  globalThis.showBanner('✓ Settings saved: Gemini key', 'ok');
+}
+function saveApiKey() {
+  const key = document.getElementById('settings-api-key').value.trim();
+  if (!key) { globalThis.showBanner('⚠ Could not save: API key is empty', 'warn'); return; }
+  localStorage.setItem('gh-api-key', key);
+  const el = document.getElementById('api-key-confirm');
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 2000);
+  globalThis.showBanner('✓ Settings saved: API key', 'ok');
+  // Sync to Supabase
+  if (typeof savePropertyToCloud === 'function') {
+    const cfg = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : {};
+    savePropertyToCloud(cfg).catch(() => {});
+  }
+}
+function getApiKey() {
+  return localStorage.getItem('gh-api-key') || '';
+}
+// ── HOST IDENTITY ─────────────────────────────────────────────────────────────
+const HOST_PROFILE_KEY = 'gh-host-profile';
+
+function getHostProfile() {
+  try {
+    const raw = localStorage.getItem(HOST_PROFILE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (!p || typeof p !== 'object') return null;
+    if (!p.hostId) return null;
+    return p;
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveHostProfile(profile) {
+  if (!profile || !profile.hostId) return;
+  localStorage.setItem(HOST_PROFILE_KEY, JSON.stringify(profile));
+}
+async function manageHostIdentity() {
+  // Legacy entry point — route to the new panel
+  openSettingsPanel('host-profile');
+}
+
+function populateHostProfilePanel() {
+  const existing = getHostProfile() || {};
+  const cfg = getActivePropertyConfig();
+  // Pre-populate: existing host profile > active property config > legacy inv-* keys
+  const _inv = _getInvoiceIdentity();
+  const _v = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+  _v('host-profile-name',    existing.name    || _inv.name);
+  _v('host-profile-company', existing.company || _inv.company);
+  _v('host-profile-abn',     existing.abn     || _inv.abn);
+  _v('host-profile-acn',     existing.acn     || _inv.acn);
+  _v('host-profile-email',   existing.email   || _inv.email);
+  _v('host-profile-phone',   existing.phone   || '');
+  _v('host-profile-address', existing.address || _inv.address);
+}
+
+async function saveHostProfilePanel() {
+  const _g = id => (document.getElementById(id) || {}).value?.trim() || '';
+  const name    = _g('host-profile-name');
+  if (!name) { globalThis.showBanner('⚠ Name is required', 'warn'); return; }
+  const profile = {
+    ...(getHostProfile() || {}),
+    name,
+    company: _g('host-profile-company'),
+    abn:     _g('host-profile-abn'),
+    acn:     _g('host-profile-acn'),
+    email:   _g('host-profile-email'),
+    phone:   _g('host-profile-phone'),
+    address: _g('host-profile-address'),
+    updatedAt: new Date().toISOString(),
+  };
+  if (!profile.hostId) {
+    profile.hostId = 'host-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) + '-' + Date.now().toString().slice(-6);
+    profile.createdAt = profile.updatedAt;
+  }
+  // Mirror to invoice-detail keys for backward compat
+  if (profile.name)    localStorage.setItem(lsKey('inv-name'),    profile.name);
+  if (profile.company) localStorage.setItem(lsKey('inv-company'), profile.company);
+  if (profile.abn)     localStorage.setItem(lsKey('inv-abn'),     profile.abn);
+  if (profile.acn)     localStorage.setItem(lsKey('inv-acn'),     profile.acn);
+  if (profile.email)   localStorage.setItem(lsKey('inv-email'),   profile.email);
+  if (profile.address) localStorage.setItem(lsKey('inv-address'), profile.address);
+
+  saveHostProfile(profile);
+  renderHostProfileRow();
+
+  // Sync to Supabase
+  if (typeof saveHostConfigToSupabase === 'function') {
+    saveHostConfigToSupabase(profile).catch(e => console.warn('[StayOps] host config sync failed', e));
+  }
+
+  globalThis.showBanner('✓ Host profile saved', 'ok');
+}
+
+function renderHostProfileRow() {
+  const row = document.getElementById('host-profile-row');
+  if (!row) return;
+  const host = getHostProfile();
+  if (!host || !host.name) {
+    row.textContent = 'Name, company, ABN, contact';
+    return;
+  }
+  const bits = [host.name];
+  if (host.company) bits.push(host.company);
+  if (host.abn) bits.push('ABN ' + host.abn);
+  row.textContent = bits.join(' · ');
+}
+
+function loadCleaners() {
+  return loadJSON(lsKey('cleaners'));
+}
+function saveCleaners(list) {
+  localStorage.setItem(lsKey('cleaners'), JSON.stringify(list));
+  if (typeof saveCleanersToCloud === 'function') {
+    saveCleanersToCloud(list).catch(e => console.warn('[StayOps] Cloud cleaner sync failed', e));
+  }
+}
+function addCleaner() {
+  const name = document.getElementById('new-cleaner-name').value.trim();
+  const phone = document.getElementById('new-cleaner-phone').value.trim();
+  const email = document.getElementById('new-cleaner-email').value.trim();
+  const pin = document.getElementById('new-cleaner-pin').value.trim();
+  const roleEl = document.getElementById('new-cleaner-role');
+  const role = roleEl ? roleEl.value : 'Cleaner';
+  if (!name) { globalThis.showBanner('⚠ Please enter a name','warn'); return; }
+  if (pin && !/^\d{4}$/.test(pin)) { globalThis.showBanner('⚠ PIN must be exactly 4 digits','warn'); return; }
+  const people = loadCleaners();
+  people.push({ id: Date.now(), name, phone, email: email || '', pin: pin || '', role });
+  saveCleaners(people);
+  document.getElementById('new-cleaner-name').value = '';
+  document.getElementById('new-cleaner-phone').value = '';
+  document.getElementById('new-cleaner-email').value = '';
+  document.getElementById('new-cleaner-pin').value = '';
+  populateCleanerSelect();
+  populateContractorSelect();
+  globalThis.showBanner('✓ ' + name + ' added', 'ok');
+  // Go back to team list
+  openSettingsPanel('team');
+}
+function deleteCleaner(id) {
+  saveCleaners(loadCleaners().filter(c => c.id !== id));
+  renderTeamList();
+  populateCleanerSelect();
+  populateContractorSelect();
+}
+function renderCleanersList() {
+  // Legacy — now handled by renderTeamList
+  renderTeamList();
+}
+function renderTeamList() {
+  const el = document.getElementById('team-list-container');
+  if (!el) return;
+  const people = loadCleaners();
+  // Update subtitle on property cat
+  const countRow = document.getElementById('team-count-row');
+  if (countRow) countRow.textContent = people.length ? people.length + ' people' : 'Cleaners & contractors';
+  if (!people.length) { el.innerHTML = ''; return; }
+  const roleColors = {Cleaner:'var(--moss)',Plumber:'#1565C0',Electrician:'#E65100',Landscaper:'#2E7D32',Builder:'#6A1B9A',Handyman:'#00838F',Other:'var(--stone)'};
+  el.innerHTML = `<div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:12px">` +
+    people.map((c, i) => `
+    <div class="settings-cat-item" onclick="openCleanerProfile(${c.id})" ${i===people.length-1?'style="border-bottom:none"':''}>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:36px;height:36px;border-radius:50%;background:${roleColors[c.role]||'var(--stone)'};color:white;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${c.name.charAt(0)}</div>
+        <div>
+          <div style="font-weight:500;font-size:14px">${c.name}</div>
+          <div style="font-size:12px;color:var(--text-soft)">${c.role||'Cleaner'}${c.email?' · '+c.email:c.phone?' · '+c.phone:''}</div>
+        </div>
+      </div>
+      <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+    </div>`).join('') + `</div>`;
+}
+function openCleanerProfile(id) {
+  const c = loadCleaners().find(x => x.id === id);
+  if (!c) return;
+  const PERM_LABELS = [
+    { key: 'firstName',  label: 'Guest first name' },
+    { key: 'fullName',   label: 'Full guest name' },
+    { key: 'guests',     label: 'Number of guests' },
+    { key: 'notes',      label: 'Check-in notes' },
+    { key: 'payout',     label: 'Cleaning fee / payout' },
+  ];
+  const perm = c.permissions || {};
+  const link = cleanerLinkForId(c);
+  const roleColors = {Cleaner:'var(--moss)',Plumber:'#1565C0',Electrician:'#E65100',Landscaper:'#2E7D32',Builder:'#6A1B9A',Handyman:'#00838F',Other:'var(--stone)'};
+  document.getElementById('cleaner-profile-content').innerHTML = `
+    <div class="card" style="margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+        <div style="width:48px;height:48px;border-radius:50%;background:${roleColors[c.role]||'var(--stone)'};color:white;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;flex-shrink:0">${c.name.charAt(0)}</div>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:17px">${c.name}</div>
+          <div style="font-size:12px;color:var(--text-soft)">${c.role||'Cleaner'}</div>
+        </div>
+        <button onclick="deleteCleaner(${c.id})" style="background:none;border:none;color:var(--red);font-size:13px;cursor:pointer;padding:4px 8px">Remove</button>
+      </div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:10px">Contact</div>
+      <label>Mobile</label>
+      <input type="tel" id="cp-phone-${c.id}" value="${c.phone||''}" placeholder="e.g. 0412 345 678">
+      <label>Email</label>
+      <input type="email" id="cp-email-${c.id}" value="${c.email||''}" placeholder="e.g. ${c.name.toLowerCase()}@email.com">
+      <button class="btn-secondary" onclick="saveCleanerContact(${c.id})" style="margin-top:4px">Save Contact</button>
+      <div id="cp-contact-confirm-${c.id}" style="font-size:12px;color:var(--moss);margin-top:4px;display:none">✓ Saved</div>
+    </div>
+    <div class="card" style="margin-bottom:10px">
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:10px">🔐 App Access</div>
+      <label>PIN (4 digits)</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="font-size:24px;font-weight:700;color:var(--forest);letter-spacing:8px;flex:1">${c.pin||'—'}</div>
+        ${c.pin?`<button onclick="clearCleanerPinById(${c.id})" style="font-size:11px;color:var(--red);background:none;border:1px solid var(--red);border-radius:20px;padding:4px 10px;cursor:pointer;white-space:nowrap">Clear</button>`:''}
+      </div>
+      <input type="text" inputmode="numeric" pattern="\\d*" id="pin-input-${c.id}" placeholder="Set 4-digit PIN" maxlength="4"
+        style="font-size:20px;letter-spacing:8px;text-align:center;padding:12px;border:1.5px solid var(--stone);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;background:white;margin-bottom:8px;color:var(--text);width:100%"
+        oninput="this.value=this.value.replace(/\\D/g,'').slice(0,4)">
+      <button onclick="saveCleanerPinById(${c.id})" class="btn-primary" style="width:100%">Save PIN</button>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-top:14px;margin-bottom:8px">🔗 App Link</div>
+      <div style="background:var(--mist);border-radius:var(--radius-sm);padding:10px 12px;font-size:12px;color:var(--forest);font-weight:500;word-break:break-all;margin-bottom:8px;border:1px solid var(--warm)">${link}</div>
+      <button onclick="copyCleanerLinkById(${c.id})" class="btn-primary" style="width:100%">📋 Copy Link</button>
+    </div>
+    <div class="card">
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:10px">👁 What They Can See</div>
+      ${PERM_LABELS.map(p => `
+      <div class="ios-toggle-row" style="padding:6px 0">
+        <div class="ios-toggle-label" style="font-size:13px">${p.label}</div>
+        <label class="ios-toggle"><input type="checkbox" ${perm[p.key]?'checked':''} onchange="saveCleanerPerm(${c.id},'${p.key}',this.checked)"><div class="ios-toggle-track"></div><div class="ios-toggle-thumb"></div></label>
+      </div>`).join('')}
+    </div>`;
+  openSettingsPanel('cleaner-profile');
+}
+function saveCleanerContact(id) {
+  const list = loadCleaners();
+  const c = list.find(x => x.id === id);
+  if (!c) return;
+  const phoneEl = document.getElementById('cp-phone-' + id);
+  const emailEl = document.getElementById('cp-email-' + id);
+  if (phoneEl) c.phone = phoneEl.value.trim();
+  if (emailEl) c.email = emailEl.value.trim();
+  saveCleaners(list);
+  const conf = document.getElementById('cp-contact-confirm-' + id);
+  if (conf) { conf.style.display='block'; setTimeout(()=>conf.style.display='none',2000); }
+  populateCleanerSelect();
+}
+function populateContractorSelect() {
+  const people = loadCleaners();
+  const sel = document.getElementById('maint-contractor-select');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">None</option>' + people.map(c => `<option value="${c.name}">${c.name} (${c.role||'Cleaner'})</option>`).join('');
+}
+function renderStorageViewer() {
+  const el = document.getElementById('storage-viewer');
+  if (!el) return;
+  // Only show the meaningful data keys: bookings, cleans, expenses
+  const DATA_KEYS = [lsKey('bookings'), lsKey('cleans'), lsKey('expenses')];
+  el.innerHTML = DATA_KEYS.map(k => {
+    const val = localStorage.getItem(k);
+    let items = [];
+    let count = 0;
+    try { items = JSON.parse(val || '[]'); count = Array.isArray(items) ? items.length : 0; } catch(e) {}
+    const label = k.endsWith('bookings') ? '🏠 Bookings' : k.endsWith('cleans') ? '🧹 Cleans' : '💰 Expenses';
+    return `
+    <div style="padding:12px 0;border-bottom:1px solid var(--warm)">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-weight:600;font-size:14px;color:var(--forest)">${label}</div>
+          <div style="font-size:12px;color:var(--text-soft);margin-top:2px">${count} record${count!==1?'s':''} stored locally</div>
+        </div>
+        <button onclick="globalThis.showAppModal({title:'Clear ${label}?',msg:'This removes all locally saved data. Sheet data is unaffected.',confirmText:'Clear',confirmColor:'var(--red)'}).then(ok=>{if(ok){localStorage.removeItem('${k}');renderStorageViewer();globalThis.showBanner('Cleared ${label.replace(/[^a-zA-Z ]/g,'')}','ok');}})" style="font-size:12px;color:var(--red);background:#FEF2F2;border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600">Clear</button>
+      </div>
+      ${count > 0 ? `<div style="font-size:11px;color:var(--text-soft);font-family:monospace;margin-top:6px;white-space:pre-wrap;word-break:break-all">${JSON.stringify(items.slice(0,1), null, 1).substring(0, 100)}${count > 1 ? '\n...' : ''}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+// ── FEEL & GESTURES ───────────────────────────────────────────────────────────
+
+// Default all on
+const FX_DEFAULTS = { swipeBack:true, modalSpring:true, listBounce:true, longPress:true };
+
+function getFx(key) {
+  const stored = localStorage.getItem('gh-fx-' + key);
+  return stored === null ? FX_DEFAULTS[key] : stored === 'true';
+}
+function saveFxSetting(key, val) {
+  localStorage.setItem('gh-fx-' + key, val);
+  if (key === 'modalSpring') applyModalSpring(val);
+}
+function applyModalSpring(on) {
+  document.querySelectorAll('.modal').forEach(m => {
+    m.style.transition = on
+      ? 'transform 0.42s cubic-bezier(0.32,0.72,0,1)'
+      : 'none';
+  });
+}
+function initFxSettings() {
+  ['swipeBack','modalSpring','listBounce','longPress'].forEach(k => {
+    const el = document.getElementById('fx-' + k.replace(/([A-Z])/g, '-$1').toLowerCase());
+    if (el) el.checked = getFx(k);
+  });
+  if (!getFx('modalSpring')) applyModalSpring(false);
+}
+let swipeStartX = 0, swipeStartY = 0, swipeActive = false;
+const EDGE_ZONE = 30, MIN_SWIPE = 60;
+
+function isSubScreenOpen() {
+  // A settings cat or panel is open (not the main menu)
+  const sec = typeof globalThis.getCurrentSection === 'function' ? globalThis.getCurrentSection() : '';
+  if (sec !== 'settings') return false;
+  const sm = document.getElementById('settings-menu');
+  if (sm && sm.style.display !== 'none' && sm.offsetParent !== null) return false; // main menu visible = not a sub-screen
+  return !!document.querySelector('[id^="settings-cat-"]:not([style*="display:none"]):not([style*="display: none"])') ||
+         !!document.querySelector('[id^="settings-panel-"]:not([style*="display:none"]):not([style*="display: none"])');
+}
+
+/** Register swipe-from-left-edge to go back inside Settings (main.js calls this from finishAppInit). */
+function initSettingsSwipeBack() {
+  document.addEventListener('touchstart', e => {
+    if (!getFx('swipeBack')) return;
+    const t = e.touches[0];
+    swipeStartX = t.clientX;
+    swipeStartY = t.clientY;
+    swipeActive = swipeStartX <= EDGE_ZONE && isSubScreenOpen();
+    if (swipeActive) document.getElementById('swipe-back-hint').classList.add('visible');
+  }, { passive:true });
+
+  document.addEventListener('touchmove', e => {
+    if (!swipeActive) return;
+    const dx = e.touches[0].clientX - swipeStartX;
+    const dy = Math.abs(e.touches[0].clientY - swipeStartY);
+    if (dy > 40) { swipeActive = false; document.getElementById('swipe-back-hint').classList.remove('visible'); }
+  }, { passive:true });
+
+  document.addEventListener('touchend', e => {
+    document.getElementById('swipe-back-hint').classList.remove('visible');
+    if (!swipeActive) return;
+    swipeActive = false;
+    const dx = e.changedTouches[0].clientX - swipeStartX;
+    if (dx >= MIN_SWIPE) {
+      const openPanel = document.querySelector('[id^="settings-panel-"]:not([style*="display:none"]):not([style*="display: none"])');
+      if (openPanel) closeSettingsPanel();
+      else closeSettingsCat();
+    }
+  }, { passive:true });
+}
+function getAutoAssignCleaner() {
+  return localStorage.getItem(lsKey('auto-assign-cleaner')) !== 'off';
+}
+
+function toggleAutoAssignCleaner() {
+  const current = getAutoAssignCleaner();
+  const newVal = !current;
+  localStorage.setItem(lsKey('auto-assign-cleaner'), newVal ? 'on' : 'off');
+  if (typeof saveAppConfigToCloud === 'function') {
+    saveAppConfigToCloud({ auto_assign_cleaner: newVal }).catch(() => {});
+  }
+  _renderAutoAssignToggle();
+  globalThis.showBanner(newVal ? '✓ Auto-assign enabled' : '✓ Auto-assign disabled', 'ok');
+}
+
+function _renderAutoAssignToggle() {
+  const on = getAutoAssignCleaner();
+  const track = document.getElementById('auto-assign-toggle');
+  const thumb = document.getElementById('auto-assign-thumb');
+  if (track) track.style.background = on ? 'var(--forest)' : 'var(--border)';
+  if (thumb) thumb.style.transform = on ? 'translateX(18px)' : 'translateX(0)';
+}
+
+// ── END AUTO-ASSIGN TOGGLE ────────────────────────────────────────────────────
+
+
+function resetConnectionCheckerResults() {
+  const el = document.getElementById('conn-notif-result');
+  if (el) el.style.display = 'none';
+}
+
+// ── CLEANER ACCESS SETTINGS ───────────────────────────────────────────────────
+function openCleanerSettings() {
+  renderCleanerAccessList();
+}
+function renderCleanerAccessList() {
+  const el = document.getElementById('cleaner-access-list');
+  if (!el) return;
+  const cleaners = loadCleaners().filter(c => isCleanerPerson(c));
+  if (!cleaners.length) {
+    el.innerHTML = `<div class="card" style="margin-bottom:12px;text-align:center;padding:24px">
+      <div style="font-size:32px;margin-bottom:8px">🧹</div>
+      <div style="font-weight:600;font-size:14px;margin-bottom:6px">No cleaners added yet</div>
+      <div style="font-size:12px;color:var(--text-soft);margin-bottom:14px">Go to Settings → Property → Team to add cleaners</div>
+      <button onclick="openSettingsCat('property');openSettingsPanel('team')" class="btn-primary">Add Team Members</button>
+    </div>`;
+    return;
+  }
+  el.innerHTML = `<div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:12px">` +
+    cleaners.map((c, i) => `
+    <div class="settings-cat-item" onclick="openCleanerProfile(${c.id})" ${i===cleaners.length-1?'style="border-bottom:none"':''}>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:36px;height:36px;border-radius:50%;background:var(--forest);color:white;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${c.name.charAt(0)}</div>
+        <div>
+          <div style="font-weight:500;font-size:14px">${c.name}</div>
+          <div style="font-size:12px;color:var(--text-soft)">${c.pin ? '🔐 PIN set' : '⚠️ No PIN'} · ${c.email ? '✉️ Email set' : 'No email'}</div>
+        </div>
+      </div>
+      <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+    </div>`).join('') + `</div>
+  <div class="card" style="padding:0 16px;overflow:hidden">
+    <div class="settings-cat-item" onclick="openSettingsCat('property');setTimeout(()=>openSettingsPanel('team'),50)" style="border-bottom:none">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:36px;height:36px;border-radius:9px;background:#1E3A2F;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">＋</div>
+        <div style="font-weight:500;font-size:14px;color:var(--forest)">Add Person</div>
+      </div>
+      <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+    </div>
+  </div>`;
+}
+function saveCleanerPinById(id) {
+  const input = document.getElementById('pin-input-' + id);
+  if (!input) return;
+  const val = input.value.trim();
+  if (!val || !/^\d{4}$/.test(val)) { globalThis.showBanner('⚠ Please enter exactly 4 digits', 'warn'); return; }
+  const list = loadCleaners();
+  const c = list.find(x => x.id === id);
+  if (!c) return;
+  c.pin = val; input.value = '';
+  saveCleaners(list);
+  renderCleanerAccessList();
+  globalThis.showBanner('✓ PIN saved for ' + c.name, 'ok');
+}
+async function clearCleanerPinById(id) {
+  const list = loadCleaners();
+  const c = list.find(x => x.id === id);
+  if (!c) return;
+  const ok = await globalThis.showAppModal({ title: 'Clear PIN', msg: `Remove PIN for ${c.name}?`, confirmText: 'Clear', confirmColor: 'var(--red)' });
+  if (!ok) return;
+  delete c.pin;
+  localStorage.removeItem('gh-cleaner-authed-' + id);
+  saveCleaners(list);
+  renderCleanerAccessList();
+  globalThis.showBanner('✓ PIN cleared for ' + c.name, 'ok');
+}
+function saveCleanerPerm(id, key, val) {
+  const list = loadCleaners();
+  const c = list.find(x => x.id === id);
+  if (!c) return;
+  if (!c.permissions) c.permissions = {};
+  c.permissions[key] = val;
+  saveCleaners(list);
+}
+function copyCleanerLinkById(id) {
+  const list = loadCleaners();
+  const c = list.find(x => x.id === id);
+  if (!c) return;
+  if (!c.pin) { globalThis.showBanner('⚠ Set a PIN for ' + c.name + ' first', 'warn'); return; }
+  const url = cleanerLinkForId(c);
+  navigator.clipboard.writeText(url).then(() => globalThis.showBanner('✓ Link copied for ' + c.name, 'ok'))
+    .catch(() => globalThis.showBanner('⚠ Copy failed — select the link manually', 'warn'));
+}
+
+/** Navigate to Settings section (main settings menu). */
+function openSettings() {
+  globalThis.showSection('settings');
+}
+
+export {
+  initSettingsSwipeBack,
+  openSettings,
+  renderConnectionSummary,
+  refreshConnectionSummarySoon,
+  connectGmail,
+  connectOutlook,
+  maybeAutoScanGmail,
+  scanGmailBookings,
+  maybeAutoScanOutlook,
+  scanOutlookBookings,
+  populateCalendarFeedPanel,
+  copyCalendarFeedUrl,
+  _resetSettingsToMenu,
+  _ensureSettingsVisible,
+  openSettingsCat,
+  openSettingsPanel,
+  closeSettingsPanel,
+  closeSettingsCat,
+  renderSettings,
+  chooseGoogleAccount,
+  syncToSheet,
+  clearCacheAndResync,
+  saveSMSTemplate,
+  saveGeminiKey,
+  saveApiKey,
+  getApiKey,
+  HOST_PROFILE_KEY,
+  getHostProfile,
+  saveHostProfile,
+  manageHostIdentity,
+  populateHostProfilePanel,
+  saveHostProfilePanel,
+  renderHostProfileRow,
+  loadCleaners,
+  saveCleaners,
+  addCleaner,
+  deleteCleaner,
+  renderCleanersList,
+  renderTeamList,
+  openCleanerProfile,
+  saveCleanerContact,
+  populateContractorSelect,
+  renderStorageViewer,
+  getFx,
+  saveFxSetting,
+  applyModalSpring,
+  initFxSettings,
+  getAutoAssignCleaner,
+  toggleAutoAssignCleaner,
+  _renderAutoAssignToggle,
+  resetConnectionCheckerResults,
+  openCleanerSettings,
+  renderCleanerAccessList,
+  saveCleanerPinById,
+  clearCleanerPinById,
+  saveCleanerPerm,
+  copyCleanerLinkById,
+};

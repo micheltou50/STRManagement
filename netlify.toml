@@ -9,5 +9,9 @@
 # Adjust cron if your property is in a different timezone:
 #   AEDT (UTC+11, Oct–Apr): use "0 21 * * *"
 #   AEST (UTC+10, Apr–Oct): use "0 22 * * *"
+#
+# daily-notifications: morning host digest at 07:00 Sydney — scheduled via Supabase
+# pg_cron + net.http_post (see scripts/daily-notifications-cron.sql), not Netlify cron,
+# to avoid double-firing alongside Supabase.
 [functions."send-clean-reminders"]
   schedule = "0 22 * * *"

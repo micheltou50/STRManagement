@@ -39,30 +39,46 @@ exports.handler = async (event) => {
       return { statusCode: 403, body: 'Invalid user.' };
     }
 
-    // ── 2. Get property ────────────────────────────────────────────────────
+    // ── 2. Get all properties for this user ─────────────────────────────────
     const propRes = await fetch(
       SUPABASE_URL + '/rest/v1/properties?user_id=eq.' + encodeURIComponent(uid) +
-        '&select=id,name&order=updated_at.desc&limit=1',
+        '&select=id,name&order=created_at.asc',
       { headers }
     );
     const properties = await propRes.json();
-    if (!properties || !properties.length) {
+    if (!Array.isArray(properties) || !properties.length) {
       return icsResponse([], 'StayOps Bookings');
     }
-    const property = properties[0];
 
-    // ── 3. Get bookings ────────────────────────────────────────────────────
+    const propNameMap = {};
+    properties.forEach((p) => {
+      propNameMap[p.id] = p.name || 'Property';
+    });
+
+    const propIds = properties.map((p) => p.id).filter(Boolean);
+    if (!propIds.length) {
+      return icsResponse([], 'StayOps Bookings');
+    }
+
+    // ── 3. Get bookings for every property belonging to this user ───────────
+    // (user_id + property_id=in.(…) ensures all portfolio bookings, not one property.)
     const bookingsRes = await fetch(
       SUPABASE_URL + '/rest/v1/bookings?user_id=eq.' + encodeURIComponent(uid) +
-        '&property_id=eq.' + encodeURIComponent(property.id) +
-        '&status=neq.cancelled&select=id,checkin,checkout,guest_name,guests,platform,status' +
+        '&property_id=in.(' + propIds.join(',') + ')' +
+        '&status=neq.cancelled&select=id,checkin,checkout,guest_name,guests,platform,status,property_id' +
         '&order=checkin.asc',
       { headers }
     );
     const bookings = await bookingsRes.json();
 
+    if (Array.isArray(bookings)) {
+      bookings.forEach((b) => {
+        b._propertyName = propNameMap[b.property_id] || 'Property';
+      });
+    }
+
     // ── 4. Serve .ics ──────────────────────────────────────────────────────
-    return icsResponse(Array.isArray(bookings) ? bookings : [], property.name || 'StayOps');
+    return icsResponse(Array.isArray(bookings) ? bookings : [], 'StayOps Bookings');
 
   } catch (err) {
     console.error('[calendar-feed] Error:', err);
@@ -101,6 +117,7 @@ function generateICS(bookings, propertyName) {
     const uid      = 'booking-' + b.id + '@stayops';
 
     const description = [
+      'Property: ' + sanitizeICS(b._propertyName || propertyName),
       'Check-in: ' + (b.checkin || ''),
       'Check-out: ' + (b.checkout || ''),
       'Guests: ' + guests,
@@ -113,7 +130,7 @@ function generateICS(bookings, propertyName) {
       'DTSTAMP:' + now,
       'DTSTART;VALUE=DATE:' + start,
       'DTEND;VALUE=DATE:' + end,
-      'SUMMARY:🏡 ' + name + ' — ' + sanitizeICS(propertyName),
+      'SUMMARY:' + sanitizeICS(b._propertyName || propertyName) + ' — ' + name,
       'DESCRIPTION:' + description,
       'STATUS:CONFIRMED',
       'TRANSP:OPAQUE',
@@ -127,7 +144,7 @@ function generateICS(bookings, propertyName) {
     'PRODID:-//StayOps//Booking Calendar//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
-    'X-WR-CALNAME:' + sanitizeICS(propertyName) + ' — Bookings',
+    'X-WR-CALNAME:StayOps Bookings',
     'X-WR-TIMEZONE:Australia/Sydney',
     '',
     events.join('\r\n'),
