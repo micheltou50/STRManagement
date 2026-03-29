@@ -18,6 +18,43 @@ import {
 const SUPABASE_URL      = 'https://nbeuyypgiipptxlqnhel.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5iZXV5eXBnaWlwcHR4bHFuaGVsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMDg0MDEsImV4cCI6MjA4OTU4NDQwMX0.TfsTKhDDMiOptoMCRXD149KC4pYGvuFM2px9_auwDG0';
 
+const SUPABASE_PROJECT_REF = (() => {
+  try {
+    return new URL(SUPABASE_URL).hostname.split('.')[0];
+  } catch (_) {
+    return 'nbeuyypgiipptxlqnhel';
+  }
+})();
+
+function isRecoverableSessionError(error) {
+  if (!error) return false;
+  const msg = String(error.message || error || '');
+  return (
+    msg.includes('Refresh Token') ||
+    msg.includes('Invalid') ||
+    error.status === 400 ||
+    error.status === 401
+  );
+}
+
+export function handleAuthFailure() {
+  console.warn('[StayOps] Auth failure — clearing stale session, showing login');
+
+  const keysToRemove = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith('sb-')) keysToRemove.push(key);
+  }
+  keysToRemove.forEach((k) => localStorage.removeItem(k));
+
+  sessionStorage.clear();
+
+  window._supabaseUser = null;
+
+  showLoginScreen();
+  hideLoadingScreen();
+}
+
 // ── INIT ──────────────────────────────────────────────────────────────────────
 (function initSupabase() {
   if (!window.supabase) {
@@ -26,6 +63,17 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
   }
   window._sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   console.log('[StayOps] Supabase client ready');
+
+  window._sb.auth.onAuthStateChange((event, session) => {
+    if (event === 'TOKEN_REFRESHED' && !session) {
+      console.warn('[StayOps] Token refresh failed — clearing session');
+      localStorage.removeItem('sb-' + SUPABASE_PROJECT_REF + '-auth-token');
+      handleAuthFailure();
+    }
+    if (event === 'SIGNED_OUT') {
+      if (typeof showLoginScreen === 'function') showLoginScreen();
+    }
+  });
 })();
 
 
@@ -61,9 +109,18 @@ async function supabaseSignOut() {
 export async function getSupabaseSession() {
   if (!window._sb) return null;
   try {
-    const { data } = await window._sb.auth.getSession();
-    return (data && data.session) ? data.session : null;
+    const { data, error } = await window._sb.auth.getSession();
+    if (error) {
+      console.warn('[StayOps] getSession error:', error.message);
+      if (isRecoverableSessionError(error)) {
+        handleAuthFailure();
+        return null;
+      }
+    }
+    return data?.session || null;
   } catch (e) {
+    console.warn('[StayOps] getSession exception:', e.message);
+    handleAuthFailure();
     return null;
   }
 }
@@ -72,12 +129,23 @@ export async function getCurrentSupabaseUser() {
   if (!window._sb) return null;
   if (window._supabaseUser) return window._supabaseUser;
   try {
-    const { data } = await window._sb.auth.getUser();
+    const { data, error } = await window._sb.auth.getUser();
+    if (error) {
+      console.warn('[StayOps] getUser error:', error.message);
+      if (isRecoverableSessionError(error)) {
+        handleAuthFailure();
+        return null;
+      }
+    }
     if (data && data.user) {
       window._supabaseUser = data.user;
       return data.user;
     }
-  } catch (e) {}
+  } catch (e) {
+    console.warn('[StayOps] getUser exception:', e.message);
+    handleAuthFailure();
+    return null;
+  }
   return null;
 }
 

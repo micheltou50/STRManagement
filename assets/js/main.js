@@ -51,6 +51,7 @@ import {
   hideLoadingScreen,
   setLoadingStatus,
   showLoginScreen,
+  handleAuthFailure,
   showAppChrome,
   handleLoginSubmit,
   handleSignUpSubmit,
@@ -10189,9 +10190,23 @@ window.applyPortfolioModeAfterHostHydrate = applyPortfolioModeAfterHostHydrate;
 
   if (typeof showLoadingScreen === 'function') showLoadingScreen('Checking your session…');
 
-  // Check for active Supabase session
+  // Check for active Supabase session (recover from invalid/expired refresh tokens)
   let session = null;
-  if (typeof getSupabaseSession === 'function') {
+  if (window._sb) {
+    try {
+      const { data, error } = await window._sb.auth.getSession();
+      if (error) {
+        console.warn('[StayOps] Boot session error:', error.message);
+        if (typeof handleAuthFailure === 'function') handleAuthFailure();
+        return;
+      }
+      session = data?.session || null;
+    } catch (e) {
+      console.warn('[StayOps] Boot session exception:', e.message);
+      if (typeof handleAuthFailure === 'function') handleAuthFailure();
+      return;
+    }
+  } else if (typeof getSupabaseSession === 'function') {
     session = await getSupabaseSession();
   }
 
