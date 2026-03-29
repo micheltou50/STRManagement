@@ -351,6 +351,8 @@
 
   <!-- DASHBOARD -->
   <div id="section-today" class="section-stack">
+    <div id="portfolio-dashboard" style="display:none"></div>
+    <div id="dashboard-content">
     <div class="card dashboard-hero" style="background:var(--forest);color:white;position:relative;overflow:hidden">
       <div style="position:absolute;top:-20px;right:-20px;font-size:80px;opacity:0.08">🏠</div>
       <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="openPropertySwitcherSheet()" id="prop-hero-name-wrap">
@@ -401,6 +403,7 @@
     <div class="card" style="padding:0;overflow:hidden">
       <div style="padding:14px 16px" id="next-checkin-content"><div style="color:var(--text-soft);font-size:13px;padding:2px 0">No upcoming bookings</div></div>
       <div style="border-top:1px solid var(--warm)" id="next-clean-content"><div style="color:var(--text-soft);font-size:13px;padding:14px 16px">No cleans scheduled</div></div>
+    </div>
     </div>
   </div>
 
@@ -495,6 +498,8 @@
 
   <!-- FINANCE -->
   <div id="section-finance" class="section-hidden section-stack">
+    <div id="portfolio-finance" style="display:none"></div>
+    <div id="finance-content">
 
     <!-- FINANCE HUB -->
     <div id="finance-hub">
@@ -764,6 +769,7 @@
       </div>
     </div>
 
+    </div>
 
   </div>
 
@@ -779,6 +785,7 @@
       </div>
       <button class="btn-secondary section-cta" onclick="openPropertySettingsMenu()" style="width:auto;padding:10px 12px">⚙️</button>
     </div>
+    <div id="portfolio-property-view" style="display:none"></div>
     <!-- PROPERTY HUB ─ top-level rows only -->
     <div id="prop-hub">
       <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:16px">

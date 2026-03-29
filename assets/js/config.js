@@ -502,13 +502,22 @@ export function initPropertyUI() {
   const cfg = getActivePropertyConfig();
   const stats = getPropertyStats();
 
-  document.title = cfg.name + ' — Property Manager';
+  const _portfolio = typeof window !== 'undefined' && typeof window.isPortfolioMode === 'function' && window.isPortfolioMode();
+  if (_portfolio) {
+    document.title = 'All Properties — Property Manager';
+  } else {
+    document.title = cfg.name + ' — Property Manager';
+  }
   const headerNameEl = document.getElementById('header-property-name');
-  if (headerNameEl) headerNameEl.textContent = cfg.name || 'StayOps';
+  if (_portfolio) {
+    if (headerNameEl) headerNameEl.textContent = 'All Properties';
+    _setText('header-sub-title', getAllProperties().length + ' properties');
+  } else {
+    if (headerNameEl) headerNameEl.textContent = cfg.name || 'StayOps';
+    _setText('header-sub-title', getCurrentPropertySubtitle());
+  }
   const chevronHeader = document.getElementById('prop-switcher-chevron-header');
   if (chevronHeader) chevronHeader.style.display = '';
-
-  _setText('header-sub-title', getCurrentPropertySubtitle());
   _setText('prop-hero-name', cfg.name);
   _setText('prop-hero-tagline', getCurrentPropertyTagline());
   _setText('prop-hero-beds', stats.bedrooms);

@@ -98,39 +98,36 @@ exports.handler = async (event) => {
       { method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=minimal' }, body: JSON.stringify(tokenPatch) }
     );
 
-    // ── 3. Get property ID ─────────────────────────────────────────────
+    // ── 3. Load ALL properties for this user ───────────────────────────
     const pidParam = (event.queryStringParameters || {}).pid || '';
-    let propertyId = null, propertyName = '', mgmtFeeRate = 0;
-
-    if (pidParam) {
-      // Explicit property passed from frontend — use it directly
-      const propRes = await fetch(
-        SUPABASE_URL + '/rest/v1/properties?id=eq.' + enc(pidParam) +
-          '&user_id=eq.' + enc(uid) + '&select=id,name,mgmt_fee_rate&limit=1',
-        { headers: sbHeaders }
-      );
-      const props = await propRes.json();
-      if (props && props[0]) {
-        propertyId   = props[0].id;
-        propertyName = props[0].name || '';
-        mgmtFeeRate  = props[0].mgmt_fee_rate != null ? Number(props[0].mgmt_fee_rate) : 0;
-      }
+    const propRes = await fetch(
+      SUPABASE_URL + '/rest/v1/properties?user_id=eq.' + enc(uid) +
+        '&select=id,name,address,suburb,state,mgmt_fee_rate&order=created_at.asc',
+      { headers: sbHeaders }
+    );
+    const allProps = await propRes.json();
+    if (!Array.isArray(allProps) || !allProps.length) {
+      return json(400, { error: 'No properties found — add a property first' });
     }
 
-    if (!propertyId) {
-      // Fallback — first created property (stable, not affected by edits)
-      const propRes = await fetch(
-        SUPABASE_URL + '/rest/v1/properties?user_id=eq.' + enc(uid) +
-          '&select=id,name,mgmt_fee_rate&order=created_at.asc&limit=1',
-        { headers: sbHeaders }
-      );
-      const props = await propRes.json();
-      if (props && props[0]) {
-        propertyId   = props[0].id;
-        propertyName = props[0].name || '';
-        mgmtFeeRate  = props[0].mgmt_fee_rate != null ? Number(props[0].mgmt_fee_rate) : 0;
-      }
-    }
+    const propMap = allProps.map(p => ({
+      id:          p.id,
+      name:        p.name || '',
+      address:     p.address || '',
+      suburb:      p.suburb || '',
+      state:       p.state || '',
+      mgmtFeeRate: p.mgmt_fee_rate != null ? Number(p.mgmt_fee_rate) : 0,
+    }));
+
+    const defaultProp = (pidParam && propMap.find(p => p.id === pidParam)) || propMap[0];
+    const isSingleProperty = propMap.length === 1;
+
+    const propertyListStr = propMap.map((p, i) =>
+      (i + 1) + '. "' + p.name + '"' +
+      (p.address ? ' at ' + p.address : '') +
+      (p.suburb ? ', ' + p.suburb : '') +
+      (p.state ? ' ' + p.state : '')
+    ).join('\n');
 
     // ── 4. Search Outlook via Microsoft Graph ────────────────────────
     // Graph filter: messages from booking platforms in the last 14 days
@@ -166,7 +163,7 @@ exports.handler = async (event) => {
 
     if (!allMessageIds.size) {
       await updateLastScan(SUPABASE_URL, sbHeaders, uid, skippedIds);
-      return json(200, { found: 0, imported: 0, updated: 0, cancelled: 0, skipped: 0, message: 'No booking emails found in the last ' + searchDays + ' days' });
+      return json(200, { found: 0, imported: 0, updated: 0, cancelled: 0, skipped: 0, needs_review: [], message: 'No booking emails found in the last ' + searchDays + ' days' });
     }
 
     // ── 5. Get already-processed Outlook message IDs ─────────────────
@@ -188,20 +185,20 @@ exports.handler = async (event) => {
 
     if (!newMessageIds.length) {
       await updateLastScan(SUPABASE_URL, sbHeaders, uid, skippedIds);
-      return json(200, { found: allMessageIds.size, imported: 0, updated: 0, cancelled: 0, skipped: allMessageIds.size, message: 'All booking emails already processed' });
+      return json(200, { found: allMessageIds.size, imported: 0, updated: 0, cancelled: 0, skipped: allMessageIds.size, needs_review: [], message: 'All booking emails already processed' });
     }
 
     // ── 6. Load existing bookings for matching ────────────────────────
     const allBookingsRes = await fetch(
       SUPABASE_URL + '/rest/v1/bookings?user_id=eq.' + enc(uid) +
-        '&select=id,local_id,confirmation_code,guest_name,checkin,checkout,status' +
-        (propertyId ? '&property_id=eq.' + enc(propertyId) : ''),
+        '&select=id,local_id,confirmation_code,guest_name,checkin,checkout,status,property_id',
       { headers: sbHeaders }
     );
     const existingBookings = await allBookingsRes.json();
 
     // ── 7. Parse emails with Claude ───────────────────────────────────
     const results = { imported: 0, updated: 0, cancelled: 0, skipped: 0, errors: 0, details: [] };
+    const needsReview = [];
     const batch = newMessageIds.slice(0, 20);
     const newlySkipped = [];
 
@@ -221,7 +218,11 @@ exports.handler = async (event) => {
           continue;
         }
 
-        const parsed = await parseBookingEmail(ANTHROPIC_KEY, emailSubject, emailFrom, emailBody, propertyName);
+        const parsed = await parseBookingEmail(
+          ANTHROPIC_KEY, emailSubject, emailFrom, emailBody,
+          isSingleProperty ? propMap[0].name : null,
+          isSingleProperty ? null : propertyListStr
+        );
         if (!parsed) {
           results.errors++;
           results.details.push({ msgId, status: 'skipped', reason: 'Parse failed — will retry next scan' });
@@ -233,6 +234,26 @@ exports.handler = async (event) => {
           results.details.push({ msgId, status: 'skipped', reason: 'Not a host booking email' });
           continue;
         }
+
+        let resolvedProp = defaultProp;
+        let propertyUnconfirmed = false;
+        if (!isSingleProperty) {
+          if (parsed.propertyMatch) {
+            const matchName = String(parsed.propertyMatch).toLowerCase().trim();
+            const found = propMap.find(p =>
+              p.name.toLowerCase().trim() === matchName ||
+              p.name.toLowerCase().includes(matchName) ||
+              matchName.includes(p.name.toLowerCase())
+            );
+            if (found) resolvedProp = found;
+            else propertyUnconfirmed = true;
+          } else {
+            propertyUnconfirmed = true;
+          }
+        }
+        const propertyId   = resolvedProp.id;
+        const propertyName = resolvedProp.name;
+        const mgmtFeeRate  = resolvedProp.mgmtFeeRate;
 
         const emailType = parsed.emailType || 'new_booking';
         const confCode  = (parsed.confirmationCode || '').trim();
@@ -277,9 +298,19 @@ exports.handler = async (event) => {
             results.updated++;
             results.details.push({ msgId, status: 'updated', guest: parsed.guestName, checkin: parsed.checkin });
           } else if (parsed.checkin && parsed.checkout) {
-            await insertNewBooking(SUPABASE_URL, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate);
+            await insertNewBooking(SUPABASE_URL, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed);
             results.imported++;
             results.details.push({ msgId, status: 'imported', guest: parsed.guestName, checkin: parsed.checkin, note: 'modification without matching original' });
+            if (propertyUnconfirmed) {
+              needsReview.push({
+                guest: parsed.guestName || 'Guest',
+                checkin: parsed.checkin,
+                checkout: parsed.checkout,
+                platform: parsed.platform || '',
+                gmail_message_id: msgId,
+                assigned_property: propertyName,
+              });
+            }
           } else {
             results.skipped++;
             newlySkipped.push(msgId);
@@ -308,9 +339,19 @@ exports.handler = async (event) => {
           }
         }
 
-        await insertNewBooking(SUPABASE_URL, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate);
+        await insertNewBooking(SUPABASE_URL, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed);
         results.imported++;
         results.details.push({ msgId, status: 'imported', guest: parsed.guestName, checkin: parsed.checkin });
+        if (propertyUnconfirmed) {
+          needsReview.push({
+            guest: parsed.guestName || 'Guest',
+            checkin: parsed.checkin,
+            checkout: parsed.checkout,
+            platform: parsed.platform || '',
+            gmail_message_id: msgId,
+            assigned_property: propertyName,
+          });
+        }
 
       } catch (emailErr) {
         console.warn('[outlook-scan] Error processing message', msgId, emailErr.message);
@@ -341,6 +382,7 @@ exports.handler = async (event) => {
       errors:    results.errors,
       remaining: Math.max(0, newMessageIds.length - batch.length),
       details:   results.details,
+      needs_review: needsReview,
       message,
     });
 
@@ -404,7 +446,7 @@ function extractOutlookBody(msg) {
   return stripped.slice(0, 8000);
 }
 
-async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate) {
+async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed) {
   const rate     = Number(mgmtFeeRate) || 0;
   const payout   = parsed.hostPayout  || 0;
   const cleaning = parsed.cleaningFee || 0;
@@ -415,6 +457,7 @@ async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, 
   const booking = {
     user_id:           uid,
     property_id:       propertyId,
+    property_unconfirmed: !!propertyUnconfirmed,
     local_id:          'outlook-' + msgId,   // distinct from gmail- prefix
     checkin:           parsed.checkin,
     checkout:          parsed.checkout,
@@ -491,8 +534,23 @@ function daysBetween(d1, d2) {
 
 // ── CLAUDE PARSING (identical prompt to gmail-scan-bookings) ─────────────────
 
-async function parseBookingEmail(apiKey, subject, from, body, propertyName) {
-  const propContext = propertyName ? ' called "' + propertyName + '"' : '';
+async function parseBookingEmail(apiKey, subject, from, body, singlePropertyName, propertyList) {
+  const propContext = singlePropertyName
+    ? ' called "' + singlePropertyName + '"'
+    : (propertyList ? ' managing multiple properties' : '');
+
+  const propertyMatchRule = propertyList
+    ? '\n\nPROPERTY MATCHING:\n' +
+      'The host manages these properties:\n' + propertyList + '\n' +
+      'Identify which property this booking email is about based on the property name, ' +
+      'address, listing title, or location mentioned in the email body or subject. ' +
+      'Return the EXACT property name from the list above in a "propertyMatch" field.\n' +
+      'If you cannot confidently determine which property, set "propertyMatch" to null.\n'
+    : '';
+
+  const propertyMatchJson = propertyList
+    ? '  "propertyMatch": "exact property name from the list above, or null if unclear",\n'
+    : '';
 
   const now        = new Date();
   const todayStr   = now.toISOString().split('T')[0];
@@ -511,7 +569,7 @@ async function parseBookingEmail(apiKey, subject, from, body, propertyName) {
     'You are a booking email parser for a short-term rental HOST who manages a property' + propContext + '.\n\n' +
     'You are analysing emails from the HOST\'s inbox. The host receives booking notifications when GUESTS book their property.\n\n' +
     'CRITICAL DISTINCTION:\n' +
-    '- HOST emails say things like: "You have a new reservation", "Your guest X is arriving", "You\'ll earn $X", "Host payout", "New booking at ' + (propertyName || 'your property') + '"\n' +
+    '- HOST emails say things like: "You have a new reservation", "Your guest X is arriving", "You\'ll earn $X", "Host payout", "New booking at ' + (singlePropertyName || 'your property') + '"\n' +
     '- PERSONAL TRAVEL emails say things like: "Your trip to X", "Your stay at Hotel Y", "Your booking at Restaurant Z", "Your flight"\n' +
     '- Only extract HOST booking notifications. If this looks like a personal travel/hotel/restaurant booking where the email recipient is the traveller, return not_a_booking.\n\n' +
     'Analyse this email and return ONLY valid JSON with no other text.\n\n' +
@@ -531,6 +589,7 @@ async function parseBookingEmail(apiKey, subject, from, body, propertyName) {
     '  "hostPayout": host payout amount as a number (0 if not found),\n' +
     '  "cleaningFee": cleaning fee as a number (0 if not found),\n' +
     '  "platform": "airbnb" or "vrbo" or "booking.com" or "stayz" or "direct" or other,\n' +
+    propertyMatchJson +
     '  "confirmationCode": "confirmation/reservation code",\n' +
     '  "status": "confirmed" or "cancelled"\n' +
     '}\n\n' +
@@ -541,8 +600,9 @@ async function parseBookingEmail(apiKey, subject, from, body, propertyName) {
     '- Platform: detect from From address (@airbnb.com = "airbnb").\n' +
     '- Payout receipts ("your payout is on the way") = not_a_booking.\n' +
     '- Review requests = not_a_booking.\n' +
-    '- Guest messages = not_a_booking.\n\n' +
-    'Subject: ' + subject + '\nFrom: ' + from + '\nBody:\n' + body;
+    '- Guest messages = not_a_booking.\n' +
+    propertyMatchRule +
+    '\nSubject: ' + subject + '\nFrom: ' + from + '\nBody:\n' + body;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -554,7 +614,7 @@ async function parseBookingEmail(apiKey, subject, from, body, propertyName) {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 500,
+        max_tokens: 600,
         messages: [{ role: 'user', content: prompt }],
       }),
     });

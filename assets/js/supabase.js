@@ -7,6 +7,7 @@ import {
   savePropertyConfig,
   addPropertyConfig,
   saveAllProperties,
+  initPropertyUI,
 } from './config.js';
 /* ═══════════════════════════════════════════════════════════════════════════
    STAYOPS — Supabase Integration Layer v2
@@ -1278,7 +1279,7 @@ export async function saveHostConfigToSupabase(profile) {
   }
 }
 
-async function loadHostConfigFromSupabase() {
+export async function loadHostConfigFromSupabase() {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user) return null;
@@ -1364,6 +1365,13 @@ export function showAppChrome() {
   if (app)   app.style.display   = '';
   if (nav)   nav.style.display   = '';
   if (hdr)   hdr.style.display   = '';
+
+  // Safety net: header property name before the app becomes visible. On first
+  // private-mode load, an earlier initPropertyUI() can run before config is resolved.
+  try {
+    initPropertyUI();
+  } catch (e) { /* non-critical */ }
+
   hideLoadingScreen();
 }
 
