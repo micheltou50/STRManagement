@@ -1,7 +1,7 @@
 import { SupabaseAdapter } from './adapter.js';
 import { showSetupIfNeeded } from './setup.js';
 import {
-  lsKey, getAllProperties, getActivePropertyId, setActivePropertyId, getActivePropertyConfig,
+  getAllProperties, getActivePropertyId, setActivePropertyId, getActivePropertyConfig,
   addPropertyConfig, savePropertyConfig, hasValidPropertyConfig, migrateConfigFromLegacySettings, initPropertyUI,
 } from './config.js';
 import {
@@ -29,8 +29,8 @@ import {
   toggleCleanAction, markCleanDeclined, markCleanerConfirmed, reassignClean, toggleCleanerConfirmed, revealCleanerReassign, switchCleanView, setCleanStatusFilter, cleanerAccept, cleanerDecline, cleanerMarkDone
 } from './cleaning.js';
 import {
-  backToFinanceHub, toggleExpenseAddForm, closeExpenseAddForm, showFinanceSub, switchReportsSubTab, openFinancePanelFromHub, switchPayoutsSubTab, switchMgmtSubTab, switchReportSubTab, renderMgmtFY, renderFinance, fyPrev,
-  fyNext, renderReport, revPrev, revNext, renderRevenue, mgmtPrev, mgmtNext, renderManagement, toggleMgmtSelect, generateInvoice, confirmInvoiceClient, renderClientsList,
+  resetFinanceSubViewToHub, backToFinanceHub, toggleExpenseAddForm, closeExpenseAddForm, showFinanceSub, switchReportsSubTab, openFinancePanelFromHub, switchPayoutsSubTab, switchMgmtSubTab, switchReportSubTab, renderMgmtFY, renderFinance, fyPrev,
+  fyNext, renderReport, revPrev, revNext, renderRevenue, mgmtPrev, mgmtNext, renderManagement, toggleMgmtSelect, mgmtCheckboxChange, mgmtToggleSelectAll, generateInvoice, confirmInvoiceClient, renderClientsList,
   addClient, deleteClient, saveBankDetails, saveInvoiceDetails, updateExpenseCat, addExpenseCat, deleteExpenseCat, resetExpenseCats, populateExpenseCatSelect, merchantAutocomplete, selectMerchantSuggest, hideMerchantSuggest,
   toggleExpenseList, toggleExpenseMonth, clearExpenseFilters, renderExpenses, addExpense, saveExpenseToDriveAndSheet, deleteExpense, attachEditExpensePhoto, clearEditExpensePhoto, openExpenseView, openExpenseEdit, closeExpenseEdit,
   saveExpenseEdit, getExpenseCats, populateMgmtFeePanel, saveMgmtFeeRate, ownerAutoSendToggle, saveOwnerReportSettings, sendOwnerReport, exportReportPDF, exportReportCSV
@@ -74,6 +74,7 @@ globalThis.hydrateFromCloud = hydrateFromCloud;
 globalThis.processScanNeedsReview = processScanNeedsReview;
 globalThis.render = render;
 globalThis.renderAll = renderAll;
+globalThis.showSection = showSection;
 globalThis.reloadInMemoryData = reloadInMemoryData;
 globalThis.populateContractorSelect = populateContractorSelect;
 globalThis.renderMaintenance = renderMaintenance;
@@ -105,6 +106,7 @@ window.appModalConfirm          = appModalConfirm;
 window.attachEditExpensePhoto   = attachEditExpensePhoto;
 window.attachExpenseFile        = attachExpenseFile;
 window.autoFillCleanDate        = autoFillCleanDate;
+window.resetFinanceSubViewToHub = resetFinanceSubViewToHub;
 window.backToFinanceHub         = backToFinanceHub;
 window.backToPropertyHub        = backToPropertyHub;
 window.calcNet                  = calcNet;
@@ -271,6 +273,8 @@ window.getPropertyNameById      = getPropertyNameById;
 window.toggleCleanerConfirmed   = toggleCleanerConfirmed;
 window.toggleExpenseMonth       = toggleExpenseMonth;
 window.toggleMgmtSelect         = toggleMgmtSelect;
+window.mgmtCheckboxChange       = mgmtCheckboxChange;
+window.mgmtToggleSelectAll      = mgmtToggleSelectAll;
 
 // Called from supabase.js typeof window.X guards (boot sequence)
 window.getAllProperties          = getAllProperties;
@@ -279,7 +283,7 @@ window.setActivePropertyId      = setActivePropertyId;
 window.getActivePropertyConfig  = getActivePropertyConfig;
 window.addPropertyConfig        = addPropertyConfig;
 window.savePropertyConfig       = savePropertyConfig;
-window.lsKey                    = lsKey;
+// lsKey removed (Supabase is source of truth)
 window.hasValidPropertyConfig   = hasValidPropertyConfig;
 window.ensureHostIdentityAndRestore = ensureHostIdentityAndRestore;
 window.finishAppInit            = finishAppInit;

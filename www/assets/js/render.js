@@ -2,8 +2,8 @@
  * StayOps — dashboard, sections, modals, maintenance/inventory, cleaner shell, onboarding.
  */
 import {
-  lsKey,
   getAllProperties,
+  getActivePropertyId,
   getActivePropertyConfig,
   savePropertyConfig,
   hasValidPropertyConfig,
@@ -18,14 +18,13 @@ import {
   expenses,
   maintenance,
   inventory,
-  reloadArraysFromLocalStorage,
   replaceArrayInPlace,
 } from './state.js';
 import {
   escHtml,
   parseLocalDayStart,
   fmt,
-  isAwaitingCleanerResponse,
+  fmtShort,
   _normName,
   escapeJsSingleQuotedHtmlAttr,
   fyLabel,
@@ -59,14 +58,12 @@ import {
 } from './notifications.js';
 import {
   bookingFilter,
-  renderPortfolioDashboard,
   renderPropertySwitcher,
   switchActiveProperty,
   openPropertySettingsMenu,
   openPropertySwitcherSheet,
   closePropertySwitcherSheet,
   switchToPortfolioFromSheet,
-  switchPropertyFromSheet,
   backToPropertyHub,
   showPropertySub,
   renderProperty,
@@ -83,7 +80,6 @@ import {
   applyPortfolioModeAfterHostHydrate,
 } from './property.js';
 import {
-  getSmartPricing,
   analyseExpenses,
   renderAIIgnoreList,
   promptIgnore,
@@ -100,7 +96,8 @@ import {
 import {
   normalizeBookingCleanState,
   isCleanLinkedToCancelledBooking,
-  getBookingCleanerState,
+  findMatchingCleanForBooking,
+  prepareCleaningData,
   isCleanerPerson,
   populateSelects,
   populateCleanerSelect,
@@ -123,6 +120,7 @@ import {
   cleanerMarkDone,
 } from './cleaning.js';
 import {
+  resetFinanceSubViewToHub,
   backToFinanceHub,
   toggleExpenseAddForm,
   closeExpenseAddForm,
@@ -333,8 +331,7 @@ function reloadInMemoryData() {
   if (typeof isPortfolioMode === 'function' && isPortfolioMode()) {
     return;
   }
-  console.log('[StayOps] reloadInMemoryData: refreshing in-memory arrays from localStorage');
-  reloadArraysFromLocalStorage();
+  console.log('[StayOps] reloadInMemoryData: no-op (arrays hydrated directly from cloud)');
   // Keep clean records in sync with current booking identity data
   normalizeBookingCleanState();
 }
@@ -421,7 +418,11 @@ globalThis.getCurrentSection = () => currentSection;
 function showSection(name) {
   if (name === 'dashboard') name = 'today';
   if (name === 'revenue' || name === 'management') name = 'finance';
+  const prevSection = currentSection;
   currentSection = name;
+  if (prevSection === 'finance' && name !== 'finance' && name !== 'settings') {
+    resetFinanceSubViewToHub();
+  }
   document.querySelectorAll('[id^="section-"]').forEach(el => el.classList.add('section-hidden'));
   document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
   const sec = document.getElementById('section-' + name);
@@ -520,11 +521,1193 @@ function renderAll() {
   setTimeout(() => { attachButtonPress(); attachLongPress(); }, 50);
 }
 
+let _todayWeekStart = null;
+/** First day of viewed month for single-property Today calendar (navigated with ‹ ›). */
+let _todayMonthViewStart = null;
+
+const TODAY_PALETTE = [
+  { dot: '#2D5A3D', bg: '#E8F5E9', border: '#2D5A3D', text: '#27500A' },
+  { dot: '#378ADD', bg: '#E6F1FB', border: '#378ADD', text: '#0C447C' },
+  { dot: '#D85A30', bg: '#FAECE7', border: '#D85A30', text: '#712B13' },
+  { dot: '#7B5BB8', bg: '#F0EBF8', border: '#7B5BB8', text: '#3D2A5C' },
+  { dot: '#2A9D8F', bg: '#E6F7F5', border: '#2A9D8F', text: '#0D4A42' },
+  { dot: '#C45C2A', bg: '#FDF0E8', border: '#C45C2A', text: '#5C2E14' },
+];
+
+function _mondayStart(d) {
+  const t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dow = (t.getDay() + 6) % 7;
+  t.setDate(t.getDate() - dow);
+  return t;
+}
+
+function _ymd(d) {
+  return (
+    d.getFullYear() +
+    '-' +
+    String(d.getMonth() + 1).padStart(2, '0') +
+    '-' +
+    String(d.getDate()).padStart(2, '0')
+  );
+}
+
+function _pidForProperty(p) {
+  const cloudIds = window._cloudPropertyIds || {};
+  return String(cloudIds[p.propertyId] || p.supabaseId || p.propertyId || '');
+}
+
+function _todayCardCleanerMeta(b, matchedClean) {
+  if (!b || b.status === 'cancelled') return null;
+  const bookingCleanerName = String(b.cleaner || '').trim();
+  const cleanCleanerName = String(matchedClean?.cleaner || '').trim();
+  const hasAssignedOnClean = !!(matchedClean && (matchedClean.cleanerId || cleanCleanerName));
+  const st = String(b.status || '').toLowerCase();
+  const done = !!(matchedClean?.done) || st === 'completed' || st === 'complete';
+  const cleanerConfirmed = !!(matchedClean?.cleanerConfirmed || b.cleanerConfirmed);
+  const cleanerDeclined = !!(matchedClean?.cleanerDeclined || b.cleanerDeclined);
+  const C = {
+    noCleaner: { color: '#A32D2D', bg: '#FCEBEB', label: 'No cleaner assigned' },
+    awaiting: { color: '#BA7517', bg: '#FAEEDA', label: 'Awaiting cleaner' },
+    confirmed: { color: '#1D9E75', bg: '#E8F5E9', label: 'Cleaner confirmed' },
+    doneBadge: { color: '#5F5E5A', bg: '#F1EFE8', label: 'Clean done' },
+  };
+  if (done) return C.doneBadge;
+  if (cleanerConfirmed) return C.confirmed;
+  if (cleanerDeclined) return C.awaiting;
+  if (matchedClean && hasAssignedOnClean) return C.awaiting;
+  if (!matchedClean && !bookingCleanerName) return C.noCleaner;
+  if (!matchedClean && bookingCleanerName) return C.awaiting;
+  if (matchedClean && !hasAssignedOnClean) return C.noCleaner;
+  return C.awaiting;
+}
+
+function _todayPlatformPill(platformRaw) {
+  const raw = String(platformRaw || '').trim();
+  const p = raw.toLowerCase();
+  let color;
+  let bg;
+  if (p === 'airbnb') {
+    color = '#FF5A5F';
+    bg = '#FFF0F0';
+  } else if (p === 'vrbo' || p === 'booking.com' || p.includes('booking')) {
+    color = '#3B5998';
+    bg = '#EEF0FF';
+  } else if (p === 'direct') {
+    color = '#3D6B4F';
+    bg = '#E8F5E9';
+  } else {
+    color = '#5F5E5A';
+    bg = '#F1EFE8';
+  }
+  const label = raw || 'Other';
+  return { label, color, bg };
+}
+
+function buildTodayBookingCardHtml(b, options) {
+  const { showPropertyStripe, propertyDotHtml } = options;
+  const matchedClean = findMatchingCleanForBooking(b);
+  const isCancelled = b.status === 'cancelled';
+  const id = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
+  const payout = Number(b.hostPayout ?? b.total_price ?? 0);
+  const platformMeta = _todayPlatformPill(b.platform);
+  const cleanerMeta = isCancelled ? null : _todayCardCleanerMeta(b, matchedClean);
+  const dateLine =
+    escHtml(fmtShort(b.checkin)) +
+    ' - ' +
+    escHtml(fmtShort(b.checkout)) +
+    '  ·  ' +
+    escHtml(String(b.guests)) +
+    ' guests  ·  ' +
+    escHtml(String(b.nights)) +
+    ' night' +
+    (b.nights !== 1 ? 's' : '');
+  const stripe = showPropertyStripe ? `box-shadow:inset 4px 0 0 ${showPropertyStripe};` : '';
+  const row1WrapOpacity = isCancelled ? ';opacity:0.6' : '';
+  const nameSpanStyle = 'font-weight:500;font-size:15px;color:#1a1a1a';
+  const priceSpanStyle = isCancelled
+    ? 'font-weight:500;font-size:15px;color:#666;text-decoration:line-through'
+    : 'font-weight:500;font-size:15px;color:#1D9E75';
+  const row2Style = isCancelled
+    ? 'font-size:13px;color:#666;margin-top:3px;opacity:0.6'
+    : 'font-size:13px;color:#666;margin-top:3px';
+  const platformPill = `<span style="font-size:11px;font-weight:500;padding:1px 7px;border-radius:4px;color:${platformMeta.color};background:${platformMeta.bg}">${escHtml(platformMeta.label)}</span>`;
+  const cleanerBadgeHtml =
+    !isCancelled && cleanerMeta
+      ? `<span style="font-size:12px;font-weight:500;padding:2px 8px;border-radius:4px;color:${cleanerMeta.color};background:${cleanerMeta.bg}">${escHtml(cleanerMeta.label)}</span>`
+      : '';
+  const row3Left = isCancelled ? platformPill : `${platformPill}${cleanerBadgeHtml}`;
+  const row3Right = propertyDotHtml || '';
+  const row3 = `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:8px"><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;min-width:0">${row3Left}</div>${row3Right}</div>`;
+  const outerStyle =
+    'display:block;background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);padding:14px 16px;margin-bottom:10px;cursor:pointer;border-bottom:none;touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,0,0,0.06);' +
+    stripe;
+  return (
+    `<div class="booking-item" onclick="showDetail('${id}')" style="${outerStyle}" data-booking-id="${b.id}">` +
+    `<div style="display:flex;justify-content:space-between;align-items:baseline${row1WrapOpacity}">` +
+    `<span style="${nameSpanStyle}">${escHtml(b.name)}</span>` +
+    `<span style="${priceSpanStyle}">$${payout.toLocaleString()}</span>` +
+    `</div>` +
+    `<div style="${row2Style}">${dateLine}</div>` +
+    row3 +
+    `</div>`
+  );
+}
+
+function navigateTodayToClean(cleanId) {
+  console.log('[StayOps] navigateTodayToClean', cleanId);
+  showSection('cleaning');
+  setCleanStatusFilter('all');
+  switchCleanView('timeline');
+  setTimeout(() => {
+    const data = prepareCleaningData();
+    const order = [
+      ...data.groups.tomorrow,
+      ...data.groups.thisWeek,
+      ...data.groups.nextWeek,
+      ...data.groups.later,
+    ];
+    let idx = 0;
+    for (const item of order) {
+      if (item.clean && String(item.clean.id) === String(cleanId)) {
+        const c = item.clean;
+        const cleanIdEsc = escapeJsSingleQuotedHtmlAttr(String(c.id != null ? c.id : c._cloudId || ''));
+        const bookingIdEsc = item.booking
+          ? escapeJsSingleQuotedHtmlAttr(String(item.booking._cloudId || item.booking.id || ''))
+          : '';
+        toggleCleanAction(idx, cleanIdEsc, bookingIdEsc, item.status);
+        const row = document.getElementById('clean-row-' + idx);
+        if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      idx++;
+    }
+    console.log('[StayOps] navigateTodayToClean: clean not in timeline list', cleanId);
+  }, 150);
+}
+
+globalThis._todayWeekNav = (delta) => {
+  if (!_todayWeekStart) _todayWeekStart = _mondayStart(new Date());
+  _todayWeekStart.setDate(_todayWeekStart.getDate() + delta * 7);
+  console.log('[StayOps] today week navigated', _todayWeekStart.toDateString());
+  globalThis.renderDashboard?.();
+};
+
+globalThis._todayWeekReset = () => {
+  _todayWeekStart = _mondayStart(new Date());
+  console.log('[StayOps] today week reset to current');
+  globalThis.renderDashboard?.();
+};
+
+function _getTodayCalMonthStart() {
+  if (!_todayMonthViewStart) {
+    const n = new Date();
+    _todayMonthViewStart = new Date(n.getFullYear(), n.getMonth(), 1);
+  }
+  return _todayMonthViewStart;
+}
+
+globalThis._todayCalNav = (delta) => {
+  const d = _getTodayCalMonthStart();
+  d.setMonth(d.getMonth() + delta);
+  console.log('[StayOps] today calendar month navigated', d.getFullYear(), d.getMonth());
+  globalThis.renderDashboard?.();
+};
+
+globalThis._stayopsSetTodayCalView = (v) => {
+  if (v !== 'daily' && v !== 'weekly' && v !== 'monthly') return;
+  globalThis._stayopsTodayCalView = v;
+  console.log('[StayOps] today calendar view', v);
+  globalThis.renderDashboard?.();
+};
+
+globalThis._stayopsTodayDayNav = (delta) => {
+  globalThis._stayopsTodayDayOffset =
+    (globalThis._stayopsTodayDayOffset || 0) + delta;
+  globalThis.renderDashboard?.();
+};
+
+globalThis._stayopsTodayDayReset = () => {
+  globalThis._stayopsTodayDayOffset = 0;
+  globalThis.renderDashboard?.();
+};
+
+globalThis.navigateTodayToClean = navigateTodayToClean;
+
+function computeDedupedTodayAlerts(isPortfolio) {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const cloudIds = window._cloudPropertyIds || {};
+  const activeBookingsAll = bookings.filter(b => b.status !== 'cancelled');
+  const alerts = [];
+  const pushAlert = (type, title, subtitle, urgent, cleanId, bookingLocalId) => {
+    alerts.push({ type, title, subtitle, urgent, cleanId, bookingLocalId });
+  };
+  const inNextDays = (d, n) => {
+    const t = parseLocalDayStart(d);
+    if (Number.isNaN(t.getTime())) return false;
+    const end = new Date(todayStart);
+    end.setDate(end.getDate() + n);
+    return t >= todayStart && t < end;
+  };
+  const daysUntil = (d) => {
+    const t = parseLocalDayStart(d);
+    return Math.ceil((t - todayStart) / 86400000);
+  };
+
+  activeBookingsAll.forEach(b => {
+    if (!isPortfolio) {
+      const cfg = getActivePropertyConfig();
+      const pid = cloudIds[cfg.propertyId] || cfg.supabaseId || '';
+      if (pid && String(b._propertyId || '') !== String(pid)) return;
+    }
+    const ci = parseLocalDayStart(b.checkin);
+    if (Number.isNaN(ci.getTime())) return;
+    const days = daysUntil(b.checkin);
+    if (days < 0 || days > 13) return;
+    const clean = findMatchingCleanForBooking(b);
+    const propName = isPortfolio ? getPropertyNameById(b._propertyId) : getCurrentPropertyName();
+    const hasCleaner = !!(clean && (String(clean.cleaner || '').trim() || clean.cleanerId));
+
+    if (days <= 13 && (!clean || !hasCleaner)) {
+      const urg = days <= 3;
+      pushAlert(
+        'b',
+        'No cleaner assigned',
+        `${propName} · ${b.name} · ${fmtShort(b.checkin)}`,
+        urg,
+        clean && clean.id != null ? clean.id : null,
+        b.id
+      );
+      return;
+    }
+
+    if (days <= 6 && clean && !clean.done && hasCleaner) {
+      const urg = days <= 3;
+      const arrive =
+        days <= 0 ? 'today' : days === 1 ? 'in 1 day' : `in ${days} days`;
+      pushAlert(
+        'a',
+        'Clean not done',
+        `${propName} · ${b.name} · arrives ${arrive}`,
+        urg,
+        clean.id,
+        b.id
+      );
+    }
+  });
+
+  cleans.forEach(c => {
+    if (isCleanLinkedToCancelledBooking(c)) return;
+    if (!isPortfolio) {
+      const cfg = getActivePropertyConfig();
+      const pid = cloudIds[cfg.propertyId] || cfg.supabaseId || '';
+      const bid = c.bookingId;
+      const bk = bookings.find(
+        x =>
+          String(x.id) === String(bid) ||
+          (x._cloudId && String(x._cloudId) === String(bid))
+      );
+      if (bk && pid && String(bk._propertyId || '') !== String(pid)) return;
+      if (!bk && c._propertyId && pid && String(c._propertyId) !== String(pid)) return;
+    }
+
+    const propName = c._propertyId
+      ? getPropertyNameById(c._propertyId)
+      : isPortfolio && c.bookingId
+        ? getPropertyNameById(
+            bookings.find(
+              x =>
+                String(x.id) === String(c.bookingId) ||
+                (x._cloudId && String(x._cloudId) === String(c.bookingId))
+            )?._propertyId
+          )
+        : getCurrentPropertyName();
+
+    const assignedAt = c.assignedAt ? new Date(c.assignedAt) : null;
+    const ageH = assignedAt && !Number.isNaN(assignedAt.getTime())
+      ? (now - assignedAt) / 3600000
+      : 0;
+    const hasCleaner = !!((c.cleaner && String(c.cleaner).trim()) || c.cleanerId);
+
+    if (
+      hasCleaner &&
+      !c.cleanerConfirmed &&
+      !c.cleanerDeclined &&
+      !c.done &&
+      ageH > 12
+    ) {
+      const cd = parseLocalDayStart(c.date);
+      const dleft = Number.isNaN(cd.getTime()) ? 99 : Math.ceil((cd - todayStart) / 86400000);
+      const urg = dleft <= 3;
+      pushAlert(
+        'c',
+        'No cleaner response',
+        `${propName} · ${String(c.cleaner || '—')} · ${fmtShort(c.date)}`,
+        urg,
+        c.id,
+        null
+      );
+    }
+
+    if (c.cleanerDeclined && c.date && inNextDays(c.date, 7)) {
+      const guest = c.guestName || 'Guest';
+      const urg = daysUntil(c.date) <= 3;
+      pushAlert(
+        'd',
+        'Cleaner declined',
+        `${propName} · ${guest} · needs reassignment`,
+        urg,
+        c.id,
+        null
+      );
+    }
+  });
+
+  const seen = new Set();
+  const deduped = [];
+  alerts.forEach(a => {
+    const k = `${a.type}-${a.cleanId || ''}-${a.bookingLocalId || ''}-${a.title}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    deduped.push(a);
+  });
+  deduped.sort((x, y) => (x.urgent === y.urgent ? 0 : x.urgent ? -1 : 1));
+  return deduped;
+}
+
+function buildNeedsAttentionHtmlFromDeduped(deduped) {
+  if (!deduped.length) return '';
+  const cards = deduped
+    .map(a => {
+      const dot = a.urgent ? '#E24B4A' : '#BA7517';
+      let onclk;
+      if (a.type === 'b' && a.bookingLocalId != null) {
+        const bk = bookings.find(x => String(x.id) === String(a.bookingLocalId));
+        const bidEsc = escapeJsSingleQuotedHtmlAttr(String(bk ? bk._cloudId || bk.id : a.bookingLocalId));
+        onclk = `onclick="jumpToAssignClean('${bidEsc}')"`;
+      } else if (a.cleanId != null) {
+        const cid = escapeJsSingleQuotedHtmlAttr(String(a.cleanId));
+        onclk = `onclick="navigateTodayToClean('${cid}')"`;
+      } else {
+        onclk = `onclick="showSection('cleaning')"`;
+      }
+      return `<div ${onclk} style="background:white;border-radius:8px;padding:10px 12px;margin-bottom:6px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,0,0,0.06)">
+          <div style="display:flex;align-items:flex-start;gap:8px;min-width:0;flex:1">
+            <div style="width:6px;height:6px;border-radius:50%;background:${dot};margin-top:5px;flex-shrink:0"></div>
+            <div style="min-width:0">
+              <div style="font-weight:700;font-size:13px;color:#412402">${escHtml(a.title)}</div>
+              <div style="font-size:11px;color:#854F0B;margin-top:2px;line-height:1.35">${escHtml(a.subtitle)}</div>
+            </div>
+          </div>
+          <div style="font-size:18px;color:#854F0B;flex-shrink:0">›</div>
+        </div>`;
+    })
+    .join('');
+  const moreCount = deduped.length > 3 ? deduped.length - 3 : 0;
+  const moreFooter =
+    moreCount > 0
+      ? `<div style="text-align:center;font-size:11px;color:#854F0B;margin-top:8px;padding-top:6px;border-top:1px solid rgba(133,79,11,0.12)">${moreCount} more</div>`
+      : '';
+  return `<div style="background:#FEF3E7;border-left:3px solid #BA7517;padding:12px 14px;margin-bottom:14px">
+      <div style="font-size:12px;font-weight:500;color:#854F0B;margin-bottom:10px">Needs attention</div>
+      <div style="max-height:200px;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-right:2px">${cards}</div>
+      ${moreFooter}
+    </div>`;
+}
+
+function buildWeeklyTimelineRowsHtml(propertyRows, weekStart, weekEnd, weekMs, tertiary, primary, activeBookings, hidePropertyLabel) {
+  return propertyRows
+    .map(row => {
+      const propBookings = activeBookings.filter(b => {
+        if (!b.checkin || !b.checkout) return false;
+        if (row.pid && String(b._propertyId || '') !== String(row.pid)) return false;
+        const ci = parseLocalDayStart(b.checkin);
+        const co = parseLocalDayStart(b.checkout);
+        if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) return false;
+        return co > weekStart && ci < weekEnd;
+      });
+
+      const isDayOccupied = (dayIndex) => {
+        const d = new Date(weekStart);
+        d.setDate(d.getDate() + dayIndex);
+        for (const b of propBookings) {
+          const ci = parseLocalDayStart(b.checkin);
+          const co = parseLocalDayStart(b.checkout);
+          if (d >= ci && d < co) return true;
+        }
+        return false;
+      };
+
+      const vacantBars = [];
+      let vi = 0;
+      while (vi < 7) {
+        if (isDayOccupied(vi)) {
+          vi++;
+          continue;
+        }
+        let vj = vi;
+        while (vj < 7 && !isDayOccupied(vj)) vj++;
+        const leftPct = (vi / 7) * 100;
+        const widthPct = ((vj - vi) / 7) * 100;
+        vacantBars.push(
+          `<div style="position:absolute;top:0;left:${leftPct}%;width:${Math.max(widthPct, 0.35)}%;height:22px;background:#F1EFE8;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:${tertiary};z-index:0;box-sizing:border-box;pointer-events:none">Vacant</div>`
+        );
+        vi = vj;
+      }
+
+      const bars = propBookings
+        .map(b => {
+          const ci = parseLocalDayStart(b.checkin);
+          const co = parseLocalDayStart(b.checkout);
+          const stayStart = new Date(Math.max(ci.getTime(), weekStart.getTime()));
+          const stayEnd = new Date(Math.min(co.getTime(), weekEnd.getTime()));
+          if (stayEnd <= stayStart) return '';
+          const leftPct = ((stayStart - weekStart) / weekMs) * 100;
+          const widthPct = ((stayEnd - stayStart) / weekMs) * 100;
+          const nm = String(b.name || '').trim().split(/\s+/);
+          const guestShort = nm.length ? (nm[0].length > 12 ? nm[0].slice(0, 11) + '…' : nm[0]) : 'Guest';
+          const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
+          return `<div onclick="event.stopPropagation();showDetail('${bid}')" style="position:absolute;top:0;height:22px;left:${leftPct}%;width:${Math.max(widthPct, 0.5)}%;background:${row.palette.bg};border-left:3px solid ${row.palette.border};border-radius:4px;display:flex;align-items:center;padding:0 6px;overflow:hidden;box-sizing:border-box;cursor:pointer;pointer-events:auto;z-index:1">
+            <span style="font-size:10px;font-weight:500;color:${row.palette.text};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(guestShort)}</span>
+          </div>`;
+        })
+        .join('');
+
+      const track = `<div style="flex:1;position:relative;min-height:22px">
+          <div style="position:absolute;inset:0;z-index:0;pointer-events:none">${vacantBars.join('')}</div>
+          <div style="position:absolute;inset:0;z-index:1;pointer-events:none">${bars}</div>
+        </div>`;
+
+      if (hidePropertyLabel) {
+        return `<div style="display:flex;align-items:stretch;margin-bottom:8px">${track}</div>`;
+      }
+      return `<div style="display:flex;align-items:stretch;margin-bottom:8px">
+        <div style="width:60px;flex-shrink:0;padding-right:6px;display:flex;align-items:center;gap:5px;min-width:0">
+          <div style="width:6px;height:6px;border-radius:50%;background:${row.palette.border};flex-shrink:0"></div>
+          <span style="font-size:11px;color:${primary};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(row.name)}</span>
+        </div>
+        ${track}
+      </div>`;
+    })
+    .join('');
+}
+
+function buildStayopsUnifiedTodayCalendarHtml({
+  activePid,
+  activeBookings,
+  todayStart,
+  tertiary,
+  primary,
+}) {
+  const view = globalThis._stayopsTodayCalView || 'weekly';
+  const dayOffset = globalThis._stayopsTodayDayOffset || 0;
+
+  const cleanForPropertyOnDate = (dayStr) =>
+    cleans.find((c) => {
+      if (c.done || isCleanLinkedToCancelledBooking(c)) return false;
+      if (String(c.date || '').slice(0, 10) !== dayStr) return false;
+      const bk =
+        c.bookingId &&
+        bookings.find(
+          (x) =>
+            String(x.id) === String(c.bookingId) ||
+            (x._cloudId && String(x._cloudId) === String(c.bookingId))
+        );
+      if (bk) return String(bk._propertyId || '') === String(activePid);
+      return !c._propertyId || String(c._propertyId) === String(activePid);
+    });
+
+  const maintListForDate = (dayStr) =>
+    maintenance.filter((m) => {
+      if (m.status !== 'open' && m.status !== 'inprogress') return false;
+      if (activePid && m._propertyId && String(m._propertyId) !== String(activePid))
+        return false;
+      const ds = String(m.scheduledDate || m.date || '').slice(0, 10);
+      return ds === dayStr;
+    });
+
+  const segBtn = (v, label) => {
+    const on = view === v;
+    return `<button type="button" onclick="_stayopsSetTodayCalView('${v}')" style="flex:1;border:none;border-radius:8px;padding:8px 6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;touch-action:manipulation;color:${on ? primary : tertiary};background:${on ? '#fff' : 'transparent'};box-shadow:${on ? '0 1px 3px rgba(0,0,0,0.12)' : 'none'}">${label}</button>`;
+  };
+
+  const bookingUpcoming = (b) => {
+    const ci = parseLocalDayStart(b.checkin);
+    return !Number.isNaN(ci.getTime()) && ci > todayStart;
+  };
+
+  const bookingBarsBlock = (rangeStart, rangeEnd) => {
+    const list = activeBookings
+      .filter((b) => {
+        if (!b.checkin || !b.checkout) return false;
+        const ci = parseLocalDayStart(b.checkin);
+        const co = parseLocalDayStart(b.checkout);
+        if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) return false;
+        return co > rangeStart && ci < rangeEnd;
+      })
+      .sort((a, b) => parseLocalDayStart(a.checkin) - parseLocalDayStart(b.checkin));
+    if (!list.length) return '';
+    const rows = list
+      .map((b) => {
+        const up = bookingUpcoming(b);
+        const bg = up ? '#E3F2FD' : '#D4EDDA';
+        const co = parseLocalDayStart(b.checkout);
+        const ci = parseLocalDayStart(b.checkin);
+        let r = fmtShort(b.checkin) + ' \u2013 ' + fmtShort(b.checkout);
+        if (ci < rangeStart) r = '\u2190 ' + r;
+        if (co > rangeEnd) r += ' \u2192';
+        const bidEsc = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
+        return `<div onclick="showDetail('${bidEsc}')" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:8px;margin-bottom:6px;background:${bg};cursor:pointer;touch-action:manipulation">
+        <span style="font-size:12px;font-weight:500;color:${primary}">${escHtml(b.name)}</span>
+        <span style="font-size:11px;color:${tertiary};text-align:right;white-space:nowrap;margin-left:8px">${escHtml(r)}</span>
+      </div>`;
+      })
+      .join('');
+    return `<div style="margin-top:12px;padding-top:12px;border-top:0.5px solid rgba(0,0,0,0.1)">${rows}</div>`;
+  };
+
+  const svgIn =
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 19V5M12 5l4 4M12 5L8 9"/></svg>';
+  const svgOut =
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M12 19l4-4M12 19l-4-4"/></svg>';
+  const svgSpark =
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2l2 7h7l-6 4 2 7-5-5-5 5 2-7-6-4h7z"/></svg>';
+  const svgWrench =
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 010 1.4l-2.8 2.8a4 4 0 11-5.6 5.6l-.7-.7 3.5-3.5-2.5-2.5 3.5-3.5.7.7a4 4 0 011.9-1.8c.5-.3 1.1-.2 1.5.2z"/></svg>';
+
+  const dailyCard = (bg, border, titleC, iconBg, iconFg, svgEl, title, subHtml) =>
+    `<div style="display:flex;gap:10px;align-items:flex-start;padding:12px;border-left:3px solid ${border};border-radius:8px;background:${bg};margin-bottom:8px">
+      <div style="width:28px;height:28px;border-radius:8px;background:${iconBg};color:${iconFg};flex-shrink:0;display:flex;align-items:center;justify-content:center">${svgEl}</div>
+      <div style="min-width:0;flex:1">
+        <div style="font-size:13px;font-weight:600;color:${titleC}">${title}</div>
+        ${subHtml ? `<div style="font-size:12px;color:var(--text-soft);margin-top:2px">${subHtml}</div>` : ''}
+      </div>
+    </div>`;
+
+  let bodyHtml = '';
+
+  if (view === 'daily') {
+    const focus = new Date(todayStart);
+    focus.setDate(focus.getDate() + dayOffset);
+    const ds = _ymd(focus);
+    const headLine = `${focus.toLocaleDateString('en-AU', { weekday: 'long' })}, ${focus.getDate()} ${focus.toLocaleDateString('en-AU', { month: 'short' })}`;
+    const isFocusToday = ds === _ymd(todayStart);
+    const todaySub = isFocusToday
+      ? `<div style="font-size:12px;color:var(--text-soft);margin-top:2px;text-align:center">Today</div>`
+      : '';
+
+    const curGuest = activeBookings.find((b) => {
+      const ci = parseLocalDayStart(b.checkin);
+      const co = parseLocalDayStart(b.checkout);
+      const d0 = new Date(focus.getFullYear(), focus.getMonth(), focus.getDate());
+      return (
+        !Number.isNaN(ci.getTime()) &&
+        !Number.isNaN(co.getTime()) &&
+        d0 >= ci &&
+        d0 < co
+      );
+    });
+    let statusPill = '';
+    if (curGuest) {
+      statusPill = `<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#E8F5E9;color:#1D9E75;font-size:12px;font-weight:600">${escHtml(curGuest.name)}</span>`;
+    } else {
+      statusPill = `<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#F1EFE8;color:#5F5E5A;font-size:12px;font-weight:600">Vacant</span>`;
+    }
+
+    const parts = [];
+    const cinB = activeBookings.find((b) => String(b.checkin || '').slice(0, 10) === ds);
+    if (cinB) {
+      parts.push(
+        dailyCard(
+          '#E8F5E9',
+          '#1D9E75',
+          'var(--forest, #2D5A3D)',
+          '#D4EDDA',
+          '#1D9E75',
+          svgIn,
+          'Check-in',
+          escHtml(cinB.name) +
+            (cinB.guests
+              ? ` \u00b7 ${escHtml(String(cinB.guests))} guest${cinB.guests === 1 ? '' : 's'}`
+              : '')
+        )
+      );
+    }
+    const coutB = activeBookings.find((b) => String(b.checkout || '').slice(0, 10) === ds);
+    if (coutB) {
+      parts.push(
+        dailyCard(
+          '#FEF2F2',
+          '#E24B4A',
+          '#A32D2D',
+          '#FCEBEB',
+          '#E24B4A',
+          svgOut,
+          'Check-out',
+          escHtml(coutB.name)
+        )
+      );
+      const mc = findMatchingCleanForBooking(coutB);
+      const hasCl = !!(mc && (String(mc.cleaner || '').trim() || mc.cleanerId));
+      if (mc && !mc.done) {
+        parts.push(
+          dailyCard(
+            '#FEF2F2',
+            '#E24B4A',
+            '#A32D2D',
+            '#FCEBEB',
+            '#E24B4A',
+            svgSpark,
+            'Clean not done',
+            escHtml(mc.cleaner || 'Cleaner') + ' \u00b7 ' + fmtShort(mc.date || coutB.checkout)
+          )
+        );
+      } else if (!hasCl) {
+        parts.push(
+          dailyCard(
+            '#FEF2F2',
+            '#E24B4A',
+            '#A32D2D',
+            '#FCEBEB',
+            '#E24B4A',
+            svgSpark,
+            'Clean needed',
+            'No cleaner assigned for departure'
+          )
+        );
+      }
+    }
+
+    const clOnly = cleanForPropertyOnDate(ds);
+    if (clOnly && (!coutB || findMatchingCleanForBooking(coutB)?.id !== clOnly.id)) {
+      const clAssigned = !!((clOnly.cleaner && String(clOnly.cleaner).trim()) || clOnly.cleanerId);
+      if (clOnly.done) {
+        parts.push(
+          dailyCard(
+            '#E8F5E9',
+            '#1D9E75',
+            'var(--forest, #2D5A3D)',
+            '#D4EDDA',
+            '#1D9E75',
+            svgSpark,
+            'Clean complete',
+            escHtml(clOnly.cleaner || 'Cleaner') + ' \u00b7 ' + fmtShort(clOnly.date)
+          )
+        );
+      } else if (clAssigned) {
+        parts.push(
+          dailyCard(
+            '#E8F5E9',
+            '#1D9E75',
+            'var(--forest, #2D5A3D)',
+            '#D4EDDA',
+            '#1D9E75',
+            svgSpark,
+            'Clean scheduled',
+            escHtml(clOnly.cleaner || 'Cleaner') + ' \u00b7 ' + fmtShort(clOnly.date)
+          )
+        );
+      } else {
+        parts.push(
+          dailyCard(
+            '#FEF2F2',
+            '#E24B4A',
+            '#A32D2D',
+            '#FCEBEB',
+            '#E24B4A',
+            svgSpark,
+            'Clean needed',
+            'No cleaner assigned \u00b7 ' + fmtShort(clOnly.date)
+          )
+        );
+      }
+    }
+
+    if (!cinB && !coutB) {
+      const occ = activeBookings.find((b) => {
+        const ci = parseLocalDayStart(b.checkin);
+        const co = parseLocalDayStart(b.checkout);
+        const d0 = new Date(focus.getFullYear(), focus.getMonth(), focus.getDate());
+        if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) return false;
+        if (!(d0 >= ci && d0 < co)) return false;
+        if (String(b.checkin || '').slice(0, 10) === ds) return false;
+        if (String(b.checkout || '').slice(0, 10) === ds) return false;
+        return true;
+      });
+      if (occ) {
+        const ci = parseLocalDayStart(occ.checkin);
+        const n = Math.max(1, Math.floor((focus.getTime() - ci.getTime()) / 86400000) + 1);
+        parts.push(
+          dailyCard(
+            '#E8F5E9',
+            '#92C9A9',
+            'var(--sage, #3D6B4F)',
+            '#D4EDDA',
+            '#1D9E75',
+            svgIn,
+            'Stay in progress',
+            `${escHtml(occ.name)} \u00b7 night ${n}`
+          )
+        );
+      }
+    }
+
+    maintListForDate(ds).forEach((mt) => {
+      parts.push(
+        dailyCard(
+          '#FFF8E1',
+          '#D4A017',
+          '#7A5A00',
+          '#FFECB3',
+          '#D4A017',
+          svgWrench,
+          escHtml(mt.description || 'Maintenance'),
+          escHtml(fmt(mt.date || mt.scheduledDate || ''))
+        )
+      );
+    });
+
+    const emptyHint =
+      !parts.length
+        ? `<div style="font-size:13px;color:var(--text-soft);text-align:center;padding:16px 8px">No events today</div>`
+        : '';
+
+    const resetDay =
+      dayOffset !== 0
+        ? `<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><span onclick="_stayopsTodayDayReset()" style="font-size:11px;font-weight:600;color:var(--forest);cursor:pointer">Today</span></div>`
+        : '';
+
+    bodyHtml =
+      `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">
+        <button type="button" onclick="_stayopsTodayDayNav(-1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">‹</button>
+        <div style="text-align:center;flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:600;color:${primary}">${headLine}</div>
+          ${todaySub}
+        </div>
+        <button type="button" onclick="_stayopsTodayDayNav(1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">›</button>
+      </div>` +
+      resetDay +
+      `<div style="margin-bottom:12px;text-align:center">${statusPill}</div>` +
+      parts.join('') +
+      emptyHint;
+  } else if (view === 'weekly') {
+    if (!_todayWeekStart) _todayWeekStart = _mondayStart(new Date());
+    const wkStart = new Date(
+      _todayWeekStart.getFullYear(),
+      _todayWeekStart.getMonth(),
+      _todayWeekStart.getDate()
+    );
+    const wkEnd = new Date(wkStart);
+    wkEnd.setDate(wkEnd.getDate() + 7);
+    const wkEndLbl = new Date(wkStart);
+    wkEndLbl.setDate(wkEndLbl.getDate() + 6);
+    const wkRange =
+      wkStart.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) +
+      ' \u2014 ' +
+      wkEndLbl.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+
+    const pillDot = (col) =>
+      `<span style="width:6px;height:6px;border-radius:50%;background:${col};flex-shrink:0"></span>`;
+
+    const rows = [];
+    for (let i = 0; i < 7; i++) {
+      const dayDate = new Date(wkStart);
+      dayDate.setDate(dayDate.getDate() + i);
+      const dStr = _ymd(dayDate);
+      const isTodayRow = dStr === _ymd(todayStart);
+      const dnum = dayDate.getDate();
+      const dname = dayDate.toLocaleDateString('en-AU', { weekday: 'short' });
+      const pills = [];
+
+      const cinBk = activeBookings.find((b) => String(b.checkin || '').slice(0, 10) === dStr);
+      const coutBk = activeBookings.find((b) => String(b.checkout || '').slice(0, 10) === dStr);
+
+      if (coutBk) {
+        pills.push(
+          `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#FEF2F2;color:#A32D2D;margin-bottom:4px">${pillDot('#E24B4A')}Check-out: ${escHtml(coutBk.name)}</div>`
+        );
+        const mc = findMatchingCleanForBooking(coutBk);
+        const hasCl = !!(mc && (String(mc.cleaner || '').trim() || mc.cleanerId));
+        if (mc && !mc.done) {
+          pills.push(
+            `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#FEF2F2;color:#A32D2D;margin-bottom:4px">${pillDot('#E24B4A')}Clean not done</div>`
+          );
+        } else if (!hasCl) {
+          pills.push(
+            `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#FAEEDA;color:#BA7517;margin-bottom:4px">${pillDot('#BA7517')}Clean needed</div>`
+          );
+        }
+      }
+      if (cinBk) {
+        const gc =
+          cinBk.guests != null && cinBk.guests !== ''
+            ? `<span style="margin-left:6px;font-size:11px;font-weight:600;opacity:0.9">${escHtml(String(cinBk.guests))} guests</span>`
+            : '';
+        pills.push(
+          `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#E8F5E9;color:#1D9E75;margin-bottom:4px"><span style="display:flex;align-items:center;gap:6px;min-width:0">${pillDot('#1D9E75')}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Check-in: ${escHtml(cinBk.name)}</span></span>${gc}</div>`
+        );
+      }
+
+      maintListForDate(dStr).forEach((mt) => {
+        pills.push(
+          `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#FFF8E1;color:#7A5A00;margin-bottom:4px">
+            <span style="flex-shrink:0;display:flex;color:#D4A017">${svgWrench}</span>
+            <span style="overflow:hidden;text-overflow:ellipsis"><span style="font-weight:600">${escHtml(fmt(mt.date || mt.scheduledDate || ''))}</span> \u00b7 ${escHtml(mt.description || 'Maintenance')}</span>
+          </div>`
+        );
+      });
+
+      if (!cinBk && !coutBk) {
+        const occ = activeBookings.find((b) => {
+          const ci = parseLocalDayStart(b.checkin);
+          const co = parseLocalDayStart(b.checkout);
+          const d0 = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate());
+          if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) return false;
+          if (!(d0 >= ci && d0 < co)) return false;
+          if (String(b.checkin || '').slice(0, 10) === dStr) return false;
+          if (String(b.checkout || '').slice(0, 10) === dStr) return false;
+          return true;
+        });
+        if (occ) {
+          const ci = parseLocalDayStart(occ.checkin);
+          const n = Math.max(1, Math.floor((dayDate.getTime() - ci.getTime()) / 86400000) + 1);
+          pills.push(
+            `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#E8F5E9;color:#1D9E75;margin-bottom:4px">${pillDot('#1D9E75')}${escHtml(occ.name)} \u00b7 night ${n}</div>`
+          );
+        }
+      }
+
+      const cl = cleanForPropertyOnDate(dStr);
+      if (cl && (!coutBk || findMatchingCleanForBooking(coutBk)?.id !== cl.id)) {
+        const clAssigned = !!((cl.cleaner && String(cl.cleaner).trim()) || cl.cleanerId);
+        if (cl.done) {
+          pills.push(
+            `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#E8F5E9;color:#1D9E75;margin-bottom:4px">${pillDot('#1D9E75')}Clean done</div>`
+          );
+        } else if (!clAssigned) {
+          pills.push(
+            `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#FAEEDA;color:#BA7517;margin-bottom:4px">${pillDot('#BA7517')}Clean needed</div>`
+          );
+        } else {
+          pills.push(
+            `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#FEF2F2;color:#A32D2D;margin-bottom:4px">${pillDot('#E24B4A')}Clean not done</div>`
+          );
+        }
+      }
+
+      const rightContent =
+        pills.length > 0
+          ? pills.join('')
+          : `<span style="font-size:12px;color:var(--text-soft)">\u2014</span>`;
+
+      const leftNumStyle = isTodayRow
+        ? 'width:26px;height:26px;border-radius:50%;background:#1E3A2F;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700'
+        : 'font-size:14px;font-weight:600;color:' + primary;
+
+      const rowBg = isTodayRow ? 'background:var(--warm);' : '';
+      const rowBorder = i < 6 ? 'border-bottom:0.5px solid rgba(0,0,0,0.06);' : '';
+      rows.push(
+        `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 8px;${rowBg}${rowBorder}">
+          <div style="width:52px;flex-shrink:0;text-align:center">
+            <div style="font-size:11px;font-weight:600;color:${tertiary};text-transform:capitalize">${dname}</div>
+            <div style="margin-top:4px"><span style="${leftNumStyle}">${dnum}</span></div>
+          </div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:stretch">${rightContent}</div>
+        </div>`
+      );
+    }
+
+    bodyHtml =
+      `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px">
+        <button type="button" onclick="_todayWeekNav(-1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">‹</button>
+        <div style="font-size:14px;font-weight:600;color:${primary};text-align:center;flex:1">${escHtml(wkRange)}</div>
+        <button type="button" onclick="_todayWeekNav(1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">›</button>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+        <span onclick="_todayWeekReset()" style="font-size:11px;font-weight:600;color:var(--forest);cursor:pointer">This week</span>
+      </div>
+      <div style="border-radius:10px;overflow:hidden;border:0.5px solid rgba(0,0,0,0.06)">
+        ${rows.join('')}
+      </div>` +
+      bookingBarsBlock(wkStart, wkEnd);
+  } else {
+    const calM = _getTodayCalMonthStart();
+    const calYear = calM.getFullYear();
+    const calMonth = calM.getMonth();
+    const calMonthName = calM.toLocaleString('en-AU', { month: 'long', year: 'numeric' });
+    const firstJsDow = new Date(calYear, calMonth, 1).getDay();
+    const leading = (firstJsDow + 6) % 7;
+    const gridStart = new Date(calYear, calMonth, 1 - leading);
+    const calHeader = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+      .map(
+        (h) =>
+          `<div style="text-align:center;font-size:10px;font-weight:600;color:${tertiary};padding:4px 0">${h}</div>`
+      )
+      .join('');
+
+    const isBookedOnCalDate = (ymdStr) =>
+      activeBookings.some((b) => {
+        if (!b.checkin || !b.checkout) return false;
+        const ci = parseLocalDayStart(b.checkin);
+        const co = parseLocalDayStart(b.checkout);
+        const d = parseLocalDayStart(ymdStr);
+        return !Number.isNaN(ci.getTime()) && !Number.isNaN(co.getTime()) && d >= ci && d < co;
+      });
+
+    const firstBookingOnDate = (ymdStr) =>
+      activeBookings.find((b) => {
+        if (!b.checkin || !b.checkout) return false;
+        const ci = parseLocalDayStart(b.checkin);
+        const co = parseLocalDayStart(b.checkout);
+        const d = parseLocalDayStart(ymdStr);
+        return !Number.isNaN(ci.getTime()) && !Number.isNaN(co.getTime()) && d >= ci && d < co;
+      });
+
+    let calCells = '';
+    for (let c = 0; c < 42; c++) {
+      const cellDate = new Date(gridStart);
+      cellDate.setDate(gridStart.getDate() + c);
+      const inMonth = cellDate.getMonth() === calMonth && cellDate.getFullYear() === calYear;
+      const dayNum = cellDate.getDate();
+      const ymdStr = _ymd(cellDate);
+      const isTodayCell = ymdStr === _ymd(todayStart);
+      const booked = inMonth && isBookedOnCalDate(ymdStr);
+      const bk = inMonth ? firstBookingOnDate(ymdStr) : null;
+      const bidEsc = bk ? escapeJsSingleQuotedHtmlAttr(String(bk._cloudId || bk.id)) : '';
+      const onclk = booked && bk ? `onclick="showDetail('${bidEsc}')"` : '';
+      const numColor = inMonth ? primary : tertiary;
+      const numStyle = isTodayCell
+        ? `width:28px;height:28px;border-radius:50%;background:#2D5A3D;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600`
+        : `font-size:12px;color:${numColor};font-weight:500;opacity:${inMonth ? 1 : 0.45}`;
+      const dotHtml = booked
+        ? `<div style="width:4px;height:4px;border-radius:50%;background:#1D9E75;margin-top:2px"></div>`
+        : '<div style="height:6px"></div>';
+      calCells += `<div ${onclk} style="text-align:center;padding:6px 2px;min-height:44px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;cursor:${booked ? 'pointer' : 'default'};touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,0,0,0.06)">
+        <span style="${numStyle}">${dayNum}</span>
+        ${dotHtml}
+      </div>`;
+    }
+
+    const monthStartR = new Date(calYear, calMonth, 1);
+    const monthEndR = new Date(calYear, calMonth + 1, 1);
+
+    bodyHtml =
+      `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px">
+        <span style="font-size:14px;font-weight:600;color:${primary}">${escHtml(calMonthName)}</span>
+        <div style="display:flex;align-items:center;gap:4px">
+          <button type="button" onclick="_todayCalNav(-1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">‹</button>
+          <button type="button" onclick="_todayCalNav(1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">›</button>
+        </div>
+      </div>
+      <div style="border-radius:10px;overflow:hidden;padding-bottom:8px">
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px">${calHeader}</div>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">${calCells}</div>
+      </div>` +
+      bookingBarsBlock(monthStartR, monthEndR);
+  }
+
+  return (
+    `<div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);padding:14px;margin-bottom:14px;box-sizing:border-box">` +
+    `<div style="display:flex;background:var(--warm);border-radius:10px;padding:3px;margin-bottom:14px;gap:2px">` +
+    segBtn('daily', 'Daily') +
+    segBtn('weekly', 'Weekly') +
+    segBtn('monthly', 'Monthly') +
+    `</div>` +
+    bodyHtml +
+    `</div>`
+  );
+}
+
+function buildSinglePropertyTodayDashboardMarkup() {
+  const tertiary = '#6B6560';
+  const primary = '#1a1a1a';
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const cloudIds = window._cloudPropertyIds || {};
+  const cfg = getActivePropertyConfig();
+  const activePid = String(
+    cloudIds[getActivePropertyId()] || cloudIds[cfg.propertyId] || cfg.supabaseId || ''
+  );
+
+  const activeBookingsAll = bookings.filter(b => b.status !== 'cancelled');
+  const activeBookings = activePid
+    ? activeBookingsAll.filter(b => String(b._propertyId || '') === String(activePid))
+    : activeBookingsAll.slice();
+
+  const safeNum = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const next30End = new Date(todayStart);
+  next30End.setDate(next30End.getDate() + 30);
+  const thisMonth = now.getMonth();
+  const thisYear = now.getFullYear();
+  const daysThisMonth = new Date(thisYear, thisMonth + 1, 0).getDate();
+  const monthStart = new Date(thisYear, thisMonth, 1);
+  const monthEnd = new Date(thisYear, thisMonth + 1, 1);
+  const pad = n => String(n).padStart(2, '0');
+  const monthStartStr = `${thisYear}-${pad(thisMonth + 1)}-01`;
+  const nextM = thisMonth === 11 ? 0 : thisMonth + 1;
+  const nextY = thisMonth === 11 ? thisYear + 1 : thisYear;
+  const monthEndStr = `${nextY}-${pad(nextM + 1)}-01`;
+
+  let bookedNightsMonth = 0;
+  activeBookings.forEach(b => {
+    if (!b.checkin || !b.checkout) return;
+    const ci = new Date(Math.max(new Date(b.checkin).getTime(), monthStart.getTime()));
+    const co = new Date(Math.min(new Date(b.checkout).getTime(), monthEnd.getTime()));
+    if (co > ci) bookedNightsMonth += Math.round((co - ci) / 86400000);
+  });
+  const occupancyThisMonth = Math.max(0, Math.min(100, Math.round((bookedNightsMonth / daysThisMonth) * 100)));
+
+  const revenueThisMonth = activeBookings
+    .filter(b => {
+      const ci = parseLocalDayStart(b.checkin);
+      return !Number.isNaN(ci.getTime()) && ci >= monthStart && ci < monthEnd;
+    })
+    .reduce((s, b) => s + safeNum(b.hostPayout), 0);
+
+  const revenueNext30 = activeBookings
+    .filter(b => {
+      const ci = parseLocalDayStart(b.checkin);
+      return !Number.isNaN(ci.getTime()) && ci >= todayStart && ci < next30End;
+    })
+    .reduce((s, b) => s + safeNum(b.hostPayout), 0);
+
+  let statusHtml = '';
+  const currentGuest = activeBookings.find(b => {
+    if (b.status === 'cancelled') return false;
+    const ci = parseLocalDayStart(b.checkin);
+    const co = parseLocalDayStart(b.checkout);
+    return !Number.isNaN(ci.getTime()) && !Number.isNaN(co.getTime()) && ci <= todayStart && co > todayStart;
+  });
+  if (currentGuest) {
+    statusHtml =
+      `<div style="background:#E6F1FB;border-radius:8px;padding:8px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">` +
+      `<span style="color:#0C447C;font-weight:500">Occupied</span>` +
+      `<span style="color:#185FA5;font-size:12px;text-align:right">${escHtml(currentGuest.name)} · checkout ${escHtml(fmtShort(currentGuest.checkout))}</span>` +
+      `</div>`;
+  } else {
+    const upcoming = [...activeBookings]
+      .filter(b => parseLocalDayStart(b.checkin) > todayStart)
+      .sort((a, b) => parseLocalDayStart(a.checkin) - parseLocalDayStart(b.checkin));
+    if (upcoming.length) {
+      const u = upcoming[0];
+      const days = Math.ceil((parseLocalDayStart(u.checkin) - todayStart) / 86400000);
+      statusHtml =
+        `<div style="background:#E6F1FB;border-radius:8px;padding:8px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">` +
+        `<span style="color:#0C447C;font-weight:500">Vacant</span>` +
+        `<span style="color:#185FA5;font-size:12px;text-align:right">Next guest in ${days} day${days === 1 ? '' : 's'} · ${escHtml(u.name)}</span>` +
+        `</div>`;
+    } else {
+      statusHtml =
+        `<div style="background:#E6F1FB;border-radius:8px;padding:8px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">` +
+        `<span style="color:#0C447C;font-weight:500">Vacant</span>` +
+        `<span style="color:#185FA5;font-size:12px">No upcoming bookings</span>` +
+        `</div>`;
+    }
+  }
+
+  const deduped = computeDedupedTodayAlerts(false);
+  const needsHtml = buildNeedsAttentionHtmlFromDeduped(deduped);
+
+  const unifiedCalHtml = buildStayopsUnifiedTodayCalendarHtml({
+    activePid,
+    activeBookings,
+    todayStart,
+    tertiary,
+    primary,
+  });
+
+  const statsHtml = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
+    <div style="background:white;border-radius:10px;border:0.5px solid rgba(0,0,0,0.1);padding:12px 10px;text-align:center">
+      <div style="font-size:18px;font-weight:500;color:${primary}">${occupancyThisMonth}%</div>
+      <div style="font-size:11px;color:${tertiary};margin-top:3px">Occupancy</div>
+    </div>
+    <div style="background:white;border-radius:10px;border:0.5px solid rgba(0,0,0,0.1);padding:12px 10px;text-align:center">
+      <div style="font-size:18px;font-weight:500;color:${primary}">$${Math.round(revenueThisMonth).toLocaleString()}</div>
+      <div style="font-size:11px;color:${tertiary};margin-top:3px">Revenue this month</div>
+    </div>
+    <div style="background:white;border-radius:10px;border:0.5px solid rgba(0,0,0,0.1);padding:12px 10px;text-align:center">
+      <div style="font-size:18px;font-weight:500;color:${primary}">$${Math.round(revenueNext30).toLocaleString()}</div>
+      <div style="font-size:11px;color:${tertiary};margin-top:3px">Revenue next 30 days</div>
+    </div>
+  </div>`;
+
+  const propExpenses = expenses.filter(e => {
+    if (!e.date || e.date < monthStartStr || e.date >= monthEndStr) return false;
+    if (!activePid) return true;
+    return !e._propertyId || String(e._propertyId) === String(activePid);
+  });
+  const expSum = propExpenses.reduce((s, e) => s + safeNum(e.amount), 0);
+  const openMaint = maintenance.filter(m => {
+    if (m.status !== 'open' && m.status !== 'inprogress') return false;
+    if (activePid && m._propertyId && String(m._propertyId) !== String(activePid)) return false;
+    return true;
+  });
+  const lowStock = inventory.filter(i => {
+    if (i.stock > i.threshold) return false;
+    if (activePid && i._propertyId && String(i._propertyId) !== String(activePid)) return false;
+    return true;
+  });
+
+  const quickRow = (label, right, danger, onclk) =>
+    `<div onclick="${onclk}" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:0.5px solid rgba(0,0,0,0.06);cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,0,0,0.06)">
+      <span style="font-size:14px;color:${primary}">${label}</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:13px;font-weight:600;color:${danger ? '#A32D2D' : tertiary}">${right}</span>
+        <span style="color:${tertiary};font-size:16px">›</span>
+      </div>
+    </div>`;
+
+  const quickHtml =
+    `<div style="font-size:12px;font-weight:500;color:${tertiary};margin:0 0 6px 2px">Quick links</div>` +
+    `<div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.12);overflow:hidden;margin-bottom:8px">` +
+    quickRow(
+      'Expenses this month',
+      '$' + Math.round(expSum).toLocaleString(),
+      false,
+      "showSection('finance');showFinanceSub('expenses')"
+    ) +
+    quickRow(
+      'Maintenance',
+      openMaint.length + ' open',
+      false,
+      "showSection('property');showPropertySub('maintenance')"
+    ) +
+    quickRow(
+      'Low stock',
+      lowStock.length ? lowStock.length + ' items' : '0 items',
+      lowStock.length > 0,
+      "showSection('property');showPropertySub('inventory');setTimeout(function(){var el=document.getElementById('inv-tab-low');if(window.setInvView&&el)window.setInvView('low',el);},50)"
+    ) +
+    `</div>`;
+
+  return (
+    statusHtml +
+    needsHtml +
+    unifiedCalHtml +
+    statsHtml +
+    quickHtml
+  );
+}
+
 function renderDashboard() {
   if (isPortfolioMode()) {
-    renderPortfolioDashboard();
+    const singleDash = document.getElementById('dashboard-content');
+    const portfolioDash = document.getElementById('portfolio-dashboard');
+    if (singleDash) singleDash.style.display = 'none';
+    if (portfolioDash) {
+      portfolioDash.style.display = '';
+      portfolioDash.innerHTML =
+        '<div style="background:#f5f5f3;margin-left:-16px;margin-right:-16px;padding:16px;padding-bottom:12px;min-height:80px">' +
+        buildTodayDashboardMarkup({ portfolio: true }) +
+        '</div>';
+    }
     return;
   }
+
   const singleDash = document.getElementById('dashboard-content');
   const portfolioDash = document.getElementById('portfolio-dashboard');
   if (singleDash) singleDash.style.display = '';
@@ -544,70 +1727,52 @@ function renderDashboard() {
     }
   }
 
-  const statBookings = document.getElementById('stat-bookings');
-  if (statBookings) statBookings.textContent = bookings.filter(b => b.status !== 'cancelled').length;
-  renderCalendar();
-  updateCalStats();
+  const mount = document.getElementById('dashboard-today-mount');
+  if (mount) mount.innerHTML = buildTodayDashboardMarkup({ portfolio: false });
 
+  const usageSnapshot = getUsageSnapshotLite();
+  const planState = getPlanStateLite();
+  renderOnboardingGuidance(usageSnapshot);
+  renderPlanNudges(usageSnapshot, planState);
+}
+
+function buildTodayDashboardMarkup(ctx) {
+  if (!ctx.portfolio) return buildSinglePropertyTodayDashboardMarkup();
+  return buildPortfolioTodayDashboardMarkup();
+}
+
+function buildPortfolioTodayDashboardMarkup() {
+  const tertiary = '#6B6560';
+  const primary = '#1a1a1a';
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const weekStart = new Date(todayStart);
-  const dayOfWeek = (weekStart.getDay() + 6) % 7; // Monday=0
-  weekStart.setDate(weekStart.getDate() - dayOfWeek);
+  if (!_todayWeekStart) _todayWeekStart = _mondayStart(new Date());
+  const weekStart = new Date(_todayWeekStart.getFullYear(), _todayWeekStart.getMonth(), _todayWeekStart.getDate());
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 7);
-  const next7 = new Date(todayStart); next7.setDate(next7.getDate() + 7);
-  const next30 = new Date(todayStart); next30.setDate(next30.getDate() + 30);
+  const weekMs = 7 * 86400000;
+
+  const next7End = new Date(todayStart);
+  next7End.setDate(next7End.getDate() + 7);
+  const next30End = new Date(todayStart);
+  next30End.setDate(next30End.getDate() + 30);
+
+  const thisMonth = now.getMonth();
+  const thisYear = now.getFullYear();
+  const daysThisMonth = new Date(thisYear, thisMonth + 1, 0).getDate();
+  const monthStart = new Date(thisYear, thisMonth, 1);
+  const monthEnd = new Date(thisYear, thisMonth + 1, 1);
+
+  const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
+
+  const activeBookingsAll = bookings.filter(b => b.status !== 'cancelled');
+  const activeBookings = activeBookingsAll.slice();
+
   const safeNum = (value) => {
     const n = Number(value);
     return Number.isFinite(n) ? n : 0;
   };
-  const safeDayLabel = (dateKey) => {
-    const key = String(dateKey || '').slice(0, 10);
-    if (!key) return '—';
-    const d = parseLocalDayStart(key);
-    return Number.isNaN(d.getTime()) ? key : d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
-  };
 
-  const activeBookings = bookings.filter(b => b.status !== 'cancelled');
-  const upcomingBookings = activeBookings.filter(b => parseLocalDayStart(b.checkin) >= todayStart);
-  const upcomingBookings7 = upcomingBookings.filter(b => parseLocalDayStart(b.checkin) < next7);
-  const upcomingBookings30 = upcomingBookings.filter(b => parseLocalDayStart(b.checkin) < next30);
-  const upcomingRevenue7 = upcomingBookings7.reduce((sum, b) => sum + safeNum(b.hostPayout), 0);
-  const upcomingRevenue30 = upcomingBookings30.reduce((sum, b) => sum + safeNum(b.hostPayout), 0);
-  const upcomingPayoutEstimate = upcomingBookings.reduce((sum, b) => sum + safeNum(b.netPayout), 0);
-  const hostPayoutCoverage7 = upcomingBookings7.filter(b => Number.isFinite(Number(b.hostPayout))).length;
-  const hostPayoutCoverage30 = upcomingBookings30.filter(b => Number.isFinite(Number(b.hostPayout))).length;
-  const netPayoutCoverage = upcomingBookings.filter(b => Number.isFinite(Number(b.netPayout))).length;
-
-  const checkinsThisWeek = activeBookings.filter(b => {
-    const ci = new Date(b.checkin);
-    return ci >= weekStart && ci < weekEnd;
-  });
-  const checkoutsThisWeek = activeBookings.filter(b => {
-    const co = new Date(b.checkout);
-    return co >= weekStart && co < weekEnd;
-  });
-
-  const upcomingCleans = cleans.filter(c => !c.done && !c.cleanerDeclined && c.date && parseLocalDayStart(c.date) >= todayStart);
-  const cleansThisWeek = upcomingCleans.filter(c => {
-    const d = new Date(c.date);
-    return d >= weekStart && d < weekEnd;
-  });
-
-  const bookedNightsNext30 = activeBookings.reduce((sum, b) => {
-    const start = new Date(Math.max(new Date(b.checkin).getTime(), todayStart.getTime()));
-    const end = new Date(Math.min(new Date(b.checkout).getTime(), next30.getTime()));
-    if (end <= start) return sum;
-    return sum + Math.ceil((end - start) / 86400000);
-  }, 0);
-
-  // ── Monthly occupancy: booked nights in the current calendar month ────────
-  const thisMonth      = now.getMonth();
-  const thisYear       = now.getFullYear();
-  const daysThisMonth  = new Date(thisYear, thisMonth + 1, 0).getDate();
-  const monthStart     = new Date(thisYear, thisMonth, 1);
-  const monthEnd       = new Date(thisYear, thisMonth + 1, 1);
   let bookedNightsMonth = 0;
   activeBookings.forEach(b => {
     if (!b.checkin || !b.checkout) return;
@@ -615,249 +1780,141 @@ function renderDashboard() {
     const co = new Date(Math.min(new Date(b.checkout).getTime(), monthEnd.getTime()));
     if (co > ci) bookedNightsMonth += Math.round((co - ci) / 86400000);
   });
-  const occupancyThisMonth = Math.max(0, Math.min(100, Math.round((bookedNightsMonth / daysThisMonth) * 100)));
+  const denomDays = props.length > 1 ? daysThisMonth * props.length : daysThisMonth;
+  const occupancyThisMonth = Math.max(0, Math.min(100, Math.round((bookedNightsMonth / denomDays) * 100)));
 
-  const dayLoad = {};
-  activeBookings.forEach(b => {
-    const ci = new Date(b.checkin);
-    const co = new Date(b.checkout);
-    if (ci >= weekStart && ci < weekEnd) {
-      const ciKey = String(b.checkin || '').slice(0, 10);
-      if (ciKey) dayLoad[ciKey] = (dayLoad[ciKey] || 0) + 1;
+  const revenueThisMonth = activeBookings
+    .filter(b => {
+      const ci = parseLocalDayStart(b.checkin);
+      return !Number.isNaN(ci.getTime()) && ci >= monthStart && ci < monthEnd;
+    })
+    .reduce((s, b) => s + safeNum(b.hostPayout), 0);
+
+  const revenueNext30 = activeBookings
+    .filter(b => {
+      const ci = parseLocalDayStart(b.checkin);
+      return !Number.isNaN(ci.getTime()) && ci >= todayStart && ci < next30End;
+    })
+    .reduce((s, b) => s + safeNum(b.hostPayout), 0);
+
+  const propertyRows = props.map((p, i) => ({
+    name: p.name || p.propertyId,
+    pid: _pidForProperty(p),
+    palette: TODAY_PALETTE[i % TODAY_PALETTE.length],
+  }));
+
+  const deduped = computeDedupedTodayAlerts(true);
+  const needsHtml = buildNeedsAttentionHtmlFromDeduped(deduped);
+
+  const weekEndLabel = new Date(weekStart);
+  weekEndLabel.setDate(weekEndLabel.getDate() + 6);
+  const weekRangeLabel =
+    weekStart.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) +
+    ' — ' +
+    weekEndLabel.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const todayCol = (() => {
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekStart);
+      d.setDate(d.getDate() + i);
+      if (d.getTime() === todayStart.getTime()) return i;
     }
-    if (co >= weekStart && co < weekEnd) {
-      const coKey = String(b.checkout || '').slice(0, 10);
-      if (coKey) dayLoad[coKey] = (dayLoad[coKey] || 0) + 1;
-    }
-  });
-  cleansThisWeek.forEach(c => {
-    const key = String(c.date || '').slice(0, 10);
-    if (key) dayLoad[key] = (dayLoad[key] || 0) + 1;
-  });
-  const busyDays = Object.entries(dayLoad)
-    .filter(([, count]) => count >= 3)
-    .sort((a, b) => a[0].localeCompare(b[0]));
-  const multiCleans = Object.entries(cleansThisWeek.reduce((acc, c) => {
-    const key = String(c.date || '').slice(0, 10);
-    if (key) acc[key] = (acc[key] || 0) + 1;
-    return acc;
-  }, {})).filter(([, count]) => count > 1);
+    return -1;
+  })();
 
-  const insightsEl = document.getElementById('dashboard-insights-content');
-  if (insightsEl) {
-    // Forward-looking revenue: lead with the 30-day figure, support with 7-day
-    const rev30Str = `$${Math.round(upcomingRevenue30).toLocaleString()}`;
-    const rev7Str  = `$${Math.round(upcomingRevenue7).toLocaleString()}`;
-    const payoutStr = `$${Math.round(upcomingPayoutEstimate).toLocaleString()}`;
-    const coverageNote = (!upcomingBookings7.length && !upcomingBookings30.length)
-      ? 'No upcoming bookings in the next 30 days'
-      : (hostPayoutCoverage7 < upcomingBookings7.length || hostPayoutCoverage30 < upcomingBookings30.length)
-      ? `Partial data (${hostPayoutCoverage30}/${upcomingBookings30.length} bookings have payout figures)`
-      : '';
-    insightsEl.innerHTML = `
-      <div style="font-size:22px;font-weight:700;color:var(--forest);letter-spacing:-0.3px;line-height:1">${rev30Str}</div>
-      <div style="font-size:12px;color:var(--text-soft);margin-top:4px;line-height:1.4">Expected payout · next 30 days</div>
-      <div style="margin-top:12px;display:flex;flex-direction:column;gap:6px">
-        <div style="font-size:12px;color:var(--text-soft);line-height:1.4">Next 7 days <strong style="color:var(--forest)">${rev7Str}</strong> &nbsp;·&nbsp; Est. total payout <strong style="color:var(--forest)">${payoutStr}</strong></div>
-        <div style="font-size:12px;color:var(--text-soft);line-height:1.4">${upcomingBookings.length} upcoming booking${upcomingBookings.length!==1?'s':''} &nbsp;·&nbsp; ${upcomingCleans.length} clean${upcomingCleans.length!==1?'s':''} scheduled</div>
-        <div style="font-size:12px;color:var(--text-soft);line-height:1.4">Monthly Occ. <strong style="color:var(--forest)">${occupancyThisMonth}%</strong> &nbsp;(${now.toLocaleString('en-AU', {month:'long'})} ${thisYear})</div>
-      </div>
-      ${coverageNote ? `<div style="margin-top:8px;font-size:11px;color:var(--stone);line-height:1.4">${coverageNote}</div>` : ''}`;
-  }
-
-  // ── Cleaner Actions — highest-priority alert, rendered before calendar ────
-  const cleanerAlertEl = document.getElementById('dashboard-cleaner-alert');
-  if (cleanerAlertEl) cleanerAlertEl.innerHTML = '';
-
-  const weekEl = document.getElementById('dashboard-week-content');
-  if (weekEl) {
-    const busyText = busyDays.length
-      ? busyDays.slice(0, 2).map(([d, c]) => `${safeDayLabel(d)} (${c})`).join(', ')
-      : null;
-    const multiCleansText = multiCleans.length
-      ? multiCleans.map(([d, c]) => `${safeDayLabel(d)} (${c} cleans)`).join(', ')
-      : null;
-    // Pill-style counts: compact, inline, lighter weight than the stats row
-    const pill = (n, label) =>
-      `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--mist);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:600;color:var(--forest)">${n} <span style="font-weight:400;color:var(--text-soft)">${label}</span></span>`;
-    weekEl.innerHTML = `
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-        ${pill(checkinsThisWeek.length, 'arrival' + (checkinsThisWeek.length !== 1 ? 's' : ''))}
-        ${pill(checkoutsThisWeek.length, 'departure' + (checkoutsThisWeek.length !== 1 ? 's' : ''))}
-        ${pill(cleansThisWeek.length, 'clean' + (cleansThisWeek.length !== 1 ? 's' : ''))}
-      </div>
-      ${busyText ? `<div style="font-size:12px;color:var(--text-soft);margin-bottom:3px">⚡ Busy: ${busyText}</div>` : ''}
-      ${multiCleansText ? `<div style="font-size:12px;color:var(--text-soft)">🧹 Stacked cleans: ${multiCleansText}</div>` : ''}
-      ${!busyText && !multiCleansText ? `<div style="font-size:12px;color:var(--text-soft)">Week looks well balanced</div>` : ''}`;
-  }
-
-  const usageSnapshot = getUsageSnapshotLite();
-  const planState = getPlanStateLite();
-  renderOnboardingGuidance(usageSnapshot);
-  renderPlanNudges(usageSnapshot, planState);
-
-  // ── Next Check-in card — tappable shortcut to booking detail ─────────────
-  const upcoming = [...bookings]
-    .filter(b => b.status !== 'cancelled' && b.checkin && parseLocalDayStart(b.checkin) >= todayStart)
-    .sort((a, b) => parseLocalDayStart(a.checkin) - parseLocalDayStart(b.checkin));
-  const nc = document.getElementById('next-checkin-content');
-  if (nc) {
-    if (upcoming.length > 0) {
-      const b = upcoming[0];
-      const ciDays = Math.ceil((parseLocalDayStart(b.checkin) - todayStart) / 86400000);
-      const ciPill = ciDays <= 0 ? 'Today' : ciDays === 1 ? 'Tomorrow' : `In ${ciDays}d`;
-      const ciPillColor = ciDays <= 2 ? 'background:#fef3e2;color:#854f0b' : 'background:#e8f4ed;color:#1a4f3a';
-      nc.innerHTML = `<div onclick="showDetail('${escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id))}')" style="cursor:pointer">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
-          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft)">Next check-in</div>
-          <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;${ciPillColor}">${ciPill}</span>
-        </div>
-        <div style="font-size:17px;font-weight:600;color:var(--text);margin-bottom:8px">${escHtml(b.name)}</div>
-        <div style="display:flex;gap:16px">
-          <div style="display:flex;flex-direction:column">
-            <span style="font-size:15px;font-weight:600;color:var(--text)">${fmt(b.checkin)}</span>
-            <span style="font-size:11px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px">Arrives</span>
-          </div>
-          <div style="display:flex;flex-direction:column">
-            <span style="font-size:15px;font-weight:600;color:var(--text)">${b.nights}</span>
-            <span style="font-size:11px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px">Night${b.nights!==1?'s':''}</span>
-          </div>
-          <div style="display:flex;flex-direction:column">
-            <span style="font-size:15px;font-weight:600;color:var(--text)">${b.guests}</span>
-            <span style="font-size:11px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px">Guests</span>
-          </div>
-        </div>
-      </div>`;
-    } else {
-      nc.innerHTML = '<div style="color:var(--text-soft);font-size:13px;">No upcoming bookings</div>';
-    }
-  }
-
-  const localNow = new Date();
-  const todayStr = localNow.getFullYear() + '-' + String(localNow.getMonth()+1).padStart(2,'0') + '-' + String(localNow.getDate()).padStart(2,'0');
-
-  // ── Next Clean card — carry bookingId so the row can open booking detail ──
-  const fromCleans = cleans
-    .filter(c => !c.done && c.date && c.date >= todayStr)
-    .map(c => ({
-      date: c.date,
-      name: c.cleaner,
-      sub: 'After ' + (c.guestName || ''),
-      bookingId: c.bookingId || null
-    }));
-  const fromBookings = bookings
-    .filter(b => b.checkout && b.checkout >= todayStr)
-    .map(b => ({ booking: b, state: getBookingCleanerState(b) }))
-    .filter(({ state }) => state.key === 'confirmed' || state.key === 'done')
-    .filter(({ state }) => !state.clean || !!state.clean.done)
-    .map(({ booking, state }) => {
-      const cl = state.clean;
-      return {
-        date: cl ? cl.date : booking.checkout,
-        name: cl ? cl.cleaner : '—',
-        sub: 'After ' + booking.name,
-        bookingId: booking._cloudId || booking.id
-      };
-    });
-  const allNextCleans = [...fromCleans, ...fromBookings]
-    .filter((v, i, a) => a.findIndex(x => x.sub === v.sub) === i) // dedupe by guest
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  const ncc = document.getElementById('next-clean-content');
-
-  // ── Alerts: low stock + open maintenance (passive alerts, below calendar) ─
-  const alertsEl = document.getElementById('dashboard-alerts');
-  const lowStock = inventory.filter(i => i.stock <= i.threshold);
-  const openIssues = maintenance.filter(m => m.status === 'open' || m.status === 'inprogress');
-  // Match the Cleaning tab's totalActionCount: awaiting responses + unassigned/declined
-  const awaitingResponses = cleans.filter(c => isAwaitingCleanerResponse(c, localNow) && !isCleanLinkedToCancelledBooking(c));
-  const unassignedOrDeclined = bookings.filter(b => {
-    if (b.status === 'cancelled' || new Date(b.checkout) < localNow) return false;
-    const st = getBookingCleanerState(b).key;
-    return st === 'unassigned' || st === 'declined';
-  });
-  const totalCleanerActions = awaitingResponses.length + unassignedOrDeclined.length;
-
-  // Cleaner alert: own element, before calendar, hidden when zero
-  if (cleanerAlertEl) {
-    cleanerAlertEl.innerHTML = totalCleanerActions > 0
-      ? `<div class="card" style="border-left:3px solid var(--amber);padding:10px 14px;cursor:pointer" onclick="jumpToCleaningActionNeeded()">
-          <div style="font-weight:600;font-size:13px;margin-bottom:4px">⏳ Cleaner Actions Needed (${totalCleanerActions})</div>
-          <div style="font-size:12px;color:var(--text-soft)">Tap to open Action tab</div>
-        </div>`
-      : '';
-  }
-
-  let alertsHtml = '';
-  if (lowStock.length) alertsHtml += `<div class="card" style="border-left:3px solid var(--amber);padding:10px 14px">
-    <div style="font-weight:600;font-size:13px;margin-bottom:6px">📦 Low Stock (${lowStock.length})</div>
-    ${lowStock.map(i=>`<div style="font-size:12px;color:var(--text-soft);margin-bottom:2px">⚠ ${i.name} — ${i.stock} ${i.unit||''} left</div>`).join('')}
-  </div>`;
-  if (openIssues.length) alertsHtml += `<div class="card" style="border-left:3px solid var(--red);padding:10px 14px">
-    <div style="font-weight:600;font-size:13px;margin-bottom:6px">🔧 Open Issues (${openIssues.length})</div>
-    ${openIssues.map(m=>`<div style="font-size:12px;color:var(--text-soft);margin-bottom:2px">${m.status==='inprogress'?'🔄':'🔴'} ${m.description}</div>`).join('')}
-  </div>`;
-  if (alertsEl) alertsEl.innerHTML = alertsHtml;
-
-  // ── Next Clean render — tappable shortcut to booking detail if available ──
-  if (ncc && allNextCleans.length > 0) {
-    const c = allNextCleans[0];
-    const days = Math.ceil((new Date(c.date) - localNow) / 86400000);
-    const urgClass = days <= 0 ? 'urgent' : days <= 1 ? 'urgent' : days <= 3 ? 'soon' : 'ok';
-    const urgText = days <= 0 ? 'Today!' : days === 1 ? 'Tomorrow' : `In ${days} days`;
-    // Resolve booking ID: prefer explicit bookingId, fall back to name match
-    const linkedBookingId = c.bookingId ||
-      (bookings.find(bk => bk.name && c.sub && c.sub.includes(bk.name))
-        ? (bk => bk._cloudId || bk.id)(bookings.find(bk => bk.name && c.sub && c.sub.includes(bk.name)))
-        : null);
-    const clickAttr = linkedBookingId
-      ? `onclick="showDetail('${escapeJsSingleQuotedHtmlAttr(String(linkedBookingId))}')" style="cursor:pointer"`
-      : `onclick="jumpToCleaningActionNeeded()" style="cursor:pointer"`;
-    const csState = linkedBookingId
-      ? getBookingCleanerState(bookings.find(bk => (bk._cloudId || String(bk.id)) === String(linkedBookingId)) || {})
-      : { key: 'pending', tone: 'warn' };
-    // Override: if the allNextCleans entry came from the raw cleans array,
-    // read confirmed/declined directly from it rather than via booking lookup.
-    const rawClean = c.bookingId
-      ? cleans.find(cl => String(cl.bookingId) === String(c.bookingId) && cl.date === c.date)
-      : null;
-    const effectiveKey = rawClean
-      ? (rawClean.done ? 'done' : rawClean.cleanerDeclined ? 'declined' : rawClean.cleanerConfirmed ? 'confirmed' : 'pending')
-      : csState.key;
-    const effectiveCleanId = rawClean ? rawClean.id : (csState.clean ? csState.clean.id : null);
-    const csPillStyle = effectiveKey === 'done' || effectiveKey === 'confirmed'
-      ? 'background:#e8f4ed;color:#1a4f3a'
-      : effectiveKey === 'declined'
-      ? 'background:#fef0f0;color:#993c1d'
-      : 'background:#fef3e2;color:#854f0b';
-    const csLabel = effectiveKey === 'done' ? '✓ Done'
-      : effectiveKey === 'confirmed' ? '✓ Confirmed'
-      : effectiveKey === 'declined' ? '✕ Declined'
-      : 'Awaiting reply';
-    const cleanId = effectiveCleanId;
-    const initials = c.name && c.name !== '—'
-      ? c.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()
-      : '?';
-    ncc.innerHTML = `<div style="padding:14px 16px">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:10px">Next clean</div>
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <div style="display:flex;align-items:center;gap:10px">
-          <div style="width:34px;height:34px;border-radius:50%;background:#e8f4ed;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#1a4f3a;flex-shrink:0">${initials}</div>
-          <div>
-            <div style="font-size:15px;font-weight:600;color:var(--text)">${escHtml(c.name)}</div>
-            <div style="font-size:12px;color:var(--text-soft)">${fmt(c.date)} · after checkout</div>
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-          <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;${csPillStyle}">${csLabel}</span>
-          ${cleanId ? `<button onclick="event.stopPropagation();openNotifyModal('${cleanId}')" style="-webkit-tap-highlight-color:transparent;background:#1a4f3a;color:#fff;border:none;border-radius:8px;padding:5px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">SMS</button>` : ''}
-        </div>
-      </div>
+  let headerCols = '';
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + i);
+    const isToday = i === todayCol;
+    const dnStyle = isToday
+      ? 'font-size:11px;font-weight:500;color:#2D5A3D'
+      : `font-size:11px;color:${tertiary}`;
+    const numStyle = isToday
+      ? 'font-size:10px;font-weight:500;color:#2D5A3D;margin-top:2px'
+      : `font-size:10px;color:${tertiary};margin-top:2px`;
+    headerCols += `<div style="text-align:center">
+      <div style="${dnStyle}">${dayNames[i]}</div>
+      <div style="${numStyle}">${d.getDate()}</div>
     </div>`;
-  } else if (ncc) {
-    ncc.innerHTML = '<div style="color:var(--text-soft);font-size:13px;">No cleans scheduled</div>';
   }
+
+  const timelineRows = buildWeeklyTimelineRowsHtml(
+    propertyRows,
+    weekStart,
+    weekEnd,
+    weekMs,
+    tertiary,
+    primary,
+    activeBookingsAll,
+    false
+  );
+
+  const weekCard = `<div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.12);padding:12px;margin-bottom:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px">
+      <button type="button" onclick="_todayWeekNav(-1)" style="background:#F1EFE8;border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:#1a1a1a">‹</button>
+      <div style="font-size:13px;font-weight:500;color:${primary};text-align:center;flex:1">${escHtml(weekRangeLabel)}</div>
+      <button type="button" onclick="_todayWeekNav(1)" style="background:#F1EFE8;border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:#1a1a1a">›</button>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+      <span onclick="_todayWeekReset()" style="font-size:11px;font-weight:500;color:#2D5A3D;cursor:pointer">This week</span>
+    </div>
+    <div style="display:grid;grid-template-columns:60px 1fr;margin-bottom:6px">
+      <div></div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">${headerCols}</div>
+    </div>
+    ${timelineRows}
+  </div>`;
+
+  let next7Html = `<div style="font-size:12px;font-weight:500;color:${tertiary};margin:0 0 10px 2px">Next 7 days</div>`;
+  const next7Bookings = activeBookings
+    .filter(b => {
+      const ci = parseLocalDayStart(b.checkin);
+      return !Number.isNaN(ci.getTime()) && ci >= todayStart && ci < next7End;
+    })
+    .sort((a, b) => parseLocalDayStart(a.checkin) - parseLocalDayStart(b.checkin));
+
+  props.forEach((p, pi) => {
+    const pid = _pidForProperty(p);
+    const col = TODAY_PALETTE[pi % TODAY_PALETTE.length];
+    const propName = p.name || p.propertyId;
+    const list = next7Bookings.filter(b => String(b._propertyId || '') === String(pid));
+    const dotHtml = `<div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:${col.dot};flex-shrink:0"></div><span style="font-size:11px;color:#666">${escHtml(propName)}</span></div>`;
+    if (!list.length) {
+      next7Html += `<div style="opacity:0.55;background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+          <div style="width:7px;height:7px;border-radius:50%;background:${col.dot};flex-shrink:0"></div>
+          <span style="font-size:13px;color:${tertiary}">No ${escHtml(propName)} bookings this week</span>
+        </div>`;
+    } else {
+      list.forEach(b => {
+        next7Html += buildTodayBookingCardHtml(b, {
+          showPropertyStripe: col.border,
+          propertyDotHtml: dotHtml,
+        });
+      });
+    }
+  });
+
+  const statsHtml = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:4px">
+    <div style="background:white;border-radius:10px;border:0.5px solid rgba(0,0,0,0.1);padding:12px 10px;text-align:center">
+      <div style="font-size:18px;font-weight:500;color:${primary}">${occupancyThisMonth}%</div>
+      <div style="font-size:11px;color:${tertiary};margin-top:3px">Occupancy</div>
+    </div>
+    <div style="background:white;border-radius:10px;border:0.5px solid rgba(0,0,0,0.1);padding:12px 10px;text-align:center">
+      <div style="font-size:18px;font-weight:500;color:${primary}">$${Math.round(revenueThisMonth).toLocaleString()}</div>
+      <div style="font-size:11px;color:${tertiary};margin-top:3px">Revenue this month</div>
+    </div>
+    <div style="background:white;border-radius:10px;border:0.5px solid rgba(0,0,0,0.1);padding:12px 10px;text-align:center">
+      <div style="font-size:18px;font-weight:500;color:${primary}">$${Math.round(revenueNext30).toLocaleString()}</div>
+      <div style="font-size:11px;color:${tertiary};margin-top:3px">Revenue next 30 days</div>
+    </div>
+  </div>`;
+
+  return needsHtml + weekCard + next7Html + statsHtml;
 }
+
+globalThis.renderDashboard = renderDashboard;
 
 function applyStayopsPostSwitchAction() {
   const postAction = sessionStorage.getItem('stayops-post-switch-action');
@@ -966,18 +2023,19 @@ async function ensureHostIdentityAndRestore() {
   // Host and owner are distinct identities in StayOps.
   const migrationKey = 'gh-host-migrated-v2';
   if (!localStorage.getItem(migrationKey) && typeof globalThis.saveHostConfigToSupabase === 'function') {
-    const ls = k => localStorage.getItem(lsKey(k)) || '';
-    const invName = ls('inv-name');
+    // TODO: legacy inv-* migration (previously property-scoped localStorage via lsKey)
+    const ls = k => localStorage.getItem(k) || '';
+    const invName = ls('gh-inv-name');
     if (invName) {
       const hostId = 'host-' + invName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) + '-' + Date.now().toString().slice(-6);
       const migrated = {
         hostId,
         name:    invName,
-        company: ls('inv-company'),
-        abn:     ls('inv-abn'),
-        acn:     ls('inv-acn'),
-        email:   ls('inv-email'),
-        address: ls('inv-address'),
+        company: ls('gh-inv-company'),
+        abn:     ls('gh-inv-abn'),
+        acn:     ls('gh-inv-acn'),
+        email:   ls('gh-inv-email'),
+        address: ls('gh-inv-address'),
         createdAt: new Date().toISOString(),
       };
       saveHostProfile(migrated);
@@ -1280,9 +2338,6 @@ async function deleteInventoryItemFromEdit() {
 
 
 function savePropertyData() {
-  localStorage.setItem(lsKey('expenses'),    JSON.stringify(expenses));
-  localStorage.setItem(lsKey('maintenance'), JSON.stringify(maintenance));
-  localStorage.setItem(lsKey('inventory'),   JSON.stringify(inventory));
   // Sync to Supabase (non-blocking)
   if (typeof globalThis.saveInventoryToCloud === 'function') globalThis.saveInventoryToCloud(inventory).catch(() => {});
   if (typeof globalThis.saveMaintenanceToCloud === 'function') globalThis.saveMaintenanceToCloud(maintenance).catch(() => {});
@@ -1468,7 +2523,6 @@ if (isCleanerMode()) {
       if (typeof globalThis.loadCleansFromCloud === 'function') {
         globalThis.loadCleansFromCloud().then(cloudCleans => {
           if (Array.isArray(cloudCleans) && cloudCleans.length) {
-            localStorage.setItem(lsKey('cleans'), JSON.stringify(cloudCleans));
             replaceArrayInPlace(cleans, cloudCleans);  // keep in-memory in sync so renderAll() uses fresh data
             if (typeof renderAll === 'function') renderAll();
           }
@@ -1543,9 +2597,9 @@ function attachLongPress() {
         if (!b) return;
         const safeId = b._cloudId || b.id;
         showActionSheet(b.name, [
-          { label: '✏️ Edit Booking',       fn: `() => showEditModal('${safeId}')` },
+          { label: '✏️ Edit Booking',       fn: `() => showEditModal('${escapeJsSingleQuotedHtmlAttr(String(safeId))}')` },
           { label: '📱 Notify Cleaner',     fn: `() => { showSection('cleaning'); }` },
-          { label: '🗑 Delete Booking',      fn: `() => deleteBooking('${safeId}')`, destructive: true },
+          { label: '🗑 Delete Booking',      fn: `() => deleteBooking('${escapeJsSingleQuotedHtmlAttr(String(safeId))}')`, destructive: true },
         ]);
       }, 550);
     }, { passive:true });
@@ -1720,30 +2774,24 @@ async function hydrateCleanerFromFunction() {
       return false;
     }
 
-    // Populate localStorage so loadCleaners/getActiveCleaner work
     const cleanerRecord = data.cleaner;
     // Ensure the cleaner's local_id is a number if it was originally
     if (cleanerRecord.id && !isNaN(Number(cleanerRecord.id))) {
       cleanerRecord.id = Number(cleanerRecord.id);
     }
-    localStorage.setItem(lsKey('cleaners'), JSON.stringify([cleanerRecord]));
-
     // Populate cleans
     if (Array.isArray(data.cleans)) {
       replaceArrayInPlace(cleans, data.cleans);
-      localStorage.setItem(lsKey('cleans'), JSON.stringify(cleans));
     }
 
     // Populate bookings
     if (Array.isArray(data.bookings)) {
       replaceArrayInPlace(bookings, data.bookings);
-      localStorage.setItem(lsKey('bookings'), JSON.stringify(bookings));
     }
 
     // Populate inventory
     if (Array.isArray(data.inventory)) {
       replaceArrayInPlace(inventory, data.inventory);
-      localStorage.setItem(lsKey('inventory'), JSON.stringify(inventory));
     }
 
     // Set property name
@@ -1992,8 +3040,8 @@ function renderCleanerCleans() {
     return `<div class="clean-job-card ${isToday ? 'urgent' : ''}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
         <div>
-          <div style="font-family:'DM Serif Display',serif;font-size:17px;color:var(--forest)">${urgency || 'Upcoming'}</div>
-          <div style="font-size:12px;color:var(--text-soft);margin-top:2px">${c.date ? fmt(c.date) : '—'}</div>
+          <div style="font-family:inherit;font-size:16px;font-weight:500;color:#1a1a1a">${urgency || 'Upcoming'}</div>
+          <div style="font-size:13px;font-weight:400;color:#999;margin-top:2px">${c.date ? fmt(c.date) : '—'}</div>
           ${nameDisplay ? `<div style="font-size:13px;font-weight:600;color:var(--text);margin-top:4px">👤 ${nameDisplay}</div>` : ''}
         </div>
         ${isToday ? '<div style="font-size:11px;font-weight:600;color:var(--amber);background:#FFF5E6;padding:4px 10px;border-radius:20px">Today!</div>' : ''}
@@ -2025,9 +3073,9 @@ function renderCleanerCleans() {
     if (!newCleans.length) {
       newEl.innerHTML = `<div style="text-align:center;padding:48px 16px">
         <div style="font-size:48px;margin-bottom:12px">✨</div>
-        <div style="font-family:'DM Serif Display',serif;font-size:18px;color:var(--forest);margin-bottom:6px">Nothing new!</div>
-        <div style="font-size:13px;color:var(--text-soft)">New assignments will appear here</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-top:8px">If you were just assigned, tap <strong>↻ Refresh</strong>.</div>
+        <div style="font-family:inherit;font-size:16px;font-weight:500;color:#1a1a1a;margin-bottom:6px">Nothing new!</div>
+        <div style="font-size:13px;font-weight:400;color:#999">New assignments will appear here</div>
+        <div style="font-size:13px;font-weight:400;color:#999;margin-top:8px">If you were just assigned, tap <strong>↻ Refresh</strong>.</div>
       </div>`;
     } else {
       newEl.innerHTML = newCleans.map(c => {
@@ -2047,9 +3095,9 @@ function renderCleanerCleans() {
     if (!upcomingCleans.length) {
       upcomingEl.innerHTML = `<div style="text-align:center;padding:48px 16px">
         <div style="font-size:48px;margin-bottom:12px">🗓</div>
-        <div style="font-family:'DM Serif Display',serif;font-size:18px;color:var(--forest);margin-bottom:6px">No upcoming cleans</div>
-        <div style="font-size:13px;color:var(--text-soft)">Cleans you've accepted will appear here</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-top:8px">Accept a clean from the <strong>New</strong> tab first.</div>
+        <div style="font-family:inherit;font-size:16px;font-weight:500;color:#1a1a1a;margin-bottom:6px">No upcoming cleans</div>
+        <div style="font-size:13px;font-weight:400;color:#999">Cleans you've accepted will appear here</div>
+        <div style="font-size:13px;font-weight:400;color:#999;margin-top:8px">Accept a clean from the <strong>New</strong> tab first.</div>
       </div>`;
     } else {
       upcomingEl.innerHTML = upcomingCleans.map(c => {

@@ -4,257 +4,10 @@
 import { AIService } from './ai-logic.js';
 import { bookings, expenses } from './state.js';
 import { calcNights } from './utils.js';
-import {
-  lsKey,
-  getPricingConfig,
-  getPropertyStats,
-  getCurrentPropertyName,
-} from './config.js';
+import { getCurrentPropertyName } from './config.js';
 import { saveAppConfigToCloud } from './supabase.js';
 
-// ── SMART PRICING ─────────────────────────────────────────────────────────
-export async function getSmartPricing() {
-  const status = document.getElementById('pricing-status');
-  const result = document.getElementById('pricing-result');
-  status.style.display = 'block';
-  result.innerHTML = '';
-
-  const period = document.getElementById('pricing-period').value;
-  const baseRate = document.getElementById('pricing-base-rate').value;
-  if (baseRate) localStorage.setItem(lsKey('base-rate'), baseRate);
-
-  status.style.background = '#FFF8E1'; status.style.color = '#E65100';
-  status.textContent = '⟳ Analysing your bookings and seasonal data...';
-
-  const now = new Date();
-  const history = bookings.filter(b => b.status !== 'cancelled').map(b => ({
-    checkin: b.checkin, checkout: b.checkout, nights: b.nights,
-    guests: b.guests, payout: b.hostPayout, platform: b.platform
-  }));
-  const totalRevenue = bookings.filter(b => b.status !== 'cancelled').reduce((s,b) => s + (b.hostPayout||0), 0);
-  const avgPayout = history.length ? Math.round(totalRevenue / history.length) : 0;
-
-  let startDate, endDate;
-  if (period.startsWith('month-')) {
-    const monthIdx = parseInt(period.split('-')[1]);
-    const year = monthIdx < now.getMonth() ? now.getFullYear() + 1 : now.getFullYear();
-    startDate = new Date(year, monthIdx, 1);
-    endDate = new Date(year, monthIdx + 1, 0);
-  } else {
-    startDate = new Date(now);
-    endDate = new Date(now);
-    endDate.setDate(endDate.getDate() + Number(period));
-  }
-
-  const periodLabel = period.startsWith('month-')
-    ? startDate.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' })
-    : `next ${period} days`;
-
-  const bookedDates = {};
-  bookings.forEach(b => {
-    if (!b.checkin || !b.checkout) return;
-    const s = new Date(b.checkin), e = new Date(b.checkout);
-    for (let d = new Date(s); d < e; d.setDate(d.getDate()+1)) {
-      bookedDates[d.toISOString().split('T')[0]] = b.name;
-    }
-  });
-
-  const pCfg   = getPricingConfig();
-  const pStats = getPropertyStats();
-  const prompt = `You are a short-term rental pricing expert for ${pCfg.locationContext}. Property: ${getCurrentPropertyName()} — ${pStats.bedrooms}-bedroom, ${pStats.maxGuests}-guest property.
-
-Booking history (${history.length} bookings, avg host payout A$${avgPayout}):
-${JSON.stringify(history.slice(-10))}
-
-Base rate: A$${baseRate || pCfg.baseRate || '350'}/night. Today: ${now.toISOString().split('T')[0]}. Forecast: ${periodLabel}.
-
-LOCATION-SPECIFIC DEMAND FACTORS:
-${pCfg.locationFactors || '- No specific demand factors configured. Use general STR pricing principles for the location.'}
-
-Return ONLY valid JSON, no markdown:
-{
-  "summary": "2 sentences on pricing opportunity for the forecast period",
-  "tips": ["tip1","tip2","tip3"],
-  "periods": [
-    { "label": "Period name", "tier": "peak|high|standard|low", "rate": 480, "rule": "weekend|weekday", "months": [6,7,8] }
-  ]
-}
-
-rule: "weekend" (Fri/Sat/Sun nights) | "weekday" (Mon-Thu) — omit rule if using specific dates
-months: array of month numbers, optional — omit for year-round
-dates: array of specific YYYY-MM-DD for exact holidays/events, optional
-List 8-12 periods. Higher rates on Fri/Sat than Sun. Peak Jan 1, Easter, June festival weeks, school holidays, long weekends.`;
-
-  try {
-    const { response, data } = await AIService.request({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 4000,
-      messages: [{ role: 'user', content: prompt }]
-    });
-
-    if (!response.ok) {
-      const msg = data.error?.message || ('HTTP ' + response.status);
-      throw new Error(msg);
-    }
-    let text = data.content?.[0]?.text || '';
-    text = text.replace(/```json/gi,'').replace(/```/g,'').trim();
-
-    let parsed;
-    try {
-      parsed = JSON.parse(text);
-    } catch(parseErr) {
-      status.style.background = '#FDECEA'; status.style.color = '#C0392B';
-      status.textContent = '✗ Could not read response. Raw reply: ' + text.substring(0, 200);
-      return;
-    }
-
-    status.style.background = '#E8F5E9'; status.style.color = '#2E7D32';
-    status.textContent = '✓ Recommendations ready';
-
-    const rates = {};
-    const tierRank = { peak: 4, high: 3, standard: 2, low: 1 };
-    const cur = new Date(startDate);
-    while (cur <= endDate) {
-      const dateStr = cur.toISOString().split('T')[0];
-      const dow = cur.getDay();
-      const month = cur.getMonth() + 1;
-      const isWeekend = dow === 0 || dow === 5 || dow === 6;
-      let best = null;
-      for (const p of (parsed.periods || [])) {
-        const monthMatch = !p.months || p.months.includes(month);
-        const ruleMatch = !p.rule || (p.rule === 'weekend' && isWeekend) || (p.rule === 'weekday' && !isWeekend);
-        const dateMatch = !p.dates || p.dates.includes(dateStr);
-        if (monthMatch && ruleMatch && dateMatch) {
-          if (!best || (tierRank[p.tier]||0) > (tierRank[best.tier]||0)) best = p;
-        }
-      }
-      rates[dateStr] = best
-        ? { rate: best.rate, label: best.label, tier: best.tier }
-        : { rate: Number(baseRate||350), label: 'Standard', tier: 'standard' };
-      cur.setDate(cur.getDate() + 1);
-    }
-
-    result.innerHTML = renderPricingCalendar({ ...parsed, rates }, bookedDates, startDate, endDate);
-
-  } catch(err) {
-    status.style.background = '#FDECEA'; status.style.color = '#C0392B';
-    const msg = err.message || 'Unknown error';
-    if (msg.includes('quota') || msg.includes('429') || msg.includes('overloaded')) {
-      status.textContent = '✗ API busy — wait a moment and try again';
-    } else if (msg.includes('invalid') || msg.includes('401')) {
-      status.textContent = '✗ API key invalid — check Settings → AI Tools';
-    } else {
-      status.innerHTML = '✗ Error: <small style="word-break:break-all">' + msg + '</small>';
-    }
-  }
-}
-
-function renderPricingCalendar(data, bookedDates, startDate, endDate) {
-  const tierColors = {
-    peak:     { bg:'#FF5A5F', text:'#fff', border:'#e04040' },
-    high:     { bg:'#FF9800', text:'#fff', border:'#e08000' },
-    standard: { bg:'#E8F5E9', text:'#2E7D32', border:'#c8e6c9' },
-    low:      { bg:'#F5F5F5', text:'#757575', border:'#e0e0e0' }
-  };
-  const tierLabels = { peak:'🔴 Peak', high:'🟠 High', standard:'🟢 Standard', low:'⚪ Low' };
-
-  const months = {};
-  const d = new Date(startDate);
-  while (d <= endDate) {
-    const key = d.toISOString().split('T')[0].substring(0,7);
-    if (!months[key]) months[key] = [];
-    months[key].push(d.toISOString().split('T')[0]);
-    d.setDate(d.getDate()+1);
-  }
-
-  let html = '';
-
-  if (data.summary) {
-    html += `<div class="card" style="font-size:13px;line-height:1.6;margin-bottom:8px">
-      <div style="font-weight:700;font-size:14px;margin-bottom:6px">📊 Pricing Outlook</div>
-      ${data.summary}
-      <div style="margin-top:8px;padding:8px;background:var(--warm);border-radius:6px;font-size:11px;color:var(--text-soft)">
-        💡 <strong>Guest price</strong> = what guests pay per night · <strong>Your payout</strong> = after ~3% Airbnb fee. Cleaning fee is additional.
-      </div>
-    </div>`;
-  }
-
-  html += `<div class="card" style="margin-bottom:8px;padding:10px 14px">
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      ${Object.entries(tierLabels).map(([t,l]) => `
-        <div style="display:flex;align-items:center;gap:5px">
-          <div style="width:14px;height:14px;border-radius:3px;background:${tierColors[t].bg};border:1px solid ${tierColors[t].border}"></div>
-          <span style="font-size:11px;color:var(--text-soft)">${l}</span>
-        </div>`).join('')}
-      <div style="display:flex;align-items:center;gap:5px">
-        <div style="width:14px;height:14px;border-radius:3px;background:#3D67FF"></div>
-        <span style="font-size:11px;color:var(--text-soft)">📅 Booked</span>
-      </div>
-    </div>
-  </div>`;
-
-  Object.entries(months).forEach(([monthKey, dates]) => {
-    const [year, month] = monthKey.split('-').map(Number);
-    const monthName = new Date(year, month-1, 1).toLocaleDateString('en-AU', {month:'long', year:'numeric'});
-    const firstDay = new Date(year, month-1, 1).getDay();
-
-    html += `<div class="card" style="margin-bottom:8px;padding:12px">
-      <div style="font-weight:700;font-size:14px;margin-bottom:10px">${monthName}</div>
-      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:4px">
-        ${['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => `<div style="text-align:center;font-size:10px;font-weight:600;color:var(--text-soft);padding:2px">${d}</div>`).join('')}
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">`;
-
-    for (let i = 0; i < firstDay; i++) {
-      html += `<div></div>`;
-    }
-
-    const daysInMonth = new Date(year, month, 0).getDate();
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-      const isPast = new Date(dateStr) < new Date(new Date().toISOString().split('T')[0]);
-      const isBooked = bookedDates[dateStr];
-      const rateData = data.rates?.[dateStr];
-      const tier = rateData?.tier || 'standard';
-      const rate = rateData?.rate;
-      const label = rateData?.label || '';
-      const payout = rate ? Math.round(rate * 0.97) : null;
-
-      let bg, textColor, border;
-      if (isBooked) { bg='#3D67FF'; textColor='#fff'; border='#2d57ef'; }
-      else if (isPast) { bg='#f9f9f9'; textColor='#ccc'; border='#eee'; }
-      else { bg=tierColors[tier]?.bg||'#E8F5E9'; textColor=tierColors[tier]?.text||'#333'; border=tierColors[tier]?.border||'#ccc'; }
-
-      const tooltip = isBooked
-        ? `Booked: ${bookedDates[dateStr]}`
-        : (rate ? `${label}\nGuest pays: $${rate}\nYour payout: ~$${payout}` : label);
-
-      html += `<div title="${tooltip}" style="border-radius:6px;background:${bg};border:1px solid ${border};padding:3px 2px;text-align:center;cursor:default;min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px">
-        <div style="font-size:11px;font-weight:600;color:${textColor}">${day}</div>
-        ${!isPast && !isBooked && rate ? `
-          <div style="font-size:9px;color:${textColor};font-weight:700;line-height:1.1">$${rate}</div>
-          <div style="font-size:8px;color:${textColor};opacity:0.8;line-height:1.1">~$${payout}</div>
-        ` : ''}
-        ${isBooked ? `<div style="font-size:8px;color:${textColor};margin-top:1px">✓ Booked</div>` : ''}
-      </div>`;
-    }
-
-    html += `</div>
-    <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:10px;color:var(--text-soft);padding-top:6px;border-top:1px solid var(--warm)">
-      <span>Top = guest price</span><span>Bottom = ~your payout (after 3% fee)</span>
-    </div>
-    </div>`;
-  });
-
-  if (data.tips?.length) {
-    html += `<div class="card" style="font-size:13px;line-height:1.6">
-      <div style="font-weight:700;font-size:14px;margin-bottom:8px">💡 Tips</div>
-      ${data.tips.map(t => `<div style="display:flex;gap:8px;margin-bottom:6px"><span style="color:var(--moss);flex-shrink:0">→</span><span>${t}</span></div>`).join('')}
-    </div>`;
-  }
-
-  return html;
-}
+export { renderSmartPricingPanel, getSmartPricing } from './smart-pricing.js';
 
 // ── AI EXPENSE ANALYSER ───────────────────────────────────────────────────
 export async function analyseExpenses() {
@@ -349,11 +102,13 @@ Return empty arrays if nothing found in a category.`;
 
 // ── AI IGNORE LIST ────────────────────────────────────────────────────────────
 export function loadAIIgnoreList() {
-  return JSON.parse(localStorage.getItem(lsKey('ai-ignore')) || '[]');
+  const list = (window._appConfig && window._appConfig.ai_ignore) || [];
+  return Array.isArray(list) ? list : [];
 }
 export function saveAIIgnoreList(list) {
-  localStorage.setItem(lsKey('ai-ignore'), JSON.stringify(list));
-  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ ai_ignore: list }).catch(() => {});
+  window._appConfig = window._appConfig || {};
+  window._appConfig.ai_ignore = Array.isArray(list) ? list : [];
+  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ ai_ignore: window._appConfig.ai_ignore }).catch(() => {});
 }
 export function addAIIgnoreItem(type, key, label, reason) {
   const list = loadAIIgnoreList();
@@ -635,7 +390,32 @@ export async function extractExpenseFromReceipt() {
       for (let opt of sel.options) { if (opt.value === parsed.category) { sel.value = parsed.category; break; } }
     }
     status.style.background = '#E8F5E9'; status.style.color = '#2E7D32';
-    status.textContent = '✓ Receipt read — please review and adjust if needed';
+    status.textContent = '✓ Receipt read — saving expense...';
+    const merchant = (document.getElementById('exp-merchant') && document.getElementById('exp-merchant').value || '').trim();
+    const amount = parseFloat(document.getElementById('exp-amount').value);
+    if (merchant && amount && Number.isFinite(amount) && typeof globalThis.addExpense === 'function') {
+      globalThis.addExpense({ silent: true });
+      globalThis.showBanner('Expense added from receipt: $' + amount, 'ok');
+      if (typeof globalThis.renderExpenses === 'function') globalThis.renderExpenses();
+      ['exp-merchant', 'exp-description', 'exp-amount', 'exp-receipt-num'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      const expDate = document.getElementById('exp-date');
+      if (expDate) expDate.value = new Date().toISOString().split('T')[0];
+      const catSel = document.getElementById('exp-category');
+      if (catSel) catSel.selectedIndex = 0;
+      const typeSel = document.getElementById('exp-receipt-type');
+      if (typeSel) typeSel.selectedIndex = 0;
+      clearExpensePhoto();
+      const panel = document.getElementById('expense-add-form-panel');
+      const chevron = document.getElementById('expense-add-chevron');
+      if (panel) panel.style.display = 'none';
+      if (chevron) chevron.textContent = '›';
+      document.getElementById('expenses-main-block')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      status.textContent = '✓ Receipt read — please review and adjust if needed';
+    }
   } catch(err) {
     status.style.background = '#FDECEA'; status.style.color = '#C0392B';
     status.textContent = '✗ Error: ' + (err.message || 'Could not read receipt');

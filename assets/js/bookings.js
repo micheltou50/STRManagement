@@ -2,12 +2,13 @@
  * StayOps — bookings list, detail, CSV import, dashboard calendar (Pass 9).
  * Uses globalThis for main.js / supabase hooks assigned at boot.
  */
-import { bookings, cleans, notes, replaceArrayInPlace, save } from './state.js';
+import { bookings, cleans, notes, replaceArrayInPlace } from './state.js';
 import {
   escHtml,
   fmt,
   escapeJsSingleQuotedHtmlAttr,
 } from './utils.js';
+import { buildBookingListCardFromBooking } from './booking-list-card.js';
 import {
   bookingFilter,
   setBookingFilter,
@@ -22,7 +23,6 @@ import {
   maybeAutoAssignPreferredCleaner,
   isCleanerPerson,
   assignCleanerToBooking,
-  revealCleanerReassign,
   toggleCleanerConfirmed,
 } from './cleaning.js';
 // ── DASHBOARD CALENDAR STATE ─────────────────────────────────────────────────
@@ -204,37 +204,7 @@ function renderBookings(filter) {
       ([monthLabel, items]) => `
     <div style="margin-bottom:4px">
       <div style="font-size:11px;font-weight:700;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.9px;padding:16px 4px 8px">${escHtml(monthLabel)}</div>
-      ${items
-        .map(b => {
-          const isCancelled = b.status === 'cancelled';
-          const isHosting = !isCancelled && new Date(b.checkin) <= new Date() && new Date(b.checkout) >= new Date();
-          const isPast = !isCancelled && new Date(b.checkout) < new Date();
-          const statusClass = isCancelled ? 'status-cancelled' : isHosting ? 'status-upcoming' : isPast ? 'status-completed' : 'status-upcoming';
-          const statusLabel = isCancelled ? '✕ Cancelled' : isHosting ? '🏡 Hosting' : isPast ? 'Past' : 'Upcoming';
-
-          const showCleaner = !isCancelled && !isPast;
-          let cleanerRowHtml = '';
-          if (showCleaner) {
-            const cs = getBookingCleanerState(b);
-            const cleanerName = cs.clean ? escHtml(cs.clean.cleaner || 'Unknown') : 'Not assigned';
-            const pillStyle =
-              cs.tone === 'ok' ? 'background:#e8f4ed;color:#1a4f3a' : cs.tone === 'bad' ? 'background:#fef0f0;color:#993c1d' : 'background:#fef3e2;color:#854f0b';
-            const pillLabel =
-              cs.key === 'done'
-                ? '✓ Done'
-                : cs.key === 'confirmed'
-                  ? '✓ Confirmed'
-                  : cs.key === 'declined'
-                    ? '✕ Declined'
-                    : cs.key === 'pending'
-                      ? 'Awaiting reply'
-                      : '⚠ Needs assignment';
-            cleanerRowHtml = `<div style="border-top:1px solid var(--warm);margin-top:8px;padding-top:7px;display:flex;align-items:center;gap:6px"><span style="font-size:12px;opacity:0.7">🧹</span><span style="font-size:12px;color:var(--text-soft)">${cleanerName}</span><span style="font-size:11px;font-weight:600;padding:2px 7px;border-radius:20px;margin-left:auto;${pillStyle}">${pillLabel}</span></div>`;
-          }
-
-          return `<div class="card" onclick="showDetail('${escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id))}')" style="cursor:pointer${isCancelled ? ';opacity:0.6' : ''}" data-booking-id="${b.id}"><div class="booking-item" style="border:none;padding:0" data-booking-id="${b.id}">${window.platformIcon(b.platform, 42)}<div class="booking-info"><div class="booking-name">${escHtml(b.name)}</div><div class="booking-dates">${escHtml(fmt(b.checkin))} → ${escHtml(fmt(b.checkout))}</div><div class="booking-guests">${escHtml(b.guests)} guests · ${escHtml(b.nights)} night${b.nights !== 1 ? 's' : ''}</div></div><div class="booking-right"><div class="booking-amount" style="${isCancelled ? 'text-decoration:line-through;color:var(--text-soft)' : ''}">$${Number(b.hostPayout || 0).toLocaleString()}</div><div class="booking-status ${statusClass}">${statusLabel}</div></div></div>${cleanerRowHtml}</div>`;
-        })
-        .join('')}
+      ${items.map(b => buildBookingListCardFromBooking(b)).join('')}
     </div>`
     )
     .join('');
@@ -270,7 +240,66 @@ function renderNotes() {
     .join('');
 }
 
+function _bookingDetailPlatformPill(platform) {
+  if (!platform) return '';
+  const p = String(platform);
+  const base =
+    'font-size:11px;font-weight:500;padding:1px 7px;border-radius:4px;display:inline-block';
+  if (p === 'Airbnb') {
+    return `<span style="${base};color:#FF5A5F;background:#FFF0F0">Airbnb</span>`;
+  }
+  if (p === 'VRBO') {
+    return `<span style="${base};color:#3B5998;background:#EEF0FF">VRBO</span>`;
+  }
+  if (p === 'Direct') {
+    return `<span style="${base};color:#3D6B4F;background:#E8F5E9">Direct</span>`;
+  }
+  return `<span style="${base};color:#666;background:#F1EFE8">${escHtml(p)}</span>`;
+}
+
+function _bookingDetailStayStatusBadge(isCancelled, isPast) {
+  if (isCancelled) {
+    return '<span style="font-size:11px;padding:2px 8px;border-radius:4px;display:inline-block;font-weight:500;color:#A32D2D;background:#FCEBEB">Cancelled</span>';
+  }
+  if (isPast) {
+    return '<span style="font-size:11px;padding:2px 8px;border-radius:4px;display:inline-block;font-weight:500;color:#5F5E5A;background:#F1EFE8">Past</span>';
+  }
+  return '<span style="font-size:11px;padding:2px 8px;border-radius:4px;display:inline-block;font-weight:500;color:#0C447C;background:#E6F1FB">Upcoming</span>';
+}
+
+function _bookingDetailCleanerBadge(state) {
+  const k = state.key;
+  if (k === 'unassigned' || k === 'cancelled') {
+    return '<span style="font-size:12px;padding:2px 8px;border-radius:4px;font-weight:500;white-space:nowrap;color:#A32D2D;background:#FCEBEB">No cleaner</span>';
+  }
+  if (k === 'done') {
+    return '<span style="font-size:12px;padding:2px 8px;border-radius:4px;font-weight:500;white-space:nowrap;color:#5F5E5A;background:#F1EFE8">Done</span>';
+  }
+  if (k === 'confirmed') {
+    return '<span style="font-size:12px;padding:2px 8px;border-radius:4px;font-weight:500;white-space:nowrap;color:#1D9E75;background:#E8F5E9">Confirmed</span>';
+  }
+  return '<span style="font-size:12px;padding:2px 8px;border-radius:4px;font-weight:500;white-space:nowrap;color:#BA7517;background:#FAEEDA">Awaiting</span>';
+}
+
+function _bookingDetailPlatformPlain(platform) {
+  if (!platform) return '—';
+  const p = String(platform);
+  if (p === 'Airbnb' || p === 'VRBO' || p === 'Direct') return p;
+  return escHtml(p);
+}
+
+function _restoreDetailModalDefaultCloseBtn() {
+  const btn = document.querySelector('#detail-modal .modal > .btn-secondary');
+  if (btn) btn.style.display = '';
+}
+
+function _hideDetailModalDefaultCloseBtn() {
+  const btn = document.querySelector('#detail-modal .modal > .btn-secondary');
+  if (btn) btn.style.display = 'none';
+}
+
 function showDetail(id) {
+  _restoreDetailModalDefaultCloseBtn();
   const b = bookings.find(bk => bk._cloudId === id || String(bk.id) === String(id));
   if (!b) return;
   const isCancelled = b.status === 'cancelled';
@@ -280,29 +309,52 @@ function showDetail(id) {
   const matchedClean = findMatchingCleanForBooking(b);
   const cleanerState = getBookingCleanerState(b);
   const bc = matchedClean ? [matchedClean] : [];
+  const safeIdEsc = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
+  const mgmtPct =
+    b.mgmtFeeRaw ||
+    Math.round(((b.mgmtFee && b.hostPayout ? (b.mgmtFee / b.hostPayout) * 100 : 0) * 10)) / 10 ||
+    0;
+
   if (isCancelled) {
     document.getElementById('detail-content').innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-        <div style="display:flex;align-items:center;gap:12px">
-          ${window.platformIcon(b.platform, 52)}
-          <div>
-            <div style="font-family:'DM Serif Display',serif;font-size:20px;opacity:0.6">${b.name}</div>
-            <div class="booking-status status-cancelled" style="margin-top:4px">✕ Cancelled</div>
-          </div>
-        </div>
-        <button onclick="deleteBooking(${b.id})" style="background:#FDECEA;color:var(--red);border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer">Delete</button>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px">
+        <div style="font-size:18px;font-weight:500;color:#1a1a1a;flex:1;min-width:0">${escHtml(b.name)}</div>
       </div>
-      <div class="card" style="margin-bottom:10px">
-        <div class="card-title">Stay Details</div>
-        <div class="detail-row"><span class="detail-label">Check-in</span><span class="detail-val">${fmt(b.checkin)}</span></div>
-        <div class="detail-row"><span class="detail-label">Check-out</span><span class="detail-val">${fmt(b.checkout)}</span></div>
-        <div class="detail-row"><span class="detail-label">Nights</span><span class="detail-val">${b.nights}</span></div>
-        <div class="detail-row"><span class="detail-label">Guests</span><span class="detail-val">${b.guests}</span></div>
-        ${b.platform ? `<div class="detail-row"><span class="detail-label">Platform</span><span class="detail-val">${b.platform === 'Airbnb' ? '🏠 Airbnb' : b.platform === 'VRBO' ? '🏡 VRBO' : '📋 Direct'}</span></div>` : ''}
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:20px">
+        ${b.platform ? _bookingDetailPlatformPill(b.platform) : ''}
+        ${_bookingDetailStayStatusBadge(true, false)}
+      </div>
+      <div style="font-size:12px;font-weight:500;color:#999;margin:0 0 6px 2px">Stay details</div>
+      <div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden">
+        <div style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:13px;color:#666">Check-in</span>
+          <span style="font-size:13px;font-weight:500;color:#1a1a1a">${fmt(b.checkin)}</span>
+        </div>
+        <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:13px;color:#666">Check-out</span>
+          <span style="font-size:13px;font-weight:500;color:#1a1a1a">${fmt(b.checkout)}</span>
+        </div>
+        <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:13px;color:#666">Nights</span>
+          <span style="font-size:13px;font-weight:500;color:#1a1a1a">${b.nights}</span>
+        </div>
+        <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:13px;color:#666">Guests</span>
+          <span style="font-size:13px;font-weight:500;color:#1a1a1a">${b.guests}</span>
+        </div>
+        <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:13px;color:#666">Platform</span>
+          <span style="font-size:13px;font-weight:500;color:#1a1a1a">${_bookingDetailPlatformPlain(b.platform)}</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:20px">
+        <div style="flex:1;border:0.5px solid rgba(0,0,0,0.1);border-radius:10px;padding:12px;text-align:center;color:#666;font-size:13px;cursor:pointer;box-sizing:border-box;touch-action:manipulation" onclick="closeDetailModal()">Close</div>
+        <div style="flex:1;background:#FCEBEB;border:0.5px solid #FCEBEB;border-radius:10px;padding:12px;text-align:center;color:#A32D2D;font-size:13px;font-weight:500;cursor:pointer;box-sizing:border-box;touch-action:manipulation" onclick="deleteBooking('${safeIdEsc}')">Delete booking</div>
       </div>
     `;
     document.getElementById('detail-modal').classList.add('open');
     document.body.style.overflow = 'hidden';
+    _hideDetailModalDefaultCloseBtn();
     setTimeout(() => {
       if (typeof globalThis.attachModalHandleDrag === 'function') globalThis.attachModalHandleDrag();
     }, 0);
@@ -311,117 +363,186 @@ function showDetail(id) {
 
   const loadCleanersFn = typeof globalThis.loadCleaners === 'function' ? globalThis.loadCleaners : () => [];
 
+  const cleanerAssignBlock = (() => {
+    const cls = loadCleanersFn().filter(c => isCleanerPerson(c));
+    const assigned = bc[0];
+    const suggested = getSuggestedCleanerForBooking(b);
+    if (!cls.length) {
+      return '<div style="padding:0 14px 14px;font-size:12px;color:#999">No cleaners set up yet — add in Settings → Property &amp; People</div>';
+    }
+    const opts = cls
+      .map(
+        c =>
+          '<option value="' +
+          c.id +
+          '" ' +
+          (((assigned && String(assigned.cleanerId) === String(c.id)) ||
+            (!assigned && suggested && String(suggested.id) === String(c.id)))
+            ? 'selected'
+            : '') +
+          '>' +
+          escHtml(c.name) +
+          '</option>'
+      )
+      .join('');
+    const suggestHint =
+      !assigned && suggested
+        ? '<div style="font-size:11px;color:#999;margin:-4px 0 8px 0">Suggested: ' +
+          escHtml(suggested.name || '') +
+          '</div>'
+        : '';
+    const selStyle =
+      'width:100%;padding:10px 12px;border-radius:8px;border:0.5px solid rgba(0,0,0,0.1);font-size:13px;margin-bottom:8px;box-sizing:border-box;font-family:inherit';
+    const dateStyle =
+      'width:100%;padding:10px 12px;border-radius:8px;border:0.5px solid rgba(0,0,0,0.1);font-size:13px;margin-bottom:12px;box-sizing:border-box;font-family:inherit';
+    const dateVal = assigned ? assigned.date : b.checkout;
+    return (
+      '<select id="detail-assign-cleaner" style="' +
+      selStyle +
+      '"><option value="">— Not assigned —</option>' +
+      opts +
+      '</select>' +
+      suggestHint +
+      '<input type="date" id="detail-assign-date" value="' +
+      String(dateVal || '') +
+      '" style="' +
+      dateStyle +
+      '">' +
+      '<button type="button" onclick="assignCleanerToBooking(\'' +
+      safeIdEsc +
+      '\')" id="detail-assign-btn" style="width:100%;background:#2D5A3D;border-radius:10px;padding:12px;text-align:center;color:white;font-size:14px;font-weight:500;border:none;cursor:pointer;box-sizing:border-box;font-family:inherit;touch-action:manipulation">Save assignment</button>'
+    );
+  })();
+
+  const cleanerTopName = bc.length
+    ? escHtml(String(bc[0].cleaner || '—'))
+    : 'No cleaner assigned';
+  const cleanerDateLine = bc.length
+    ? 'Clean date: ' + fmt(bc[0].date)
+    : '';
+
   document.getElementById('detail-content').innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <div style="display:flex;align-items:center;gap:12px">
-        ${window.platformIcon(b.platform, 52)}
-        <div>
-          <div style="font-family:'DM Serif Display',serif;font-size:20px">${b.name}</div>
-          <div class="booking-status status-${b.status}">${b.status}</div>
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px">
+      <div style="font-size:18px;font-weight:500;color:#1a1a1a;flex:1;min-width:0">${escHtml(b.name)}</div>
+      <span onclick="showEditModal('${safeIdEsc}')" style="color:#2D5A3D;font-size:13px;font-weight:500;cursor:pointer;flex-shrink:0;touch-action:manipulation;padding-top:2px">Edit</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:20px">
+      ${b.platform ? _bookingDetailPlatformPill(b.platform) : ''}
+      ${_bookingDetailStayStatusBadge(false, isPast)}
+    </div>
+
+    <div style="font-size:12px;font-weight:500;color:#999;margin:0 0 6px 2px">Stay details</div>
+    <div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden">
+      <div style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:#666">Check-in</span>
+        <span style="font-size:13px;font-weight:500;color:#1a1a1a">${fmt(b.checkin)}</span>
+      </div>
+      <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:#666">Check-out</span>
+        <span style="font-size:13px;font-weight:500;color:#1a1a1a">${fmt(b.checkout)}</span>
+      </div>
+      <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:#666">Nights</span>
+        <span style="font-size:13px;font-weight:500;color:#1a1a1a">${b.nights}</span>
+      </div>
+      <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:#666">Guests</span>
+        <span style="font-size:13px;font-weight:500;color:#1a1a1a">${b.guests}</span>
+      </div>
+      <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:#666">Platform</span>
+        <span style="font-size:13px;font-weight:500;color:#1a1a1a">${_bookingDetailPlatformPlain(b.platform)}</span>
+      </div>
+    </div>
+
+    <div style="font-size:12px;font-weight:500;color:#999;margin:0 0 6px 2px">Financials</div>
+    <div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden">
+      <div style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:#666">Host payout</span>
+        <span style="font-size:13px;font-weight:500;color:#1D9E75">$${Number(b.hostPayout || 0).toLocaleString()}</span>
+      </div>
+      <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:#666">Cleaning fee</span>
+        <span style="font-size:13px;font-weight:500;color:#1a1a1a">$${Number(b.cleaningFee || 0).toLocaleString()}</span>
+      </div>
+      <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:#666">Management fee</span>
+        <span style="font-size:13px;font-weight:500;color:#1a1a1a">${mgmtPct}%</span>
+      </div>
+      <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:#666">Management payout</span>
+        <span style="font-size:13px;font-weight:500;color:#1a1a1a">$${Number(b.mgmtPayout || 0).toLocaleString()}</span>
+      </div>
+      <div style="border-top:0.5px solid rgba(0,0,0,0.1)"></div>
+      <div style="padding:12px 14px;background:#f5f5f3;border-radius:0 0 12px 12px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;font-weight:500;color:#1a1a1a">Net payout</span>
+        <span style="font-size:14px;font-weight:500;color:#1D9E75">$${Number(b.netPayout || 0).toLocaleString()}</span>
+      </div>
+    </div>
+
+    <div style="font-size:12px;font-weight:500;color:#999;margin:0 0 6px 2px">Cleaner</div>
+    <div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden">
+      <div style="padding:14px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+        <div style="min-width:0;flex:1">
+          <div style="font-size:15px;font-weight:500;color:#1a1a1a">${cleanerTopName}</div>
+          ${cleanerDateLine ? `<div style="font-size:13px;color:#666;margin-top:4px">${cleanerDateLine}</div>` : ''}
         </div>
+        <div style="flex-shrink:0;padding-top:2px">${_bookingDetailCleanerBadge(cleanerState)}</div>
       </div>
-      <button onclick="showEditModal('${b._cloudId || b.id}')" style="background:var(--amber);color:white;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer">Edit</button>
-    </div>
-    <div class="card" style="margin-bottom:10px">
-      <div class="card-title">Stay Details</div>
-      <div class="detail-row"><span class="detail-label">Check-in</span><span class="detail-val">${fmt(b.checkin)}</span></div>
-      <div class="detail-row"><span class="detail-label">Check-out</span><span class="detail-val">${fmt(b.checkout)}</span></div>
-      <div class="detail-row"><span class="detail-label">Nights</span><span class="detail-val">${b.nights}</span></div>
-      <div class="detail-row"><span class="detail-label">Guests</span><span class="detail-val">${b.guests}</span></div>
-      ${b.platform ? `<div class="detail-row"><span class="detail-label">Platform</span><span class="detail-val">${b.platform === 'Airbnb' ? '🏠 Airbnb' : b.platform === 'VRBO' ? '🏡 VRBO' : '📋 Direct'}</span></div>` : ''}
-    </div>
-    <div class="card" style="margin-bottom:10px">
-      <div class="card-title">Financials</div>
-      <div class="detail-row"><span class="detail-label">Host Payout</span><span class="detail-val money">$${Number(b.hostPayout || 0).toLocaleString()}</span></div>
-      <div class="detail-row"><span class="detail-label">Cleaning Fee</span><span class="detail-val money">$${Number(b.cleaningFee || 0).toLocaleString()}</span></div>
-      <div class="detail-row"><span class="detail-label">Management Fee</span><span class="detail-val">${b.mgmtFeeRaw || Math.round(((b.mgmtFee && b.hostPayout ? (b.mgmtFee / b.hostPayout) * 100 : 0) * 10)) / 10 || 0}%</span></div>
-      <div class="detail-row"><span class="detail-label">Management Payout</span><span class="detail-val money">$${Number(b.mgmtPayout || 0).toLocaleString()}</span></div>
-      <div class="detail-row" style="background:var(--mist);padding:10px 0">
-        <span class="detail-label" style="font-weight:700;color:var(--text)">Net Payout</span>
-        <span class="detail-val money" style="font-size:18px">$${Number(b.netPayout || 0).toLocaleString()}</span>
+      <div style="border-top:0.5px solid rgba(0,0,0,0.1)"></div>
+      <div class="toggle-wrap" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;margin:0;border:none">
+        <span style="font-size:13px;color:#1a1a1a">Cleaner confirmed</span>
+        <button type="button" class="toggle ${matchedClean?.cleanerConfirmed ?? b.cleanerConfirmed ? 'on' : ''}" onclick="toggleCleanerConfirmed(${b.id})" aria-label="Toggle cleaner confirmed" style="flex-shrink:0"></button>
+      </div>
+      <div style="border-top:0.5px solid rgba(0,0,0,0.1)"></div>
+      <div style="padding:14px">
+        <div style="font-size:12px;font-weight:500;color:#999;margin-bottom:8px">Change cleaner</div>
+        ${cleanerAssignBlock}
       </div>
     </div>
-    <div class="card" style="margin-bottom:10px">
-      <div class="card-title">Cleaner</div>
-      ${bc.length
-        ? `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0 10px">
-            <div>
-              <div style="font-weight:600;font-size:15px;color:var(--forest)">${escHtml(bc[0].cleaner)}</div>
-              <div style="font-size:12px;color:var(--text-soft);margin-top:2px">Clean date: ${fmt(bc[0].date)}</div>
-            </div>
-            <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:99px;background:${cleanerState.tone === 'ok' ? 'rgba(46,113,87,0.09)' : cleanerState.tone === 'bad' ? 'rgba(192,57,43,0.09)' : 'rgba(193,127,62,0.11)'};color:${cleanerState.tone === 'ok' ? 'var(--moss)' : cleanerState.tone === 'bad' ? 'var(--red)' : 'var(--amber)'}">${cleanerState.key === 'done' ? 'Done' : cleanerState.key === 'confirmed' ? 'Confirmed' : cleanerState.key === 'declined' ? 'Declined' : 'Awaiting'}</span>
-          </div>`
-        : `<div style="font-size:13px;color:var(--text-soft);padding:8px 0 10px">No cleaner assigned yet</div>`
-      }
-      ${cleanerState.key === 'confirmed'
-        ? `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0 2px;border-top:1px solid var(--warm)">
-            <div style="font-size:13px;font-weight:500;color:var(--moss)">✓ Cleaner confirmed</div>
-          </div>
-          <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--warm)">
-            <button onclick="revealCleanerReassign('${b._cloudId || b.id}')" id="detail-change-cleaner-btn" style="width:100%;background:var(--warm);color:var(--text);border:1px solid var(--card-border);border-radius:10px;padding:9px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Change Cleaner</button>
-            <div id="detail-reassign-form" style="display:none;margin-top:12px">${(() => {
-              const cls = loadCleanersFn().filter(c => isCleanerPerson(c));
-              const assigned = bc[0];
-              if (!cls.length) return '<div style="font-size:12px;color:var(--text-soft)">No cleaners set up yet — add in Settings → Property &amp; People</div>';
-              const opts = cls.map(c => '<option value="' + c.id + '" ' + (assigned && String(assigned.cleanerId) === String(c.id) ? 'selected' : '') + '>' + c.name + '</option>').join('');
-              return '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:8px">Change Cleaner</div><select id="detail-assign-cleaner" style="margin-bottom:8px"><option value="">— Not assigned —</option>' + opts + '</select><input type="date" id="detail-assign-date" value="' + (assigned ? assigned.date : b.checkout) + '" style="margin-bottom:8px"><button onclick="assignCleanerToBooking(\'' + escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id)) + '\')" class="btn-primary" style="width:100%" id="detail-assign-btn">💾 Save Assignment</button>';
-            })()}</div>
-          </div>`
-        : `<div class="toggle-wrap" style="border-top:1px solid var(--warm);padding-top:10px;margin-top:2px">
-            <div style="font-size:13px;font-weight:500">Cleaner confirmed</div>
-            <button class="toggle ${matchedClean?.cleanerConfirmed ?? b.cleanerConfirmed ? 'on' : ''}" onclick="toggleCleanerConfirmed(${b.id})"></button>
-          </div>
-          <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--warm)">
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:8px">${bc.length ? 'Change Cleaner' : 'Assign Cleaner'}</div>
-            ${(() => {
-              const cls = loadCleanersFn().filter(c => isCleanerPerson(c));
-              const assigned = bc[0];
-              const suggested = getSuggestedCleanerForBooking(b);
-              if (!cls.length) return '<div style="font-size:12px;color:var(--text-soft)">No cleaners set up yet — add in Settings → Property &amp; People</div>';
-              const opts = cls.map(c => '<option value="' + c.id + '" ' + (((assigned && String(assigned.cleanerId) === String(c.id)) || (!assigned && suggested && String(suggested.id) === String(c.id))) ? 'selected' : '') + '>' + c.name + '</option>').join('');
-              const suggestHint = !assigned && suggested ? '<div style="font-size:11px;color:var(--text-soft);margin:-2px 0 8px 0">Suggested: ' + escHtml(suggested.name || '') + '</div>' : '';
-              return '<select id="detail-assign-cleaner" style="margin-bottom:8px"><option value="">— Not assigned —</option>' + opts + '</select>' + suggestHint + '<input type="date" id="detail-assign-date" value="' + (assigned ? assigned.date : b.checkout) + '" style="margin-bottom:8px"><button onclick="assignCleanerToBooking(\'' + escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id)) + '\')" class="btn-primary" style="width:100%" id="detail-assign-btn">💾 Save Assignment</button>';
-            })()}
-          </div>`
-      }
-    </div>
+
     ${isPast
-      ? `<div class="card" style="margin-bottom:10px">
-      <div class="card-title">Cleaning Cost</div>
-      <div id="clean-cost-view" style="display:flex;align-items:center;justify-content:space-between;padding:4px 0 2px">
-        <span style="font-size:22px;font-family:'DM Serif Display',serif;color:var(--forest)">$${Number(b.cleaningFee || 0).toLocaleString()}</span>
-        <button onclick="document.getElementById('clean-cost-view').style.display='none';document.getElementById('clean-cost-edit').style.display=''" style="background:none;border:1px solid var(--card-border);border-radius:8px;padding:5px 12px;font-size:12px;font-weight:600;color:var(--text-soft);cursor:pointer;font-family:'DM Sans',sans-serif">Edit</button>
+      ? `<div style="font-size:12px;font-weight:500;color:#999;margin:0 0 6px 2px">Cleaning cost</div>
+      <div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden;padding:14px">
+      <div id="clean-cost-view" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <span style="font-size:20px;font-weight:500;color:#1a1a1a">$${Number(b.cleaningFee || 0).toLocaleString()}</span>
+        <button type="button" onclick="document.getElementById('clean-cost-view').style.display='none';document.getElementById('clean-cost-edit').style.display=''" style="background:none;border:0.5px solid rgba(0,0,0,0.1);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:500;color:#666;cursor:pointer;font-family:inherit;touch-action:manipulation">Edit</button>
       </div>
-      <div id="clean-cost-edit" style="display:none;margin-top:8px">
+      <div id="clean-cost-edit" style="display:none;margin-top:12px">
         <div style="display:flex;gap:8px;align-items:center">
-          <input type="number" id="actual-clean-fee" value="${Number(b.cleaningFee || 0)}" placeholder="0" style="flex:1;padding:10px;border:1px solid var(--warm);border-radius:8px;font-size:14px;font-family:'DM Sans',sans-serif">
-          <button onclick="saveCleaningFee(${b.id})" style="background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">Save</button>
+          <input type="number" id="actual-clean-fee" value="${Number(b.cleaningFee || 0)}" placeholder="0" style="flex:1;padding:10px 12px;border:0.5px solid rgba(0,0,0,0.1);border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box">
+          <button type="button" onclick="saveCleaningFee(${b.id})" style="background:#2D5A3D;color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;font-family:inherit;touch-action:manipulation">Save</button>
         </div>
       </div>
     </div>`
       : ''}
     ${bn.length
-      ? `<div class="card" style="margin-bottom:10px">
-      <div class="card-title">Notes</div>
-      ${bn.map(n => `<div class="note-item" style="margin-bottom:6px"><span class="note-tag tag-${n.tag}">${n.tag}</span><div class="note-text">${n.text}</div></div>`).join('')}
+      ? `<div style="font-size:12px;font-weight:500;color:#999;margin:0 0 6px 2px">Notes</div>
+      <div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden;padding:12px 14px">
+      ${bn.map(n => `<div class="note-item" style="margin-bottom:8px"><span class="note-tag tag-${n.tag}">${n.tag}</span><div class="note-text">${n.text}</div></div>`).join('')}
     </div>`
       : ''}
-    <button class="btn-secondary" style="margin-bottom:8px;background:#FDECEA;color:var(--red)" onclick="deleteBooking(${b.id})">Delete Booking</button>
+    <div style="display:flex;gap:10px;margin-top:20px">
+      <div style="flex:1;border:0.5px solid rgba(0,0,0,0.1);border-radius:10px;padding:12px;text-align:center;color:#666;font-size:13px;cursor:pointer;box-sizing:border-box;touch-action:manipulation" onclick="closeDetailModal()">Close</div>
+      <div style="flex:1;background:#FCEBEB;border:0.5px solid #FCEBEB;border-radius:10px;padding:12px;text-align:center;color:#A32D2D;font-size:13px;font-weight:500;cursor:pointer;box-sizing:border-box;touch-action:manipulation" onclick="deleteBooking('${safeIdEsc}')">Delete booking</div>
+    </div>
   `;
   document.getElementById('detail-modal').classList.add('open');
   document.body.style.overflow = 'hidden';
+  _hideDetailModalDefaultCloseBtn();
   setTimeout(() => {
     if (typeof globalThis.attachModalHandleDrag === 'function') globalThis.attachModalHandleDrag();
   }, 0);
 }
 
 function showEditModal(id) {
+  _restoreDetailModalDefaultCloseBtn();
   const b = bookings.find(bk => bk._cloudId === id || String(bk.id) === String(id));
   if (!b) return;
   const safeId = b._cloudId || b.id;
   if (typeof globalThis.closeDetailModal === 'function') globalThis.closeDetailModal();
   document.getElementById('detail-content').innerHTML = `
-    <div style="font-family:'DM Serif Display',serif;font-size:22px;margin-bottom:16px">Edit Booking</div>
+    <div style="font-family:inherit;font-size:16px;font-weight:500;color:#1a1a1a;margin-bottom:16px">Edit Booking</div>
     <label>Guest Name</label><input type="text" id="e-name" value="${b.name}">
     <div class="form-row">
       <div class="field"><label>Check-in</label><input type="date" id="e-checkin" value="${b.checkin}" onchange="editCalcNights()"></div>
@@ -477,7 +598,7 @@ function editCalcNet() {
   if (netEl) netEl.value = host ? '$' + net.toFixed(2) : '';
 }
 
-function saveEdit(id) {
+async function saveEdit(id) {
   const b = bookings.find(bk => bk._cloudId === id || String(bk.id) === String(id));
   if (!b) return;
   const btn = document.getElementById('save-edit-btn');
@@ -501,8 +622,14 @@ function saveEdit(id) {
 
   if (!b.status) b.status = 'confirmed';
   normalizeBookingCleanState();
-  save();
-  if (typeof globalThis.saveBookingToCloud === 'function') globalThis.saveBookingToCloud(b).catch(() => {});
+  if (typeof globalThis.saveBookingToCloud === 'function') {
+    try {
+      await globalThis.saveBookingToCloud(b);
+    } catch (e) {
+      console.error('[StayOps] Cloud save failed:', e);
+      globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+    }
+  }
   globalThis.showBanner('✅ Booking saved', 'ok');
   setTimeout(() => {
     if (typeof globalThis.closeDetailModal === 'function') globalThis.closeDetailModal();
@@ -516,7 +643,7 @@ function filterBookings(f, btn) {
   renderBookings(f);
 }
 
-function addBooking() {
+async function addBooking() {
   const name = document.getElementById('b-name').value.trim();
   const checkin = document.getElementById('b-checkin').value;
   const checkout = document.getElementById('b-checkout').value;
@@ -546,22 +673,32 @@ function addBooking() {
   bookings.push(newB);
   const autoAssigned = maybeAutoAssignPreferredCleaner(newB, 'booking-create');
   normalizeBookingCleanState();
-  save();
-  if (autoAssigned && typeof globalThis.saveCleansToCloud === 'function') globalThis.saveCleansToCloud(cleans).catch(() => {});
+
+  if (typeof globalThis.saveBookingToCloud === 'function') {
+    try {
+      await globalThis.saveBookingToCloud(newB);
+    } catch (e) {
+      console.error('[StayOps] Cloud save failed:', e);
+      globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+    }
+  }
+
+  if (autoAssigned && typeof globalThis.saveCleansToCloud === 'function') {
+    try {
+      const newClean = findMatchingCleanForBooking(newB);
+      if (newClean) await globalThis.saveCleansToCloud([newClean]);
+    } catch (e) {
+      console.error('[StayOps] Cloud save failed:', e);
+      globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+    }
+  }
+
   if (typeof globalThis.closeModal === 'function') globalThis.closeModal();
   if (typeof globalThis.render === 'function') globalThis.render();
-  if (typeof globalThis.saveBookingToCloud === 'function') {
-    globalThis.saveBookingToCloud(newB).then(() => {
-      console.log('[StayOps] Booking saved to Supabase');
-    }).catch(e => {
-      console.error('[StayOps] Failed to save booking to Supabase', e);
-      globalThis.showBanner('⚠ Booking saved locally but cloud sync failed: ' + (e.message || 'unknown error'), 'warn');
-    });
-  }
   globalThis.showBanner('✅ Booking added', 'ok');
 }
 
-function addNote() {
+async function addNote() {
   const bookingId = Number(document.getElementById('note-booking-select').value);
   const text = document.getElementById('note-text').value.trim();
   const tag = document.getElementById('note-tag').value;
@@ -574,9 +711,17 @@ function addNote() {
     globalThis.showBanner('⚠ Booking not found — it may have been deleted', 'warn');
     return;
   }
-  notes.push({ id: Date.now(), bookingId, guestName: booking.name, text, tag, date: new Date().toISOString().split('T')[0] });
+  const newNote = { id: Date.now(), bookingId, guestName: booking.name, text, tag, date: new Date().toISOString().split('T')[0] };
+  notes.push(newNote);
   document.getElementById('note-text').value = '';
-  save();
+  if (typeof globalThis.saveNotesToCloud === 'function') {
+    try {
+      await globalThis.saveNotesToCloud([newNote]);
+    } catch (e) {
+      console.error('[StayOps] Cloud save failed:', e);
+      globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+    }
+  }
   renderNotes();
   globalThis.showBanner('✅ Note saved', 'ok');
 }
@@ -589,28 +734,73 @@ async function deleteBooking(id) {
     confirmColor: 'var(--red)',
   });
   if (!_okBk) return;
-  const deletedBooking = bookings.find(b => b._cloudId === id || String(b.id) === String(id));
+  const deletedBooking = bookings.find(
+    b => String(b._cloudId || '') === String(id) || String(b.id) === String(id)
+  );
+  if (!deletedBooking) {
+    console.warn('[StayOps] deleteBooking: booking not found in memory:', id);
+    globalThis.showBanner('Booking not found', 'warn');
+    return;
+  }
 
-  const orphanedCleans = cleans.filter(c => String(c.bookingId) === String(id) || (deletedBooking && c.guestName === deletedBooking.name));
-  const orphanedNotes = notes.filter(n => String(n.bookingId) === String(id) || (deletedBooking && n.guestName === deletedBooking.name));
+  console.log('[StayOps] deleteBooking: local delete requested', {
+    id,
+    localId: deletedBooking ? deletedBooking.id : null,
+    cloudId: deletedBooking ? deletedBooking._cloudId : null,
+  });
 
+  // Cloud delete FIRST (avoid local state corruption if cloud delete fails)
+  if (typeof globalThis.deleteBookingFromCloud === 'function') {
+    try {
+      await globalThis.deleteBookingFromCloud(deletedBooking);
+    } catch (e) {
+      console.error('[StayOps] deleteBooking: cloud delete failed', e);
+      globalThis.showBanner('Could not delete booking — please try again', 'warn');
+      return;
+    }
+  }
+
+  const deletedLocalId = String(deletedBooking.id);
+  const deletedCloudId = String(deletedBooking._cloudId || '');
+  const deletedGuestName = deletedBooking.name;
+
+  const orphanedCleans = cleans.filter(c =>
+    String(c.bookingId) === deletedLocalId ||
+    (deletedCloudId && String(c.bookingId) === deletedCloudId) ||
+    (deletedGuestName && c.guestName === deletedGuestName)
+  );
+  const orphanedNotes = notes.filter(n =>
+    String(n.bookingId) === deletedLocalId ||
+    (deletedCloudId && String(n.bookingId) === deletedCloudId) ||
+    (deletedGuestName && n.guestName === deletedGuestName)
+  );
+
+  // Only after cloud delete succeeds: remove from in-memory arrays
   replaceArrayInPlace(
     bookings,
-    bookings.filter(b => b.id !== id)
+    bookings.filter(b =>
+      String(b.id) !== deletedLocalId &&
+      String(b._cloudId || '') !== deletedCloudId
+    )
   );
   replaceArrayInPlace(
     cleans,
-    cleans.filter(c => String(c.bookingId) !== String(id) && !(deletedBooking && c.guestName === deletedBooking.name))
+    cleans.filter(c =>
+      String(c.bookingId) !== deletedLocalId &&
+      (!deletedCloudId || String(c.bookingId) !== deletedCloudId) &&
+      !(deletedGuestName && c.guestName === deletedGuestName)
+    )
   );
   replaceArrayInPlace(
     notes,
-    notes.filter(n => String(n.bookingId) !== String(id) && !(deletedBooking && n.guestName === deletedBooking.name))
+    notes.filter(n =>
+      String(n.bookingId) !== deletedLocalId &&
+      (!deletedCloudId || String(n.bookingId) !== deletedCloudId) &&
+      !(deletedGuestName && n.guestName === deletedGuestName)
+    )
   );
-  save();
 
-  if (deletedBooking && typeof globalThis.deleteBookingFromCloud === 'function') {
-    globalThis.deleteBookingFromCloud(deletedBooking).catch(e => console.warn('[StayOps] Failed to delete booking from cloud', e));
-  }
+  // In-memory arrays are the source of truth (cloud already deleted above).
 
   const user = typeof globalThis.getCurrentSupabaseUser === 'function' ? await globalThis.getCurrentSupabaseUser() : null;
   if (user && window._sb) {
@@ -645,8 +835,11 @@ async function deleteBooking(id) {
     }
   }
 
+  if (typeof globalThis.reloadInMemoryData === 'function') globalThis.reloadInMemoryData();
+  if (typeof globalThis.renderAll === 'function') globalThis.renderAll();
   if (typeof globalThis.closeDetailModal === 'function') globalThis.closeDetailModal();
-  if (typeof globalThis.render === 'function') globalThis.render();
+
+  console.log('[StayOps] deleteBooking: done');
   globalThis.showBanner('✅ Booking deleted', 'ok');
 }
 
@@ -741,13 +934,13 @@ function importAirbnbCSV(input) {
     }
 
     bookings.push(...newBookings);
-    save();
 
     if (typeof globalThis.saveBookingsToCloud === 'function') {
       try {
         await globalThis.saveBookingsToCloud(newBookings);
       } catch (e) {
-        console.warn('[Import] Cloud save failed', e);
+        console.error('[StayOps] Cloud save failed:', e);
+        globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
       }
     }
 
@@ -768,9 +961,10 @@ function importCSV(input) {
   const file = input.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = function (e) {
+  reader.onload = async function (e) {
     const lines = e.target.result.trim().split('\n');
     let imported = 0;
+    const newBookings = [];
     lines.forEach((line, i) => {
       if (i === 0) return;
       const p = parseCSVLine(line);
@@ -778,7 +972,7 @@ function importCSV(input) {
       const name = String(p[3] || '').trim();
       const checkin = toISO(String(p[0] || '').trim());
       if (!name || !checkin) return;
-      bookings.push({
+      const nb = {
         id: Date.now() + i,
         checkin,
         nights: Number(p[1]) || 1,
@@ -795,10 +989,19 @@ function importCSV(input) {
         platform: String(p[11] || '').trim(),
         status: 'confirmed',
         _local: true,
-      });
+      };
+      bookings.push(nb);
+      newBookings.push(nb);
       imported++;
     });
-    save();
+    if (newBookings.length && typeof globalThis.saveBookingsToCloud === 'function') {
+      try {
+        await globalThis.saveBookingsToCloud(newBookings);
+      } catch (e) {
+        console.error('[StayOps] Cloud save failed:', e);
+        globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+      }
+    }
     document.getElementById('import-preview').textContent = `✓ Imported ${imported} booking${imported !== 1 ? 's' : ''}`;
     setTimeout(() => {
       if (typeof globalThis.closeModal === 'function') globalThis.closeModal();
@@ -886,13 +1089,19 @@ function getBookingIdentityKey(booking) {
   return [name, checkin, checkout, confirmCode].join('|');
 }
 
-function saveCleaningFee(bookingId) {
+async function saveCleaningFee(bookingId) {
   const b = bookings.find(bk => String(bk.id) === String(bookingId) || (bk._cloudId && String(bk._cloudId) === String(bookingId)));
   const input = document.getElementById('actual-clean-fee');
   if (!b || !input) return;
   b.cleaningFee = Number(input.value) || 0;
-  save();
-  if (typeof globalThis.saveBookingToCloud === 'function') globalThis.saveBookingToCloud(b).catch(() => {});
+  if (typeof globalThis.saveBookingToCloud === 'function') {
+    try {
+      await globalThis.saveBookingToCloud(b);
+    } catch (e) {
+      console.error('[StayOps] Cloud save failed:', e);
+      globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+    }
+  }
   globalThis.showBanner('✓ Cleaning fee saved & synced', 'ok');
 }
 

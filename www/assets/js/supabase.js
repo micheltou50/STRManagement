@@ -1,5 +1,4 @@
 import {
-  lsKey,
   getAllProperties,
   getActivePropertyId,
   setActivePropertyId,
@@ -327,7 +326,7 @@ export async function seedLocalConfigFromCloud() {
     if (activeCloud) {
       if (activeCloud.anthropic_api_key) localStorage.setItem('gh-api-key', activeCloud.anthropic_api_key);
       if (activeCloud.script_url) localStorage.setItem('gh-script-url', activeCloud.script_url);
-      if (activeCloud.mgmt_fee_rate != null) localStorage.setItem(lsKey('mgmt-fee-rate'), String(activeCloud.mgmt_fee_rate));
+      // mgmt_fee_rate is now sourced from window._appConfig
     }
 
     console.log('[StayOps] seedLocalConfigFromCloud: merged', cloudProps.length, 'properties');
@@ -392,7 +391,7 @@ export async function savePropertyToCloud(cfg) {
       report_frequency:     (cfg.owner && cfg.owner.reportFrequency) || null,
       last_report_sent_at:  (cfg.owner && cfg.owner.lastReportSentAt) || null,
       anthropic_api_key: localStorage.getItem('gh-api-key') || null,
-      mgmt_fee_rate:     (parseFloat(localStorage.getItem(lsKey('mgmt-fee-rate')) || '0') || null),
+      mgmt_fee_rate:     (window._appConfig && window._appConfig.mgmt_fee_rate != null) ? window._appConfig.mgmt_fee_rate : null,
       updated_at:        cfg.updated_at || new Date().toISOString()
     };
 
@@ -587,9 +586,8 @@ export async function saveCleanToCloud(clean) {
     const user = await getCurrentSupabaseUser();
     if (!user || !clean) return;
     const propertyId = await getCloudPropertyId();
-    const payload = {
+    const basePayload = {
       user_id:          user.id,
-      property_id:      propertyId || null,
       local_id:         String(clean.id),
       booking_id:       String(clean.bookingId || ''),
       guest_name:       clean.guestName   || '',
@@ -607,13 +605,30 @@ export async function saveCleanToCloud(clean) {
       updated_at:       new Date().toISOString()
     };
     if (clean._cloudId) {
-      await window._sb.from('cleans').upsert({ id: clean._cloudId, ...payload });
+      // Guard: never update property_id on existing records.
+      console.log('[StayOps] GUARD: property_id stripped from cleans update:', clean._cloudId);
+      const { error } = await window._sb.from('cleans').update(basePayload).eq('id', clean._cloudId);
+      if (error) throw error;
     } else {
-      const { data } = await window._sb
+      const insertPayload = { ...basePayload, property_id: propertyId || null };
+      const { data: insData, error: insErr } = await window._sb
         .from('cleans')
-        .upsert(payload, { onConflict: 'local_id,user_id' })
-        .select().single();
-      if (data) clean._cloudId = data.id;
+        .insert(insertPayload)
+        .select()
+        .single();
+      if (!insErr && insData) {
+        clean._cloudId = insData.id;
+        return;
+      }
+      // Conflict fallback: upsert without property_id
+      console.log('[StayOps] GUARD: property_id stripped from cleans update:', String(clean.id));
+      const { data: upData, error: upErr } = await window._sb
+        .from('cleans')
+        .upsert(basePayload, { onConflict: 'local_id,user_id' })
+        .select()
+        .single();
+      if (upErr) throw upErr;
+      if (upData) clean._cloudId = upData.id;
     }
   } catch (e) {
     console.warn('[StayOps] saveCleanToCloud failed', e);
@@ -659,21 +674,35 @@ async function saveNoteToCloud(note) {
     const user = await getCurrentSupabaseUser();
     if (!user || !note) return;
     const propertyId = await getCloudPropertyId();
-    const payload = {
+    const basePayload = {
       user_id:     user.id,
-      property_id: propertyId || null,
       local_id:    String(note.id),
       content:     note.content || note.text || note.body || String(note),
       updated_at:  new Date().toISOString()
     };
     if (note._cloudId) {
-      await window._sb.from('notes').upsert({ id: note._cloudId, ...payload });
+      console.log('[StayOps] GUARD: property_id stripped from notes update:', note._cloudId);
+      const { error } = await window._sb.from('notes').update(basePayload).eq('id', note._cloudId);
+      if (error) throw error;
     } else {
-      const { data } = await window._sb
+      const insertPayload = { ...basePayload, property_id: propertyId || null };
+      const { data: insData, error: insErr } = await window._sb
         .from('notes')
-        .upsert(payload, { onConflict: 'local_id,user_id' })
-        .select().single();
-      if (data) note._cloudId = data.id;
+        .insert(insertPayload)
+        .select()
+        .single();
+      if (!insErr && insData) {
+        note._cloudId = insData.id;
+        return;
+      }
+      console.log('[StayOps] GUARD: property_id stripped from notes update:', String(note.id));
+      const { data: upData, error: upErr } = await window._sb
+        .from('notes')
+        .upsert(basePayload, { onConflict: 'local_id,user_id' })
+        .select()
+        .single();
+      if (upErr) throw upErr;
+      if (upData) note._cloudId = upData.id;
     }
   } catch (e) {
     console.warn('[StayOps] saveNoteToCloud failed', e);
@@ -803,9 +832,8 @@ async function saveInventoryItemToCloud(item) {
     const user = await getCurrentSupabaseUser();
     if (!user || !item) return;
     const propertyId = await getCloudPropertyId();
-    const payload = {
+    const basePayload = {
       user_id:     user.id,
-      property_id: propertyId || null,
       local_id:    String(item.id),
       name:        item.name      || '',
       stock:       item.stock     || 0,
@@ -814,13 +842,28 @@ async function saveInventoryItemToCloud(item) {
       updated_at:  new Date().toISOString()
     };
     if (item._cloudId) {
-      await window._sb.from('inventory').upsert({ id: item._cloudId, ...payload });
+      console.log('[StayOps] GUARD: property_id stripped from inventory update:', item._cloudId);
+      const { error } = await window._sb.from('inventory').update(basePayload).eq('id', item._cloudId);
+      if (error) throw error;
     } else {
-      const { data } = await window._sb
+      const insertPayload = { ...basePayload, property_id: propertyId || null };
+      const { data: insData, error: insErr } = await window._sb
         .from('inventory')
-        .upsert(payload, { onConflict: 'local_id,user_id' })
-        .select().single();
-      if (data) item._cloudId = data.id;
+        .insert(insertPayload)
+        .select()
+        .single();
+      if (!insErr && insData) {
+        item._cloudId = insData.id;
+        return;
+      }
+      console.log('[StayOps] GUARD: property_id stripped from inventory update:', String(item.id));
+      const { data: upData, error: upErr } = await window._sb
+        .from('inventory')
+        .upsert(basePayload, { onConflict: 'local_id,user_id' })
+        .select()
+        .single();
+      if (upErr) throw upErr;
+      if (upData) item._cloudId = upData.id;
     }
   } catch (e) {
     console.warn('[StayOps] saveInventoryItemToCloud failed', e);
@@ -881,9 +924,8 @@ async function saveMaintenanceItemToCloud(item) {
     const user = await getCurrentSupabaseUser();
     if (!user || !item) return;
     const propertyId = await getCloudPropertyId();
-    const payload = {
+    const basePayload = {
       user_id:     user.id,
-      property_id: propertyId || null,
       local_id:    String(item.id),
       description: item.description || '',
       status:      item.status      || 'open',
@@ -893,13 +935,28 @@ async function saveMaintenanceItemToCloud(item) {
       updated_at:  new Date().toISOString()
     };
     if (item._cloudId) {
-      await window._sb.from('maintenance').upsert({ id: item._cloudId, ...payload });
+      console.log('[StayOps] GUARD: property_id stripped from maintenance update:', item._cloudId);
+      const { error } = await window._sb.from('maintenance').update(basePayload).eq('id', item._cloudId);
+      if (error) throw error;
     } else {
-      const { data } = await window._sb
+      const insertPayload = { ...basePayload, property_id: propertyId || null };
+      const { data: insData, error: insErr } = await window._sb
         .from('maintenance')
-        .upsert(payload, { onConflict: 'local_id,user_id' })
-        .select().single();
-      if (data) item._cloudId = data.id;
+        .insert(insertPayload)
+        .select()
+        .single();
+      if (!insErr && insData) {
+        item._cloudId = insData.id;
+        return;
+      }
+      console.log('[StayOps] GUARD: property_id stripped from maintenance update:', String(item.id));
+      const { data: upData, error: upErr } = await window._sb
+        .from('maintenance')
+        .upsert(basePayload, { onConflict: 'local_id,user_id' })
+        .select()
+        .single();
+      if (upErr) throw upErr;
+      if (upData) item._cloudId = upData.id;
     }
   } catch (e) {
     console.warn('[StayOps] saveMaintenanceItemToCloud failed', e);
@@ -980,9 +1037,8 @@ export async function saveBookingToCloud(booking) {
   const user = await getCurrentSupabaseUser();
   if (!user || !booking) return;
   const propertyId = await getCloudPropertyId();
-  const payload = {
+  const basePayload = {
     user_id:            user.id,
-    property_id:        propertyId || null,
     local_id:           String(booking.id),
     checkin:            booking.checkin   ? String(booking.checkin).slice(0,10)   : null,
     checkout:           booking.checkout  ? String(booking.checkout).slice(0,10)  : null,
@@ -1005,10 +1061,32 @@ export async function saveBookingToCloud(booking) {
     updated_at:         new Date().toISOString(),
   };
   if (booking._cloudId) {
-    await window._sb.from('bookings').update(payload).eq('id', booking._cloudId);
+    // Guard: never update property_id on existing cloud bookings.
+    console.log('[StayOps] GUARD: property_id stripped from booking update to prevent reassignment:', booking._cloudId);
+    const { error } = await window._sb.from('bookings').update(basePayload).eq('id', booking._cloudId);
+    if (error) throw new Error(error.message || 'Supabase update failed');
   } else {
-    const { data } = await window._sb.from('bookings').upsert(payload, { onConflict: 'local_id,user_id' }).select().single();
-    if (data) booking._cloudId = data.id;
+    // Insert new booking WITH property_id. If it already exists (conflict), update WITHOUT property_id.
+    const insertPayload = { ...basePayload, property_id: propertyId || null };
+    const { data: insData, error: insErr } = await window._sb
+      .from('bookings')
+      .insert(insertPayload)
+      .select()
+      .single();
+    if (!insErr && insData) {
+      booking._cloudId = insData.id;
+      return;
+    }
+
+    // Conflict or other insert failure — fall back to upsert/update without property_id.
+    console.log('[StayOps] GUARD: property_id stripped from booking update to prevent reassignment:', String(booking.id));
+    const { data: upData, error: upErr } = await window._sb
+      .from('bookings')
+      .upsert(basePayload, { onConflict: 'local_id,user_id' })
+      .select()
+      .single();
+    if (upErr) throw new Error(upErr.message || 'Supabase upsert failed');
+    if (upData) booking._cloudId = upData.id;
   }
 }
 
@@ -1017,9 +1095,8 @@ export async function saveBookingsToCloud(bookingsList) {
   const user = await getCurrentSupabaseUser();
   if (!user) throw new Error('Not signed in — cannot save bookings to cloud');
   const propertyId = await getCloudPropertyId();
-  const payload = bookingsList.map(b => ({
+  const toBase = (b) => ({
     user_id:            user.id,
-    property_id:        propertyId || null,
     local_id:           String(b.id),
     checkin:            b.checkin   ? String(b.checkin).slice(0,10)   : null,
     checkout:           b.checkout  ? String(b.checkout).slice(0,10)  : null,
@@ -1040,29 +1117,118 @@ export async function saveBookingsToCloud(bookingsList) {
     phone:              b.phone       || null,
     email:              b.email       || null,
     updated_at:         new Date().toISOString(),
-  }));
-  const { error } = await window._sb
-    .from('bookings')
-    .upsert(payload, { onConflict: 'local_id,user_id' });
-  if (error) {
-    console.warn('[StayOps] saveBookingsToCloud bulk upsert error', error);
-    throw new Error(error.message || 'Supabase upsert failed');
+  });
+
+  // Safety: never update property_id during sync. Insert new bookings with property_id; update existing without it.
+  const withCloud = bookingsList.filter(b => b && (b._cloudId || b.cloud_id));
+  const withoutCloud = bookingsList.filter(b => b && !(b._cloudId || b.cloud_id));
+
+  // 1) Update existing bookings (by cloud id) WITHOUT property_id
+  for (const b of withCloud) {
+    const cloudId = String(b._cloudId || b.cloud_id || '');
+    if (!cloudId) continue;
+    console.log('[StayOps] GUARD: property_id stripped from booking update to prevent reassignment:', cloudId);
+    const { error } = await window._sb.from('bookings').update(toBase(b)).eq('id', cloudId);
+    if (error) {
+      console.warn('[StayOps] saveBookingsToCloud update error', error);
+      throw new Error(error.message || 'Supabase update failed');
+    }
+  }
+
+  // 2) Insert new bookings WITH property_id; if conflict, upsert WITHOUT property_id
+  for (const b of withoutCloud) {
+    const insertPayload = { ...toBase(b), property_id: propertyId || null };
+    const { data: insData, error: insErr } = await window._sb
+      .from('bookings')
+      .insert(insertPayload)
+      .select()
+      .single();
+    if (!insErr && insData) {
+      b._cloudId = insData.id;
+      continue;
+    }
+
+    console.log('[StayOps] GUARD: property_id stripped from booking update to prevent reassignment:', String(b.id));
+    const { data: upData, error: upErr } = await window._sb
+      .from('bookings')
+      .upsert(toBase(b), { onConflict: 'local_id,user_id' })
+      .select()
+      .single();
+    if (upErr) {
+      console.warn('[StayOps] saveBookingsToCloud bulk upsert error', upErr);
+      throw new Error(upErr.message || 'Supabase upsert failed');
+    }
+    if (upData) b._cloudId = upData.id;
+  }
+}
+
+async function validatePropertyIds(userId) {
+  try {
+    if (!userId || !window._sb) return;
+    const supabase = window._sb;
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('property_id')
+      .eq('user_id', userId);
+    if (error) {
+      console.warn('[StayOps] validatePropertyIds: query failed', error);
+      return;
+    }
+    if (data) {
+      const counts = {};
+      data.forEach(b => {
+        const pid = b && b.property_id ? String(b.property_id) : 'null';
+        counts[pid] = (counts[pid] || 0) + 1;
+      });
+      console.log('[StayOps] Property booking counts:', counts);
+    }
+  } catch (e) {
+    console.warn('[StayOps] validatePropertyIds failed', e);
   }
 }
 
 export async function deleteBookingFromCloud(booking) {
+  const user = await getCurrentSupabaseUser();
+  if (!user || !booking || !window._sb) {
+    console.log('[StayOps] deleteBookingFromCloud: skipped, reason: missing user, booking, or Supabase client');
+    return { ok: false, skipped: true };
+  }
+
+  const supabase = window._sb;
+  const localId = String(booking.id ?? '');
+  const cloudId = booking._cloudId ? String(booking._cloudId) : '';
+  console.log('[StayOps] deleteBookingFromCloud: deleting booking', { localId, cloudId, userId: user.id });
+
   try {
-    const user = await getCurrentSupabaseUser();
-    if (!user || !booking) return;
-    if (booking._cloudId) {
-      await window._sb.from('bookings').delete().eq('id', booking._cloudId);
+    let result;
+    if (cloudId) {
+      console.log('[StayOps] deleteBookingFromCloud: calling supabase delete by id...', { cloudId });
+      result = await supabase
+        .from('bookings')
+        .delete()
+        .eq('id', cloudId);
+      const { data, error, status } = result || {};
+      console.log('[StayOps] deleteBookingFromCloud: result', { data, error, status });
     } else {
-      await window._sb.from('bookings').delete()
+      console.log('[StayOps] deleteBookingFromCloud: calling supabase delete by user/local_id...', { localId, userId: user.id });
+      result = await supabase
+        .from('bookings')
+        .delete()
         .eq('user_id', user.id)
-        .eq('local_id', String(booking.id));
+        .eq('local_id', localId);
+      const { data, error, status } = result || {};
+      console.log('[StayOps] deleteBookingFromCloud: result', { data, error, status });
     }
+
+    const { error } = result || {};
+    if (error) {
+      console.error('[StayOps] deleteBookingFromCloud failed', error);
+      throw error;
+    }
+    return result;
   } catch (e) {
-    console.warn('[StayOps] deleteBookingFromCloud failed', e);
+    console.error('[StayOps] deleteBookingFromCloud threw', e);
+    throw e;
   }
 }
 
@@ -1091,6 +1257,17 @@ export async function hydrateFromCloud() {
     window._stayOpsHydrating = true;
     window._cloudPropertyIds = window._cloudPropertyIds || {};
     console.log('[StayOps] hydrateFromCloud starting...');
+
+    // Phase 2: hydrate directly into in-memory arrays (no localStorage hop).
+    const {
+      bookings,
+      cleans,
+      notes,
+      expenses,
+      maintenance,
+      inventory,
+      replaceArrayInPlace,
+    } = await import('./state.js');
 
     const normaliseLocalId = (raw) => String(raw || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
@@ -1211,55 +1388,57 @@ export async function hydrateFromCloud() {
 
       const activeCfg = getActivePropertyConfig();
       const activeCloud = activeCfg && activeCfg.supabaseId ? cloudProps.find(p => p.id === activeCfg.supabaseId) : null;
-      if (activeCloud) {
-        if (activeCloud.anthropic_api_key) localStorage.setItem('gh-api-key', activeCloud.anthropic_api_key);
-        if (activeCloud.mgmt_fee_rate != null) localStorage.setItem(lsKey('mgmt-fee-rate'), String(activeCloud.mgmt_fee_rate));
-      }
+      // Note: api_key / mgmt_fee_rate are now routed through window._appConfig (below).
 
       console.log('[StayOps] Hydrated', cloudProps.length, 'properties from cloud');
     }
 
     // 1. Cleaners
     const cloudCleaners = await loadCleanersFromCloud();
-    if (Array.isArray(cloudCleaners)) { localStorage.setItem(lsKey('cleaners'), JSON.stringify(cloudCleaners)); console.log('[StayOps] Hydrated', cloudCleaners.length, 'cleaners from cloud'); }
+    if (Array.isArray(cloudCleaners)) { window._cleaners = cloudCleaners; console.log('[StayOps] Hydrated', cloudCleaners.length, 'cleaners from cloud'); }
 
     // 2. Bookings
     const cloudBookings = await loadBookingsFromCloud();
-    if (Array.isArray(cloudBookings)) { localStorage.setItem(lsKey('bookings'), JSON.stringify(cloudBookings)); console.log('[StayOps] Hydrated', cloudBookings.length, 'bookings from cloud'); }
+    if (Array.isArray(cloudBookings)) { replaceArrayInPlace(bookings, cloudBookings); console.log('[StayOps] Hydrated', cloudBookings.length, 'bookings from cloud'); }
 
     // 3. Cleans
     const cloudCleans = await loadCleansFromCloud();
-    if (Array.isArray(cloudCleans)) { localStorage.setItem(lsKey('cleans'), JSON.stringify(cloudCleans)); console.log('[StayOps] Hydrated', cloudCleans.length, 'cleans from cloud'); }
+    if (Array.isArray(cloudCleans)) { replaceArrayInPlace(cleans, cloudCleans); console.log('[StayOps] Hydrated', cloudCleans.length, 'cleans from cloud'); }
 
     // 4. Notes
     const cloudNotes = await loadNotesFromCloud();
-    if (Array.isArray(cloudNotes)) { localStorage.setItem(lsKey('notes'), JSON.stringify(cloudNotes)); console.log('[StayOps] Hydrated', cloudNotes.length, 'notes from cloud'); }
+    if (Array.isArray(cloudNotes)) { replaceArrayInPlace(notes, cloudNotes); console.log('[StayOps] Hydrated', cloudNotes.length, 'notes from cloud'); }
 
     // 5. Expenses
     const cloudExpenses = await loadExpensesFromCloud();
-    if (Array.isArray(cloudExpenses)) { localStorage.setItem(lsKey('expenses'), JSON.stringify(cloudExpenses)); console.log('[StayOps] Hydrated', cloudExpenses.length, 'expenses from cloud'); }
+    if (Array.isArray(cloudExpenses)) { replaceArrayInPlace(expenses, cloudExpenses); console.log('[StayOps] Hydrated', cloudExpenses.length, 'expenses from cloud'); }
 
     // 6. Inventory
     const cloudInventory = await loadInventoryFromCloud();
-    if (Array.isArray(cloudInventory)) { localStorage.setItem(lsKey('inventory'), JSON.stringify(cloudInventory)); console.log('[StayOps] Hydrated', cloudInventory.length, 'inventory items from cloud'); }
+    if (Array.isArray(cloudInventory)) { replaceArrayInPlace(inventory, cloudInventory); console.log('[StayOps] Hydrated', cloudInventory.length, 'inventory items from cloud'); }
 
     // 7. Maintenance
     const cloudMaintenance = await loadMaintenanceFromCloud();
-    if (Array.isArray(cloudMaintenance)) { localStorage.setItem(lsKey('maintenance'), JSON.stringify(cloudMaintenance)); console.log('[StayOps] Hydrated', cloudMaintenance.length, 'maintenance items from cloud'); }
+    if (Array.isArray(cloudMaintenance)) { replaceArrayInPlace(maintenance, cloudMaintenance); console.log('[StayOps] Hydrated', cloudMaintenance.length, 'maintenance items from cloud'); }
 
     // 8. App config
     const cloudAppConfig = await loadAppConfigFromCloud();
     if (cloudAppConfig) {
-      if (cloudAppConfig.sms_template) localStorage.setItem(lsKey('sms-template'), cloudAppConfig.sms_template);
-      if (cloudAppConfig.expense_cats) localStorage.setItem(lsKey('expense-cats'), JSON.stringify(cloudAppConfig.expense_cats));
-      if (cloudAppConfig.email_templates) localStorage.setItem(lsKey('email-tpl-cache'), JSON.stringify(cloudAppConfig.email_templates));
-      if (cloudAppConfig.push_subs) localStorage.setItem(lsKey('push-subs'), JSON.stringify(cloudAppConfig.push_subs));
-      if (cloudAppConfig.gmail_email) localStorage.setItem('gh-gmail-email', cloudAppConfig.gmail_email);
-      if (cloudAppConfig.outlook_email) localStorage.setItem('gh-outlook-email', cloudAppConfig.outlook_email);
-      if (cloudAppConfig.ai_ignore != null) localStorage.setItem(lsKey('ai-ignore'), JSON.stringify(cloudAppConfig.ai_ignore));
-      if (cloudAppConfig.auto_assign_cleaner != null) {
-        localStorage.setItem(lsKey('auto-assign-cleaner'), cloudAppConfig.auto_assign_cleaner ? 'on' : 'off');
-      }
+      const activeCfg = getActivePropertyConfig();
+      const activeCloud = activeCfg && activeCfg.supabaseId ? (Array.isArray(cloudProps) ? cloudProps.find(p => p.id === activeCfg.supabaseId) : null) : null;
+
+      window._appConfig = {
+        sms_template: cloudAppConfig.sms_template || '',
+        expense_cats: cloudAppConfig.expense_cats || [],
+        email_templates: cloudAppConfig.email_templates || {},
+        push_subs: cloudAppConfig.push_subs || {},
+        gmail_email: cloudAppConfig.gmail_email || '',
+        outlook_email: cloudAppConfig.outlook_email || '',
+        ai_ignore: cloudAppConfig.ai_ignore || [],
+        auto_assign_cleaner: cloudAppConfig.auto_assign_cleaner ?? true,
+        api_key: cloudAppConfig.anthropic_api_key || (activeCloud && activeCloud.anthropic_api_key) || '',
+        mgmt_fee_rate: cloudAppConfig.mgmt_fee_rate || (activeCloud && activeCloud.mgmt_fee_rate) || 0,
+      };
       console.log('[StayOps] Hydrated app config from cloud');
     }
 
@@ -1272,6 +1451,12 @@ export async function hydrateFromCloud() {
         console.log('[StayOps] Hydrated host profile from cloud');
       }
     }
+
+    // Monitoring only: log booking counts by property_id to spot anomalies early.
+    try {
+      const user = await getCurrentSupabaseUser();
+      if (user && user.id) await validatePropertyIds(user.id);
+    } catch (e) {}
 
     console.log('[StayOps] hydrateFromCloud complete');
   } catch (e) {
@@ -1404,6 +1589,113 @@ const DB = {
     }
   }
 };
+
+// ── PRICING RULES (Smart Pricing) ─────────────────────────────────────────────
+export async function fetchPricingRulesForProperty(propertyIdUuid) {
+  if (!window._sb || !propertyIdUuid) return [];
+  const user = await getCurrentSupabaseUser();
+  if (!user) return [];
+  const { data, error } = await window._sb
+    .from('pricing_rules')
+    .select('*')
+    .eq('user_id', user.id)
+    .eq('property_id', propertyIdUuid)
+    .order('rule_type', { ascending: true })
+    .order('is_default', { ascending: false })
+    .order('created_at', { ascending: true });
+  if (error) {
+    console.warn('[StayOps] fetchPricingRulesForProperty', error.message || error);
+    return [];
+  }
+  return Array.isArray(data) ? data : [];
+}
+
+export async function insertPricingRules(rows) {
+  if (!window._sb || !rows.length) return { error: 'no client' };
+  const user = await getCurrentSupabaseUser();
+  if (!user) return { error: 'not signed in' };
+  const payload = rows.map((r) => ({
+    ...r,
+    user_id: user.id,
+    updated_at: new Date().toISOString(),
+  }));
+  const { error } = await window._sb.from('pricing_rules').insert(payload);
+  if (error) console.warn('[StayOps] insertPricingRules', error.message || error);
+  return { error: error ? error.message : null };
+}
+
+export async function updatePricingRule(id, patch) {
+  if (!window._sb || !id) return { error: 'no client' };
+  const user = await getCurrentSupabaseUser();
+  if (!user) return { error: 'not signed in' };
+  const { error } = await window._sb
+    .from('pricing_rules')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('user_id', user.id);
+  if (error) console.warn('[StayOps] updatePricingRule', error.message || error);
+  return { error: error ? error.message : null };
+}
+
+export async function deletePricingRuleRow(id) {
+  if (!window._sb || !id) return { error: 'no client' };
+  const user = await getCurrentSupabaseUser();
+  if (!user) return { error: 'not signed in' };
+  const { error } = await window._sb
+    .from('pricing_rules')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', user.id);
+  if (error) console.warn('[StayOps] deletePricingRuleRow', error.message || error);
+  return { error: error ? error.message : null };
+}
+
+export async function ensureDefaultPricingRules(propertyIdUuid, seed) {
+  if (!window._sb || !propertyIdUuid) return;
+  const user = await getCurrentSupabaseUser();
+  if (!user) return;
+  const existing = await fetchPricingRulesForProperty(propertyIdUuid);
+  if (existing.length) return;
+  const bn = Number(seed?.baseNightly) || 280;
+  const bw = Number(seed?.baseWeekend) || Math.round(bn * 1.15);
+  const mn = Number(seed?.minNights) || 2;
+  const wPct = Number(seed?.weeklyPct) || 10;
+  const mPct = Number(seed?.monthlyPct) || 15;
+  const lmPct = Number(seed?.lastMinutePct) || 12;
+  const lmDays = Number(seed?.lastMinuteDays) || 3;
+  await insertPricingRules([
+    { property_id: propertyIdUuid, rule_type: 'base_nightly', value: bn, is_default: true },
+    { property_id: propertyIdUuid, rule_type: 'base_weekend', value: bw, is_default: true },
+    { property_id: propertyIdUuid, rule_type: 'min_nights', value: mn, is_default: true },
+    {
+      property_id: propertyIdUuid,
+      rule_type: 'discount',
+      name: 'Weekly discount',
+      value: wPct,
+      condition_type: 'stay_length',
+      condition_value: 7,
+      is_default: true,
+    },
+    {
+      property_id: propertyIdUuid,
+      rule_type: 'discount',
+      name: 'Monthly discount',
+      value: mPct,
+      condition_type: 'stay_length',
+      condition_value: 28,
+      is_default: true,
+    },
+    {
+      property_id: propertyIdUuid,
+      rule_type: 'discount',
+      name: 'Last-minute',
+      value: lmPct,
+      condition_type: 'last_minute',
+      condition_value: lmDays,
+      is_default: true,
+    },
+  ]);
+}
 
 
 // ── LOADING / LOGIN SCREEN ────────────────────────────────────────────────────

@@ -1,7 +1,24 @@
 /**
  * StayOps — finance, expenses, reports, invoices (Pass 7).
  */
-import { lsKey, getPropertyConfig, getCurrentPropertyName, getCurrentPropertyTagline, getActivePropertyConfig, savePropertyConfig } from './config.js';
+import {
+  getPropertyConfig,
+  getCurrentPropertyName,
+  getCurrentPropertyTagline,
+  getActivePropertyId,
+  getActivePropertyConfig,
+  savePropertyConfig,
+  getAllProperties,
+} from './config.js';
+import {
+  parseCSV,
+  categoriseTransactions,
+  checkDuplicates,
+  confirmTransaction,
+  skipTransaction,
+  logImportSession,
+} from './bank-import.js';
+import { findMatchesForTransaction, getReconciliationSummary } from './reconciliation.js';
 import { bookings, expenses, replaceArrayInPlace } from './state.js';
 import { escHtml, fmt, fyLabel, fyMonths } from './utils.js';
 import { renderPortfolioFinance, isPortfolioMode } from './property.js';
@@ -13,10 +30,737 @@ import {
 import { uploadReceiptToStorage, saveExpenseToCloud, deleteExpenseFromCloud } from './supabase.js';
 
 let financeTab = 'expenses';
+/** Keeps Finance hub vs sub-screens across renderFinance() / sync refresh. */
+let financeSubView = 'hub';
+let financeReportsMainTab = 'payouts';
+let financeReportsPeriodTab = 'monthly';
+/** @type {'cat'|'receipt'|'date'|null} */
+let _expFilterDropdownKind = null;
+let _expShowOlderMonths = false;
+
+const FINANCE_CATEGORY_COLOR_MAP = {
+  'Cleaning & Garden': '#1D9E75',
+  'Utilities & Rates': '#D4A017',
+  'Furnishings & Equipment': '#534AB7',
+  Insurance: '#185FA5',
+  'Supplies & Consumables': '#1D9E75',
+  'Professional Services': '#378ADD',
+  'Maintenance & Repairs': '#993C1D',
+  Renovation: '#D85A30',
+  Other: '#888780',
+};
+const FINANCE_CATEGORY_COLOR_FALLBACK = [
+  '#1D9E75',
+  '#D4A017',
+  '#534AB7',
+  '#185FA5',
+  '#378ADD',
+  '#993C1D',
+  '#D85A30',
+  '#888780',
+];
+
+function _finPad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function _bookingPropertyId(b) {
+  return String((b && (b.propertyId || b._propertyId || b.property_id)) || '');
+}
+
+function _expensePropertyId(e) {
+  return String((e && (e.propertyId || e._propertyId || e.property_id)) || '');
+}
+
+function _financeActiveCloudPropertyId() {
+  const cloudIds = window._cloudPropertyIds || {};
+  const cfg = getActivePropertyConfig ? (getActivePropertyConfig() || {}) : {};
+  return String(cloudIds[getActivePropertyId?.()] || cloudIds[cfg.propertyId] || cfg.supabaseId || '');
+}
+
+function _financeScopedBookings() {
+  const all = Array.isArray(bookings) ? bookings : [];
+  if (isPortfolioMode()) return all;
+  const activePid = _financeActiveCloudPropertyId();
+  if (!activePid) return all;
+  return all.filter((b) => _bookingPropertyId(b) === activePid);
+}
+
+function _financeScopedExpenses() {
+  const all = Array.isArray(expenses) ? expenses : [];
+  if (isPortfolioMode()) return all;
+  const activePid = _financeActiveCloudPropertyId();
+  if (!activePid) return all;
+  return all.filter((e) => _expensePropertyId(e) === activePid);
+}
+
+/** Left border + category text colour for expense rows */
+export function getCategoryColor(categoryName) {
+  const name = categoryName || 'Other';
+  if (FINANCE_CATEGORY_COLOR_MAP[name]) return FINANCE_CATEGORY_COLOR_MAP[name];
+  const cats = getExpenseCats();
+  const i = cats.indexOf(name);
+  const idx = i >= 0 ? i : 0;
+  return FINANCE_CATEGORY_COLOR_FALLBACK[idx % FINANCE_CATEGORY_COLOR_FALLBACK.length];
+}
+
+// ── BANK CSV IMPORT (review UI) ───────────────────────────────────────────────
+let _bankImportReviewActive = false;
+let _bankImportBackupHtml = null;
+/** 'single' = finance-expenses-view, 'portfolio' = portfolio-finance */
+let _bankImportViewMode = 'single';
+let _bankImportRows = [];
+let _bankImportFilename = '';
+
+function bankImportGetContainer() {
+  if (_bankImportViewMode === 'portfolio') {
+    return document.getElementById('portfolio-finance');
+  }
+  return document.getElementById('finance-expenses-view');
+}
+
+function getOrCreateBankCsvFileInput() {
+  let input = document.getElementById('bank-csv-file-input');
+  if (input) return input;
+  input = document.createElement('input');
+  input.type = 'file';
+  input.id = 'bank-csv-file-input';
+  input.accept = '.csv,text/csv';
+  input.style.display = 'none';
+  input.onchange = (ev) => bankImportOnFileSelected(ev);
+  document.body.appendChild(input);
+  console.log('[StayOps] Bank import: created shared CSV file input');
+  return input;
+}
+
+const BANK_IMPORT_EXPENSE_CATS = [
+  'cleaning',
+  'maintenance',
+  'supplies',
+  'utilities',
+  'insurance',
+  'council_rates',
+  'strata',
+  'mortgage',
+  'advertising',
+  'furniture',
+  'linen',
+  'gardening',
+  'pest_control',
+  'accounting',
+  'other',
+];
+
+function bankImportFormatCategoryLabel(cat) {
+  return String(cat || '')
+    .split('_')
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : ''))
+    .join(' ');
+}
+
+function bankImportFmtDayMon(dateStr) {
+  const d = new Date(String(dateStr || '').slice(0, 10) + 'T12:00:00');
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+}
+
+function bankImportTruncate(s, n) {
+  const t = String(s || '');
+  return t.length <= n ? t : t.slice(0, n - 1) + '…';
+}
+
+/** After categorisation, resolve invoice match hints for review UI. */
+async function bankImportApplyMatchPreviews(rows, userId) {
+  if (!userId) return;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (r.isDuplicate) continue;
+    if (r.skip && r.reason === 'personal') continue;
+    try {
+      const matches = await findMatchesForTransaction(r, userId);
+      const top = matches[0];
+      if (top && top.score >= 80) {
+        r._bankMatchPreview = { level: 'high', expense: top.expense };
+        r._bankMatchLocked = true;
+        const ex = top.expense;
+        if (ex.property_id) r.propertyId = String(ex.property_id);
+        if (ex.category != null && String(ex.category).trim()) r.category = String(ex.category);
+        r.uiConfirmed = true;
+      } else if (top && top.score >= 50 && top.score < 80) {
+        r._bankMatchPreview = { level: 'medium', expense: top.expense };
+        r._bankMatchLocked = false;
+      }
+    } catch (err) {
+      console.log('[StayOps] Bank import match preview failed:', err && err.message ? err.message : err);
+    }
+  }
+}
+
+function bankImportMatchStripHtml(row) {
+  const pr = row && row._bankMatchPreview;
+  if (!pr || !pr.expense) return '';
+  const ex = pr.expense;
+  const label = escHtml(
+    bankImportTruncate((ex.vendor && String(ex.vendor).trim()) || ex.description || 'Expense', 40)
+  );
+  const d = bankImportFmtDayMon(ex.date);
+  const amt = '$' + Number(ex.amount || 0).toFixed(2);
+  if (pr.level === 'high') {
+    return `<div style="font-size:12px;font-weight:600;color:#14532d;background:#dcfce7;padding:8px 10px;border-radius:8px;margin-bottom:10px">Matches: ${label} on ${escHtml(d)} · ${escHtml(amt)}</div>`;
+  }
+  if (pr.level === 'medium') {
+    return `<div style="font-size:12px;font-weight:600;color:#92400e;background:#fef3c7;padding:8px 10px;border-radius:8px;margin-bottom:10px">Possible match: ${label} · ${escHtml(amt)}</div>`;
+  }
+  return '';
+}
+
+function ensureFinanceReconciliationSummaryEl() {
+  let el = document.getElementById('finance-reconciliation-summary');
+  if (el) return el;
+  const parent = document.getElementById('finance-expenses-view');
+  if (!parent) return null;
+  const anchor = document.getElementById('expenses-main-block') || document.getElementById('expenses-list');
+  el = document.createElement('div');
+  el.id = 'finance-reconciliation-summary';
+  el.style.cssText =
+    'margin:10px 0 0;padding:0 16px 8px;font-size:13px;color:var(--text-soft);line-height:1.45;display:none;font-family:\'DM Sans\',sans-serif';
+  if (anchor && anchor.parentNode === parent) {
+    anchor.insertAdjacentElement('afterend', el);
+  } else {
+    parent.appendChild(el);
+  }
+  return el;
+}
+
+async function refreshFinanceReconciliationSummary() {
+  const el = ensureFinanceReconciliationSummaryEl();
+  if (!el) return;
+  const userId = window._supabaseUser && window._supabaseUser.id;
+  const sb = window._sb;
+  if (!userId || !sb) {
+    el.style.display = 'none';
+    return;
+  }
+  try {
+    const { count: bankCnt, error: cErr } = await sb
+      .from('bank_transactions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId);
+    if (cErr) {
+      console.log('[StayOps] refreshFinanceReconciliationSummary bank count error:', cErr.message || cErr);
+      el.style.display = 'none';
+      return;
+    }
+    if (!bankCnt) {
+      el.style.display = 'none';
+      return;
+    }
+    const sum = await getReconciliationSummary(userId);
+    el.textContent =
+      sum.reconciled +
+      ' reconciled · ' +
+      sum.unpaid +
+      ' awaiting payment · ' +
+      sum.unmatchedTransactions +
+      ' unmatched transactions';
+    el.style.display = 'block';
+  } catch (e) {
+    console.log('[StayOps] refreshFinanceReconciliationSummary:', e && e.message ? e.message : e);
+    el.style.display = 'none';
+  }
+}
+
+function ensureBankImportToolbar() {
+  if (document.getElementById('exp-bank-import-link')) {
+    getOrCreateBankCsvFileInput();
+    return;
+  }
+  const listEl = document.getElementById('expenses-list');
+  if (!listEl || _bankImportReviewActive) return;
+  const card = listEl.closest('.card');
+  const header = card && card.querySelector(':scope > div:first-child');
+  if (!header) return;
+  if (document.getElementById('bank-import-trigger-btn')) return;
+  const titleRow = header.querySelector('div[style*="justify-content:space-between"]');
+  if (!titleRow) return;
+  titleRow.style.flexWrap = 'wrap';
+  titleRow.style.gap = '8px';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.id = 'bank-import-trigger-btn';
+  btn.textContent = 'Import Bank Statement';
+  btn.style.cssText =
+    "font-size:12px;color:var(--forest);background:transparent;border:1px solid var(--forest);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;white-space:nowrap";
+  btn.onclick = () => getOrCreateBankCsvFileInput().click();
+  titleRow.appendChild(btn);
+  getOrCreateBankCsvFileInput();
+}
+
+function ensureBankImportToolbarPortfolio() {
+  const root = document.getElementById('portfolio-finance');
+  if (!root || _bankImportReviewActive) return;
+  if (document.getElementById('bank-import-trigger-btn-portfolio')) return;
+  const wrap = document.createElement('div');
+  wrap.id = 'bank-import-portfolio-toolbar';
+  wrap.style.cssText =
+    'margin-bottom:12px;display:flex;justify-content:flex-end;align-items:center;padding:0 2px';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.id = 'bank-import-trigger-btn-portfolio';
+  btn.textContent = 'Import Bank Statement';
+  btn.style.cssText =
+    "font-size:12px;color:var(--forest);background:transparent;border:1px solid var(--forest);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;white-space:nowrap";
+  btn.onclick = () => getOrCreateBankCsvFileInput().click();
+  wrap.appendChild(btn);
+  root.insertBefore(wrap, root.firstChild);
+  getOrCreateBankCsvFileInput();
+}
+
+function exitBankImportReview() {
+  const container = bankImportGetContainer();
+  if (container && _bankImportBackupHtml != null) {
+    container.innerHTML = _bankImportBackupHtml;
+    _bankImportBackupHtml = null;
+  }
+  _bankImportReviewActive = false;
+  _bankImportRows = [];
+  _bankImportFilename = '';
+  const wasPortfolio = _bankImportViewMode === 'portfolio';
+  _bankImportViewMode = 'single';
+  if (wasPortfolio) {
+    ensureBankImportToolbarPortfolio();
+  } else {
+    renderExpenses();
+  }
+}
+
+function bankImportRestoreBackup() {
+  const container = bankImportGetContainer();
+  if (container && _bankImportBackupHtml != null) {
+    container.innerHTML = _bankImportBackupHtml;
+    _bankImportBackupHtml = null;
+  }
+  _bankImportReviewActive = false;
+  _bankImportRows = [];
+  const wasPortfolio = _bankImportViewMode === 'portfolio';
+  _bankImportViewMode = 'single';
+  if (wasPortfolio) {
+    ensureBankImportToolbarPortfolio();
+  } else {
+    renderExpenses();
+  }
+}
+
+function bankImportShowLoading() {
+  const container = bankImportGetContainer();
+  if (!container) return;
+  if (_bankImportBackupHtml == null) {
+    _bankImportBackupHtml = container.innerHTML;
+  }
+  container.innerHTML = `
+    <div class="settings-back" onclick="globalThis.bankImportCancelLoad()">‹ Finance</div>
+    <div class="card" style="margin:20px 16px;padding:24px;text-align:center">
+      <div style="font-size:15px;font-weight:600;margin-bottom:8px;color:var(--forest)">Analysing transactions…</div>
+      <div style="font-size:13px;color:var(--text-soft)">Please wait while we check for duplicates and categorise entries.</div>
+    </div>`;
+}
+
+function canBankImportRow(r) {
+  if (r.skip && r.reason === 'personal') return false;
+  if (r.userMarkedSkip) return false;
+  if (r.userMarkedPersonal) return false;
+  if (!r.uiConfirmed) return false;
+  const pid = String(r.propertyId || '').trim();
+  const cat = String(r.category || '').trim();
+  if (!pid || !cat) return false;
+  return true;
+}
+
+/** True if user confirmed (e.g. changed a dropdown) but property is still empty — blocks bulk import. */
+function bankImportHasConfirmedWithoutProperty() {
+  return _bankImportRows.some((r) => {
+    if (r.skip && r.reason === 'personal') return false;
+    if (r.userMarkedSkip) return false;
+    if (!r.uiConfirmed) return false;
+    const pid = String(r.propertyId || '').trim();
+    return !pid;
+  });
+}
+
+function bankImportSummaryCounts() {
+  let ready = 0;
+  let skipped = 0;
+  let dups = 0;
+  let autoPersonal = 0;
+  _bankImportRows.forEach((r) => {
+    if (r.isDuplicate) dups++;
+    if (r.skip && r.reason === 'personal') {
+      autoPersonal++;
+      skipped++;
+    } else if (r.userMarkedSkip || r.userMarkedPersonal) {
+      skipped++;
+    }
+    if (canBankImportRow(r)) ready++;
+  });
+  return { ready, skipped, dups, autoPersonal, total: _bankImportRows.length };
+}
+
+function renderBankImportReview() {
+  const container = bankImportGetContainer();
+  if (!container) return;
+  const { ready, skipped, dups, autoPersonal, total } = bankImportSummaryCounts();
+  const importBlocked = ready < 1 || bankImportHasConfirmedWithoutProperty();
+  const props = getAllProperties() || [];
+  const propOptions =
+    '<option value="">— Select property —</option>' +
+    '<option value="__skip__">Skip</option>' +
+    props
+      .map((p) => {
+        const uuid = p.supabaseId || '';
+        if (!uuid) return '';
+        const nm = escHtml(p.name || 'Property');
+        return `<option value="${uuid}">${nm}</option>`;
+      })
+      .join('');
+  const catOptions = BANK_IMPORT_EXPENSE_CATS.map(
+    (c) => `<option value="${c}">${escHtml(bankImportFormatCategoryLabel(c))}</option>`
+  ).join('');
+
+  const allDupOrPersonal =
+    _bankImportRows.length &&
+    _bankImportRows.every((t) => t.isDuplicate || (t.skip && t.reason === 'personal'));
+
+  if (allDupOrPersonal) {
+    container.innerHTML = `
+      <div class="settings-back" onclick="globalThis.exitBankImportReview()">‹ Finance</div>
+      <div class="card" style="margin:16px;padding:24px;text-align:center">
+        <div style="font-size:15px;font-weight:600;margin-bottom:10px">All transactions already imported or marked as personal.</div>
+        <button type="button" onclick="globalThis.exitBankImportReview()" class="btn-primary" style="margin-top:8px">Back to Finance</button>
+      </div>`;
+    return;
+  }
+
+  const headerHtml = `
+    <div class="settings-back" onclick="globalThis.exitBankImportReview()">‹ Finance</div>
+    <div style="padding:4px 16px 8px">
+      <div style="font-family:inherit;font-size:16px;font-weight:500;color:#1a1a1a">Review Transactions</div>
+      <div style="font-size:13px;font-weight:400;color:#999;margin-top:4px">${total} transactions · ${autoPersonal} auto-skipped (personal)</div>
+    </div>
+    <div id="bank-import-sticky-summary" style="position:sticky;top:0;z-index:5;background:var(--color-background-primary,var(--mist));padding:12px 16px;border-bottom:0.5px solid var(--border-tertiary,var(--stone));margin-bottom:8px">
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between">
+        <div style="font-size:13px;color:var(--text)">
+          <strong>${ready}</strong> ready to import · <strong>${skipped}</strong> skipped · <strong>${dups}</strong> duplicates
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <button type="button" onclick="globalThis.bankImportConfirmAllSuggested()" style="font-size:12px;padding:8px 12px;border-radius:8px;border:1px solid var(--forest);background:var(--mist);color:var(--forest);font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Confirm All Suggested</button>
+          <button type="button" id="bank-import-run-btn" onclick="globalThis.bankImportRunImport()" ${importBlocked ? 'disabled' : ''} style="font-size:12px;padding:8px 14px;border-radius:8px;border:none;background:${importBlocked ? 'var(--stone)' : 'var(--forest)'};color:${importBlocked ? 'var(--text-soft)' : 'white'};font-weight:600;cursor:${importBlocked ? 'not-allowed' : 'pointer'};font-family:'DM Sans',sans-serif">Import All Confirmed</button>
+        </div>
+      </div>
+    </div>`;
+
+  const cards = _bankImportRows
+    .map((row, i) => {
+      const isPersonal = !!(row.skip && row.reason === 'personal');
+      const matchLocked = !!(row._bankMatchLocked && !dup && !isPersonal);
+      const greyed = isPersonal || row.userMarkedSkip;
+      const dup = !!row.isDuplicate;
+      const hasValidProp =
+        String(row.propertyId || '').trim() && String(row.propertyId || '').trim() !== '__skip__';
+      const hasValidCat = String(row.category || '').trim();
+      const confirmed =
+        !!row.uiConfirmed &&
+        hasValidProp &&
+        hasValidCat &&
+        !row.userMarkedSkip &&
+        !isPersonal &&
+        !row.userMarkedPersonal;
+      let borderLeft = '0.5px solid var(--border-tertiary,var(--stone))';
+      if (confirmed && !dup) borderLeft = '3px solid var(--moss, #2d6a4f)';
+      else if (dup) borderLeft = '3px solid #e67e22';
+
+      let confDot = '#999';
+      let confLabel = 'Unmatched';
+      if (row.confidence === 'learned') {
+        confDot = 'var(--moss, #2d6a4f)';
+        confLabel = 'Remembered';
+      } else if (row.confidence === 'ai') {
+        confDot = '#2563eb';
+        confLabel = 'AI suggested';
+      }
+
+      const amountStr = '$' + Number(row.amount || 0).toFixed(2);
+
+      return `
+        <div class="bank-import-card" data-idx="${i}" style="background:white;border:0.5px solid var(--border-tertiary,var(--stone));border-radius:12px;padding:14px 16px;margin:0 16px 8px;opacity:${greyed ? 0.5 : 1};border-left:${borderLeft}">
+          ${bankImportMatchStripHtml(row)}
+          ${dup ? `<div style="font-size:12px;color:#b45309;background:#fff7ed;padding:8px 10px;border-radius:8px;margin-bottom:10px">Possible duplicate</div>` : ''}
+          ${isPersonal ? `<div style="font-size:12px;font-weight:600;color:var(--text-soft);margin-bottom:8px">Personal — skipped</div>` : ''}
+          <div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:flex-start">
+            <div style="flex:1;min-width:140px">
+              <div style="font-size:13px;font-weight:600;color:var(--text)">${bankImportFmtDayMon(row.date)}</div>
+              <div style="font-size:12px;color:var(--text-soft);margin-top:4px;word-break:break-word">${escHtml(bankImportTruncate(row.description, 40))}</div>
+              <div style="font-size:16px;font-weight:700;margin-top:8px;font-family:'DM Serif Display',serif">${amountStr}</div>
+            </div>
+            <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:8px">
+              <select id="bank-import-prop-${i}" onchange="globalThis.bankImportOnPropChange(${i})" ${isPersonal || matchLocked ? 'disabled' : ''}
+                style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--stone);border-radius:8px;background:${matchLocked ? 'var(--warm)' : 'var(--mist)'};font-family:'DM Sans',sans-serif;color:${matchLocked ? 'var(--text-soft)' : 'inherit'}">
+                ${propOptions}
+              </select>
+              <select id="bank-import-cat-${i}" onchange="globalThis.bankImportOnCatChange(${i})" ${isPersonal || matchLocked ? 'disabled' : ''}
+                style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--stone);border-radius:8px;background:${matchLocked ? 'var(--warm)' : 'var(--mist)'};font-family:'DM Sans',sans-serif;color:${matchLocked ? 'var(--text-soft)' : 'inherit'}">
+                <option value="">— Category —</option>
+                ${catOptions}
+              </select>
+              <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-soft)">
+                <span style="width:8px;height:8px;border-radius:50%;background:${confDot};flex-shrink:0"></span>
+                <span>${confLabel}</span>
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
+                <button type="button" onclick="globalThis.bankImportSkipRow(${i})" ${isPersonal ? 'disabled' : ''} style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--stone);background:white;cursor:pointer;font-family:'DM Sans',sans-serif">Skip</button>
+                <button type="button" onclick="globalThis.bankImportPersonalRow(${i})" ${isPersonal ? 'disabled' : ''} style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--red);color:var(--red);background:#fff5f5;cursor:pointer;font-family:'DM Sans',sans-serif">Personal</button>
+              </div>
+            </div>
+          </div>
+        </div>`;
+    })
+    .join('');
+
+  container.innerHTML = headerHtml + `<div id="bank-import-list">${cards}</div>`;
+
+  _bankImportRows.forEach((row, i) => {
+    const ps = document.getElementById('bank-import-prop-' + i);
+    const cs = document.getElementById('bank-import-cat-' + i);
+    if (ps) {
+      const v = row.userMarkedSkip ? '__skip__' : String(row.propertyId || '');
+      ps.value = v || '';
+    }
+    if (cs && row.category) cs.value = row.category;
+  });
+}
+
+async function bankImportOnFileSelected(ev) {
+  const file = ev.target && ev.target.files && ev.target.files[0];
+  if (ev.target) ev.target.value = '';
+  if (!file) return;
+  const userId = window._supabaseUser && window._supabaseUser.id;
+  if (!userId) {
+    globalThis.showBanner('Sign in to import bank transactions', 'warn');
+    return;
+  }
+
+  _bankImportViewMode =
+    typeof isPortfolioMode === 'function' && isPortfolioMode() ? 'portfolio' : 'single';
+  console.log(
+    '[StayOps] Bank import:',
+    file.name,
+    '—',
+    _bankImportViewMode === 'portfolio' ? 'portfolio (all properties)' : 'single-property'
+  );
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const fileText = e.target && e.target.result ? String(e.target.result) : '';
+    const parsed = await parseCSV(fileText);
+    if (!parsed.length) {
+      globalThis.showBanner('No expense transactions found in this file', 'warn');
+      _bankImportViewMode =
+        typeof isPortfolioMode === 'function' && isPortfolioMode() ? 'portfolio' : 'single';
+      return;
+    }
+
+    bankImportShowLoading();
+    try {
+      console.log('[StayOps] Bank import: analysing', parsed.length, 'parsed rows');
+      let rows = await checkDuplicates(parsed, userId);
+      rows = await categoriseTransactions(rows, userId);
+      rows = await checkDuplicates(rows, userId);
+
+      const activePid = (() => {
+        try {
+          const cfg = getActivePropertyConfig && getActivePropertyConfig();
+          return cfg && cfg.supabaseId ? String(cfg.supabaseId) : '';
+        } catch (_) {
+          return '';
+        }
+      })();
+
+      const fromPortfolio = _bankImportViewMode === 'portfolio';
+      _bankImportRows = rows.map((r) => ({
+        ...r,
+        propertyId: fromPortfolio ? (r.propertyId || '') : (r.propertyId || activePid || ''),
+        category: r.category || '',
+        uiConfirmed: false,
+        userMarkedSkip: false,
+        userMarkedPersonal: false,
+      }));
+      await bankImportApplyMatchPreviews(_bankImportRows, userId);
+      _bankImportFilename = file.name || 'statement.csv';
+      _bankImportReviewActive = true;
+
+      renderBankImportReview();
+    } catch (err) {
+      console.log('[StayOps] Bank import failed:', err && err.message ? err.message : err);
+      globalThis.showBanner('Could not analyse this file — try again', 'warn');
+      bankImportRestoreBackup();
+    }
+  };
+  reader.onerror = () => {
+    globalThis.showBanner('Could not read file', 'warn');
+    bankImportRestoreBackup();
+  };
+  reader.readAsText(file);
+}
+
+function bankImportOnPropChange(i) {
+  const row = _bankImportRows[i];
+  if (!row) return;
+  if (row._bankMatchLocked) return;
+  const ps = document.getElementById('bank-import-prop-' + i);
+  if (!ps) return;
+  const v = ps.value;
+  if (v === '__skip__') {
+    row.userMarkedSkip = true;
+    row.propertyId = '';
+  } else {
+    row.userMarkedSkip = false;
+    row.propertyId = v;
+  }
+  row.uiConfirmed = true;
+  renderBankImportReview();
+}
+
+function bankImportOnCatChange(i) {
+  const row = _bankImportRows[i];
+  if (!row) return;
+  if (row._bankMatchLocked) return;
+  const cs = document.getElementById('bank-import-cat-' + i);
+  if (!cs) return;
+  row.category = cs.value;
+  row.uiConfirmed = true;
+  renderBankImportReview();
+}
+
+function bankImportSkipRow(i) {
+  const row = _bankImportRows[i];
+  if (!row) return;
+  row.userMarkedSkip = true;
+  row.propertyId = '';
+  renderBankImportReview();
+}
+
+async function bankImportPersonalRow(i) {
+  const row = _bankImportRows[i];
+  if (!row) return;
+  const userId = window._supabaseUser && window._supabaseUser.id;
+  row.userMarkedPersonal = true;
+  row.userMarkedSkip = true;
+  if (userId) {
+    try {
+      await skipTransaction(row, userId, true);
+    } catch (err) {
+      console.log('[StayOps] skipTransaction (personal) failed:', err && err.message ? err.message : err);
+    }
+  }
+  renderBankImportReview();
+}
+
+function bankImportConfirmAllSuggested() {
+  _bankImportRows.forEach((row) => {
+    if (row.skip && row.reason === 'personal') return;
+    if (row.isDuplicate) return;
+    const hasProp = !!String(row.propertyId || '').trim();
+    const hasCat = !!String(row.category || '').trim();
+    const okLearned = row.confidence === 'learned';
+    const okAiHigh = row.confidence === 'ai' && String(row.aiConfidence || '').toLowerCase() === 'high';
+    if (row._bankMatchLocked && hasProp && hasCat) row.uiConfirmed = true;
+    else if (hasProp && hasCat && (okLearned || okAiHigh)) row.uiConfirmed = true;
+  });
+  renderBankImportReview();
+}
+
+async function bankImportRunImport() {
+  const userId = window._supabaseUser && window._supabaseUser.id;
+  if (!userId) {
+    globalThis.showBanner('Sign in to import', 'warn');
+    return;
+  }
+  const toImport = _bankImportRows.map((r, i) => ({ r, i })).filter(({ r }) => canBankImportRow(r));
+  if (!toImport.length) {
+    globalThis.showBanner('Confirm property and category for at least one transaction', 'warn');
+    return;
+  }
+
+  let imported = 0;
+  let matchedCount = 0;
+  let createdCount = 0;
+  const duplicates = _bankImportRows.filter((r) => r.isDuplicate).length;
+
+  try {
+    for (let n = 0; n < toImport.length; n++) {
+      const { r } = toImport[n];
+      globalThis.showBanner('Importing ' + (n + 1) + ' of ' + toImport.length + '…', 'ok');
+      try {
+        const row = await confirmTransaction(r, userId, r.propertyId, r.category);
+        if (row && row.action === 'matched') matchedCount++;
+        else if (row && row.action === 'created') createdCount++;
+        imported++;
+        const local = {
+          id: Date.now() + n,
+          _cloudId: row && row.id,
+          _propertyId: row && row.property_id,
+          merchant: (row && row.vendor) || r.vendor || '',
+          description: (row && row.description) || r.description || '',
+          amount: Number((row && row.amount) != null ? row.amount : r.amount),
+          date: (row && row.date) || r.date,
+          category: (row && row.category) || r.category,
+          receiptType: 'missing',
+          receiptNum: '',
+          driveLink: '',
+          photo: null,
+        };
+        expenses.push(local);
+      } catch (err) {
+        console.log('[StayOps] confirmTransaction failed:', err && err.message ? err.message : err);
+        globalThis.showBanner('Some rows failed to import — check console', 'warn');
+      }
+    }
+
+    const skippedZ = bankImportSummaryCounts().skipped;
+
+    try {
+      globalThis.savePropertyData();
+    } catch (_) {}
+
+    await logImportSession(userId, _bankImportFilename, {
+      total: _bankImportRows.length,
+      imported,
+      skipped: Math.max(0, _bankImportRows.length - imported),
+      duplicates,
+    });
+
+    globalThis.showBanner(
+      matchedCount +
+        ' matched to existing invoices · ' +
+        createdCount +
+        ' new expenses created · ' +
+        skippedZ +
+        ' skipped',
+      'ok'
+    );
+  } finally {
+    exitBankImportReview();
+  }
+}
 // ── FINANCE HUB NAVIGATION ───────────────────────────────────────────────────
+
+/** Call when leaving the Finance tab (except when opening Settings from Finance). */
+export function resetFinanceSubViewToHub() {
+  financeSubView = 'hub';
+}
 
 /** Show the top-level Finance hub. Called on back-nav from any Finance sub-view. */
 function backToFinanceHub() {
+  financeSubView = 'hub';
   const pfin = document.getElementById('portfolio-finance');
   if (pfin) pfin.style.display = 'none';
   const finc = document.getElementById('finance-content');
@@ -27,7 +771,26 @@ function backToFinanceHub() {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
+  renderFinanceHubCounts();
   financeTab = null;
+}
+
+function renderFinanceHubCounts() {
+  const expEl = document.getElementById('finance-hub-count-expenses');
+  const rptEl = document.getElementById('finance-hub-count-reports');
+  const catEl = document.getElementById('finance-hub-count-cats');
+  const priEl = document.getElementById('finance-hub-count-pricing');
+  if (expEl) expEl.textContent = `${(expenses || []).length} items`;
+  if (rptEl) rptEl.textContent = '3 items';
+  if (catEl) {
+    try {
+      const n = (getExpenseCats() || []).length;
+      catEl.textContent = `${n} items`;
+    } catch (_) {
+      catEl.textContent = '0 items';
+    }
+  }
+  if (priEl) priEl.textContent = 'AI';
 }
 
 /** Toggle the Add Expense form panel open/closed. */
@@ -58,6 +821,8 @@ function closeExpenseAddForm() {
 
 /** Navigate into a Finance sub-view (expenses or reports). */
 function showFinanceSub(sub) {
+  if (sub === 'expenses') financeSubView = 'expenses';
+  else if (sub === 'reports') financeSubView = 'reports';
   financeTab = sub;
   const hub = document.getElementById('finance-hub');
   if (hub) hub.style.display = 'none';
@@ -73,24 +838,93 @@ function showFinanceSub(sub) {
   } else if (sub === 'reports') {
     const el = document.getElementById('finance-reports-view');
     if (el) el.style.display = 'block';
-    // Default to Owner Reports sub-tab
-    switchReportsSubTab('reports', document.getElementById('rpt-tab-reports'));
+    ensureFinanceReportsSegBound();
+    financeReportsMainTab = 'payouts';
+    financeReportsPeriodTab = 'monthly';
+    syncFinanceReportsMainUI();
+    syncFinanceReportsPeriodUI();
+    const pp = document.getElementById('fr-payouts-panel');
+    const mp = document.getElementById('fr-mgmt-panel');
+    if (pp) pp.style.display = '';
+    if (mp) mp.style.display = 'none';
+    const pm = document.getElementById('pay-monthly-view');
+    const pf = document.getElementById('pay-fy-view');
+    if (pm) pm.style.display = '';
+    if (pf) pf.style.display = 'none';
+    renderRevenue();
   }
 }
 
-/** Switch sub-tabs within the Reports section (Owner Reports / Payouts / Management). */
+function ensureFinanceReportsSegBound() {
+  if (globalThis._finReportsSegBound) return;
+  globalThis._finReportsSegBound = true;
+  document.getElementById('fr-main-seg')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-fr-main]');
+    if (!b) return;
+    switchFinanceReportsMain(b.getAttribute('data-fr-main'));
+  });
+  document.getElementById('fr-period-seg')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-fr-period]');
+    if (!b) return;
+    switchFinanceReportsPeriod(b.getAttribute('data-fr-period'));
+  });
+}
+
+function syncFinanceReportsMainUI() {
+  document.querySelectorAll('#fr-main-seg .fin-seg-opt').forEach((btn) => {
+    btn.classList.toggle('active', btn.getAttribute('data-fr-main') === financeReportsMainTab);
+  });
+}
+
+function syncFinanceReportsPeriodUI() {
+  document.querySelectorAll('#fr-period-seg .fin-seg-opt').forEach((btn) => {
+    btn.classList.toggle('active', btn.getAttribute('data-fr-period') === financeReportsPeriodTab);
+  });
+}
+
+function switchFinanceReportsMain(tab) {
+  financeReportsMainTab = tab;
+  syncFinanceReportsMainUI();
+  const payPanel = document.getElementById('fr-payouts-panel');
+  const mgmtPanel = document.getElementById('fr-mgmt-panel');
+  if (payPanel) payPanel.style.display = tab === 'payouts' ? '' : 'none';
+  if (mgmtPanel) mgmtPanel.style.display = tab === 'mgmt' ? '' : 'none';
+  if (tab === 'mgmt') mgmtSelected.clear();
+  switchFinanceReportsPeriod(financeReportsPeriodTab);
+}
+
+function switchFinanceReportsPeriod(sub) {
+  financeReportsPeriodTab = sub;
+  syncFinanceReportsPeriodUI();
+  const isPay = financeReportsMainTab === 'payouts';
+  if (isPay) {
+    const mv = document.getElementById('pay-monthly-view');
+    const fv = document.getElementById('pay-fy-view');
+    if (mv) mv.style.display = sub === 'monthly' ? '' : 'none';
+    if (fv) fv.style.display = sub === 'fy' ? '' : 'none';
+    if (sub === 'monthly') renderRevenue();
+    else renderReport();
+  } else {
+    const mm = document.getElementById('mgmt-monthly-view');
+    const mf = document.getElementById('mgmt-fy-view');
+    if (mm) mm.style.display = sub === 'monthly' ? '' : 'none';
+    if (mf) mf.style.display = sub === 'fy' ? '' : 'none';
+    mgmtSelected.clear();
+    if (sub === 'monthly') renderManagement();
+    else renderMgmtFY();
+  }
+}
+
+/** @deprecated Legacy tabs — maps to Payouts / Management segmented UI */
 function switchReportsSubTab(sub, btn) {
-  document.querySelectorAll('#finance-reports-view > .tab-row .tab').forEach(t => t.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  const inner   = document.getElementById('finance-reports-inner');
-  const payouts = document.getElementById('finance-payouts-view');
-  const mgmt    = document.getElementById('finance-mgmt-view');
-  if (inner)   inner.style.display   = sub === 'reports'  ? '' : 'none';
-  if (payouts) payouts.style.display = sub === 'payouts'  ? '' : 'none';
-  if (mgmt)    mgmt.style.display    = sub === 'mgmt'     ? '' : 'none';
-  if (sub === 'reports')  renderReport();
-  if (sub === 'payouts')  renderRevenue();
-  if (sub === 'mgmt')     renderManagement();
+  ensureFinanceReportsSegBound();
+  if (sub === 'reports') {
+    switchFinanceReportsMain('payouts');
+    switchFinanceReportsPeriod('fy');
+    return;
+  }
+  if (sub === 'payouts') switchFinanceReportsMain('payouts');
+  if (sub === 'mgmt') switchFinanceReportsMain('mgmt');
 }
 
 /**
@@ -99,6 +933,8 @@ function switchReportsSubTab(sub, btn) {
  */
 function openFinancePanelFromHub(panelId) {
   globalThis.openSettingsPanel(panelId, 'finance');
+  if (panelId === 'expense-cats') financeSubView = 'categories';
+  else if (panelId === 'smart-pricing') financeSubView = 'smartpricing';
 }
 
 /**
@@ -112,7 +948,7 @@ function switchFinanceTab(tab, btn) {
   // payouts and mgmt are now sub-tabs inside Reports
   if (tab === 'payouts' || tab === 'mgmt') {
     showFinanceSub('reports');
-    switchReportsSubTab(tab, document.getElementById('rpt-tab-' + tab));
+    switchFinanceReportsMain(tab);
     return;
   }
   // fallback — show hub
@@ -120,21 +956,15 @@ function switchFinanceTab(tab, btn) {
 }
 
 function switchPayoutsSubTab(sub, btn) {
-  document.querySelectorAll('#finance-payouts-view > .tab-row .tab').forEach(t => t.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  document.getElementById('pay-monthly-view').style.display = sub === 'monthly' ? '' : 'none';
-  document.getElementById('pay-fy-view').style.display      = sub === 'fy'      ? '' : 'none';
-  if (sub === 'monthly') renderRevenue();
-  if (sub === 'fy')      renderReport();
+  ensureFinanceReportsSegBound();
+  switchFinanceReportsMain('payouts');
+  switchFinanceReportsPeriod(sub);
 }
 
 function switchMgmtSubTab(sub, btn) {
-  document.querySelectorAll('#finance-mgmt-view > .tab-row .tab').forEach(t => t.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  document.getElementById('mgmt-monthly-view').style.display = sub === 'monthly' ? '' : 'none';
-  document.getElementById('mgmt-fy-view').style.display      = sub === 'fy'      ? '' : 'none';
-  if (sub === 'monthly') renderManagement();
-  if (sub === 'fy')      renderMgmtFY();
+  ensureFinanceReportsSegBound();
+  switchFinanceReportsMain('mgmt');
+  switchFinanceReportsPeriod(sub);
 }
 
 // switchReportSubTab removed — Reports tab is now a single FY view with send buttons
@@ -147,44 +977,109 @@ function renderMgmtFY() {
   if (!el) return;
   const months = fyMonths(reportFY);
   const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const propertyBookings = _financeScopedBookings();
   const mdata = months.map(({year, month}) => {
-    const bs = bookings.filter(b => b.status !== 'cancelled' && (()=>{ const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; })());
+    const bs = propertyBookings.filter(b => b.status !== 'cancelled' && (()=>{ const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; })());
     return { label: mo[month], total: bs.reduce((s,b)=>s+Number(b.mgmtPayout||0),0), count: bs.length };
   });
   const fyTotal = mdata.reduce((s,m)=>s+m.total, 0);
   el.innerHTML = `
-    <div class="card" style="margin-bottom:12px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <button onclick="fyPrev();renderMgmtFY()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">‹</button>
-        <div style="font-family:'DM Serif Display',serif;font-size:18px;color:var(--forest)">${fyLabel(reportFY)} Management</div>
-        <button onclick="fyNext();renderMgmtFY()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">›</button>
-      </div>
-      <div style="text-align:center;padding:12px;background:var(--forest);border-radius:var(--radius-sm);margin-bottom:12px">
-        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:var(--sage);margin-bottom:4px">Total Management Payout</div>
-        <div style="font-family:'DM Serif Display',serif;font-size:32px;color:white">$${fyTotal.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
-      </div>
-      ${mdata.map(m=>`<div class="revenue-row"><div class="rl">${m.label} <span style="color:var(--text-soft);font-size:11px">${m.count} booking${m.count!==1?'s':''}</span></div><div class="rr">$${m.total.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>`).join('')}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <button type="button" onclick="fyPrev();renderMgmtFY()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;font-family:'DM Sans',sans-serif">‹</button>
+      <div style="font-size:15px;font-weight:500;color:#1a1a1a;font-family:'DM Sans',sans-serif">${fyLabel(reportFY)}</div>
+      <button type="button" onclick="fyNext();renderMgmtFY()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;font-family:'DM Sans',sans-serif">›</button>
+    </div>
+    <div style="text-align:center;padding:16px;background:#fff;border-radius:12px;margin-bottom:12px;border:0.5px solid rgba(0,0,0,0.08)">
+      <div style="font-size:11px;color:var(--text-soft)">Total management payout</div>
+      <div style="font-family:'DM Sans',sans-serif;font-size:28px;font-weight:500;color:#1a1a1a;margin-top:6px">$${fyTotal.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:0 16px;border:0.5px solid rgba(0,0,0,0.08)">
+      ${mdata.map(m=>`<div class="fin-rev-row"><div><div style="font-size:14px;font-weight:500">${m.label}</div><div style="font-size:11px;color:var(--text-soft);margin-top:2px">${m.count} booking${m.count!==1?'s':''}</div></div><div style="font-size:14px;font-weight:500;color:#1D9E75">$${m.total.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>`).join('')}
     </div>`;
 }
 
+function _restoreFinanceExpensesView() {
+  const pfin = document.getElementById('portfolio-finance');
+  if (pfin) pfin.style.display = 'none';
+  const finc = document.getElementById('finance-content');
+  if (finc) finc.style.display = '';
+  const hub = document.getElementById('finance-hub');
+  if (hub) hub.style.display = 'none';
+  ['finance-expenses-view', 'finance-reports-view'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = id === 'finance-expenses-view' ? 'block' : 'none';
+  });
+  financeTab = 'expenses';
+  renderExpenses();
+  populateExpenseCatSelect();
+}
+
+function _restoreFinanceReportsView() {
+  const pfin = document.getElementById('portfolio-finance');
+  if (pfin) pfin.style.display = 'none';
+  const finc = document.getElementById('finance-content');
+  if (finc) finc.style.display = '';
+  const hub = document.getElementById('finance-hub');
+  if (hub) hub.style.display = 'none';
+  const ex = document.getElementById('finance-expenses-view');
+  const rv = document.getElementById('finance-reports-view');
+  if (ex) ex.style.display = 'none';
+  if (rv) rv.style.display = 'block';
+  financeTab = 'reports';
+  ensureFinanceReportsSegBound();
+  syncFinanceReportsMainUI();
+  syncFinanceReportsPeriodUI();
+  const payPanel = document.getElementById('fr-payouts-panel');
+  const mgmtPanel = document.getElementById('fr-mgmt-panel');
+  if (payPanel) payPanel.style.display = financeReportsMainTab === 'payouts' ? '' : 'none';
+  if (mgmtPanel) mgmtPanel.style.display = financeReportsMainTab === 'mgmt' ? '' : 'none';
+  if (financeReportsMainTab === 'payouts') {
+    const mv = document.getElementById('pay-monthly-view');
+    const fv = document.getElementById('pay-fy-view');
+    if (mv) mv.style.display = financeReportsPeriodTab === 'monthly' ? '' : 'none';
+    if (fv) fv.style.display = financeReportsPeriodTab === 'fy' ? '' : 'none';
+    if (financeReportsPeriodTab === 'monthly') renderRevenue();
+    else renderReport();
+  } else {
+    const mm = document.getElementById('mgmt-monthly-view');
+    const mf = document.getElementById('mgmt-fy-view');
+    if (mm) mm.style.display = financeReportsPeriodTab === 'monthly' ? '' : 'none';
+    if (mf) mf.style.display = financeReportsPeriodTab === 'fy' ? '' : 'none';
+    if (financeReportsPeriodTab === 'monthly') renderManagement();
+    else renderMgmtFY();
+  }
+}
 
 function renderFinance() {
   if (isPortfolioMode()) {
     renderPortfolioFinance();
+    ensureBankImportToolbarPortfolio();
     return;
   }
   const singleFin = document.getElementById('finance-content');
   const portfolioFin = document.getElementById('portfolio-finance');
   if (singleFin) singleFin.style.display = '';
   if (portfolioFin) portfolioFin.style.display = 'none';
-  // Finance opens on the hub — user taps a row to enter a sub-section
-  backToFinanceHub();
+  // Categories / smart pricing live under Settings; if we're on the Finance tab, show the hub.
+  if (financeSubView === 'categories' || financeSubView === 'smartpricing') {
+    financeSubView = 'hub';
+  }
+  if (financeSubView === 'hub') {
+    backToFinanceHub();
+  } else if (financeSubView === 'expenses') {
+    _restoreFinanceExpensesView();
+  } else if (financeSubView === 'reports') {
+    _restoreFinanceReportsView();
+  } else {
+    backToFinanceHub();
+  }
+  renderFinanceHubCounts();
 }
 
-// switchRevTab is superseded by switchPayoutsSubTab / switchReportSubTab
 function switchRevTab(tab) {
-  if (tab === 'report') switchPayoutsSubTab('fy', document.getElementById('pay-tab-fy'));
-  else switchPayoutsSubTab('monthly', document.getElementById('pay-tab-monthly'));
+  ensureFinanceReportsSegBound();
+  switchFinanceReportsMain('payouts');
+  switchFinanceReportsPeriod(tab === 'report' ? 'fy' : 'monthly');
 }
 
 // Financial Year helpers (Jul–Jun)
@@ -203,13 +1098,16 @@ function renderReport() {
   const platforms = ['Airbnb','VRBO','Direct'];
   const expCats = getExpenseCats();
 
+  const propertyBookings = _financeScopedBookings();
+  const propertyExpenses = _financeScopedExpenses();
+
   // Helper: bookings in a given month
   function monthBookings(year, month) {
-    return bookings.filter(b => b.status !== 'cancelled' && (function(){ const d = new Date(b.checkin); return d.getFullYear()===year && d.getMonth()===month; })());
+    return propertyBookings.filter(b => b.status !== 'cancelled' && (function(){ const d = new Date(b.checkin); return d.getFullYear()===year && d.getMonth()===month; })());
   }
   // Helper: expenses in FY — use live array, not stale localStorage read
   function fyExpenses() {
-    return expenses.filter(e => {
+    return propertyExpenses.filter(e => {
       const d = new Date(e.date);
       const m = d.getMonth(); const y = d.getFullYear();
       return (y === reportFY && m >= 6) || (y === reportFY+1 && m <= 5);
@@ -256,7 +1154,7 @@ function renderReport() {
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <button onclick="fyPrev()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">‹</button>
-        <div style="font-family:'DM Serif Display',serif;font-size:18px;color:var(--forest)">${fyLabel(reportFY)}</div>
+        <div style="font-family:inherit;font-size:16px;font-weight:500;color:#1a1a1a">${fyLabel(reportFY)}</div>
         <button onclick="fyNext()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">›</button>
       </div>
       <div style="margin-top:12px" class="report-kpi-grid">
@@ -375,7 +1273,8 @@ function revNext() { revMonth++; if(revMonth>11){revMonth=0;revYear++;} renderRe
 function renderRevenue() {
   const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   document.getElementById('rev-month-title').textContent = months[revMonth] + ' ' + revYear;
-  const monthBookings = bookings.filter(b => {
+  const propertyBookings = _financeScopedBookings();
+  const monthBookings = propertyBookings.filter(b => {
     const d = new Date(b.checkin);
     return b.status !== 'cancelled' && d.getMonth()===revMonth && d.getFullYear()===revYear;
   });
@@ -389,16 +1288,19 @@ function renderRevenue() {
   document.getElementById('revenue-sub').textContent = monthBookings.length + ' booking' + (monthBookings.length!==1?'s':'');
   document.getElementById('finance-summary-content').innerHTML = `
     <div class="finance-summary">
-      <div class="finance-row"><span class="finance-label">Host Payout</span><span class="finance-val">$${totalHost.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
-      <div class="finance-row"><span class="finance-label">Cleaning Fees</span><span class="finance-val">- $${totalCleaning.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
-      <div class="finance-row"><span class="finance-label">Management Fees</span><span class="finance-val">- $${totalMgmt.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
-      <div class="finance-row finance-total"><span class="finance-label">Net Payout</span><span class="finance-val">$${totalNet.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
+      <div class="finance-row"><span class="finance-label">Host payout</span><span class="finance-val" style="color:#1a1a1a;font-weight:500">$${totalHost.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
+      <div class="finance-row"><span class="finance-label">Cleaning fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${totalCleaning.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
+      <div class="finance-row"><span class="finance-label">Management fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${totalMgmt.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
+      <div class="finance-row finance-total"><span class="finance-label">Net payout</span><span class="finance-val" style="color:#1D9E75">$${totalNet.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
     </div>`;
   document.getElementById('revenue-breakdown').innerHTML = monthBookings.length ? [...monthBookings].sort((a,b)=>new Date(a.checkin)-new Date(b.checkin)).map(b=>`
-    <div class="revenue-row">
-      <div class="rl"><div style="font-weight:500;font-size:13px">${b.name}</div><div style="font-size:11px;color:var(--text-soft)">${fmt(b.checkin)} · ${b.nights}n</div></div>
-      <div style="text-align:right"><div class="rr">$${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div style="font-size:11px;color:var(--moss)">Net: $${Number(b.netPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
-    </div>`).join('') : '<div style="color:var(--text-soft);font-size:13px;">No bookings this month.</div>';
+    <div class="fin-rev-row">
+      <div style="min-width:0"><div style="font-weight:500;font-size:14px;color:#1a1a1a">${escHtml(b.name||'')}</div><div style="font-size:11px;color:var(--text-soft);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n</div></div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:14px;font-weight:500;color:#1a1a1a;font-family:'DM Sans',sans-serif">$${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+        <div style="font-size:11px;color:#1D9E75;margin-top:2px;font-family:'DM Sans',sans-serif">$${Number(b.netPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+      </div>
+    </div>`).join('') : '<div style="color:var(--text-soft);font-size:13px;padding:14px 0">No bookings this month.</div>';
 }
 
 let mgmtYear = new Date().getFullYear();
@@ -406,54 +1308,164 @@ let mgmtMonth = new Date().getMonth();
 function mgmtPrev() { mgmtMonth--; if(mgmtMonth<0){mgmtMonth=11;mgmtYear--;} mgmtSelected.clear(); renderManagement(); }
 function mgmtNext() { mgmtMonth++; if(mgmtMonth>11){mgmtMonth=0;mgmtYear++;} mgmtSelected.clear(); renderManagement(); }
 
+function _mgmtBookingKey(bookingOrId) {
+  if (bookingOrId && typeof bookingOrId === 'object') return String(bookingOrId.id);
+  return String(bookingOrId);
+}
+
+function _getMgmtMonthBookings() {
+  const propertyBookings = _financeScopedBookings();
+  return propertyBookings.filter((b) => {
+    const d = new Date(b.checkin);
+    return b.status !== 'cancelled' && d.getMonth() === mgmtMonth && d.getFullYear() === mgmtYear;
+  });
+}
+
+function _syncMgmtSelectAllLabel(monthBookings) {
+  const allSel =
+    monthBookings.length > 0 &&
+    monthBookings.every((b) => mgmtSelected.has(_mgmtBookingKey(b)));
+  const selBtn = document.getElementById('mgmt-select-all-btn');
+  if (selBtn) selBtn.textContent = allSel ? 'Deselect all' : 'Select all';
+}
+
+function _setMgmtCheckboxUi(cb) {
+  const box = cb.closest('.mgmt-booking-check-wrap')?.querySelector('.mgmt-booking-box');
+  const tick = box?.querySelector('svg');
+  if (!box || !tick) return;
+  if (cb.checked) {
+    box.style.background = '#1E3A2F';
+    box.style.borderColor = '#1E3A2F';
+    tick.style.display = 'block';
+  } else {
+    box.style.background = '#fff';
+    box.style.borderColor = '#C8C6BF';
+    tick.style.display = 'none';
+  }
+}
+
+function _bindMgmtActionButtons() {
+  const selBtn = document.getElementById('mgmt-select-all-btn');
+  if (selBtn && !selBtn.dataset.bound) {
+    selBtn.dataset.bound = '1';
+    selBtn.removeAttribute('onclick');
+    selBtn.addEventListener('click', () => mgmtToggleSelectAll());
+  }
+  const invBtn = document.getElementById('mgmt-gen-invoice-btn');
+  if (invBtn && !invBtn.dataset.bound) {
+    invBtn.dataset.bound = '1';
+    invBtn.removeAttribute('onclick');
+    invBtn.addEventListener('click', () => generateInvoice());
+  }
+}
+
+function _bindMgmtBookingCheckboxes() {
+  document.querySelectorAll('.mgmt-booking-check').forEach((cb) => {
+    if (cb.dataset.bound) return;
+    cb.dataset.bound = '1';
+    cb.addEventListener('change', (ev) => {
+      const target = ev.currentTarget;
+      const id = target.getAttribute('data-booking-id');
+      mgmtCheckboxChange(id, target.checked);
+      _setMgmtCheckboxUi(target);
+    });
+  });
+  document.querySelectorAll('.mgmt-booking-check').forEach((cb) => _setMgmtCheckboxUi(cb));
+}
+
 function renderManagement() {
   const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  document.getElementById('mgmt-month-title').textContent = monthNames[mgmtMonth] + ' ' + mgmtYear;
-  const monthBookings = bookings.filter(b => {
-    const d = new Date(b.checkin);
-    return b.status !== 'cancelled' && d.getMonth()===mgmtMonth && d.getFullYear()===mgmtYear;
-  });
+  const titleEl = document.getElementById('mgmt-month-title');
+  if (titleEl) titleEl.textContent = monthNames[mgmtMonth] + ' ' + mgmtYear;
+  const monthBookings = _getMgmtMonthBookings();
   const totalMgmtPayout = monthBookings.reduce((s,b)=>s+Number(b.mgmtPayout||0),0);
-  document.getElementById('total-mgmt').textContent = '$' + totalMgmtPayout.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
-  document.getElementById('mgmt-sub').textContent = monthBookings.length + ' booking' + (monthBookings.length!==1?'s':'');
-  document.getElementById('mgmt-breakdown').innerHTML = monthBookings.length ? [...monthBookings].sort((a,b)=>new Date(a.checkin)-new Date(b.checkin)).map(b=>{
-    const mgmtPct = b.mgmtFeeRaw || (b.mgmtFee && b.hostPayout ? Math.round((b.mgmtFee/b.hostPayout)*1000)/10 : 0);
-    return `<div class="revenue-row mgmt-sel-row" id="mgmt-row-${b.id}" onclick="toggleMgmtSelect(${b.id})" style="align-items:flex-start;cursor:pointer;border-radius:8px;padding:10px 4px;margin:-2px 0;transition:background 0.15s">
-      <div style="display:flex;align-items:center;gap:12px;flex:1">
-        <div id="mgmt-cb-${b.id}" style="width:24px;height:24px;border-radius:6px;border:2px solid var(--stone);background:white;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all 0.15s"></div>
-        <div class="rl">
-          <div style="font-weight:500;font-size:13px">${b.name}</div>
-          <div style="font-size:11px;color:var(--text-soft)">${fmt(b.checkin)} · ${b.nights}n</div>
-          <div style="font-size:11px;color:var(--text-soft)">Host: $${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})} · Fee: ${mgmtPct}%</div>
+  const totalEl = document.getElementById('total-mgmt');
+  if (totalEl) totalEl.textContent = '$' + totalMgmtPayout.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const pctSample = monthBookings.length
+    ? monthBookings.reduce((s, b) => {
+        const p = b.mgmtFeeRaw != null ? Number(b.mgmtFeeRaw) : (b.mgmtFee && b.hostPayout ? Math.round((b.mgmtFee/b.hostPayout)*1000)/10 : 0);
+        return s + p;
+      }, 0) / monthBookings.length
+    : 0;
+  const pctDisp = Math.round(pctSample * 10) / 10;
+  const subEl = document.getElementById('mgmt-sub');
+  if (subEl) {
+    const base = `${monthBookings.length} booking${monthBookings.length !== 1 ? 's' : ''}`;
+    const feeSuffix =
+      monthBookings.length > 0 && Number.isFinite(pctDisp) ? ` · ${pctDisp}% fee` : '';
+    subEl.textContent = base + feeSuffix;
+  }
+  _syncMgmtSelectAllLabel(monthBookings);
+  const bd = document.getElementById('mgmt-breakdown');
+  if (bd) {
+    bd.innerHTML = monthBookings.length ? [...monthBookings].sort((a,b)=>new Date(a.checkin)-new Date(b.checkin)).map(b=> {
+      const checked = mgmtSelected.has(_mgmtBookingKey(b)) ? 'checked' : '';
+      const bookingId = escHtml(_mgmtBookingKey(b));
+      return `<label class="fin-mgmt-book-row" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:0.5px solid rgba(0,0,0,0.08);cursor:pointer;margin:0;text-transform:none">
+        <span class="mgmt-booking-check-wrap" style="position:relative;display:inline-flex;width:20px;height:20px;flex-shrink:0">
+          <input class="mgmt-booking-check" data-booking-id="${bookingId}" type="checkbox" ${checked}
+            style="position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:2">
+          <span class="mgmt-booking-box" style="width:20px;height:20px;border:1.5px solid #C8C6BF;border-radius:4px;background:#fff;display:flex;align-items:center;justify-content:center;box-sizing:border-box">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </span>
+        </span>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500;font-size:14px;color:#1a1a1a;text-transform:none">${escHtml(b.name||'')}</div>
+          <div style="font-size:11px;color:var(--text-soft);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n · Host $${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
         </div>
-      </div>
-      <div style="text-align:right">
-        <div class="rr">$${Number(b.mgmtPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-      </div>
-    </div>`;
-  }).join('') : '<div style="color:var(--text-soft);font-size:13px;">No bookings this month.</div>';
+        <div style="font-size:14px;font-weight:500;color:#1D9E75;font-family:'DM Sans',sans-serif;flex-shrink:0">$${Number(b.mgmtPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+      </label>`;
+    }).join('') : '<div style="color:var(--text-soft);font-size:13px;padding:14px 0">No bookings this month.</div>';
+  }
+  _bindMgmtActionButtons();
+  _bindMgmtBookingCheckboxes();
+  updateMgmtGenInvoiceBtn();
 }
 
 let mgmtSelected = new Set();
+
+function mgmtCheckboxChange(id, checked) {
+  const key = _mgmtBookingKey(id);
+  if (checked) mgmtSelected.add(key);
+  else mgmtSelected.delete(key);
+  const monthBookings = _getMgmtMonthBookings();
+  _syncMgmtSelectAllLabel(monthBookings);
+  updateMgmtGenInvoiceBtn();
+}
+
+function mgmtToggleSelectAll() {
+  const monthBookings = _getMgmtMonthBookings();
+  const allOn =
+    monthBookings.length > 0 &&
+    monthBookings.every((b) => mgmtSelected.has(_mgmtBookingKey(b)));
+  if (allOn) monthBookings.forEach((b) => mgmtSelected.delete(_mgmtBookingKey(b)));
+  else monthBookings.forEach((b) => mgmtSelected.add(_mgmtBookingKey(b)));
+  renderManagement();
+}
+
+function updateMgmtGenInvoiceBtn() {
+  const btn = document.getElementById('mgmt-gen-invoice-btn');
+  const meta = document.getElementById('mgmt-gen-invoice-meta');
+  if (!btn || !meta) return;
+  const sel = _financeScopedBookings().filter((b) => mgmtSelected.has(_mgmtBookingKey(b)));
+  const sum = sel.reduce((s,b)=>s+Number(b.mgmtPayout||0),0);
+  meta.textContent = `${sel.length} selected · $${sum.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const active = sel.length > 0;
+  btn.disabled = !active;
+  btn.style.opacity = active ? '1' : '0.4';
+  btn.style.pointerEvents = active ? '' : 'none';
+}
+
+/** @deprecated */
 function toggleMgmtSelect(id) {
-  if (mgmtSelected.has(id)) {
-    mgmtSelected.delete(id);
-  } else {
-    mgmtSelected.add(id);
-  }
-  const cb = document.getElementById('mgmt-cb-' + id);
-  const row = document.getElementById('mgmt-row-' + id);
-  if (cb) {
-    cb.style.background = mgmtSelected.has(id) ? 'var(--forest)' : 'white';
-    cb.style.borderColor = mgmtSelected.has(id) ? 'var(--forest)' : 'var(--stone)';
-    cb.textContent = mgmtSelected.has(id) ? '✓' : '';
-    cb.style.color = 'white';
-  }
-  if (row) row.style.background = mgmtSelected.has(id) ? 'rgba(30,58,47,0.06)' : '';
+  mgmtCheckboxChange(id, !mgmtSelected.has(id));
+  renderManagement();
 }
 
 function generateInvoice() {
-  const selected = bookings.filter(b => mgmtSelected.has(b.id));
+  const selected = _financeScopedBookings().filter((b) => mgmtSelected.has(_mgmtBookingKey(b)));
   if (!selected.length) { globalThis.showBanner('⚠ Tap bookings above to select them first', 'warn'); return; }
 
   // Pick client
@@ -489,24 +1501,19 @@ function confirmInvoiceClient() {
 // legacy inv-* localStorage keys for backward compatibility.
 function _getInvoiceIdentity() {
   const host = (typeof globalThis.getHostProfile === 'function') ? (globalThis.getHostProfile() || {}) : {};
-  const ls   = k => localStorage.getItem(lsKey(k)) || '';
+  const inv = (window._appConfig && window._appConfig.invoice_details) || {};
   return {
-    name:    host.name    || ls('inv-name'),
-    email:   host.email   || ls('inv-email'),
-    address: host.address || ls('inv-address'),
-    company: host.company || ls('inv-company'),
-    abn:     host.abn     || ls('inv-abn'),
-    acn:     host.acn     || ls('inv-acn'),
+    name:    host.name    || inv.name    || '',
+    email:   host.email   || inv.email   || '',
+    address: host.address || inv.address || '',
+    company: host.company || inv.company || '',
+    abn:     host.abn     || inv.abn     || '',
+    acn:     host.acn     || inv.acn     || '',
   };
 }
 function buildInvoicePDF(selected, client) {
   const inv = _getInvoiceIdentity();
-  const bank = {
-    name: localStorage.getItem(lsKey('bank-name')) || '',
-    bsb: localStorage.getItem(lsKey('bank-bsb')) || '',
-    acc: localStorage.getItem(lsKey('bank-acc')) || '',
-    bank: localStorage.getItem(lsKey('bank-bank')) || ''
-  };
+  const bank = (window._appConfig && window._appConfig.bank_details) || { name:'', bsb:'', acc:'', bank:'' };
   const invNum = 'INV-' + Date.now().toString().slice(-6);
   const today = new Date().toLocaleDateString('en-AU',{day:'numeric',month:'long',year:'numeric'});
   const totalMgmt = selected.reduce((s,b)=>s+Number(b.mgmtPayout||0),0);
@@ -597,19 +1604,124 @@ function buildInvoicePDF(selected, client) {
   w.document.close();
 }
 // ── EXPENSE CATEGORY MANAGEMENT ───────────────────────────────────────────
+function bindExpenseCatRowHandlers(i, name) {
+  const wrap = document.querySelector(`[data-expcat-idx="${i}"]`);
+  const inner = document.querySelector(`[data-expcat-inner="${i}"]`);
+  const delBtn = document.querySelector(`[data-expcat-del="${i}"]`);
+  if (!wrap || !inner) return;
+  let sx = 0;
+  let revealed = false;
+  wrap.addEventListener(
+    'touchstart',
+    (e) => {
+      sx = e.touches[0].clientX;
+    },
+    { passive: true }
+  );
+  wrap.addEventListener(
+    'touchend',
+    (e) => {
+      const ex = e.changedTouches[0].clientX;
+      if (sx - ex > 55) {
+        revealed = true;
+        inner.style.transform = 'translateX(-64px)';
+        if (delBtn) delBtn.style.transform = 'translateX(0)';
+      } else if (ex - sx > 45) {
+        revealed = false;
+        inner.style.transform = '';
+        if (delBtn) delBtn.style.transform = 'translateX(100%)';
+      }
+    },
+    { passive: true }
+  );
+  let lp = null;
+  wrap.addEventListener(
+    'touchstart',
+    () => {
+      lp = setTimeout(() => {
+        deleteExpenseCat(i);
+      }, 550);
+    },
+    { passive: true }
+  );
+  wrap.addEventListener(
+    'touchend',
+    () => {
+      if (lp) clearTimeout(lp);
+    },
+    { passive: true }
+  );
+  wrap.addEventListener(
+    'touchmove',
+    () => {
+      if (lp) clearTimeout(lp);
+    },
+    { passive: true }
+  );
+  inner.addEventListener('click', () => {
+    if (revealed) {
+      inner.style.transform = '';
+      if (delBtn) delBtn.style.transform = 'translateX(100%)';
+      revealed = false;
+      return;
+    }
+    const sp = inner.querySelector(`[data-expcat-txt="${i}"]`);
+    if (!sp || inner.querySelector('input')) return;
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.value = name;
+    inp.style.cssText =
+      "flex:1;min-width:0;font-size:14px;padding:6px 8px;border-radius:8px;border:0.5px solid rgba(0,0,0,0.15);font-family:'DM Sans',sans-serif";
+    sp.replaceWith(inp);
+    inp.focus();
+    inp.select();
+    const done = () => {
+      updateExpenseCat(i, inp.value);
+      renderExpenseCatSettings();
+    };
+    inp.onblur = done;
+    inp.onkeydown = (ev) => {
+      if (ev.key === 'Enter') inp.blur();
+    };
+  });
+}
+
 function renderExpenseCatSettings() {
   const cats = getExpenseCats();
   const el = document.getElementById('expense-cats-list');
-  el.innerHTML = cats.map((c, i) => `
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <input type="text" value="${c}" id="expcat-${i}" style="flex:1;font-size:13px" onchange="updateExpenseCat(${i},this.value)">
-      <button onclick="deleteExpenseCat(${i})" style="background:none;border:none;color:var(--red);font-size:16px;cursor:pointer;padding:4px">✕</button>
-    </div>`).join('');
+  if (!el) return;
+  const counts = {};
+  expenses.forEach((e) => {
+    const c = e.category || 'Other';
+    counts[c] = (counts[c] || 0) + 1;
+  });
+  el.innerHTML = `<div style="background:#fff;border-radius:12px;border:0.5px solid rgba(0,0,0,0.08);overflow:hidden">
+    ${cats
+      .map(
+        (c, i) => `
+      <div class="expcat-swipe-wrap" data-expcat-idx="${i}" style="position:relative;overflow:hidden;touch-action:pan-y">
+        <button type="button" data-expcat-del="${i}" onclick="event.stopPropagation();deleteExpenseCat(${i})"
+          style="position:absolute;right:0;top:0;bottom:0;width:64px;border:none;background:#FEE2E2;color:#991B1B;font-weight:600;font-size:12px;font-family:'DM Sans',sans-serif;transform:translateX(100%);transition:transform 0.2s ease;cursor:pointer">Delete</button>
+        <div data-expcat-inner="${i}" style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:0.5px solid rgba(0,0,0,0.08);background:#fff;transition:transform 0.2s ease;cursor:pointer">
+          <span data-expcat-txt="${i}" style="font-size:14px;color:#1a1a1a;font-family:'DM Sans',sans-serif">${escHtml(c)}</span>
+          <span style="font-size:12px;color:var(--text-soft);font-family:'DM Sans',sans-serif">${counts[c] != null ? counts[c] : 0} expenses</span>
+        </div>
+      </div>`
+      )
+      .join('')}
+  </div>`;
+  cats.forEach((c, i) => bindExpenseCatRowHandlers(i, c));
 }
 
 function updateExpenseCat(index, newName) {
   const cats = getExpenseCats();
-  if (newName.trim()) { cats[index] = newName.trim(); localStorage.setItem(lsKey('expense-cats'), JSON.stringify(cats)); if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ expense_cats: cats }).catch(() => {}); populateExpenseCatSelect(); }
+  if (newName.trim()) {
+    cats[index] = newName.trim();
+    window._appConfig = window._appConfig || {};
+    window._appConfig.expense_cats = cats;
+    if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ expense_cats: cats }).catch(() => {});
+    populateExpenseCatSelect();
+  }
 }
 
 function addExpenseCat() {
@@ -617,7 +1729,8 @@ function addExpenseCat() {
   if (!val) return;
   const cats = getExpenseCats();
   cats.push(val);
-  localStorage.setItem(lsKey('expense-cats'), JSON.stringify(cats));
+  window._appConfig = window._appConfig || {};
+  window._appConfig.expense_cats = cats;
   if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ expense_cats: cats }).catch(() => {});
   document.getElementById('new-expense-cat').value = '';
   renderExpenseCatSettings();
@@ -630,7 +1743,8 @@ async function deleteExpenseCat(index) {
   const _okCat = await globalThis.showAppModal({ title: 'Delete Category', msg: 'Delete category "' + cats[index] + '"?', confirmText: 'Delete', confirmColor: 'var(--red)' });
   if (!_okCat) return;
   cats.splice(index, 1);
-  localStorage.setItem(lsKey('expense-cats'), JSON.stringify(cats));
+  window._appConfig = window._appConfig || {};
+  window._appConfig.expense_cats = cats;
   if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ expense_cats: cats }).catch(() => {});
   renderExpenseCatSettings();
   populateExpenseCatSelect();
@@ -639,23 +1753,35 @@ async function deleteExpenseCat(index) {
 async function resetExpenseCats() {
   const _okReset = await globalThis.showAppModal({ title: 'Reset Categories', msg: "Reset to default categories? This won't affect existing expenses.", confirmText: 'Reset' });
   if (!_okReset) return;
-  localStorage.removeItem(lsKey('expense-cats'));
+  window._appConfig = window._appConfig || {};
+  delete window._appConfig.expense_cats;
+  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ expense_cats: null }).catch(() => {});
   renderExpenseCatSettings();
   populateExpenseCatSelect();
   globalThis.showBanner('✓ Categories reset', 'ok');
 }
 function saveBankDetails() {
+  window._appConfig = window._appConfig || {};
+  window._appConfig.bank_details = window._appConfig.bank_details || {};
   ['name','bsb','acc','bank'].forEach(k => {
     const val = document.getElementById('inv-bank-'+k)?.value?.trim();
-    if (val !== undefined) localStorage.setItem(lsKey('bank-')+k, val);
+    if (val !== undefined) window._appConfig.bank_details[k] = val;
   });
+  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ bank_details: window._appConfig.bank_details }).catch(() => {});
   const el = document.getElementById('inv-bank-confirm');
   el.style.display='block'; setTimeout(()=>el.style.display='none',2000);
   globalThis.showBanner('✓ Settings saved: bank details', 'ok');
 }
 
-function loadClients() { return JSON.parse(localStorage.getItem(lsKey('clients'))||'[]'); }
-function saveClients(c) { localStorage.setItem(lsKey('clients'), JSON.stringify(c)); }
+function loadClients() {
+  const list = (window._appConfig && window._appConfig.clients) || [];
+  return Array.isArray(list) ? list : [];
+}
+function saveClients(c) {
+  window._appConfig = window._appConfig || {};
+  window._appConfig.clients = Array.isArray(c) ? c : [];
+  // TODO: persist clients to Supabase app_config if needed
+}
 
 function renderClientsList() {
   const clients = loadClients();
@@ -698,10 +1824,13 @@ async function deleteClient(i) {
   renderClientsList();
 }
 function saveInvoiceDetails() {
+  window._appConfig = window._appConfig || {};
+  window._appConfig.invoice_details = window._appConfig.invoice_details || {};
   ['name','company','abn','acn','email','address'].forEach(k => {
     const val = document.getElementById('inv-'+k)?.value?.trim();
-    if (val !== undefined) localStorage.setItem(lsKey('inv-')+k, val);
+    if (val !== undefined) window._appConfig.invoice_details[k] = val;
   });
+  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ invoice_details: window._appConfig.invoice_details }).catch(() => {});
   const el = document.getElementById('inv-save-confirm');
   el.style.display = 'block';
   setTimeout(() => el.style.display = 'none', 2000);
@@ -788,237 +1917,369 @@ function hideMerchantSuggest() {
   if (box) box.style.display = 'none';
 }
 
-let expenseListExpanded = false;
-// Tracks per-month collapse state. null = defaults (newest open, rest closed).
-// A Set of month-label strings that are currently COLLAPSED.
-let _expMonthCollapsed = null;
-
 function toggleExpenseList() {
-  // Expand/collapse all months
-  if (!_expMonthCollapsed) {
-    // Default state (newest open) — collapse all
-    _expMonthCollapsed = new Set(_allExpenseMonthKeys());
-    expenseListExpanded = false;
-  } else if (_expMonthCollapsed.size > 0) {
-    // Some collapsed — expand all
-    _expMonthCollapsed = new Set();
-    expenseListExpanded = true;
-  } else {
-    // All expanded — reset to default
-    _expMonthCollapsed = null;
-    expenseListExpanded = false;
-  }
+  _expShowOlderMonths = true;
   renderExpenses();
 }
 
-/** Toggle a single month section open/closed. */
-function toggleExpenseMonth(key) {
-  if (!_expMonthCollapsed) {
-    // First explicit toggle — initialise from default state
-    const allKeys = _allExpenseMonthKeys();
-    _expMonthCollapsed = new Set(allKeys.slice(1)); // all except newest are closed
-  }
-  if (_expMonthCollapsed.has(key)) {
-    _expMonthCollapsed.delete(key);
-  } else {
-    _expMonthCollapsed.add(key);
-  }
+/** @deprecated Month groups are always visible */
+function toggleExpenseMonth() {
   renderExpenses();
 }
 
-/** Returns all month keys (newest first) derived from the current expenses array. */
-function _allExpenseMonthKeys() {
-  const sorted = [...expenses].sort((a, b) => {
-    const da = a.date || ''; const db = b.date || '';
-    return db > da ? 1 : db < da ? -1 : 0;
+function expenseHasReceiptAttached(e) {
+  if (e.driveLink && String(e.driveLink).trim()) return true;
+  if (e.receiptType === 'e-receipt' || e.receiptType === 'printed') return true;
+  return false;
+}
+
+function _setExpensePillLabel(btnId, text) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.replaceChildren();
+  btn.append(document.createTextNode(`${text} `));
+  const chev = document.createElement('span');
+  chev.className = 'exp-pill-chev';
+  chev.style.cssText = 'opacity:0.5;display:inline-flex;align-items:center';
+  chev.innerHTML =
+    '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>';
+  btn.appendChild(chev);
+}
+
+function closeExpFilterDropdown() {
+  const dd = document.getElementById('exp-filter-dropdown');
+  const dp = document.getElementById('exp-date-panel');
+  if (dd) {
+    dd.style.display = 'none';
+    dd.innerHTML = '';
+  }
+  if (dp) dp.style.display = 'none';
+  _expFilterDropdownKind = null;
+}
+
+function openExpFilterDropdown(kind) {
+  const dd = document.getElementById('exp-filter-dropdown');
+  const dp = document.getElementById('exp-date-panel');
+  if (!dd) return;
+  if (_expFilterDropdownKind === kind) {
+    closeExpFilterDropdown();
+    return;
+  }
+  _expFilterDropdownKind = kind;
+  if (kind === 'date') {
+    dd.style.display = 'none';
+    dd.innerHTML = '';
+    if (dp) dp.style.display = 'block';
+    return;
+  }
+  if (dp) dp.style.display = 'none';
+  dd.style.display = 'block';
+  if (kind === 'cat') {
+    const ddCat = dd;
+    ddCat.innerHTML = '';
+    const addCatOpt = (val, lab) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = lab;
+      btn.style.cssText =
+        'display:block;width:100%;text-align:left;padding:8px 4px;border:none;border-bottom:0.5px solid rgba(0,0,0,0.08);background:none;font-size:13px;cursor:pointer;font-family:\'DM Sans\',sans-serif;color:#1a1a1a';
+      btn.onclick = () => {
+        const sel = document.getElementById('expense-filter-cat');
+        if (sel) sel.value = val;
+        closeExpFilterDropdown();
+        renderExpenses();
+      };
+      ddCat.appendChild(btn);
+    };
+    addCatOpt('', 'All categories');
+    getExpenseCats().forEach((c) => addCatOpt(c, c));
+  }
+  if (kind === 'receipt') {
+    const opts = [
+      ['', 'All receipts'],
+      ['attached', 'Receipt attached'],
+      ['none', 'No receipt'],
+    ];
+    dd.innerHTML = opts
+      .map(
+        ([val, lab]) =>
+          `<button type="button" class="exp-dd-rec" data-rec="${val}" style="display:block;width:100%;text-align:left;padding:8px 4px;border:none;border-bottom:0.5px solid rgba(0,0,0,0.08);background:none;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;color:#1a1a1a">${lab}</button>`
+      )
+      .join('');
+    dd.querySelectorAll('.exp-dd-rec').forEach((btn) => {
+      btn.onclick = () => {
+        const v = btn.getAttribute('data-rec') || '';
+        const h = document.getElementById('expense-filter-receipt');
+        if (h) h.value = v;
+        closeExpFilterDropdown();
+        renderExpenses();
+      };
+    });
+  }
+}
+
+function syncExpensePillStyles() {
+  const catF = document.getElementById('expense-filter-cat')?.value || '';
+  const recF = document.getElementById('expense-filter-receipt')?.value || '';
+  const fromF = document.getElementById('expense-filter-from')?.value || '';
+  const toF = document.getElementById('expense-filter-to')?.value || '';
+  const mk = (id, on) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (on) {
+      el.style.background = '#1E3A2F';
+      el.style.color = '#fff';
+      el.style.borderColor = '#1E3A2F';
+    } else {
+      el.style.background = '#fff';
+      el.style.color = 'var(--text-soft)';
+      el.style.borderColor = 'rgba(0,0,0,0.12)';
+    }
+  };
+  mk('exp-pill-cat', !!catF);
+  mk('exp-pill-receipt', !!recF);
+  mk('exp-pill-date', !!(fromF || toF));
+  _setExpensePillLabel('exp-pill-cat', catF || 'All categories');
+  _setExpensePillLabel('exp-pill-receipt', recF === 'attached' ? 'Receipt attached' : recF === 'none' ? 'No receipt' : 'All receipts');
+  let dateLab = 'All dates';
+  if (fromF && toF) dateLab = `${fromF} → ${toF}`;
+  else if (fromF) dateLab = `From ${fromF}`;
+  else if (toF) dateLab = `To ${toF}`;
+  _setExpensePillLabel('exp-pill-date', dateLab);
+}
+
+function bindExpenseFilterUi() {
+  if (globalThis._expFilterUiBound) return;
+  globalThis._expFilterUiBound = true;
+  document.getElementById('expense-search')?.addEventListener('input', () => renderExpenses());
+  document.getElementById('exp-pill-cat')?.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    openExpFilterDropdown('cat');
   });
-  const keys = [];
-  sorted.forEach(e => {
-    const key = new Date(e.date || Date.now()).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
-    if (!keys.includes(key)) keys.push(key);
+  document.getElementById('exp-pill-receipt')?.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    openExpFilterDropdown('receipt');
   });
-  return keys;
+  document.getElementById('exp-pill-date')?.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    openExpFilterDropdown('date');
+  });
+  document.getElementById('expense-filter-from')?.addEventListener('change', () => {
+    renderExpenses();
+  });
+  document.getElementById('expense-filter-to')?.addEventListener('change', () => {
+    renderExpenses();
+  });
+  document.addEventListener('click', (e) => {
+    if (
+      e.target.closest('#exp-filter-pills') ||
+      e.target.closest('#exp-filter-dropdown') ||
+      e.target.closest('#exp-date-panel')
+    )
+      return;
+    closeExpFilterDropdown();
+  });
 }
 
 function clearExpenseFilters() {
-  const s = document.getElementById('expense-search'); if (s) s.value = '';
-  const c = document.getElementById('expense-filter-cat'); if (c) c.value = '';
-  const f = document.getElementById('expense-filter-from'); if (f) f.value = '';
-  const t = document.getElementById('expense-filter-to'); if (t) t.value = '';
-  expenseListExpanded = false;
-  _expMonthCollapsed = null; // reset to defaults on filter clear
+  const s = document.getElementById('expense-search');
+  if (s) s.value = '';
+  const c = document.getElementById('expense-filter-cat');
+  if (c) c.value = '';
+  const f = document.getElementById('expense-filter-from');
+  if (f) f.value = '';
+  const t = document.getElementById('expense-filter-to');
+  if (t) t.value = '';
+  const r = document.getElementById('expense-filter-receipt');
+  if (r) r.value = '';
+  _expShowOlderMonths = false;
+  closeExpFilterDropdown();
   renderExpenses();
 }
 
 function renderExpenses() {
-  // Set today's date as default if field is empty
+  if (_bankImportReviewActive) return;
+  bindExpenseFilterUi();
+  ensureBankImportToolbar();
+  const refreshReconciliationFooter = () => void refreshFinanceReconciliationSummary();
   const expDateEl = document.getElementById('exp-date');
   if (expDateEl && !expDateEl.value) expDateEl.value = new Date().toISOString().split('T')[0];
 
-  // ── Read filter values FIRST before any DOM manipulation ──────────────────
-  const q     = (document.getElementById('expense-search')?.value || '').toLowerCase().trim();
-  const catF  = document.getElementById('expense-filter-cat')?.value || '';
+  const propertyExpenses = _financeScopedExpenses();
+  const q = (document.getElementById('expense-search')?.value || '').toLowerCase().trim();
+  const catF = document.getElementById('expense-filter-cat')?.value || '';
   const fromF = document.getElementById('expense-filter-from')?.value || '';
-  const toF   = document.getElementById('expense-filter-to')?.value || '';
-  const isFiltering = !!(q || catF || fromF || toF);
+  const toF = document.getElementById('expense-filter-to')?.value || '';
+  const recF = document.getElementById('expense-filter-receipt')?.value || '';
 
-  // ── Populate category filter dropdown (preserve selected value) ───────────
   const catFilterEl = document.getElementById('expense-filter-cat');
   if (catFilterEl) {
-    const allCats = [...new Set(expenses.map(e => e.category).filter(Boolean))].sort();
-    catFilterEl.innerHTML = '<option value="">All Categories</option>' +
-      allCats.map(c => `<option value="${c}" ${c===catF?'selected':''}>${c}</option>`).join('');
+    const seen = new Set();
+    const allCats = [];
+    getExpenseCats().forEach((c) => {
+      if (c && !seen.has(c)) {
+        seen.add(c);
+        allCats.push(c);
+      }
+    });
+    propertyExpenses.forEach((e) => {
+      const c = e.category;
+      if (c && !seen.has(c)) {
+        seen.add(c);
+        allCats.push(c);
+      }
+    });
+    allCats.sort((a, b) => a.localeCompare(b));
+    catFilterEl.innerHTML = '';
+    const o0 = document.createElement('option');
+    o0.value = '';
+    o0.textContent = 'All Categories';
+    catFilterEl.appendChild(o0);
+    allCats.forEach((c) => {
+      const o = document.createElement('option');
+      o.value = c;
+      o.textContent = c;
+      if (c === catF) o.selected = true;
+      catFilterEl.appendChild(o);
+    });
   }
 
-  // ── Totals summary (always from ALL expenses, ignoring filters) ────────────
-  const totals = {};
-  let grandTotal = 0;
-  expenses.forEach(e => {
-    totals[e.category] = (totals[e.category] || 0) + Number(e.amount);
-    grandTotal += Number(e.amount);
-  });
-  const summaryEl = document.getElementById('expense-summary');
-  if (summaryEl) summaryEl.innerHTML = `
-    <div class="card" style="padding:12px 16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:10px;border-bottom:1px solid var(--warm);margin-bottom:8px">
-        <div style="font-weight:700;font-size:15px">Total Expenses</div>
-        <div style="font-family:'DM Serif Display',serif;font-size:22px;color:var(--red)">$${grandTotal.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-      </div>
-      ${Object.entries(totals).sort((a,b)=>b[1]-a[1]).map(([c,amt]) => `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--warm)">
-          <div style="font-size:13px;color:var(--text)">${c}</div>
-          <div style="font-size:13px;font-weight:600;color:var(--forest)">$${amt.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-        </div>`).join('')}
-    </div>`;
-
   const listEl = document.getElementById('expenses-list');
-  if (!listEl) return;
-  if (!expenses.length) { listEl.innerHTML = '<div style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">💸</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">No expenses yet</div><div style="font-size:12px;color:var(--text-soft)">Add your first expense below</div></div>'; return; }
-
-  // ── Apply filters ──────────────────────────────────────────────────────────
-  let filtered = [...expenses].sort((a,b) => { const da = a.date||''; const db = b.date||''; return db > da ? 1 : db < da ? -1 : 0; });
-  if (q)     filtered = filtered.filter(e =>
-    (e.merchant||'').toLowerCase().includes(q) ||
-    (e.description||'').toLowerCase().includes(q) ||
-    String(e.receiptNum||'').toLowerCase().includes(q));
-  if (catF)  filtered = filtered.filter(e => e.category === catF);
-  if (fromF) filtered = filtered.filter(e => e.date >= fromF);
-  if (toF)   filtered = filtered.filter(e => e.date <= toF);
-
-  if (!filtered.length) {
-    listEl.innerHTML = '<div style="padding:12px 0;color:var(--text-soft);font-size:13px">No results found</div>';
-    const sm = document.getElementById('expenses-show-more'); if (sm) sm.style.display = 'none';
+  if (!listEl) {
+    refreshReconciliationFooter();
     return;
   }
 
-  const expRow = e => {
+  const svgClip =
+    '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#185FA5" stroke-width="2" style="flex-shrink:0"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>';
+
+  if (!propertyExpenses.length) {
+    listEl.innerHTML =
+      '<div style="text-align:center;padding:28px 16px;font-family:\'DM Sans\',sans-serif"><div style="font-weight:500;font-size:14px;margin-bottom:4px;color:#1a1a1a">No expenses yet</div><div style="font-size:12px;color:var(--text-soft)">Add your first expense above</div></div>';
+    syncExpensePillStyles();
+    refreshReconciliationFooter();
+    return;
+  }
+
+  let filtered = [...propertyExpenses].sort((a, b) => {
+    const da = a.date || '';
+    const db = b.date || '';
+    return db > da ? 1 : db < da ? -1 : 0;
+  });
+  if (q)
+    filtered = filtered.filter(
+      (e) =>
+        (e.merchant || '').toLowerCase().includes(q) ||
+        (e.description || '').toLowerCase().includes(q) ||
+        String(e.receiptNum || '').toLowerCase().includes(q)
+    );
+  if (catF) filtered = filtered.filter((e) => e.category === catF);
+  if (fromF) filtered = filtered.filter((e) => e.date >= fromF);
+  if (toF) filtered = filtered.filter((e) => e.date <= toF);
+  if (recF === 'attached') filtered = filtered.filter(expenseHasReceiptAttached);
+  if (recF === 'none') filtered = filtered.filter((e) => !expenseHasReceiptAttached(e));
+
+  const now = new Date();
+  const ym = `${now.getFullYear()}-${_finPad2(now.getMonth() + 1)}`;
+  let monthSum = 0;
+  let monthCnt = 0;
+  let totalSum = 0;
+  filtered.forEach((e) => {
+    const a = Number(e.amount) || 0;
+    totalSum += a;
+    if ((e.date || '').length >= 7 && (e.date || '').slice(0, 7) === ym) {
+      monthSum += a;
+      monthCnt++;
+    }
+  });
+  const smVal = document.getElementById('exp-stat-month-val');
+  const stVal = document.getElementById('exp-stat-total-val');
+  const scVal = document.getElementById('exp-stat-count-val');
+  if (smVal)
+    smVal.textContent =
+      (monthSum < 0 ? '−' : '') +
+      '$' +
+      Math.abs(monthSum).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (stVal)
+    stVal.textContent =
+      (totalSum < 0 ? '−' : '') +
+      '$' +
+      Math.abs(totalSum).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (scVal) scVal.textContent = String(monthCnt);
+
+  if (!filtered.length) {
+    listEl.innerHTML =
+      '<div style="padding:16px 0;color:var(--text-soft);font-size:13px;text-align:center;font-family:\'DM Sans\',sans-serif">No results match your filters</div>';
+    const sm = document.getElementById('expenses-show-more');
+    if (sm) sm.style.display = 'none';
+    syncExpensePillStyles();
+    refreshReconciliationFooter();
+    return;
+  }
+
+  const expRow = (e) => {
     const isRefund = Number(e.amount) < 0;
-    const amtColor = isRefund ? '#27AE60' : '#C0392B';
-    const amtLabel = isRefund
-      ? `<span style="font-size:10px;font-weight:600;color:#27AE60;letter-spacing:0.2px">refund</span>`
-      : '';
-    // Receipt badge — stopPropagation so link tap doesn't also fire row tap
-    const receiptBadge = e.driveLink
-      ? `<a href="${e.driveLink}" target="_blank" onclick="event.stopPropagation()" style="font-size:11px;color:var(--moss);font-weight:600;text-decoration:none">📎 receipt</a>`
-      : e.awaitingReceipt
-        ? `<span style="font-size:11px;color:var(--amber)">⚠ awaiting</span>`
-        : (!e.receiptType || e.receiptType === 'missing')
-          ? `<span style="font-size:11px;color:var(--red)">✕ no receipt</span>`
-          : `<span style="font-size:11px;color:var(--moss)">✓ ${e.receiptType === 'e-receipt' ? 'e-receipt' : 'printed'}</span>`;
-    return `
-    <div class="expense-item" data-expense-id="${e.id}"
-         onclick="openExpenseView(${e.id})"
-         style="display:flex;justify-content:space-between;align-items:flex-start;
-                padding:9px 0;border-bottom:1px solid var(--warm);
-                cursor:pointer;-webkit-tap-highlight-color:transparent;
-                -webkit-user-select:none;user-select:none">
-      <div style="flex:1;min-width:0;padding-right:12px">
-        <div style="display:flex;align-items:baseline;gap:6px">
-          <span style="font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;display:inline-block">${e.merchant||'Unknown'}</span>
-          ${e.description ? `<span style="font-size:12px;color:var(--text-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100px;display:inline-block">${escHtml(e.description)}</span>` : ''}
-        </div>
-        <div style="display:flex;align-items:center;gap:5px;margin-top:3px;flex-wrap:wrap">
-          <span style="font-size:10px;color:var(--text-soft)">${e.category||''}</span>
-          <span style="font-size:11px;color:var(--text-soft)">· ${fmt(e.date)}</span>
-          ${receiptBadge}
+    const amtColor = isRefund ? '#1D9E75' : '#E24B4A';
+    const prefix = isRefund ? '+' : '−';
+    const catCol = getCategoryColor(e.category);
+    const hasRec = expenseHasReceiptAttached(e);
+    const descPart = (e.description || '').trim();
+    const line2 = `${descPart ? `${escHtml(descPart)} · ` : ''}${fmt(e.date)}`;
+    const recBlock = hasRec
+      ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#185FA5;font-family:'DM Sans',sans-serif">${svgClip}Receipt attached</span>`
+      : `<span style="font-size:11px;color:#A32D2D;font-family:'DM Sans',sans-serif">No receipt</span>`;
+    return `<div class="expense-item" data-expense-id="${e.id}" onclick="openExpenseView(${e.id})"
+      style="background:#fff;border-radius:10px;padding:12px 14px;display:flex;gap:12px;align-items:flex-start;cursor:pointer;border:0.5px solid rgba(0,0,0,0.06);
+      box-shadow:0 1px 2px rgba(0,0,0,0.02);border-left:3px solid ${catCol};border-top-left-radius:0;border-bottom-left-radius:0;
+      -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;font-family:'DM Sans',sans-serif">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:500;font-size:14px;color:#1a1a1a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(e.merchant || 'Unknown')}</div>
+        <div style="font-size:12px;color:var(--text-soft);margin-top:2px">${line2}</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap">
+          <span style="font-size:11px;font-weight:600;color:${catCol}">${escHtml(e.category || '')}</span>
+          ${recBlock}
         </div>
       </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px">
-          <span style="font-family:'DM Serif Display',serif;font-size:15px;font-weight:700;color:${amtColor}">$${Math.abs(Number(e.amount)).toFixed(2)}</span>
-          ${amtLabel}
-        </div>
-        <div style="display:flex;gap:4px">
-          <button onclick="event.stopPropagation();openExpenseEdit(${e.id})"
-                  style="font-size:11px;color:var(--forest);background:none;border:none;
-                         padding:2px 0;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;
-                         text-decoration:underline;text-underline-offset:2px">Edit</button>
-          <button onclick="event.stopPropagation();deleteExpense(${e.id})"
-                  style="font-size:12px;color:var(--red);background:none;border:none;
-                         cursor:pointer;padding:2px 4px;font-family:'DM Sans',sans-serif">✕</button>
-        </div>
-      </div>
+      <div style="font-size:15px;font-weight:500;color:${amtColor};flex-shrink:0;font-family:'DM Sans',sans-serif">${prefix}$${Math.abs(Number(e.amount)).toFixed(2)}</div>
     </div>`;
   };
 
-  // ── Group ALL filtered expenses by calendar month (collapse handled per-month) ──
   const grouped = filtered.reduce((acc, e) => {
     const d = new Date(e.date || Date.now());
-    const key = d.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
-    if (!acc[key]) acc[key] = { items: [], total: 0 };
-    acc[key].items.push(e);
-    acc[key].total += Number(e.amount) || 0;
+    const sk = `${d.getFullYear()}-${_finPad2(d.getMonth() + 1)}`;
+    const label = d
+      .toLocaleDateString('en-AU', { month: 'long', year: 'numeric' })
+      .toUpperCase();
+    if (!acc[sk]) acc[sk] = { label, items: [], total: 0 };
+    acc[sk].items.push(e);
+    acc[sk].total += Number(e.amount) || 0;
     return acc;
   }, {});
+  const monthKeys = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+  let displayKeys = monthKeys;
+  if (!_expShowOlderMonths && monthKeys.length > 6) displayKeys = monthKeys.slice(0, 6);
 
-  const monthKeys = Object.keys(grouped); // newest-first from sort above
-
-  listEl.innerHTML = monthKeys.map((monthLabel, idx) => {
-    const { items, total } = grouped[monthLabel];
-    const count = items.length;
-    const monthTotal = total.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    // Default (null): newest month open, all others closed; filter mode: all open
-    const collapsed = isFiltering ? false
-      : _expMonthCollapsed ? _expMonthCollapsed.has(monthLabel)
-      : idx > 0;
-    const safeKey = monthLabel.replace(/[^a-zA-Z0-9]/g, '_');
-    const chevron = collapsed ? '›' : '∨';
-    const escapedLabel = monthLabel.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    return `
-    <div class="exp-month-group" style="margin-bottom:4px">
-      <div onclick="toggleExpenseMonth('${escapedLabel}')"
-           style="display:flex;justify-content:space-between;align-items:center;
-                  padding:11px 0 10px;border-bottom:2px solid var(--warm);
-                  cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none">
-        <div style="display:flex;align-items:baseline;gap:0">
-          <span style="font-size:15px;font-weight:700;color:var(--text)">${escHtml(monthLabel)}</span>
-          <span style="font-size:11px;font-weight:400;color:var(--text-soft);margin-left:7px">${count} expense${count !== 1 ? 's' : ''}</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-family:'DM Serif Display',serif;font-size:16px;color:var(--forest)">$${monthTotal}</span>
-          <span style="font-size:16px;color:#C7C7CC;font-weight:300;width:14px;text-align:center">${chevron}</span>
-        </div>
-      </div>
-      <div id="exp-month-${safeKey}" style="display:${collapsed ? 'none' : 'block'}">
-        ${items.map(expRow).join('')}
-      </div>
-    </div>`;
-  }).join('');
+  listEl.innerHTML = displayKeys
+    .map((sk) => {
+      const { items, label } = grouped[sk];
+      return `<div class="fin-month-hdr">${escHtml(label)}</div>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">${items.map(expRow).join('')}</div>`;
+    })
+    .join('');
 
   globalThis.animateList('#expenses-list');
   setTimeout(globalThis.attachLongPress, 60);
 
-  // Show/hide expand-all toggle (repurposes existing expenses-show-more)
   const sm = document.getElementById('expenses-show-more');
   const tb = document.getElementById('expenses-toggle-btn');
-  if (sm) {
-    const hasMultipleMonths = monthKeys.length > 1;
-    sm.style.display = (!isFiltering && hasMultipleMonths) ? 'block' : 'none';
-    if (tb) {
-      const allExpanded = _expMonthCollapsed !== null && _expMonthCollapsed.size === 0;
-      tb.textContent = allExpanded ? 'Collapse months ↑' : 'Expand all months ↓';
-    }
+  if (sm && tb) {
+    const showEarlier = monthKeys.length > 6 && !_expShowOlderMonths;
+    sm.style.display = showEarlier ? 'block' : 'none';
+    tb.textContent = 'Show earlier months';
   }
+
+  syncExpensePillStyles();
+  refreshReconciliationFooter();
 }
 
 function addExpense(opts = {}) {
@@ -1068,8 +2329,7 @@ function addExpense(opts = {}) {
     // Close the add form and scroll receipts into view
     closeExpenseAddForm();
     renderExpenses();
-    const receiptsCard = document.querySelector('#finance-expenses-view .card:last-of-type');
-    if (receiptsCard) receiptsCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('expenses-main-block')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     if (!exp.photo) globalThis.showBanner('✓ Expense saved', 'ok');
     // receipt handled separately via Supabase Storage
     else globalThis.showBanner('⟳ Uploading receipt...', 'info');
@@ -1277,9 +2537,9 @@ function openExpenseView(id) {
     <div style="margin-bottom:16px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
         <div style="min-width:0;flex:1">
-          <div style="font-family:'DM Serif Display',serif;font-size:24px;line-height:1.15;
+          <div style="font-family:inherit;font-size:16px;font-weight:500;color:#1a1a1a;line-height:1.15;
                       word-break:break-word">${escHtml(e.merchant||'Unknown')}</div>
-          ${e.description ? `<div style="font-size:13px;color:var(--text-soft);margin-top:4px">${escHtml(e.description)}</div>` : ''}
+          ${e.description ? `<div style="font-size:13px;font-weight:400;color:#999;margin-top:4px">${escHtml(e.description)}</div>` : ''}
         </div>
         <div style="flex-shrink:0;text-align:right">
           <div style="font-family:'DM Serif Display',serif;font-size:26px;font-weight:700;
@@ -1417,18 +2677,9 @@ const DEFAULT_EXPENSE_CATS = [
   'Renovation','Professional Services','Other'
 ];
 function getExpenseCats() {
-  const saved = localStorage.getItem(lsKey('expense-cats'));
-  if (!saved) return DEFAULT_EXPENSE_CATS;
-  try {
-    const parsed = JSON.parse(saved);
-    // Validate: must be a non-empty array of non-blank strings.
-    // Falls back to defaults if cloud hydration wrote empty/malformed data.
-    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(c => typeof c === 'string' && c.trim())) {
-      return parsed;
-    }
-  } catch (e) {
-    // Malformed JSON — clear it so it doesn't keep failing
-    localStorage.removeItem(lsKey('expense-cats'));
+  const cats = window._appConfig && window._appConfig.expense_cats;
+  if (Array.isArray(cats) && cats.length > 0 && cats.every(c => typeof c === 'string' && c.trim())) {
+    return cats;
   }
   return DEFAULT_EXPENSE_CATS;
 }
@@ -1436,7 +2687,9 @@ globalThis.getExpenseCats = getExpenseCats;
 // ── OWNER REPORT ──────────────────────────────────────────────────────────────
 
 function populateMgmtFeePanel() {
-  const rate = localStorage.getItem(lsKey("mgmt-fee-rate"));
+  const rate = (window._appConfig && window._appConfig.mgmt_fee_rate) != null
+    ? String(window._appConfig.mgmt_fee_rate)
+    : '';
   const el = document.getElementById("settings-mgmt-fee-rate");
   if (el) el.value = rate !== null ? rate : "";
 }
@@ -1446,11 +2699,10 @@ async function saveMgmtFeeRate() {
   if (!el) return;
   const rate = parseFloat(el.value);
   if (isNaN(rate) || rate < 0 || rate > 100) { globalThis.showBanner("⚠ Enter a valid fee between 0 and 100", "warn"); return; }
-  localStorage.setItem(lsKey("mgmt-fee-rate"), String(rate));
-  // Save to properties table in Supabase
-  if (typeof savePropertyToCloud === "function") {
-    const cfg = (typeof getActivePropertyConfig === "function") ? getActivePropertyConfig() : {};
-    savePropertyToCloud(cfg).catch(() => {});
+  window._appConfig = window._appConfig || {};
+  window._appConfig.mgmt_fee_rate = rate;
+  if (typeof saveAppConfigToCloud === 'function') {
+    saveAppConfigToCloud({ mgmt_fee_rate: rate }).catch(() => {});
   }
   const confirm = document.getElementById("mgmt-fee-confirm");
   if (confirm) { confirm.style.display = "block"; setTimeout(() => { confirm.style.display = "none"; }, 2000); }
@@ -1611,9 +2863,11 @@ function _buildReportDoc(fy) {
   doc.setTextColor(...FOREST);
   doc.setFontSize(9); doc.setFont('helvetica','bold');
   const months = fyMonths(fy);
+  const propertyBookings = _financeScopedBookings();
+  const propertyExpenses = _financeScopedExpenses();
   const fmt2 = n => '$' + Number(n).toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0});
   function mdata(yr, mo) {
-    const bs = bookings.filter(b => b.status !== 'cancelled' && (function(){ const d=new Date(b.checkin); return d.getFullYear()===yr&&d.getMonth()===mo; })());
+    const bs = propertyBookings.filter(b => b.status !== 'cancelled' && (function(){ const d=new Date(b.checkin); return d.getFullYear()===yr&&d.getMonth()===mo; })());
     const avail = new Date(yr,mo+1,0).getDate();
     const booked = bs.reduce((s,b)=>s+Number(b.nights||0),0);
     const rev = bs.reduce((s,b)=>s+Number(b.hostPayout||0),0);
@@ -1626,7 +2880,7 @@ function _buildReportDoc(fy) {
   const fyNights = allM.reduce((s,m)=>s+m.booked,0);
   const fyAvail = allM.reduce((s,m)=>s+m.avail,0);
   const fyOcc = fyAvail ? (fyNights/fyAvail*100) : 0;
-  const allExp = (JSON.parse(localStorage.getItem(lsKey('expenses'))||'[]')).filter(e => {
+  const allExp = propertyExpenses.filter(e => {
     const d=new Date(e.date); const mo=d.getMonth(); const yr=d.getFullYear();
     return (yr===fy&&mo>=6)||(yr===fy+1&&mo<=5);
   });
@@ -1753,12 +3007,14 @@ function exportReportCSV() {
   const months = fyMonths(reportFY);
   const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const rows = [[getCurrentPropertyName() + ' Performance Report — ' + fyLabel(reportFY)],[]];
+  const propertyBookings = _financeScopedBookings();
+  const propertyExpenses = _financeScopedExpenses();
 
   // Revenue table
   rows.push(['Revenue by Month & Platform']);
   rows.push(['Month','Airbnb','VRBO','Direct','Total']);
   months.forEach(({year,month}) => {
-    const bs = bookings.filter(b => { const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; });
+    const bs = propertyBookings.filter(b => { const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; });
     const rev = p => bs.filter(b=>b.platform===p).reduce((s,b)=>s+Number(b.hostPayout||0),0);
     const total = bs.reduce((s,b)=>s+Number(b.hostPayout||0),0);
     rows.push([mo[month], rev('Airbnb')||'', rev('VRBO')||'', rev('Direct')||'', total||'']);
@@ -1769,7 +3025,7 @@ function exportReportCSV() {
   rows.push(['Occupancy & Performance']);
   rows.push(['Month','Available Nights','Booked Nights','Occupancy%','ADR','RevPAR']);
   months.forEach(({year,month}) => {
-    const bs = bookings.filter(b => { const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; });
+    const bs = propertyBookings.filter(b => { const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; });
     const avail = new Date(year,month+1,0).getDate();
     const booked = bs.reduce((s,b)=>s+Number(b.nights||0),0);
     const rev = bs.reduce((s,b)=>s+Number(b.hostPayout||0),0);
@@ -1782,7 +3038,7 @@ function exportReportCSV() {
   rows.push([]);
 
   // Expenses
-  const allExp = (JSON.parse(localStorage.getItem(lsKey('expenses'))||'[]')).filter(e => {
+  const allExp = propertyExpenses.filter(e => {
     const d=new Date(e.date); const m=d.getMonth(); const yr=d.getFullYear();
     return (yr===reportFY&&m>=6)||(yr===reportFY+1&&m<=5);
   });
@@ -1827,6 +3083,8 @@ export {
   mgmtNext,
   renderManagement,
   toggleMgmtSelect,
+  mgmtCheckboxChange,
+  mgmtToggleSelectAll,
   generateInvoice,
   confirmInvoiceClient,
   buildInvoicePDF,
@@ -1871,3 +3129,32 @@ export {
   exportReportCSV,
   _getInvoiceIdentity,
 };
+
+globalThis.exitBankImportReview = exitBankImportReview;
+globalThis.bankImportCancelLoad = bankImportRestoreBackup;
+globalThis.bankImportOnPropChange = bankImportOnPropChange;
+globalThis.bankImportOnCatChange = bankImportOnCatChange;
+globalThis.bankImportSkipRow = bankImportSkipRow;
+globalThis.bankImportPersonalRow = bankImportPersonalRow;
+globalThis.bankImportConfirmAllSuggested = bankImportConfirmAllSuggested;
+globalThis.bankImportRunImport = bankImportRunImport;
+globalThis.bankImportPickFile = () => getOrCreateBankCsvFileInput().click();
+globalThis.resetFinanceSubViewToHub = resetFinanceSubViewToHub;
+globalThis.mgmtCheckboxChange = mgmtCheckboxChange;
+globalThis.mgmtToggleSelectAll = mgmtToggleSelectAll;
+
+// Expense / finance inline-handler bridges
+window.addExpense = addExpense;
+window.saveExpense = saveExpenseToDriveAndSheet;
+window.openExpenseView = openExpenseView;
+window.openExpenseEdit = openExpenseEdit;
+window.closeExpenseEdit = closeExpenseEdit;
+window.saveExpenseEdit = saveExpenseEdit;
+window.deleteExpense = deleteExpense;
+window.addExpenseCat = addExpenseCat;
+window.deleteExpenseCat = deleteExpenseCat;
+window.updateExpenseCat = updateExpenseCat;
+window.fyPrev = fyPrev;
+window.fyNext = fyNext;
+window.exportReportPDF = exportReportPDF;
+window.exportReportCSV = exportReportCSV;

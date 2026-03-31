@@ -1,8 +1,7 @@
 /**
  * StayOps — settings UI and integrations (Pass 8).
  */
-import { lsKey, getActivePropertyId, getActivePropertyConfig, getCurrentPropertyName, getAllProperties, getPropertyConfigGaps } from './config.js';
-import { loadJSON } from './state.js';
+import { getActivePropertyId, getActivePropertyConfig, getCurrentPropertyName, getAllProperties, getPropertyConfigGaps } from './config.js';
 import { escHtml } from './utils.js';
 import {
   getCurrentSupabaseUser,
@@ -25,15 +24,16 @@ import {
   _getInvoiceIdentity,
 } from './finance.js';
 import { renderAIIgnoreList } from './ai.js';
+import { renderSmartPricingPanel } from './smart-pricing.js';
 
 function renderConnectionSummary() {
   const wrap = document.getElementById('integrations-conn-list');
   if (!wrap) return;
 
-  const gmailEmail = localStorage.getItem('gh-gmail-email') || '';
+  const gmailEmail = (window._appConfig && window._appConfig.gmail_email) || '';
   const gmailConnected = !!gmailEmail;
 
-  const outlookEmail = localStorage.getItem('gh-outlook-email') || '';
+  const outlookEmail = (window._appConfig && window._appConfig.outlook_email) || '';
   const outlookConnected = !!outlookEmail;
 
   wrap.innerHTML = `
@@ -96,7 +96,7 @@ async function connectOutlook() {
 }
 async function maybeAutoScanGmail() {
   try {
-    const gmailEmail = localStorage.getItem('gh-gmail-email') || '';
+    const gmailEmail = (window._appConfig && window._appConfig.gmail_email) || '';
     if (!gmailEmail) return; // Gmail not connected
     const user = window._supabaseUser;
     if (!user) return;
@@ -204,7 +204,7 @@ async function scanGmailBookings() {
 // Silent background Outlook scan — mirrors maybeAutoScanGmail exactly.
 async function maybeAutoScanOutlook() {
   try {
-    const outlookEmail = localStorage.getItem('gh-outlook-email') || '';
+    const outlookEmail = (window._appConfig && window._appConfig.outlook_email) || '';
     if (!outlookEmail) return; // Outlook not connected
     const user = window._supabaseUser;
     if (!user) return;
@@ -316,7 +316,7 @@ async function populateCalendarFeedPanel() {
     try { user = await getCurrentSupabaseUser(); } catch (e) { user = null; }
   }
   if (input) {
-    input.value = user && user.id ? CALENDAR_FEED_PUBLIC_URL + '?uid=' + encodeURIComponent(user.id) : '';
+    input.value = user && user.id ? CALENDAR_FEED_PUBLIC_URL + '?user_id=' + encodeURIComponent(user.id) : '';
   }
   if (hint) hint.style.display = user && user.id ? 'none' : 'block';
 }
@@ -423,7 +423,7 @@ function openSettingsPanel(panelId, returnSection) {
   if (panelId === 'sms-template') {
     const defaultTemplate = `Hi {cleanerFirstName}\n\nNew Booking - please see below\n\nCheck in: {checkin}\nCheck out: {checkout}\nName: {guestFirstName}\nNumber of guests: {guests}\n\nPlease let me know if you are available`;
     const el = document.getElementById('settings-sms-template');
-    if (el) el.value = localStorage.getItem(lsKey('sms-template')) || defaultTemplate;
+    if (el) el.value = ((window._appConfig && window._appConfig.sms_template) || '') || defaultTemplate;
   }
   if (panelId === 'team') {
     renderTeamList();
@@ -439,15 +439,17 @@ function openSettingsPanel(panelId, returnSection) {
     renderExpenseCatSettings();
   }
   if (panelId === 'invoice-details') {
+    const inv = (window._appConfig && window._appConfig.invoice_details) || {};
     ['name','company','abn','acn','email','address'].forEach(k => {
       const el = document.getElementById('inv-'+k);
-      if (el) el.value = localStorage.getItem(lsKey('inv-'+k)) || '';
+      if (el) el.value = inv[k] || '';
     });
   }
   if (panelId === 'bank-details') {
+    const bank = (window._appConfig && window._appConfig.bank_details) || {};
     ['name','bsb','acc','bank'].forEach(k => {
       const el = document.getElementById('inv-bank-'+k);
-      if (el) el.value = localStorage.getItem(lsKey('inv-bank-'+k)) || '';
+      if (el) el.value = bank[k] || '';
     });
   }
   if (panelId === 'invoice-clients') {
@@ -455,15 +457,15 @@ function openSettingsPanel(panelId, returnSection) {
   }
   if (panelId === 'backup') {
     const el = document.getElementById('backup-last-time');
-    if (el) el.textContent = localStorage.getItem(lsKey('last-backup')) || 'Never';
+    // TODO: migrate backup metadata to Supabase
+    if (el) el.textContent = (window._appConfig && window._appConfig.last_backup) || 'Never';
   }
   if (panelId === 'ai-import') {
     const el = document.getElementById('settings-api-key');
-    if (el) el.value = localStorage.getItem('gh-api-key') || '';
+    if (el) el.value = (window._appConfig && window._appConfig.api_key) || '';
   }
   if (panelId === 'smart-pricing') {
-    const saved = localStorage.getItem(lsKey('base-rate'));
-    if (saved) { const el = document.getElementById('pricing-base-rate'); if (el) el.value = saved; }
+    renderSmartPricingPanel();
   }
   if (panelId === 'ai-ignore') {
     renderAIIgnoreList();
@@ -531,20 +533,66 @@ function closeSettingsCat() {
 
 
 function renderSettings() {
-  renderHostProfileRow();
+  // Profile card (host profile)
+  const host = getHostProfile();
+  const nameEl = document.getElementById('settings-profile-name');
+  const companyEl = document.getElementById('settings-profile-company');
+  const initialsEl = document.getElementById('settings-profile-initials');
+  if (nameEl && companyEl && initialsEl) {
+    if (host && host.name) {
+      nameEl.textContent = host.name;
+      companyEl.textContent = host.company || 'Tap to add company details';
+      const parts = String(host.name).trim().split(/\s+/).filter(Boolean);
+      const initials = (parts[0] ? parts[0][0] : '') + (parts[1] ? parts[1][0] : '');
+      initialsEl.textContent = initials.toUpperCase() || '--';
+    } else {
+      nameEl.textContent = 'Set up your profile';
+      companyEl.textContent = 'Add your company name';
+      initialsEl.textContent = '--';
+    }
+  }
+
+  // Connection status summary (used inside Integrations panel)
   renderConnectionSummary();
+
   // Quick actions — only show if setup has gaps
   const qaWrap = document.getElementById('settings-quick-actions');
   const fixBtn = document.getElementById('settings-fix-setup-btn');
   const setupGaps = (typeof getPropertyConfigGaps === 'function') ? getPropertyConfigGaps() : [];
   if (qaWrap) qaWrap.style.display = setupGaps.length ? '' : 'none';
-  if (fixBtn) fixBtn.onclick = () => { openSettingsCat('property'); reopenPropertySetup(); };
+  if (fixBtn) fixBtn.onclick = () => { reopenPropertySetup(); };
+
   // Team count on main menu
   const teamMenuEl = document.getElementById('team-count-row-menu');
   if (teamMenuEl) {
     const cleaners = loadCleaners ? loadCleaners() : [];
     teamMenuEl.textContent = cleaners.length ? cleaners.length + ' people' : 'Cleaners & contractors';
   }
+
+  // Gmail / Outlook status on main menu
+  const gmailStatusEl = document.getElementById('gmail-status-row-menu');
+  const outlookStatusEl = document.getElementById('outlook-status-row-menu');
+  if (gmailStatusEl) {
+    const gmailEmail = (window._appConfig && window._appConfig.gmail_email) || '';
+    if (gmailEmail) {
+      gmailStatusEl.textContent = 'Connected';
+      gmailStatusEl.style.color = 'var(--moss)';
+    } else {
+      gmailStatusEl.textContent = 'Not connected';
+      gmailStatusEl.style.color = 'var(--text-soft)';
+    }
+  }
+  if (outlookStatusEl) {
+    const outlookEmail = (window._appConfig && window._appConfig.outlook_email) || '';
+    if (outlookEmail) {
+      outlookStatusEl.textContent = 'Connected';
+      outlookStatusEl.style.color = 'var(--moss)';
+    } else {
+      outlookStatusEl.textContent = 'Not connected';
+      outlookStatusEl.style.color = 'var(--text-soft)';
+    }
+  }
+
   // Header property name + chevron
   const headerName = document.getElementById('header-property-name');
   if (headerName) headerName.textContent = getCurrentPropertyName();
@@ -568,14 +616,15 @@ function clearCacheAndResync() {
   }).then(ok => {
     if (!ok) return;
     // Only clear the data that comes from the sheet — preserve everything else
-    ['gh-bookings','gh-cleans','gh-notes','gh-expenses','gh-last-sync'].map(k => lsKey(k.replace('gh-',''))).forEach(k => localStorage.removeItem(k));
+    // TODO: legacy sheet cache clear (localStorage-scoped keys removed in Supabase migration)
     window.location.href = window.location.origin + window.location.pathname;
   });
 }
 function saveSMSTemplate() {
   const val = document.getElementById('settings-sms-template');
   if (!val) return;
-  localStorage.setItem(lsKey('sms-template'), val.value);
+  window._appConfig = window._appConfig || {};
+  window._appConfig.sms_template = val.value;
   if (typeof saveAppConfigToCloud === 'function') {
     saveAppConfigToCloud({ sms_template: val.value }).catch(() => {});
   }
@@ -593,28 +642,25 @@ function saveGeminiKey() {
 function saveApiKey() {
   const key = document.getElementById('settings-api-key').value.trim();
   if (!key) { globalThis.showBanner('⚠ Could not save: API key is empty', 'warn'); return; }
-  localStorage.setItem('gh-api-key', key);
+  window._appConfig = window._appConfig || {};
+  window._appConfig.api_key = key;
   const el = document.getElementById('api-key-confirm');
   el.style.display = 'block';
   setTimeout(() => el.style.display = 'none', 2000);
   globalThis.showBanner('✓ Settings saved: API key', 'ok');
-  // Sync to Supabase
-  if (typeof savePropertyToCloud === 'function') {
-    const cfg = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : {};
-    savePropertyToCloud(cfg).catch(() => {});
+  if (typeof saveAppConfigToCloud === 'function') {
+    saveAppConfigToCloud({ anthropic_api_key: key }).catch(() => {});
   }
 }
 function getApiKey() {
-  return localStorage.getItem('gh-api-key') || '';
+  return (window._appConfig && window._appConfig.api_key) || '';
 }
 // ── HOST IDENTITY ─────────────────────────────────────────────────────────────
 const HOST_PROFILE_KEY = 'gh-host-profile';
 
 function getHostProfile() {
   try {
-    const raw = localStorage.getItem(HOST_PROFILE_KEY);
-    if (!raw) return null;
-    const p = JSON.parse(raw);
+    const p = window._hostProfile;
     if (!p || typeof p !== 'object') return null;
     if (!p.hostId) return null;
     return p;
@@ -625,7 +671,7 @@ function getHostProfile() {
 
 function saveHostProfile(profile) {
   if (!profile || !profile.hostId) return;
-  localStorage.setItem(HOST_PROFILE_KEY, JSON.stringify(profile));
+  window._hostProfile = profile;
 }
 async function manageHostIdentity() {
   // Legacy entry point — route to the new panel
@@ -666,13 +712,20 @@ async function saveHostProfilePanel() {
     profile.hostId = 'host-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) + '-' + Date.now().toString().slice(-6);
     profile.createdAt = profile.updatedAt;
   }
-  // Mirror to invoice-detail keys for backward compat
-  if (profile.name)    localStorage.setItem(lsKey('inv-name'),    profile.name);
-  if (profile.company) localStorage.setItem(lsKey('inv-company'), profile.company);
-  if (profile.abn)     localStorage.setItem(lsKey('inv-abn'),     profile.abn);
-  if (profile.acn)     localStorage.setItem(lsKey('inv-acn'),     profile.acn);
-  if (profile.email)   localStorage.setItem(lsKey('inv-email'),   profile.email);
-  if (profile.address) localStorage.setItem(lsKey('inv-address'), profile.address);
+  // Store invoice-like identity in app config (Phase 2 staging).
+  window._appConfig = window._appConfig || {};
+  window._appConfig.invoice_details = {
+    ...(window._appConfig.invoice_details || {}),
+    name: profile.name || '',
+    company: profile.company || '',
+    abn: profile.abn || '',
+    acn: profile.acn || '',
+    email: profile.email || '',
+    address: profile.address || '',
+  };
+  if (typeof saveAppConfigToCloud === 'function') {
+    saveAppConfigToCloud({ invoice_details: window._appConfig.invoice_details }).catch(() => {});
+  }
 
   saveHostProfile(profile);
   renderHostProfileRow();
@@ -700,10 +753,10 @@ function renderHostProfileRow() {
 }
 
 function loadCleaners() {
-  return loadJSON(lsKey('cleaners'));
+  return (window._cleaners || []);
 }
 function saveCleaners(list) {
-  localStorage.setItem(lsKey('cleaners'), JSON.stringify(list));
+  window._cleaners = Array.isArray(list) ? list : [];
   if (typeof saveCleanersToCloud === 'function') {
     saveCleanersToCloud(list).catch(e => console.warn('[StayOps] Cloud cleaner sync failed', e));
   }
@@ -841,7 +894,7 @@ function renderStorageViewer() {
   const el = document.getElementById('storage-viewer');
   if (!el) return;
   // Only show the meaningful data keys: bookings, cleans, expenses
-  const DATA_KEYS = [lsKey('bookings'), lsKey('cleans'), lsKey('expenses')];
+  const DATA_KEYS = [];
   el.innerHTML = DATA_KEYS.map(k => {
     const val = localStorage.getItem(k);
     let items = [];
@@ -932,13 +985,15 @@ function initSettingsSwipeBack() {
   }, { passive:true });
 }
 function getAutoAssignCleaner() {
-  return localStorage.getItem(lsKey('auto-assign-cleaner')) !== 'off';
+  const v = window._appConfig && window._appConfig.auto_assign_cleaner;
+  return v === undefined ? true : !!v;
 }
 
 function toggleAutoAssignCleaner() {
   const current = getAutoAssignCleaner();
   const newVal = !current;
-  localStorage.setItem(lsKey('auto-assign-cleaner'), newVal ? 'on' : 'off');
+  window._appConfig = window._appConfig || {};
+  window._appConfig.auto_assign_cleaner = newVal;
   if (typeof saveAppConfigToCloud === 'function') {
     saveAppConfigToCloud({ auto_assign_cleaner: newVal }).catch(() => {});
   }

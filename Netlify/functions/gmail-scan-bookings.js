@@ -15,7 +15,8 @@
      VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY (optional; push skipped if missing)
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const webpush = require('web-push');
+const { createClient } = require('@supabase/supabase-js');
+const { sendPushToOwner, hasRecentNotification } = require('./utils/push-helper');
 
 exports.handler = async (event) => {
   const uid = (event.queryStringParameters || {}).uid;
@@ -37,20 +38,25 @@ exports.handler = async (event) => {
     'Content-Type': 'application/json',
   };
 
+  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_KEY);
+
   try {
     // ── 1. Get Gmail config from app_config ─────────────────────────────
     const cfgRes = await fetch(
       SUPABASE_URL + '/rest/v1/app_config?user_id=eq.' + enc(uid) +
-        '&select=gmail_refresh_token,gmail_email,gmail_last_scan,gmail_skipped_ids,push_subscription&limit=1',
+        '&select=gmail_refresh_token,gmail_email,gmail_last_scan,gmail_skipped_ids&limit=1',
       { headers: sbHeaders }
     );
     const cfgRows = await cfgRes.json();
+    console.log('[gmail-scan] uid:', uid);
+    console.log('[gmail-scan] cfgRes status:', cfgRes.status);
+    console.log('[gmail-scan] cfgRows:', JSON.stringify(cfgRows));
+    console.log('[gmail-scan] has refresh token:', !!(cfgRows && cfgRows.length && cfgRows[0] && cfgRows[0].gmail_refresh_token));
     if (!cfgRows || !cfgRows.length || !cfgRows[0].gmail_refresh_token) {
       return json(400, { error: 'Gmail not connected — connect in Settings first' });
     }
     const refreshToken = cfgRows[0].gmail_refresh_token;
     const userGmailAddress = cfgRows[0].gmail_email || '';
-    const ownerPushSub = parsePushSubscription(cfgRows[0].push_subscription);
 
     // Load previously skipped message IDs
     let skippedIds = new Set();
@@ -164,7 +170,7 @@ exports.handler = async (event) => {
     // ── 6. Load existing bookings for matching ─────────────────────────
     const allBookingsRes = await fetch(
       SUPABASE_URL + '/rest/v1/bookings?user_id=eq.' + enc(uid) +
-        '&select=id,local_id,confirmation_code,guest_name,checkin,checkout,status,property_id',
+        '&select=id,local_id,confirmation_code,guest_name,checkin,checkout,status,property_id,host_payout,cleaning_fee,platform',
       { headers: sbHeaders }
     );
     const existingBookings = await allBookingsRes.json();
@@ -249,6 +255,7 @@ exports.handler = async (event) => {
         if (emailType === 'cancellation') {
           const match = findExistingBooking(existingBookings, confCode, parsed.guestName, parsed.checkin);
           if (match) {
+            const wasCancelled = String(match.status || '').toLowerCase() === 'cancelled';
             await fetch(
               SUPABASE_URL + '/rest/v1/bookings?id=eq.' + enc(match.id),
               {
@@ -259,16 +266,21 @@ exports.handler = async (event) => {
             );
             results.cancelled++;
             results.details.push({ msgId, status: 'cancelled', guest: parsed.guestName || match.guest_name, confCode });
-            {
+            if (!wasCancelled) {
               const pname = (propMap.find(p => p.id === match.property_id) || {}).name || propertyName;
-              const guest = parsed.guestName || match.guest_name || 'Guest';
-              const ci = match.checkin || '';
-              const co = match.checkout || '';
-              await sendStayOpsPush(
-                ownerPushSub,
-                'Booking Cancelled — ' + pname,
-                guest + ' · ' + ci + ' → ' + co
-              );
+              await notifyBookingOwnerPush(supabaseAdmin, {
+                notifyType: 'cancellation',
+                propertyId: match.property_id,
+                bookingRow: {
+                  id: match.id,
+                  guest_name: parsed.guestName || match.guest_name,
+                  checkin: match.checkin,
+                  checkout: match.checkout,
+                  platform: match.platform,
+                  host_payout: match.host_payout,
+                },
+                fallbackPropertyName: pname,
+              });
             }
           } else {
             results.skipped++;
@@ -303,29 +315,38 @@ exports.handler = async (event) => {
             );
             results.updated++;
             results.details.push({ msgId, status: 'updated', guest: parsed.guestName, checkin: parsed.checkin });
-            if (datesChanged) {
+            const priceChanged =
+              (parsed.hostPayout != null && Number(parsed.hostPayout) !== Number(match.host_payout || 0)) ||
+              (parsed.cleaningFee != null && Number(parsed.cleaningFee) !== Number(match.cleaning_fee || 0));
+            if (datesChanged || priceChanged) {
               const modPropName = (propMap.find(p => p.id === match.property_id) || {}).name || propertyName;
-              const newCi = parsed.checkin || match.checkin;
-              const newCo = parsed.checkout || match.checkout;
-              const guest = parsed.guestName || match.guest_name || 'Guest';
-              console.log('[StayOps] sending push (booking modified)');
-              await sendStayOpsPush(
-                ownerPushSub,
-                'Booking Modified — ' + modPropName,
-                guest + ' · dates changed to ' + newCi + ' → ' + newCo
-              );
+              const { data: modRow, error: modFetchErr } = await supabaseAdmin
+                .from('bookings')
+                .select('id, property_id, guest_name, checkin, checkout, guests, platform, host_payout, status')
+                .eq('id', match.id)
+                .maybeSingle();
+              if (!modFetchErr && modRow) {
+                await notifyBookingOwnerPush(supabaseAdmin, {
+                  notifyType: 'booking_modified',
+                  propertyId: match.property_id,
+                  bookingRow: modRow,
+                  fallbackPropertyName: modPropName,
+                });
+              }
             }
           } else if (parsed.checkin && parsed.checkout) {
             const inserted = await insertNewBooking(SUPABASE_URL, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed, emailFrom);
             if (inserted) {
               results.imported++;
-              const platformLabel = detectPlatform(emailFrom);
-              const guest = parsed.guestName || 'Guest';
-              await sendStayOpsPush(
-                ownerPushSub,
-                'New Booking — ' + propertyName,
-                guest + ' · ' + parsed.checkin + ' → ' + parsed.checkout + ' · ' + platformLabel
-              );
+              const insRow = await fetchBookingRowByGmailMessageId(supabaseAdmin, uid, msgId);
+              if (insRow) {
+                await notifyBookingOwnerPush(supabaseAdmin, {
+                  notifyType: 'new_booking',
+                  propertyId: insRow.property_id || propertyId,
+                  bookingRow: insRow,
+                  fallbackPropertyName: propertyName,
+                });
+              }
             }
             results.details.push({ msgId, status: 'imported', guest: parsed.guestName, checkin: parsed.checkin, note: 'modification without matching original' });
             if (propertyUnconfirmed) {
@@ -370,13 +391,15 @@ exports.handler = async (event) => {
         const insertedNew = await insertNewBooking(SUPABASE_URL, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed, emailFrom);
         if (insertedNew) {
           results.imported++;
-          const platformLabel = detectPlatform(emailFrom);
-          const guest = parsed.guestName || 'Guest';
-          await sendStayOpsPush(
-            ownerPushSub,
-            'New Booking — ' + propertyName,
-            guest + ' · ' + parsed.checkin + ' → ' + parsed.checkout + ' · ' + platformLabel
-          );
+          const insRow = await fetchBookingRowByGmailMessageId(supabaseAdmin, uid, msgId);
+          if (insRow) {
+            await notifyBookingOwnerPush(supabaseAdmin, {
+              notifyType: 'new_booking',
+              propertyId: insRow.property_id || propertyId,
+              bookingRow: insRow,
+              fallbackPropertyName: propertyName,
+            });
+          }
         }
         results.details.push({ msgId, status: 'imported', guest: parsed.guestName, checkin: parsed.checkin });
         if (propertyUnconfirmed) {
@@ -443,6 +466,79 @@ function json(status, body) {
   };
 }
 
+async function fetchBookingRowByGmailMessageId(supabaseAdmin, uid, msgId) {
+  const { data, error } = await supabaseAdmin
+    .from('bookings')
+    .select('id, property_id, guest_name, checkin, checkout, guests, platform, host_payout, status')
+    .eq('user_id', uid)
+    .eq('gmail_message_id', msgId)
+    .limit(1);
+  if (error || !data || !data.length) return null;
+  return data[0];
+}
+
+/**
+ * Owner push via shared push-helper (notification_log + multi-device subscriptions).
+ */
+async function notifyBookingOwnerPush(supabaseAdmin, { notifyType, propertyId, bookingRow, fallbackPropertyName }) {
+  try {
+    if (!bookingRow || !bookingRow.id || !propertyId) return;
+    const recent = await hasRecentNotification({
+      supabaseAdmin,
+      type: notifyType,
+      referenceId: bookingRow.id,
+      withinMinutes: 30,
+    });
+    if (recent) {
+      console.log('[StayOps] push skipped (dedup within 30m)', notifyType, bookingRow.id);
+      return;
+    }
+    const { data: prop, error: pErr } = await supabaseAdmin
+      .from('properties')
+      .select('name')
+      .eq('id', propertyId)
+      .maybeSingle();
+    if (pErr) {
+      console.log('[StayOps] Push notification failed:', pErr.message || 'property lookup');
+      return;
+    }
+    const propertyName = (prop && prop.name) || fallbackPropertyName || 'Property';
+    const g = (bookingRow.guest_name || 'Guest').trim();
+    const ci = String(bookingRow.checkin || '').slice(0, 10);
+    const co = String(bookingRow.checkout || '').slice(0, 10);
+    const plat = bookingRow.platform || 'Direct';
+    const priceNum = bookingRow.host_payout != null ? Number(bookingRow.host_payout) : 0;
+    const priceStr = Math.abs(priceNum % 1) < 1e-9 ? String(priceNum) : priceNum.toFixed(2);
+
+    let title;
+    let body;
+    if (notifyType === 'new_booking') {
+      title = '🏠 New Booking — ' + propertyName;
+      body = g + ' · ' + ci + ' to ' + co + ' · ' + plat + ' · $' + priceStr;
+    } else if (notifyType === 'cancellation') {
+      title = '❌ Cancelled — ' + propertyName;
+      body = g + ' · ' + ci + ' to ' + co;
+    } else if (notifyType === 'booking_modified') {
+      title = '📝 Booking Updated — ' + propertyName;
+      body = g + ' · ' + ci + ' to ' + co + ' · $' + priceStr;
+    } else {
+      return;
+    }
+
+    await sendPushToOwner({
+      supabaseAdmin,
+      propertyId,
+      title,
+      body,
+      url: '/bookings',
+      type: notifyType,
+      referenceId: bookingRow.id,
+    });
+  } catch (e) {
+    console.log('[StayOps] Push notification failed:', e && e.message ? e.message : String(e));
+  }
+}
+
 async function updateLastScan(supabaseUrl, headers, uid, skippedIds) {
   const patch = {
     gmail_last_scan: new Date().toISOString(),
@@ -499,44 +595,6 @@ async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, 
     return false;
   }
   return true;
-}
-
-function parsePushSubscription(raw) {
-  if (raw == null || raw === '') return null;
-  try {
-    const o = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    if (o && typeof o.endpoint === 'string' && o.keys && o.keys.p256dh && o.keys.auth) return o;
-  } catch (_) {}
-  return null;
-}
-
-let _stayOpsWebPushConfigured = false;
-function ensureStayOpsWebPush() {
-  if (_stayOpsWebPushConfigured) return true;
-  const pub = process.env.VAPID_PUBLIC_KEY;
-  const priv = process.env.VAPID_PRIVATE_KEY;
-  if (!pub || !priv) return false;
-  webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT || 'mailto:admin@glenhaven21.netlify.app',
-    pub,
-    priv
-  );
-  _stayOpsWebPushConfigured = true;
-  return true;
-}
-
-async function sendStayOpsPush(subscription, title, body) {
-  if (!subscription) return;
-  if (!ensureStayOpsWebPush()) return;
-  console.log('[StayOps] sending push:', title);
-  try {
-    await webpush.sendNotification(
-      subscription,
-      JSON.stringify({ title, body: body || '', url: '/', tag: 'stayops-booking' })
-    );
-  } catch (err) {
-    console.warn('[StayOps] push failed:', err.message || err);
-  }
 }
 
 function findExistingBooking(bookings, confCode, guestName, checkin) {

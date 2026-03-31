@@ -1,6 +1,6 @@
 // ES module.
 // window.AIService is preserved so main.js (classic script) can call it unchanged.
-const AI_ENDPOINT = '/.netlify/functions/ai';
+const AI_ENDPOINT = '/.netlify/functions/ai-proxy';
 
 async function request(payload) {
   const response = await fetch(AI_ENDPOINT, {
