@@ -2,7 +2,6 @@
  * Pass 3 — push, SMS notify modal, cleaner email templates & sends.
  */
 import {
-  lsKey,
   getVapidPublicKey,
   getPushFunctionUrl,
   getCurrentPropertyName,
@@ -10,12 +9,12 @@ import {
   getPropertyConfig,
   getCurrentHostEmail,
 } from './config.js';
-import { saveAppConfigToCloud } from './supabase.js';
-import { loadJSON, save, bookings, cleans } from './state.js';
+import { saveAppConfigToCloud, getCurrentSupabaseUser } from './supabase.js';
+import { bookings, cleans } from './state.js';
 import { fmt, _normName } from './utils.js';
 
 function loadCleaners() {
-  return loadJSON(lsKey('cleaners'), []);
+  return (window._cleaners || []);
 }
 
 // ── PUSH NOTIFICATIONS ────────────────────────────────────────────────────────
@@ -30,15 +29,131 @@ function safePushStringify(v) {
   try { return JSON.stringify(v); } catch (_) { return '[unserializable]'; }
 }
 
+/** Resolve actual Supabase client instance (not the global library object). */
+function getSupabaseClient() {
+  const directClient = globalThis._sb || window._sb || null;
+  if (directClient && typeof directClient.from === 'function') return directClient;
+
+  const maybeSupabase = globalThis.supabase || window.supabase || null;
+  if (maybeSupabase && typeof maybeSupabase.from === 'function') return maybeSupabase;
+
+  return null;
+}
+
+function parsePushSubscriptionsArray(raw) {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) return raw;
+  try {
+    const v = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(v) ? v : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * Add this device's owner subscription to app_config.push_subscriptions (dedup by endpoint).
+ */
+async function mergeOwnerPushSubscriptionToCloud(subJson) {
+  if (!subJson || !subJson.endpoint) return;
+  const sb = getSupabaseClient();
+  const user = await getCurrentSupabaseUser();
+  if (!sb || !user) {
+    console.log('[StayOps] push_subscriptions sync skipped — no Supabase client or signed-in user');
+    return;
+  }
+  const { data: row, error: readErr } = await sb
+    .from('app_config')
+    .select('push_subscriptions')
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (readErr) {
+    console.warn('[StayOps] push_subscriptions read failed', readErr.message);
+    return;
+  }
+  const existing = parsePushSubscriptionsArray(row && row.push_subscriptions);
+  if (existing.some(e => e && e.endpoint === subJson.endpoint)) {
+    console.log('[StayOps] Push subscription already registered for this device');
+    return;
+  }
+  const newEntry = {
+    endpoint: subJson.endpoint,
+    keys: {
+      p256dh: subJson.keys && subJson.keys.p256dh,
+      auth: subJson.keys && subJson.keys.auth,
+    },
+    user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+    subscribed_at: new Date().toISOString(),
+  };
+  const updatedArray = existing.concat([newEntry]);
+  const ts = new Date().toISOString();
+  if (row != null) {
+    const { error: upErr } = await sb
+      .from('app_config')
+      .update({ push_subscriptions: updatedArray, updated_at: ts })
+      .eq('user_id', user.id);
+    if (upErr) console.warn('[StayOps] push_subscriptions update failed', upErr.message);
+  } else {
+    const { error: upErr } = await sb
+      .from('app_config')
+      .upsert(
+        { user_id: user.id, push_subscriptions: updatedArray, updated_at: ts },
+        { onConflict: 'user_id' }
+      );
+    if (upErr) console.warn('[StayOps] push_subscriptions upsert failed', upErr.message);
+  }
+}
+
+async function removeOwnerPushSubscriptionFromCloudByEndpoint(endpoint) {
+  if (!endpoint) return;
+  const sb = getSupabaseClient();
+  const user = await getCurrentSupabaseUser();
+  if (!sb || !user) return;
+  const { data: row, error: readErr } = await sb
+    .from('app_config')
+    .select('push_subscriptions')
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (readErr) {
+    console.warn('[StayOps] push_subscriptions read failed (unsubscribe)', readErr.message);
+    return;
+  }
+  const existing = parsePushSubscriptionsArray(row && row.push_subscriptions);
+  const filtered = existing.filter(e => e && e.endpoint !== endpoint);
+  if (filtered.length === existing.length) return;
+  const { error: upErr } = await sb
+    .from('app_config')
+    .update({ push_subscriptions: filtered, updated_at: new Date().toISOString() })
+    .eq('user_id', user.id);
+  if (upErr) console.warn('[StayOps] push_subscriptions update failed (unsubscribe)', upErr.message);
+}
+
+/** Unsubscribe this browser from push and remove its endpoint from push_subscriptions. */
+export async function unsubscribeOwnerPushNotifications() {
+  if (!('serviceWorker' in navigator)) return;
+  const reg = await navigator.serviceWorker.ready;
+  const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
+  if (!sub) {
+    console.log('[StayOps] unsubscribeOwnerPushNotifications: no active subscription');
+    return;
+  }
+  const endpoint = sub.endpoint;
+  await sub.unsubscribe();
+  await removeOwnerPushSubscriptionFromCloudByEndpoint(endpoint);
+  console.log('[StayOps] Device unsubscribed from push notifications');
+}
+
 export function getPushSubs() {
-  return JSON.parse(localStorage.getItem(lsKey('push-subs')) || '{"cleaners":{}}');
+  const subs = (window._appConfig && window._appConfig.push_subs) || null;
+  return (subs && typeof subs === 'object') ? subs : { cleaners: {} };
 }
 export function savePushSubsLocal(subs) {
   console.log('[Push] savePushSubsLocal: saving local + requesting AppData sync', {
     hasOwner: !!(subs && subs.owner),
     cleanerCount: Object.keys((subs && subs.cleaners) || {}).length
   });
-  localStorage.setItem(lsKey('push-subs'), JSON.stringify(subs));
+  window._appConfig = window._appConfig || {};
+  window._appConfig.push_subs = subs && typeof subs === 'object' ? subs : { cleaners: {} };
   if (typeof saveAppConfigToCloud === 'function') {
     saveAppConfigToCloud({ push_subs: subs }).catch(() => {});
   }
@@ -82,13 +197,19 @@ export async function resetPushOnly() {
     const reg = await navigator.serviceWorker.ready;
     const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
     if (sub) {
+      const endpoint = sub.endpoint;
       const unsubscribed = await sub.unsubscribe();
       console.log('[Push] Reset Push Only unsubscribe result:', unsubscribed);
+      await removeOwnerPushSubscriptionFromCloudByEndpoint(endpoint);
+      console.log('[StayOps] Device unsubscribed from push notifications');
     } else {
       console.log('[Push] Reset Push Only: no existing subscription');
     }
-    localStorage.removeItem(lsKey('push-subs'));
-    localStorage.removeItem('gh-push-subs');
+    window._appConfig = window._appConfig || {};
+    window._appConfig.push_subs = { cleaners: {} };
+    if (typeof saveAppConfigToCloud === 'function') {
+      saveAppConfigToCloud({ push_subs: window._appConfig.push_subs }).catch(() => {});
+    }
     console.log('[Push] Reset Push Only complete');
     if (result) {
       result.style.display = 'block';
@@ -149,6 +270,11 @@ export async function subscribeToPush(role, cleanerId) {
     console.log('SW ready, getting push subscription...');
     let sub = await reg.pushManager.getSubscription();
     console.log('[Push] existing subscription found:', !!sub);
+    if (sub) {
+      console.log('[Push] unsubscribing old subscription to refresh VAPID key');
+      await sub.unsubscribe();
+      sub = null;
+    }
     if (!sub) {
       console.log('[Push] calling Notification.requestPermission()');
       const permission = await Notification.requestPermission();
@@ -177,6 +303,9 @@ export async function subscribeToPush(role, cleanerId) {
     }
     console.log('[Push] before saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
     savePushSubsLocal(subs);
+    if (role === 'owner') {
+      await mergeOwnerPushSubscriptionToCloud(subJson);
+    }
     console.log('[Push] after saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
     console.log('Subscription saved for role:', role, cleanerId || '');
     return subJson;
@@ -292,7 +421,9 @@ export function openNotifyModal(cleanId, mode = 'assign') {
 
   const defaultTemplate = `Hi {cleanerFirstName}\n\nNew Booking - please see below\n\nCheck in: {checkin}\nCheck out: {checkout}\nName: {guestFirstName}\nNumber of guests: {guests}\n\nPlease let me know if you are available`;
   const reminderTemplate = `Hi {cleanerFirstName}\n\nQuick follow-up for the clean after {guestFirstName} on {checkout}.\n\nPlease let me know if you're available when you can. Thanks!`;
-  const template = isReminder ? reminderTemplate : (localStorage.getItem(lsKey('sms-template')) || defaultTemplate);
+  const template = isReminder
+    ? reminderTemplate
+    : (((window._appConfig && window._appConfig.sms_template) || '') || defaultTemplate);
   const msg = template
     .replace('{cleanerFirstName}', (c.cleaner||'').split(' ')[0])
     .replace('{cleanerName}', c.cleaner)
@@ -349,7 +480,7 @@ export function sendSMS() {
   window.location.href = smsUrl;
   if (currentNotifyCleanId) {
     const c = cleans.find(c => c.id === currentNotifyCleanId);
-    if (c) { c.notified = true; c.cleanerConfirmed = false; save(); }
+    if (c) { c.notified = true; c.cleanerConfirmed = false; }
   }
   closeNotifyModal();
   if (typeof globalThis.switchCleanView === 'function') globalThis.switchCleanView('timeline');
@@ -493,7 +624,8 @@ const EMAIL_TEMPLATE_VARS = [
 ];
 
 export function loadEmailTemplate(type) {
-  const saved = loadJSON(lsKey('email-tpl-' + type));
+  const cache = (window._appConfig && window._appConfig.email_templates) || {};
+  const saved = cache && typeof cache === 'object' ? cache[type] : null;
   return saved || EMAIL_TEMPLATE_DEFAULTS[type];
 }
 
@@ -502,11 +634,13 @@ export function saveEmailTemplate(type) {
   const body    = document.getElementById('etpl-body').value;
   const color   = document.getElementById('etpl-color').value;
   const tpl = { subject, body, color };
-  localStorage.setItem(lsKey('email-tpl-' + type), JSON.stringify(tpl));
+  window._appConfig = window._appConfig || {};
+  window._appConfig.email_templates = window._appConfig.email_templates && typeof window._appConfig.email_templates === 'object'
+    ? window._appConfig.email_templates
+    : {};
+  window._appConfig.email_templates[type] = tpl;
   if (typeof saveAppConfigToCloud === 'function') {
-    const templates = {};
-    templates[type] = tpl;
-    saveAppConfigToCloud({ email_templates: templates }).catch(() => {});
+    saveAppConfigToCloud({ email_templates: window._appConfig.email_templates }).catch(() => {});
   }
   const conf = document.getElementById('etpl-save-confirm');
   if (conf) { conf.style.display = 'block'; setTimeout(() => conf.style.display = 'none', 2000); }

@@ -29,9 +29,15 @@ function safePushStringify(v) {
   try { return JSON.stringify(v); } catch (_) { return '[unserializable]'; }
 }
 
-/** Prefer window.supabase; StayOps also exposes window._sb. */
+/** Resolve actual Supabase client instance (not the global library object). */
 function getSupabaseClient() {
-  return globalThis.supabase || window.supabase || globalThis._sb || window._sb || null;
+  const directClient = globalThis._sb || window._sb || null;
+  if (directClient && typeof directClient.from === 'function') return directClient;
+
+  const maybeSupabase = globalThis.supabase || window.supabase || null;
+  if (maybeSupabase && typeof maybeSupabase.from === 'function') return maybeSupabase;
+
+  return null;
 }
 
 function parsePushSubscriptionsArray(raw) {
@@ -264,6 +270,11 @@ export async function subscribeToPush(role, cleanerId) {
     console.log('SW ready, getting push subscription...');
     let sub = await reg.pushManager.getSubscription();
     console.log('[Push] existing subscription found:', !!sub);
+    if (sub) {
+      console.log('[Push] unsubscribing old subscription to refresh VAPID key');
+      await sub.unsubscribe();
+      sub = null;
+    }
     if (!sub) {
       console.log('[Push] calling Notification.requestPermission()');
       const permission = await Notification.requestPermission();

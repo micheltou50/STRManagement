@@ -453,9 +453,7 @@ export function getCurrentOwnerEmail() {
 }
 
 export function getVapidPublicKey() {
-  const c = getActivePropertyConfig();
-  if (c.integrations && c.integrations.vapidPublicKey) return c.integrations.vapidPublicKey;
-  return (typeof VAPID_PUBLIC_KEY !== 'undefined') ? VAPID_PUBLIC_KEY : '';
+  return 'BO-fP_0TOY1foiCQtOZ40N7io1MAzoMUui6pmeHPJ3jLxbdNGh0SrRjxtvWVhuf4QKvf4q83eyS_wcICiS4cgc4';
 }
 
 export function getPushFunctionUrl() {

@@ -20,15 +20,7 @@ const ACTIVE_PROPERTY_ID_KEY = 'gh-active-property-id';
  * @returns {string}
  */
 export function lsKey(key) {
-  try {
-    const raw  = localStorage.getItem(PROPERTY_CONFIG_KEY);
-    const id   = (raw ? JSON.parse(raw).propertyId : null) || 'glenhaven';
-    const safe = id.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/^-+|-+$/g, '');
-    const prefix = safe === 'glenhaven' ? 'gh-' : safe + '-';
-    return prefix + key;
-  } catch (e) {
-    return 'gh-' + key; // safe fallback — never breaks existing data
-  }
+  throw new Error('lsKey is removed — use Supabase');
 }
 
 // ── DEFAULTS ───────────────────────────────────────────────────────────────────
@@ -216,7 +208,32 @@ export function setActivePropertyId(id) {
   if (!found) return false;
   localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, found.propertyId);
   _syncLegacyMirrorsFromActive();
+
+  const supabaseUUID = found && found.supabaseId ? found.supabaseId : null;
+  if (supabaseUUID && window._sb && window._supabaseUser) {
+    window._sb
+      .from('app_config')
+      .update({ active_property_id: supabaseUUID, updated_at: new Date().toISOString() })
+      .eq('user_id', window._supabaseUser.id)
+      .then(() => console.log('[StayOps] Active property synced to cloud'))
+      .catch(e => console.warn('[StayOps] Active property sync failed', e));
+  }
   return true;
+}
+
+export function saveUiPreferenceToCloud(key, value) {
+  if (!key) return;
+  window._appConfig = window._appConfig || {};
+  window._appConfig.ui_preferences = window._appConfig.ui_preferences || {};
+  window._appConfig.ui_preferences[key] = value;
+
+  if (window._sb && window._supabaseUser) {
+    window._sb
+      .from('app_config')
+      .update({ ui_preferences: { ...window._appConfig.ui_preferences, [key]: value } })
+      .eq('user_id', window._supabaseUser.id)
+      .catch(e => console.warn('[StayOps] UI preference sync failed', e));
+  }
 }
 
 export function getPropertyById(id) {
@@ -436,9 +453,7 @@ export function getCurrentOwnerEmail() {
 }
 
 export function getVapidPublicKey() {
-  const c = getActivePropertyConfig();
-  if (c.integrations && c.integrations.vapidPublicKey) return c.integrations.vapidPublicKey;
-  return (typeof VAPID_PUBLIC_KEY !== 'undefined') ? VAPID_PUBLIC_KEY : '';
+  return 'BO-fP_0TOY1foiCQtOZ40N7io1MAzoMUui6pmeHPJ3jLxbdNGh0SrRjxtvWVhuf4QKvf4q83eyS_wcICiS4cgc4';
 }
 
 export function getPushFunctionUrl() {

@@ -390,32 +390,13 @@ export async function extractExpenseFromReceipt() {
       for (let opt of sel.options) { if (opt.value === parsed.category) { sel.value = parsed.category; break; } }
     }
     status.style.background = '#E8F5E9'; status.style.color = '#2E7D32';
-    status.textContent = '✓ Receipt read — saving expense...';
-    const merchant = (document.getElementById('exp-merchant') && document.getElementById('exp-merchant').value || '').trim();
-    const amount = parseFloat(document.getElementById('exp-amount').value);
-    if (merchant && amount && Number.isFinite(amount) && typeof globalThis.addExpense === 'function') {
-      globalThis.addExpense({ silent: true });
-      globalThis.showBanner('Expense added from receipt: $' + amount, 'ok');
-      if (typeof globalThis.renderExpenses === 'function') globalThis.renderExpenses();
-      ['exp-merchant', 'exp-description', 'exp-amount', 'exp-receipt-num'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.value = '';
-      });
-      const expDate = document.getElementById('exp-date');
-      if (expDate) expDate.value = new Date().toISOString().split('T')[0];
-      const catSel = document.getElementById('exp-category');
-      if (catSel) catSel.selectedIndex = 0;
-      const typeSel = document.getElementById('exp-receipt-type');
-      if (typeSel) typeSel.selectedIndex = 0;
-      clearExpensePhoto();
-      const panel = document.getElementById('expense-add-form-panel');
-      const chevron = document.getElementById('expense-add-chevron');
-      if (panel) panel.style.display = 'none';
-      if (chevron) chevron.textContent = '›';
-      document.getElementById('expenses-main-block')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } else {
-      status.textContent = '✓ Receipt read — please review and adjust if needed';
-    }
+    status.textContent = '✓ Receipt read — review details, then tap Save Expense';
+    // Keep AI output in the Add Expense form for user review.
+    // Do not auto-save; user must tap Save Expense manually.
+    const panel = document.getElementById('expense-add-form-panel');
+    const chevron = document.getElementById('expense-add-chevron');
+    if (panel) panel.style.display = 'block';
+    if (chevron) chevron.textContent = '⌄';
   } catch(err) {
     status.style.background = '#FDECEA'; status.style.color = '#C0392B';
     status.textContent = '✗ Error: ' + (err.message || 'Could not read receipt');
