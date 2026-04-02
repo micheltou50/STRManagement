@@ -823,8 +823,8 @@ export function applyEmailTemplate(type, vars) {
   rows = rows.replace(/border-bottom:1px solid #f0ede8([^"]*)"([^>]*)>(?![\s\S]*border-bottom:1px solid #f0ede8)/g, (m) => m.replace('border-bottom:1px solid #f0ede8', 'border-bottom:none'));
 
   const intros = {
-    assignment:   `A cleaning assignment has been scheduled for you at ${propName}. Please confirm your availability using the buttons below.`,
-    reminder:     `This is a reminder that your cleaning assignment at ${propName} is scheduled for tomorrow.`,
+    assignment:   `A cleaning assignment has been scheduled for you at ${propName}. Sign in to StayOps to view your assignment.`,
+    reminder:     `This is a reminder that your cleaning assignment at ${propName} is scheduled for tomorrow. Sign in to StayOps to view details in the app.`,
     cancellation: `Please be advised that the following cleaning assignment has been cancelled. No action is required on your part.`
   };
 
@@ -833,12 +833,11 @@ export function applyEmailTemplate(type, vars) {
     : '';
 
   const ctaHtml = type === 'assignment'
-    ? `<table style="width:100%;border-collapse:collapse;margin-bottom:4px"><tr>
-        <td style="padding-right:6px"><a href="${vars.cleanerLink||'#'}" style="display:block;background:#1a4f3a;color:white;text-align:center;padding:13px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px">Confirm availability</a></td>
-        <td style="padding-left:6px"><a href="${(vars.cleanerLink||'#') + '?action=decline'}" style="display:block;background:#f7f5f2;color:#444;text-align:center;padding:13px;border-radius:8px;text-decoration:none;font-size:13px;border:1px solid #e0dbd4">Decline</a></td>
-      </tr></table>`
+    ? `<p style="font-size:13px;color:#444;margin:0 0 14px;line-height:1.55">Open StayOps and sign in with your email to accept or decline this clean.</p>
+        <a href="${vars.cleanerLink||'#'}" style="display:block;background:#1a4f3a;color:white;text-align:center;padding:13px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px">Open StayOps</a>`
     : type === 'reminder'
-    ? `<a href="${vars.cleanerLink||'#'}" style="display:block;background:#7a3a00;color:white;text-align:center;padding:13px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px;margin-bottom:4px">Open cleaner app</a>`
+    ? `<p style="font-size:13px;color:#444;margin:0 0 14px;line-height:1.55">Open StayOps and sign in with your email to view this assignment.</p>
+        <a href="${vars.cleanerLink||'#'}" style="display:block;background:#7a3a00;color:white;text-align:center;padding:13px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px;margin-bottom:4px">Open StayOps</a>`
     : '';
 
   const detailsOpacity = type === 'cancellation' ? 'opacity:0.55;' : '';
@@ -869,6 +868,8 @@ export function applyEmailTemplate(type, vars) {
     type !== 'cancellation' ? `Clean date: ${vars.cleanDate || vars.checkout || ''}` : `Cancelled: ${vars.cleanDate || vars.checkout || ''}`,
     vars.guestName ? `Guest: ${vars.guestName}` : '',
     vars.guests ? `Guests: ${vars.guests}` : '',
+    type === 'assignment' ? 'Open StayOps and sign in with your email to accept or decline this clean.' : undefined,
+    type === 'reminder' ? 'Open StayOps and sign in with your email to view this assignment.' : undefined,
   ].filter(l => l !== undefined).join('\n');
 
   return { subject, html, text: textLines };
@@ -967,13 +968,9 @@ export async function testCleanerEmail() {
 }
 
 export function cleanerLinkForId(c) {
-  const base = window.location.origin + window.location.pathname;
-  const uid = window._supabaseUser ? window._supabaseUser.id : '';
-  return c.pin
-    ? (base + '?role=cleaner&id=' + encodeURIComponent(c.id) + '&p=' + encodeURIComponent(btoa(c.pin)) + '&uid=' + encodeURIComponent(uid) + '#cleaner/' + c.id + '/' + btoa(c.pin))
-    : (base + '?role=cleaner&id=' + encodeURIComponent(c.id) + '&uid=' + encodeURIComponent(uid) + '#cleaner/' + c.id);
+  return window.location.origin + window.location.pathname;
 }
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(e => console.warn('SW register failed:', e));
+  navigator.serviceWorker.register('./sw.js').catch(e => console.warn('SW register failed:', e));
 }

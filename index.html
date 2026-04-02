@@ -55,6 +55,12 @@
       <input id="login-password" type="password" autocomplete="current-password" placeholder="••••••••" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:#1C1C1E;margin-bottom:6px;outline:none;" onfocus="this.style.borderColor='var(--forest,#1E3A2F)'" onblur="this.style.borderColor='#E5E5EA'" onkeydown="if(event.key==='Enter') handleLoginSubmit()">
       <div id="login-error" style="font-size:12px;color:#FF3B30;min-height:18px;margin-bottom:12px"></div>
       <button id="login-btn" onclick="handleLoginSubmit()" style="width:100%;padding:15px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;">Sign In</button>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:14px">
+        <div style="flex:1;height:1px;background:#E5E5EA"></div>
+        <span style="font-size:11px;color:#999;font-weight:500">or</span>
+        <div style="flex:1;height:1px;background:#E5E5EA"></div>
+      </div>
+      <button id="magic-link-btn" onclick="handleMagicLinkSubmit()" style="width:100%;margin-top:14px;padding:15px;background:transparent;color:var(--forest,#1E3A2F);border:1.5px solid var(--forest,#1E3A2F);border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;">Send Magic Link</button>
     </div>
 
     <div id="login-signup-section" style="display:none">
@@ -1655,8 +1661,27 @@
   </div>
 </div>
 
+<div id="cleaner-nav" class="nav" style="display:none">
+  <button class="nav-btn active" onclick="showCleanerSection('cleans')" id="cnav-cleans">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><path d="M9 5a2 2 0 012-2h2a2 2 0 012 2v0a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>My Cleans</button>
+  <button class="nav-btn" onclick="showCleanerSection('calendar')" id="cnav-calendar">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Calendar</button>
+  <button class="nav-btn" onclick="showCleanerSection('profile')" id="cnav-profile">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Profile</button>
+</div>
+
+<div id="cleaner-content" style="display:none;padding:16px;padding-bottom:100px">
+  <div id="cleaner-header" style="margin-bottom:20px">
+    <div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest,#1E3A2F)">My Cleans</div>
+    <div id="cleaner-greeting" style="font-size:13px;color:#999;margin-top:2px"></div>
+  </div>
+  <div id="cleaner-section-cleans"></div>
+  <div id="cleaner-section-calendar" style="display:none"></div>
+  <div id="cleaner-section-profile" style="display:none"></div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script type="module" src="./assets/js/main.js?v=20260330p10"></script>
+<script type="module" src="./assets/js/main.js?v=20260401p02"></script>
 
 
 <!-- Custom confirm/prompt modals -->

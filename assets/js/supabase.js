@@ -89,6 +89,19 @@ async function supabaseSignIn(email, password) {
   }
 }
 
+async function supabaseSignInWithMagicLink(email) {
+  if (!window._sb) return { error: 'Supabase not ready' };
+  try {
+    const { error } = await window._sb.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.origin }
+    });
+    return { error };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
 async function supabaseSignUp(email, password) {
   if (!window._sb) return { data: null, error: 'Supabase not ready' };
   try {
@@ -103,6 +116,43 @@ async function supabaseSignOut() {
   if (!window._sb) return;
   await window._sb.auth.signOut();
   window._supabaseUser = null;
+}
+
+export async function detectUserRole() {
+  if (!window._sb) return null;
+  const { data: { user } } = await window._sb.auth.getUser();
+  if (!user) return null;
+
+  const { data: roles } = await window._sb
+    .from('user_roles')
+    .select('role')
+    .eq('auth_user_id', user.id);
+
+  if (roles?.some((r) => r.role === 'host')) return 'host';
+  if (roles?.some((r) => r.role === 'cleaner')) return 'cleaner';
+  return 'unlinked';
+}
+
+export async function loadCleanerDashboard() {
+  if (!window._sb) return null;
+  const { data: { user } } = await window._sb.auth.getUser();
+  if (!user) return null;
+
+  const { data: cleanerRecord } = await window._sb
+    .from('cleaners')
+    .select('id, name, email, phone')
+    .eq('auth_user_id', user.id)
+    .single();
+
+  if (!cleanerRecord) return null;
+
+  const { data: myCleans } = await window._sb
+    .from('cleans')
+    .select('*, properties:property_id (name, address, check_in_info)')
+    .eq('cleaner_uuid', cleanerRecord.id)
+    .order('clean_date', { ascending: true });
+
+  return { cleanerRecord, myCleans: myCleans || [] };
 }
 
 export async function getSupabaseSession() {
@@ -505,7 +555,9 @@ async function loadCleanersFromCloud() {
       role:        c.role   || 'Cleaner',
       pin:         c.pin    || '',
       permissions: c.permissions || {},
-      active:      c.active !== false
+      active:      c.active !== false,
+      invitation_status: c.invitation_status || 'pending',
+      auth_user_id:      c.auth_user_id || null
     }));
   } catch (e) {
     console.warn('[StayOps] loadCleanersFromCloud failed', e);
@@ -586,6 +638,9 @@ export async function saveCleanToCloud(clean) {
     const user = await getCurrentSupabaseUser();
     if (!user || !clean) return;
     const propertyId = await getCloudPropertyId();
+    const cleanersList = window._cleaners || [];
+    const matchedCleaner = cleanersList.find(cl => String(cl.id) === String(clean.cleanerId) || String(cl._cloudId) === String(clean.cleanerId));
+    const cleanerUuid = matchedCleaner ? (matchedCleaner._cloudId || null) : null;
     const basePayload = {
       user_id:          user.id,
       local_id:         String(clean.id),
@@ -593,6 +648,7 @@ export async function saveCleanToCloud(clean) {
       guest_name:       clean.guestName   || '',
       cleaner:          clean.cleaner     || '',
       cleaner_id:       String(clean.cleanerId || ''),
+      cleaner_uuid:     cleanerUuid,
       clean_date:       clean.date ? String(clean.date).slice(0, 10) : null,
       done:             clean.done             || false,
       cleaner_confirmed:clean.cleanerConfirmed || false,
@@ -1763,6 +1819,12 @@ export async function handleLoginSubmit() {
     if (errEl) errEl.textContent = (typeof error === 'object' ? error.message : error) || 'Sign in failed.';
     return;
   }
+  const role = await detectUserRole();
+  if (role === 'cleaner') {
+    showCleanerApp();
+    if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; }
+    return;
+  }
   // Successful sign in — run the full boot sequence
   // Hide login screen immediately so boot-sequence modals are not blocked
   const loginEl = document.getElementById('stayops-login-screen');
@@ -1798,6 +1860,63 @@ export async function handleLoginSubmit() {
   } finally {
     if (typeof showAppChrome === 'function') showAppChrome();
   }
+}
+
+export async function handleMagicLinkSubmit() {
+  const email = (document.getElementById('login-email') || {}).value || '';
+  const errEl = document.getElementById('login-error');
+  if (errEl) {
+    errEl.style.color = '#FF3B30';
+    errEl.textContent = '';
+  }
+  if (!email) {
+    if (errEl) errEl.textContent = 'Enter your email address.';
+    return;
+  }
+
+  const btn = document.getElementById('magic-link-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+  const { error } = await supabaseSignInWithMagicLink(email);
+
+  if (btn) { btn.disabled = false; btn.textContent = 'Send Magic Link'; }
+
+  if (error) {
+    if (errEl) errEl.textContent = (typeof error === 'object' ? error.message : error) || 'Failed to send link.';
+    return;
+  }
+
+  if (errEl) {
+    errEl.style.color = '#34C759';
+    errEl.textContent = 'Check your email — tap the link to sign in.';
+  }
+}
+
+export function showCleanerApp() {
+  document.body.classList.add('cleaner-mode');
+  const login = document.getElementById('stayops-login-screen');
+  const app = document.getElementById('main-content');
+  const nav = document.querySelector('.nav');
+  const hdr = document.querySelector('.header');
+  if (login) login.style.display = 'none';
+  if (app) app.style.display = '';
+  if (nav) nav.style.display = 'none';
+  if (hdr) hdr.style.display = 'none';
+  hideLoadingScreen();
+
+  const cleanerNav = document.getElementById('cleaner-nav');
+  const cleanerContent = document.getElementById('cleaner-content');
+  if (cleanerNav) cleanerNav.style.display = '';
+  if (cleanerContent) cleanerContent.style.display = '';
+
+  if (app) app.style.display = 'none';
+
+  loadCleanerDashboard().then((data) => {
+    if (data) {
+      window._cleanerData = data;
+      if (typeof renderNewCleanerView === 'function') renderNewCleanerView(data);
+    }
+  });
 }
 
 export function toggleSignUp() {

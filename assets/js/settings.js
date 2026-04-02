@@ -810,6 +810,7 @@ function renderTeamList() {
         <div>
           <div style="font-weight:500;font-size:14px">${c.name}</div>
           <div style="font-size:12px;color:var(--text-soft)">${c.role||'Cleaner'}${c.email?' · '+c.email:c.phone?' · '+c.phone:''}</div>
+          <div style="margin-top:6px" onclick="event.stopPropagation()">${typeof window.getInviteButtonHtml === 'function' ? window.getInviteButtonHtml(c) : ''}</div>
         </div>
       </div>
       <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
@@ -826,7 +827,21 @@ function openCleanerProfile(id) {
     { key: 'payout',     label: 'Cleaning fee / payout' },
   ];
   const perm = c.permissions || {};
-  const link = cleanerLinkForId(c);
+  let inviteHtml = '';
+  if (!c.email) {
+    inviteHtml = '<div style="font-size:12px;color:#999;font-style:italic">Add an email address to invite this cleaner to the app</div>';
+  } else if (c.auth_user_id || c.invitation_status === 'active') {
+    inviteHtml = '<span style="font-size:12px;color:#3B6D11;font-weight:700;background:#EAF3DE;padding:6px 10px;border-radius:10px;display:inline-block">✓ Account linked</span>';
+  } else {
+    const cloudId = c._cloudId || c.cloud_id;
+    if (!cloudId) {
+      inviteHtml = '<div style="font-size:12px;color:#999;font-style:italic">Save team to sync cleaner before inviting</div>';
+    } else if (c.invitation_status === 'invited') {
+      inviteHtml = '<button id="invite-btn-' + cloudId + '" onclick="inviteCleaner(\'' + (c._cloudId || c.cloud_id) + '\')" style="font-size:13px;padding:10px 14px;background:transparent;color:var(--forest,#1E3A2F);border:1.5px solid var(--forest,#1E3A2F);border-radius:10px;font-weight:700;cursor:pointer">Resend Invite</button>';
+    } else {
+      inviteHtml = '<button id="invite-btn-' + cloudId + '" onclick="inviteCleaner(\'' + (c._cloudId || c.cloud_id) + '\')" style="font-size:13px;padding:10px 14px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:10px;font-weight:700;cursor:pointer">Invite to App</button>';
+    }
+  }
   const roleColors = {Cleaner:'var(--moss)',Plumber:'#1565C0',Electrician:'#E65100',Landscaper:'#2E7D32',Builder:'#6A1B9A',Handyman:'#00838F',Other:'var(--stone)'};
   document.getElementById('cleaner-profile-content').innerHTML = `
     <div class="card" style="margin-bottom:10px">
@@ -847,19 +862,8 @@ function openCleanerProfile(id) {
       <div id="cp-contact-confirm-${c.id}" style="font-size:12px;color:var(--moss);margin-top:4px;display:none">✓ Saved</div>
     </div>
     <div class="card" style="margin-bottom:10px">
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:10px">🔐 App Access</div>
-      <label>PIN (4 digits)</label>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <div style="font-size:24px;font-weight:700;color:var(--forest);letter-spacing:8px;flex:1">${c.pin||'—'}</div>
-        ${c.pin?`<button onclick="clearCleanerPinById(${c.id})" style="font-size:11px;color:var(--red);background:none;border:1px solid var(--red);border-radius:20px;padding:4px 10px;cursor:pointer;white-space:nowrap">Clear</button>`:''}
-      </div>
-      <input type="text" inputmode="numeric" pattern="\\d*" id="pin-input-${c.id}" placeholder="Set 4-digit PIN" maxlength="4"
-        style="font-size:20px;letter-spacing:8px;text-align:center;padding:12px;border:1.5px solid var(--stone);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;background:white;margin-bottom:8px;color:var(--text);width:100%"
-        oninput="this.value=this.value.replace(/\\D/g,'').slice(0,4)">
-      <button onclick="saveCleanerPinById(${c.id})" class="btn-primary" style="width:100%">Save PIN</button>
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-top:14px;margin-bottom:8px">🔗 App Link</div>
-      <div style="background:var(--mist);border-radius:var(--radius-sm);padding:10px 12px;font-size:12px;color:var(--forest);font-weight:500;word-break:break-all;margin-bottom:8px;border:1px solid var(--warm)">${link}</div>
-      <button onclick="copyCleanerLinkById(${c.id})" class="btn-primary" style="width:100%">📋 Copy Link</button>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:10px">Invite to App</div>
+      ${inviteHtml}
     </div>
     <div class="card">
       <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:10px">👁 What They Can See</div>

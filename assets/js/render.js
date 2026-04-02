@@ -36,9 +36,7 @@ import {
   resetPushOnly,
   updateNotifStatus,
   subscribeToPush,
-  sendPushToDevice,
   getCleanerSub,
-  getFreshOwnerSub,
   sendCleanerEmail,
   cleanerLinkForId,
   openNotifyModal,
@@ -117,7 +115,6 @@ import {
   setCleanStatusFilter,
   cleanerAccept,
   cleanerDecline,
-  cleanerMarkDone,
 } from './cleaning.js';
 import {
   resetFinanceSubViewToHub,
@@ -2928,6 +2925,19 @@ function updateCleanerNotifBtn() {
 }
 
 function cleanerSignOut() {
+  if (window._cleanerData) {
+    const signOutPromise = window._sb ? window._sb.auth.signOut() : Promise.resolve();
+    signOutPromise.finally(() => {
+      window._cleanerData = null;
+      document.body.classList.remove('cleaner-mode');
+      const cleanerNav = document.getElementById('cleaner-nav');
+      const cleanerContent = document.getElementById('cleaner-content');
+      if (cleanerNav) cleanerNav.style.display = 'none';
+      if (cleanerContent) cleanerContent.style.display = 'none';
+      if (typeof showLoginScreen === 'function') showLoginScreen();
+    });
+    return;
+  }
   const { id } = getCleanerParams();
   localStorage.removeItem('gh-cleaner-authed-' + id);
   localStorage.removeItem('gh-cleaner-session');
@@ -3523,6 +3533,375 @@ let _calNavigate;
     attachCalSwipe();
   }
 })();
+
+function renderNewCleanerView(data) {
+  if (!data) return;
+  const { cleanerRecord, myCleans } = data;
+
+  const greeting = document.getElementById('cleaner-greeting');
+  if (greeting) greeting.textContent = 'Welcome, ' + (cleanerRecord.name || 'Cleaner');
+
+  const container = document.getElementById('cleaner-section-cleans');
+  if (!container) return;
+
+  const today = new Date().toISOString().split('T')[0];
+  const actionNeeded = myCleans.filter((c) => !c.done && !c.cleaner_confirmed && !c.cleaner_declined);
+  const upcoming = myCleans.filter((c) => !c.done && c.cleaner_confirmed && c.clean_date >= today);
+  const completed = myCleans.filter((c) => c.done);
+
+  let html = '';
+
+  if (actionNeeded.length) {
+    html += '<div style="margin-bottom:20px">';
+    html += '<div style="font-size:13px;font-weight:700;color:#C0392B;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Action Needed</div>';
+    actionNeeded.forEach((c) => {
+      const prop = c.properties || {};
+      html += '<div style="background:white;border-radius:14px;padding:16px;margin-bottom:10px;border-left:4px solid #C0392B;box-shadow:0 1px 4px rgba(0,0,0,0.06)">';
+      html += '<div style="font-weight:700;font-size:15px;color:var(--forest,#1E3A2F)">' + (prop.name || 'Property') + '</div>';
+      html += '<div style="font-size:13px;color:#666;margin-top:2px">' + (prop.address || '') + '</div>';
+      html += '<div style="font-size:13px;color:#333;margin-top:8px"><strong>Date:</strong> ' + (c.clean_date || '') + '</div>';
+      html += '<div style="font-size:13px;color:#333"><strong>Guest:</strong> ' + (c.guest_name || 'N/A') + '</div>';
+      html += '<div style="display:flex;gap:8px;margin-top:12px">';
+      html += '<button onclick="cleanerAcceptClean(\'' + c.id + '\')" style="flex:1;padding:12px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer">Accept</button>';
+      html += '<button onclick="cleanerDeclineClean(\'' + c.id + '\')" style="flex:1;padding:12px;background:white;color:#C0392B;border:1.5px solid #C0392B;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer">Decline</button>';
+      html += '</div></div>';
+    });
+    html += '</div>';
+  }
+
+  if (upcoming.length) {
+    html += '<div style="margin-bottom:20px">';
+    html += '<div style="font-size:13px;font-weight:700;color:#3B6D11;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Upcoming - Confirmed</div>';
+    upcoming.forEach((c) => {
+      const prop = c.properties || {};
+      const checkInInfo = prop.check_in_info || {};
+      html += '<div style="background:white;border-radius:14px;padding:16px;margin-bottom:10px;border-left:4px solid #3B6D11;box-shadow:0 1px 4px rgba(0,0,0,0.06)">';
+      html += '<div style="font-weight:700;font-size:15px;color:var(--forest,#1E3A2F)">' + (prop.name || 'Property') + '</div>';
+      html += '<div style="font-size:13px;color:#666;margin-top:2px">' + (prop.address || '') + '</div>';
+      html += '<div style="font-size:13px;color:#333;margin-top:8px"><strong>Date:</strong> ' + (c.clean_date || '') + '</div>';
+      html += '<div style="font-size:13px;color:#333"><strong>Guest:</strong> ' + (c.guest_name || 'N/A') + '</div>';
+      if (checkInInfo.lockbox_code) {
+        html += '<div style="font-size:13px;color:#333;margin-top:6px"><strong>Lockbox:</strong> ' + checkInInfo.lockbox_code + '</div>';
+      }
+      if (checkInInfo.instructions) {
+        html += '<div style="font-size:12px;color:#666;margin-top:4px">' + checkInInfo.instructions + '</div>';
+      }
+      html += '<button onclick="cleanerMarkDone(\'' + c.id + '\')" style="width:100%;margin-top:12px;padding:12px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer">Mark as Done</button>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  if (completed.length) {
+    html += '<div style="margin-bottom:20px">';
+    html += '<div style="font-size:13px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Completed</div>';
+    completed.slice(0, 10).forEach((c) => {
+      const prop = c.properties || {};
+      html += '<div style="background:#f9f9f7;border-radius:14px;padding:14px 16px;margin-bottom:8px;opacity:0.7">';
+      html += '<div style="font-weight:600;font-size:14px;color:#333">' + (prop.name || 'Property') + '</div>';
+      html += '<div style="font-size:12px;color:#999;margin-top:2px">' + (c.clean_date || '') + ' · ' + (c.guest_name || '') + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  if (!html) {
+    html = '<div style="text-align:center;padding:40px 20px;color:#999"><div style="font-size:40px;margin-bottom:12px">✨</div><div style="font-size:15px;font-weight:600">No cleans assigned yet</div><div style="font-size:13px;margin-top:6px">Your host will assign cleans to you here.</div></div>';
+  }
+
+  container.innerHTML = html;
+}
+window.renderNewCleanerView = renderNewCleanerView;
+
+async function cleanerAcceptClean(cleanId) {
+  if (!window._sb) return;
+  const { error } = await window._sb
+    .from('cleans')
+    .update({ cleaner_confirmed: true, confirmed_at: new Date().toISOString() })
+    .eq('id', cleanId);
+  if (error) { alert('Failed to accept: ' + error.message); return; }
+  const data = typeof globalThis.loadCleanerDashboard === 'function'
+    ? await globalThis.loadCleanerDashboard()
+    : null;
+  if (data) {
+    try {
+      const cleanData = data.myCleans?.find((c) => String(c.id) === String(cleanId));
+      const guestName = cleanData?.guest_name || cleanData?.guestName || 'guest';
+      const cleanDate = cleanData?.clean_date || cleanData?.date || '';
+      const cleanerName = data.cleanerRecord?.name || 'Cleaner';
+      const ownerSub = typeof globalThis.getFreshOwnerSub === 'function' ? await globalThis.getFreshOwnerSub() : null;
+      if (ownerSub && typeof globalThis.sendPushToDevice === 'function') {
+        await globalThis.sendPushToDevice(
+          ownerSub,
+          '✅ Clean Confirmed',
+          cleanerName + ' accepted the clean for ' + guestName + (cleanDate ? ' on ' + cleanDate : ''),
+          '/',
+          'accept-' + cleanId
+        );
+      }
+    } catch (e) {
+      console.warn('[StayOps] Push notify failed:', e);
+    }
+    window._cleanerData = data;
+    renderNewCleanerView(data);
+    renderCleanerCalendar();
+    renderCleanerProfile();
+  }
+}
+window.cleanerAcceptClean = cleanerAcceptClean;
+
+async function cleanerDeclineClean(cleanId) {
+  if (!window._sb) return;
+  const { error } = await window._sb
+    .from('cleans')
+    .update({ cleaner_declined: true })
+    .eq('id', cleanId);
+  if (error) { alert('Failed to decline: ' + error.message); return; }
+  const data = typeof globalThis.loadCleanerDashboard === 'function'
+    ? await globalThis.loadCleanerDashboard()
+    : null;
+  if (data) {
+    try {
+      const cleanData = data.myCleans?.find((c) => String(c.id) === String(cleanId));
+      const guestName = cleanData?.guest_name || cleanData?.guestName || 'guest';
+      const cleanDate = cleanData?.clean_date || cleanData?.date || '';
+      const cleanerName = data.cleanerRecord?.name || 'Cleaner';
+      const ownerSub = typeof globalThis.getFreshOwnerSub === 'function' ? await globalThis.getFreshOwnerSub() : null;
+      if (ownerSub && typeof globalThis.sendPushToDevice === 'function') {
+        await globalThis.sendPushToDevice(
+          ownerSub,
+          '❌ Clean Declined',
+          cleanerName + ' cannot do the clean for ' + guestName + (cleanDate ? ' on ' + cleanDate : '') + '. Reassign needed.',
+          '/',
+          'decline-' + cleanId
+        );
+      }
+    } catch (e) {
+      console.warn('[StayOps] Push notify failed:', e);
+    }
+    window._cleanerData = data;
+    renderNewCleanerView(data);
+    renderCleanerCalendar();
+    renderCleanerProfile();
+  }
+}
+window.cleanerDeclineClean = cleanerDeclineClean;
+
+async function cleanerMarkDone(cleanId) {
+  if (!window._sb) return;
+  const { error } = await window._sb
+    .from('cleans')
+    .update({ done: true, completed_at: new Date().toISOString() })
+    .eq('id', cleanId);
+  if (error) { alert('Failed to mark done: ' + error.message); return; }
+  const data = typeof globalThis.loadCleanerDashboard === 'function'
+    ? await globalThis.loadCleanerDashboard()
+    : null;
+  if (data) {
+    try {
+      const cleanData = data.myCleans?.find((c) => String(c.id) === String(cleanId));
+      const guestName = cleanData?.guest_name || cleanData?.guestName || 'guest';
+      const cleanDate = cleanData?.clean_date || cleanData?.date || '';
+      const cleanerName = data.cleanerRecord?.name || 'Cleaner';
+      const ownerSub = typeof globalThis.getFreshOwnerSub === 'function' ? await globalThis.getFreshOwnerSub() : null;
+      if (ownerSub && typeof globalThis.sendPushToDevice === 'function') {
+        await globalThis.sendPushToDevice(
+          ownerSub,
+          '🏡 Clean Complete!',
+          cleanerName + ' has finished the clean for ' + guestName + (cleanDate ? ' on ' + cleanDate : ''),
+          '/',
+          'done-' + cleanId
+        );
+      }
+    } catch (e) {
+      console.warn('[StayOps] Push notify failed:', e);
+    }
+    window._cleanerData = data;
+    renderNewCleanerView(data);
+    renderCleanerCalendar();
+    renderCleanerProfile();
+  }
+}
+window.cleanerMarkDone = cleanerMarkDone;
+
+function renderCleanerCalendar() {
+  const container = document.getElementById('cleaner-section-calendar');
+  if (!container || !window._cleanerData) return;
+
+  const cleans = window._cleanerData.myCleans || [];
+  const today = new Date();
+  let viewMonth = window._cleanerCalMonth || today.getMonth();
+  let viewYear = window._cleanerCalYear || today.getFullYear();
+  window._cleanerCalMonth = viewMonth;
+  window._cleanerCalYear = viewYear;
+
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  const cleanDates = {};
+  cleans.forEach((c) => {
+    if (c.clean_date) {
+      cleanDates[c.clean_date] = cleanDates[c.clean_date] || [];
+      cleanDates[c.clean_date].push(c);
+    }
+  });
+
+  const firstDay = new Date(viewYear, viewMonth, 1);
+  const lastDay = new Date(viewYear, viewMonth + 1, 0);
+  let startDay = firstDay.getDay() - 1;
+  if (startDay < 0) startDay = 6;
+
+  let html = '';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">';
+  html += '<button onclick="cleanerCalNav(-1)" style="background:none;border:none;font-size:20px;cursor:pointer;padding:8px">‹</button>';
+  html += '<div style="font-weight:700;font-size:16px;color:var(--forest,#1E3A2F)">' + monthNames[viewMonth] + ' ' + viewYear + '</div>';
+  html += '<button onclick="cleanerCalNav(1)" style="background:none;border:none;font-size:20px;cursor:pointer;padding:8px">›</button>';
+  html += '</div>';
+
+  html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:12px">';
+  dayNames.forEach((d) => {
+    html += '<div style="text-align:center;font-size:11px;font-weight:600;color:#999;padding:4px 0">' + d + '</div>';
+  });
+
+  for (let i = 0; i < startDay; i++) {
+    html += '<div></div>';
+  }
+
+  const todayStr = today.toISOString().split('T')[0];
+
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const dateStr = viewYear + '-' + String(viewMonth + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+    const hasCleans = cleanDates[dateStr];
+    const isToday = dateStr === todayStr;
+
+    html += '<div onclick="showCleanerDayDetail(\'' + dateStr + '\')" style="text-align:center;padding:8px 2px;border-radius:10px;cursor:' + (hasCleans ? 'pointer' : 'default') + ';' + (isToday ? 'background:var(--forest,#1E3A2F);color:white;font-weight:700;' : '') + '">';
+    html += '<div style="font-size:14px">' + d + '</div>';
+    if (hasCleans) {
+      const dotColor = hasCleans.some((c) => !c.cleaner_confirmed && !c.done) ? '#C0392B' : '#3B6D11';
+      html += '<div style="width:6px;height:6px;border-radius:50%;background:' + dotColor + ';margin:3px auto 0"></div>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  html += '<div id="cleaner-day-detail"></div>';
+  container.innerHTML = html;
+}
+window.renderCleanerCalendar = renderCleanerCalendar;
+
+function cleanerCalNav(dir) {
+  window._cleanerCalMonth = (window._cleanerCalMonth || new Date().getMonth()) + dir;
+  window._cleanerCalYear = window._cleanerCalYear || new Date().getFullYear();
+  if (window._cleanerCalMonth > 11) { window._cleanerCalMonth = 0; window._cleanerCalYear++; }
+  if (window._cleanerCalMonth < 0) { window._cleanerCalMonth = 11; window._cleanerCalYear--; }
+  renderCleanerCalendar();
+}
+window.cleanerCalNav = cleanerCalNav;
+
+function showCleanerDayDetail(dateStr) {
+  const container = document.getElementById('cleaner-day-detail');
+  if (!container || !window._cleanerData) return;
+
+  const cleans = (window._cleanerData.myCleans || []).filter((c) => c.clean_date === dateStr);
+  if (!cleans.length) { container.innerHTML = ''; return; }
+
+  let html = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid #eee">';
+  html += '<div style="font-weight:700;font-size:13px;color:var(--forest,#1E3A2F);margin-bottom:8px">' + dateStr + '</div>';
+
+  cleans.forEach((c) => {
+    const prop = c.properties || {};
+    const status = c.done ? 'Done' : c.cleaner_confirmed ? 'Confirmed' : c.cleaner_declined ? 'Declined' : 'Pending';
+    const statusColor = c.done ? '#999' : c.cleaner_confirmed ? '#3B6D11' : c.cleaner_declined ? '#C0392B' : '#F5A623';
+    html += '<div style="background:white;border-radius:10px;padding:12px;margin-bottom:6px;box-shadow:0 1px 3px rgba(0,0,0,0.05)">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+    html += '<div style="font-weight:600;font-size:14px">' + (prop.name || 'Property') + '</div>';
+    html += '<span style="font-size:11px;font-weight:700;color:' + statusColor + ';background:' + statusColor + '15;padding:3px 8px;border-radius:6px">' + status + '</span>';
+    html += '</div>';
+    html += '<div style="font-size:12px;color:#666;margin-top:3px">' + (c.guest_name || '') + '</div>';
+    html += '</div>';
+  });
+
+  html += '</div>';
+  container.innerHTML = html;
+}
+window.showCleanerDayDetail = showCleanerDayDetail;
+
+function renderCleanerProfile() {
+  const container = document.getElementById('cleaner-section-profile');
+  if (!container || !window._cleanerData) return;
+
+  const cr = window._cleanerData.cleanerRecord;
+
+  let html = '';
+  html += '<div style="background:white;border-radius:16px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">';
+  html += '<div style="text-align:center;margin-bottom:20px">';
+  html += '<div style="width:64px;height:64px;border-radius:50%;background:var(--forest,#1E3A2F);color:white;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;margin:0 auto 10px">' + ((cr.name || 'C')[0].toUpperCase()) + '</div>';
+  html += '<div style="font-weight:700;font-size:18px;color:var(--forest,#1E3A2F)">' + (cr.name || 'Cleaner') + '</div>';
+  html += '</div>';
+  html += '<div style="border-top:1px solid #f0f0f0;padding-top:16px">';
+  html += '<div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #f5f5f3">';
+  html += '<span style="font-size:13px;color:#999">Email</span>';
+  html += '<span style="font-size:13px;font-weight:600;color:#333">' + (cr.email || '—') + '</span>';
+  html += '</div>';
+  html += '<div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #f5f5f3">';
+  html += '<span style="font-size:13px;color:#999">Phone</span>';
+  html += '<span style="font-size:13px;font-weight:600;color:#333">' + (cr.phone || '—') + '</span>';
+  html += '</div>';
+
+  const cleans = window._cleanerData.myCleans || [];
+  const completed = cleans.filter((c) => c.done).length;
+  const upcoming = cleans.filter((c) => !c.done && c.cleaner_confirmed).length;
+
+  html += '<div style="display:flex;gap:12px;margin-top:20px">';
+  html += '<div style="flex:1;background:#f5f5f3;border-radius:12px;padding:14px;text-align:center">';
+  html += '<div style="font-size:22px;font-weight:700;color:var(--forest,#1E3A2F)">' + completed + '</div>';
+  html += '<div style="font-size:11px;color:#999;margin-top:2px">Completed</div>';
+  html += '</div>';
+  html += '<div style="flex:1;background:#f5f5f3;border-radius:12px;padding:14px;text-align:center">';
+  html += '<div style="font-size:22px;font-weight:700;color:var(--forest,#1E3A2F)">' + upcoming + '</div>';
+  html += '<div style="font-size:11px;color:#999;margin-top:2px">Upcoming</div>';
+  html += '</div>';
+  html += '</div>';
+  html += '</div></div>';
+  html += '<button onclick="cleanerSignOut()" style="width:100%;margin-top:20px;padding:14px;background:white;color:#C0392B;border:1.5px solid #C0392B;border-radius:12px;font-weight:700;font-size:14px;cursor:pointer">Sign Out</button>';
+
+  container.innerHTML = html;
+}
+window.renderCleanerProfile = renderCleanerProfile;
+
+function showCleanerSection(section) {
+  ['cleans', 'calendar', 'profile'].forEach((s) => {
+    const el = document.getElementById('cleaner-section-' + s);
+    if (el) el.style.display = s === section ? '' : 'none';
+  });
+  document.querySelectorAll('#cleaner-nav .nav-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.id === 'cnav-' + section);
+  });
+  const titles = { cleans: 'My Cleans', calendar: 'Calendar', profile: 'Profile' };
+  const hdr = document.querySelector('#cleaner-header > div:first-child');
+  if (hdr) hdr.textContent = titles[section] || 'My Cleans';
+
+  if (section === 'calendar') renderCleanerCalendar();
+  if (section === 'profile') renderCleanerProfile();
+}
+window.showCleanerSection = showCleanerSection;
+
+function getInviteButtonHtml(cleaner) {
+  if (!cleaner.email) {
+    return '<span style="font-size:11px;color:#999;font-style:italic">No email - can\'t invite</span>';
+  }
+  if (cleaner.invitation_status === 'active' || cleaner.auth_user_id) {
+    return '<span style="font-size:11px;color:#3B6D11;font-weight:600">✓ Account linked</span>';
+  }
+  const cloudId = cleaner._cloudId || cleaner.cloud_id;
+  if (!cloudId) {
+    return '<span style="font-size:11px;color:#999;font-style:italic">Save team to sync cleaner before inviting</span>';
+  }
+  if (cleaner.invitation_status === 'invited') {
+    return '<button id="invite-btn-' + cloudId + '" onclick="inviteCleaner(\'' + (cleaner._cloudId || cleaner.cloud_id) + '\')" style="font-size:12px;padding:6px 12px;background:transparent;color:var(--forest,#1E3A2F);border:1px solid var(--forest,#1E3A2F);border-radius:8px;font-weight:600;cursor:pointer">Resend Invite</button>';
+  }
+  return '<button id="invite-btn-' + cloudId + '" onclick="inviteCleaner(\'' + (cleaner._cloudId || cleaner.cloud_id) + '\')" style="font-size:12px;padding:6px 12px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:8px;font-weight:600;cursor:pointer">Invite to App</button>';
+}
+window.getInviteButtonHtml = getInviteButtonHtml;
 
 export {
   showBanner,

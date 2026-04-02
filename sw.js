@@ -6,20 +6,20 @@ self.addEventListener('push', event => {
 
   let data;
   try { data = event.data.json(); }
-  catch(e) { data = { title: 'Glenhaven', body: event.data.text() }; }
+  catch(e) { data = { title: 'StayOps', body: event.data.text() }; }
 
   const options = {
     body: data.body || '',
     icon: '/icon-192.png',
     badge: '/icon-192.png',
-    tag: data.tag || 'glenhaven',
+    tag: data.tag || 'stayops',
     requireInteraction: true,
     vibrate: [200, 100, 200],
     data: { url: data.url || '/' }
   };
 
   event.waitUntil(
-    self.registration.showNotification(data.title || 'Glenhaven', options)
+    self.registration.showNotification(data.title || 'StayOps', options)
   );
 });
 

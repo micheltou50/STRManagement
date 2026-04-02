@@ -9,7 +9,8 @@ import {
   loadCleansFromCloud, saveCleansToCloud, saveInventoryToCloud, saveMaintenanceToCloud, deleteMaintenanceFromCloud,
   saveBookingToCloud, saveBookingsToCloud, deleteBookingFromCloud, saveHostConfigToSupabase, loadHostConfigFromSupabase,
   showLoadingScreen, hideLoadingScreen, setLoadingStatus, showLoginScreen, handleAuthFailure, showAppChrome,
-  handleLoginSubmit, handleSignUpSubmit, toggleSignUp, hostSignOut,
+  handleLoginSubmit, handleSignUpSubmit, handleMagicLinkSubmit, toggleSignUp, hostSignOut,
+  detectUserRole, showCleanerApp,
 } from './supabase.js';
 import { calcNights, calcNet } from './utils.js';
 import {
@@ -85,10 +86,13 @@ globalThis.saveBookingsToCloud = saveBookingsToCloud;
 globalThis.deleteBookingFromCloud = deleteBookingFromCloud;
 globalThis.saveCleansToCloud = saveCleansToCloud;
 globalThis.getCurrentSupabaseUser = getCurrentSupabaseUser;
+globalThis.getFreshOwnerSub = getFreshOwnerSub;
+globalThis.sendPushToDevice = sendPushToDevice;
 
 // Called from index.html onclick/onchange handlers
 window.handleLoginSubmit        = handleLoginSubmit;
 window.handleSignUpSubmit       = handleSignUpSubmit;
+window.handleMagicLinkSubmit    = handleMagicLinkSubmit;
 window.toggleSignUp             = toggleSignUp;
 window.hostSignOut              = hostSignOut;
 window.addBooking               = addBooking;
@@ -408,6 +412,12 @@ globalThis.handleAuthFailure = handleAuthFailure;
     console.log('[StayOps] No session — showing login screen');
     if (typeof showLoginScreen === 'function') showLoginScreen();
     else if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
+    return;
+  }
+
+  const role = await detectUserRole();
+  if (role === 'cleaner') {
+    showCleanerApp();
     return;
   }
 

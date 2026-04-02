@@ -901,6 +901,73 @@ export function loadCleanerLearning() {
   return (window._appConfig && window._appConfig.cleaner_learning) || { lastCleanerId: null, frequency: {} };
 }
 
+/** Edge Function expects cleaners.id (Supabase UUID). App stores that on cleaner._cloudId; cleaner.id is local. */
+function _resolveInviteCleanerCloudId(passed) {
+  const raw = passed != null ? String(passed).trim() : '';
+  if (!raw) return '';
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) return raw;
+  const list = typeof globalThis.loadCleaners === 'function' ? globalThis.loadCleaners() : [];
+  for (const c of list) {
+    if (!c) continue;
+    if (String(c.id) === raw) {
+      const pk = c._cloudId || c.cloud_id;
+      return pk ? String(pk) : '';
+    }
+  }
+  return '';
+}
+
+async function inviteCleaner(cleanerId) {
+  if (!window._sb) return;
+  const cloudCleanerId = _resolveInviteCleanerCloudId(cleanerId);
+  if (!cloudCleanerId) {
+    if (cleanerId != null && String(cleanerId).trim() !== '') {
+      alert('Cleaner not found or not synced. Save your team in Settings, then try again.');
+    }
+    return;
+  }
+
+  const { data: { session } } = await window._sb.auth.getSession();
+  if (!session) { alert('Not signed in'); return; }
+
+  const btn = document.getElementById('invite-btn-' + cloudCleanerId)
+    || document.getElementById('invite-btn-' + cleanerId);
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+  try {
+    const response = await fetch(
+      'https://nbeuyypgiipptxlqnhel.supabase.co/functions/v1/invite-cleaner',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + session.access_token
+        },
+        body: JSON.stringify({ cleaner_id: cloudCleanerId })
+      }
+    );
+
+    const result = await response.json();
+
+    if (result.error) {
+      alert('Invite failed: ' + result.error);
+      if (btn) { btn.disabled = false; btn.textContent = 'Invite'; }
+      return;
+    }
+
+    if (typeof showBanner === 'function') showBanner(result.message || 'Invitation sent!', 'ok');
+    if (btn) { btn.disabled = false; btn.textContent = 'Invited ✓'; btn.style.opacity = '0.6'; }
+
+    if (typeof renderCleaning === 'function') renderCleaning();
+    if (typeof globalThis.renderTeamList === 'function') globalThis.renderTeamList();
+
+  } catch (e) {
+    alert('Invite failed: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Invite'; }
+  }
+}
+window.inviteCleaner = inviteCleaner;
+
 export function saveCleanerLearning(state) {
   window._appConfig = window._appConfig || {};
   window._appConfig.cleaner_learning = state || { lastCleanerId: null, frequency: {} };

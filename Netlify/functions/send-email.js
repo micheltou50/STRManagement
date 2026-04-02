@@ -18,7 +18,7 @@ exports.handler = async (event) => {
 
   // API key and from address live server-side — never sent from the browser
   const apiKey = process.env.RESEND_API_KEY;
-  const from   = process.env.RESEND_FROM || 'Glenhaven <noreply@glenhaven21.netlify.app>';
+  const from   = process.env.RESEND_FROM || 'StayOps <noreply@strmanagement.netlify.app>';
 
   if (!apiKey) {
     console.error('[send-email] RESEND_API_KEY env var is not set');
