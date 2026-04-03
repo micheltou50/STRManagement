@@ -1124,15 +1124,24 @@ export async function cleanerAccept(cleanId) {
     }
     renderCleanerCleans();
     globalThis.showBanner('✓ Clean accepted!', 'ok');
-    // Push owner
-    const ownerSub = await getFreshOwnerSub();
-    if (ownerSub) {
-      sendPushToDevice(ownerSub,
-        '✅ Clean Confirmed',
-        `${c.cleaner} accepted the clean for ${c.guestName || 'guest'} on ${fmt(c.date)}`,
-        '/',
-        'accept-' + cleanId
-      );
+    // Push owner via user_id mode (cleaner doesn't have owner's local sub)
+    try {
+      const { uid } = (typeof globalThis.getCleanerParams === 'function') ? globalThis.getCleanerParams() : {};
+      if (uid) {
+        fetch('/.netlify/functions/send-push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: uid,
+            title: '✅ Clean Confirmed',
+            body: c.cleaner + ' accepted the clean for ' + (c.guestName || 'guest') + ' on ' + fmt(c.date),
+            url: '/',
+            tag: 'accept-' + cleanId
+          })
+        }).catch(e => console.warn('[StayOps] Push notify failed:', e));
+      }
+    } catch (e) {
+      console.warn('[StayOps] Push notify failed:', e);
     }
   } finally {
     releaseCleaningLock(lockKey);
@@ -1171,15 +1180,24 @@ export async function cleanerDecline(cleanId) {
     if (typeof saveCleaningJobToCloud === 'function' && window._supabaseUser) saveCleaningJobToCloud(c);
     renderCleanerCleans();
     globalThis.showBanner('Clean declined', 'ok');
-    // Push owner
-    const ownerSub = await getFreshOwnerSub();
-    if (ownerSub) {
-      sendPushToDevice(ownerSub,
-        '❌ Clean Declined',
-        `${c.cleaner} cannot do the clean for ${c.guestName || 'guest'} on ${fmt(c.date)}. Reassign needed.`,
-        '/',
-        'decline-' + cleanId
-      );
+    // Push owner via user_id mode (cleaner doesn't have owner's local sub)
+    try {
+      const { uid } = (typeof globalThis.getCleanerParams === 'function') ? globalThis.getCleanerParams() : {};
+      if (uid) {
+        fetch('/.netlify/functions/send-push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: uid,
+            title: '❌ Clean Declined',
+            body: c.cleaner + ' cannot do the clean for ' + (c.guestName || 'guest') + ' on ' + fmt(c.date) + '. Reassign needed.',
+            url: '/',
+            tag: 'decline-' + cleanId
+          })
+        }).catch(e => console.warn('[StayOps] Push notify failed:', e));
+      }
+    } catch (e) {
+      console.warn('[StayOps] Push notify failed:', e);
     }
   } finally {
     releaseCleaningLock(lockKey);
@@ -1211,15 +1229,24 @@ export async function cleanerMarkDone(cleanId) {
     renderCleanerCleans();
     if (typeof saveCleaningJobToCloud === 'function' && window._supabaseUser) saveCleaningJobToCloud(c);
     globalThis.showBanner('✓ Clean marked as complete', 'ok');
-    // Push owner
-    const ownerSub = await getFreshOwnerSub();
-    if (ownerSub) {
-      sendPushToDevice(ownerSub,
-        '🏡 Clean Complete!',
-        `${c.cleaner} has finished the clean for ${c.guestName || 'guest'} on ${fmt(c.date)}`,
-        '/',
-        'done-' + cleanId
-      );
+    // Push owner via user_id mode (cleaner doesn't have owner's local sub)
+    try {
+      const { uid } = (typeof globalThis.getCleanerParams === 'function') ? globalThis.getCleanerParams() : {};
+      if (uid) {
+        fetch('/.netlify/functions/send-push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: uid,
+            title: '🏡 Clean Complete!',
+            body: c.cleaner + ' has finished the clean for ' + (c.guestName || 'guest') + ' on ' + fmt(c.date),
+            url: '/',
+            tag: 'done-' + cleanId
+          })
+        }).catch(e => console.warn('[StayOps] Push notify failed:', e));
+      }
+    } catch (e) {
+      console.warn('[StayOps] Push notify failed:', e);
     }
   } finally {
     releaseCleaningLock(lockKey);

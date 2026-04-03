@@ -5,7 +5,7 @@
 
 const webpush = require('web-push');
 
-const VAPID_SUBJECT = 'mailto:info@mtmanagement.com.au';
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:micheltou50@gmail.com';
 
 let _vapidConfigured = false;
 
