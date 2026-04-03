@@ -1797,8 +1797,12 @@ function renderDashboard() {
     if (singleDash) singleDash.style.display = 'none';
     if (portfolioDash) {
       portfolioDash.style.display = '';
+      const isDesktop = window.innerWidth >= 1024;
+      const wrapStyle = isDesktop
+        ? 'padding:0;min-height:80px'
+        : 'background:#f5f5f3;margin-left:-16px;margin-right:-16px;padding:16px;padding-bottom:12px;min-height:80px';
       portfolioDash.innerHTML =
-        '<div style="background:#f5f5f3;margin-left:-16px;margin-right:-16px;padding:16px;padding-bottom:12px;min-height:80px">' +
+        '<div style="' + wrapStyle + '">' +
         buildTodayDashboardMarkup({ portfolio: true }) +
         '</div>';
     }
@@ -2007,6 +2011,93 @@ function buildPortfolioTodayDashboardMarkup() {
       <div style="font-size:11px;color:${tertiary};margin-top:3px">Revenue next 30 days</div>
     </div>
   </div>`;
+
+  // Desktop: 2-column layout with bookings table + sidebar
+  if (window.innerWidth >= 1024) {
+    const upcoming = [...activeBookings]
+      .filter(b => parseLocalDayStart(b.checkout) >= todayStart)
+      .sort((a, b) => parseLocalDayStart(a.checkin) - parseLocalDayStart(b.checkin))
+      .slice(0, 10);
+    const fmtSh = d => { if (!d) return ''; return new Date(d).toLocaleDateString('en-AU', { day:'numeric', month:'short' }); };
+    const platformCls = p => { const lp = (p||'').toLowerCase(); if (lp.includes('airbnb')) return 'platform-airbnb'; if (lp.includes('vrbo')) return 'platform-vrbo'; return 'platform-direct'; };
+    const statusBdg = b => {
+      const today = new Date().toISOString().split('T')[0];
+      const ci = (b.checkin||'').slice(0,10), co = (b.checkout||'').slice(0,10);
+      if (ci === today) return '<span class="dt-badge dt-badge-green">Arriving</span>';
+      if (co === today) return '<span class="dt-badge dt-badge-amber">Departing</span>';
+      if (ci < today && co > today) return '<span class="dt-badge dt-badge-green">In-house</span>';
+      return '<span class="dt-badge dt-badge-blue">Confirmed</span>';
+    };
+    const propNameFor = b => {
+      const pid = b._propertyId;
+      if (!pid) return '';
+      const p = props.find(pr => String(_pidForProperty(pr)) === String(pid));
+      return p ? (p.name || p.propertyId) : '';
+    };
+    const tblRows = upcoming.map(b => {
+      const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
+      return `<tr onclick="showDetail('${bid}')" style="cursor:pointer"><td><strong>${escHtml(b.name)}</strong></td><td style="font-size:12px;color:var(--text-soft)">${escHtml(propNameFor(b))}</td><td>${fmtSh(b.checkin)}</td><td>${fmtSh(b.checkout)}</td><td>$${Number(b.hostPayout||0).toLocaleString()}</td><td><span class="dt-platform ${platformCls(b.platform)}">${escHtml(b.platform||'Direct')}</span></td><td>${statusBdg(b)}</td></tr>`;
+    }).join('');
+
+    const upcomingTable = `<div class="card" style="padding:0;overflow:hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 16px 12px">
+        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft)">Upcoming Bookings</span>
+        <span onclick="showSection('bookings')" style="font-size:12px;color:var(--moss);cursor:pointer;font-weight:500">View all &rarr;</span>
+      </div>
+      <table class="desktop-table"><thead><tr><th>Guest</th><th>Property</th><th>Check-in</th><th>Check-out</th><th>Payout</th><th>Platform</th><th>Status</th></tr></thead><tbody>${tblRows || '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text-soft)">No upcoming bookings</td></tr>'}</tbody></table>
+    </div>`;
+
+    // Today's cleans for sidebar
+    const todayStr = todayStart.toISOString().split('T')[0];
+    const todayCleans = cleans.filter(c => (c.date||'').slice(0,10) === todayStr && !c.done);
+    const cleansHtml = todayCleans.length
+      ? todayCleans.map(c => `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f0ede8">
+          <div style="flex:1"><div style="font-size:13px;font-weight:500">${escHtml(c.guestName||c.name||'Guest')}</div><div style="font-size:11px;color:var(--text-soft)">${escHtml(c.propertyName||'')}</div></div>
+          <div style="text-align:right"><div style="font-size:12px;color:var(--moss);font-weight:500">${escHtml(c.cleaner||'Unassigned')}</div></div>
+        </div>`).join('')
+      : '<div style="text-align:center;padding:16px;color:var(--text-soft);font-size:13px">No cleans today</div>';
+
+    // Per-property occupancy
+    const propOccHtml = props.map((p, i) => {
+      const pid = _pidForProperty(p);
+      const col = TODAY_PALETTE[i % TODAY_PALETTE.length];
+      let pNights = 0;
+      activeBookings.filter(b => String(b._propertyId||'') === String(pid)).forEach(b => {
+        if (!b.checkin || !b.checkout) return;
+        const ci2 = new Date(Math.max(new Date(b.checkin).getTime(), monthStart.getTime()));
+        const co2 = new Date(Math.min(new Date(b.checkout).getTime(), monthEnd.getTime()));
+        if (co2 > ci2) pNights += Math.round((co2 - ci2) / 86400000);
+      });
+      const pOcc = Math.round((pNights / daysThisMonth) * 100);
+      return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:4px 0"><span style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:${col.dot}"></span>${escHtml(p.name||p.propertyId)}</span><span style="font-weight:500">${pOcc}%</span></div>`;
+    }).join('');
+
+    return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:20px">
+      <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">${occupancyThisMonth}%</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Occupancy</div></div>
+      <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$${Math.round(revenueThisMonth).toLocaleString()}</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Revenue</div></div>
+      <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">${activeBookings.length}</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
+      <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$${Math.round(revenueNext30).toLocaleString()}</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 380px;gap:20px">
+      <div style="display:flex;flex-direction:column;gap:16px">
+        ${upcomingTable}
+        ${weekCard}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        ${needsHtml ? '<div class="card" style="padding:16px">' + needsHtml + '</div>' : ''}
+        <div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Today's Cleaning</div>${cleansHtml}</div>
+        <div class="card">
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Occupancy by Property</div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+            <span style="font-family:'DM Serif Display',serif;font-size:32px;color:var(--forest)">${occupancyThisMonth}%</span>
+            <span style="font-size:12px;color:var(--moss)">${bookedNightsMonth}/${denomDays} nights</span>
+          </div>
+          <div style="height:8px;background:#e8e0d5;border-radius:4px;overflow:hidden;margin-bottom:12px"><div style="height:100%;background:var(--moss);border-radius:4px;width:${occupancyThisMonth}%"></div></div>
+          ${propOccHtml}
+        </div>
+      </div>
+    </div>`;
+  }
 
   return needsHtml + weekCard + next7Html + statsHtml;
 }
