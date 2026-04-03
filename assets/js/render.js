@@ -1764,7 +1764,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
       <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">${activeBookings.length}</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
       <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$${Math.round(revenueNext30).toLocaleString()}</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 380px;gap:20px">
+    <div style="display:grid;grid-template-columns:1fr minmax(300px,380px);gap:20px">
       <div style="display:flex;flex-direction:column;gap:16px">
         ${upcomingTable}
         ${unifiedCalHtml}
@@ -2078,7 +2078,7 @@ function buildPortfolioTodayDashboardMarkup() {
       <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">${activeBookings.length}</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
       <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$${Math.round(revenueNext30).toLocaleString()}</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 380px;gap:20px">
+    <div style="display:grid;grid-template-columns:1fr minmax(300px,380px);gap:20px">
       <div style="display:flex;flex-direction:column;gap:16px">
         ${upcomingTable}
         ${weekCard}
