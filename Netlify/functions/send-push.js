@@ -65,7 +65,7 @@ exports.handler = async (event) => {
     }
 
     webpush.setVapidDetails(
-      process.env.VAPID_SUBJECT || 'mailto:admin@glenhaven21.netlify.app',
+      process.env.VAPID_SUBJECT || 'mailto:micheltou50@gmail.com',
       process.env.VAPID_PUBLIC_KEY,
       process.env.VAPID_PRIVATE_KEY
     );
@@ -99,16 +99,31 @@ exports.handler = async (event) => {
       }
 
       let sent = 0, failed = 0;
+      const staleEndpoints = [];
       for (const sub of subs) {
         try {
           await webpush.sendNotification(sub, pushPayload);
           sent++;
         } catch (e) {
-          console.warn('[send-push] Push failed for endpoint:', sub.endpoint, e.statusCode || e.message);
+          const sc = e && e.statusCode;
+          console.warn('[send-push] Push failed for endpoint:', sub.endpoint, sc || e.message);
+          if (sc === 404 || sc === 410) {
+            staleEndpoints.push(sub.endpoint);
+          }
           failed++;
         }
       }
-      console.log('[send-push] user_id mode: sent=' + sent + ' failed=' + failed);
+      // Clean up stale (expired/unsubscribed) endpoints
+      if (staleEndpoints.length) {
+        const filtered = subs.filter(s => s && s.endpoint && !staleEndpoints.includes(s.endpoint));
+        await sb
+          .from('app_config')
+          .update({ push_subscriptions: filtered, updated_at: new Date().toISOString() })
+          .eq('user_id', user_id)
+          .then(() => console.log('[send-push] Removed', staleEndpoints.length, 'stale endpoints'))
+          .catch(e => console.warn('[send-push] Stale cleanup failed:', e.message));
+      }
+      console.log('[send-push] user_id mode: sent=' + sent + ' failed=' + failed + ' stale=' + staleEndpoints.length);
       return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, sent, failed }) };
     }
 

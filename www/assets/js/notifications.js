@@ -971,7 +971,11 @@ export async function testCleanerEmail() {
 }
 
 export function cleanerLinkForId(c) {
-  return window.location.origin + window.location.pathname;
+  const base = window.location.origin + window.location.pathname;
+  const uid = window._supabaseUser ? window._supabaseUser.id : '';
+  return c.pin
+    ? (base + '?role=cleaner&id=' + encodeURIComponent(c.id) + '&p=' + encodeURIComponent(btoa(c.pin)) + '&uid=' + encodeURIComponent(uid) + '#cleaner/' + c.id + '/' + btoa(c.pin))
+    : (base + '?role=cleaner&id=' + encodeURIComponent(c.id) + '&uid=' + encodeURIComponent(uid) + '#cleaner/' + c.id);
 }
 
 if ('serviceWorker' in navigator) {

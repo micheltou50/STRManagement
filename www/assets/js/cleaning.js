@@ -1,7 +1,7 @@
 /**
  * Owner cleaning tab: scheduling, pipeline/timeline, cleaner assignment, locks.
  */
-import { bookings, cleans, save, loadJSON } from './state.js';
+import { bookings, cleans } from './state.js';
 import {
   fmt,
   fmtShort,
@@ -9,7 +9,7 @@ import {
   _normName,
   escapeJsSingleQuotedHtmlAttr,
 } from './utils.js';
-import { lsKey, getAllProperties, getActivePropertyId, initPropertyUI } from './config.js';
+import { getAllProperties, getActivePropertyId, initPropertyUI } from './config.js';
 import {
   getPropertyNameById,
   getPropertyColourById,
@@ -48,7 +48,7 @@ let cleanStatusFilter = 'all';
 let _expandedCleanIndex = null;
 
 function loadCleaners() {
-  return loadJSON(lsKey('cleaners'));
+  return (window._cleaners || []);
 }
 
 export function isCleanerPerson(person) {
@@ -157,13 +157,11 @@ export function normalizeBookingCleanState() {
     kept.forEach(c => cleans.push(c));
   }
 
-  const _skipPortfolioLs = typeof isPortfolioMode === 'function' && isPortfolioMode();
-  if (cleansChanged && !_skipPortfolioLs) localStorage.setItem(lsKey('cleans'), JSON.stringify(cleans));
-  if (bookingsChanged && !_skipPortfolioLs) localStorage.setItem(lsKey('bookings'), JSON.stringify(bookings));
+  // TODO: was persisting cleans/bookings to localStorage; now cloud/in-memory only
   return cleansChanged || bookingsChanged;
 }
 function loadCleanerAutomationState() {
-  const raw = loadJSON(lsKey('cleaner-automation')) || {};
+  const raw = (window._appConfig && window._appConfig.cleaner_automation) || {};
   return {
     lastCleanerId: raw.lastCleanerId || null,
     freq: raw.freq && typeof raw.freq === 'object' ? raw.freq : {}
@@ -171,10 +169,12 @@ function loadCleanerAutomationState() {
 }
 
 function saveCleanerAutomationState(state) {
-  localStorage.setItem(lsKey('cleaner-automation'), JSON.stringify({
+  window._appConfig = window._appConfig || {};
+  window._appConfig.cleaner_automation = {
     lastCleanerId: state.lastCleanerId || null,
     freq: state.freq && typeof state.freq === 'object' ? state.freq : {}
-  }));
+  };
+  // TODO: migrate to Supabase app_config
 }
 
 function cleanerUsageKey(cleanerObj) {
@@ -206,7 +206,7 @@ function recordCleanerAssignmentUsage(cleanerObj) {
   st.lastCleanerId = cleanerObj.id !== undefined ? cleanerObj.id : st.lastCleanerId;
   st.freq[usageKey] = Number(st.freq[usageKey] || 0) + 1;
   saveCleanerAutomationState(st);
-  if (cleanerObj.name) localStorage.setItem(lsKey('last-cleaner'), cleanerObj.name);
+  // TODO: migrate last-cleaner to Supabase app_config.ui_preferences
 }
 
 export function getPreferredCleaner() {
@@ -217,11 +217,7 @@ export function getPreferredCleaner() {
     const byLastId = all.find(c => String(c.id) === String(st.lastCleanerId));
     if (byLastId) return byLastId;
   }
-  const legacyName = String(localStorage.getItem(lsKey('last-cleaner')) || '').trim();
-  if (legacyName) {
-    const byLegacy = all.find(c => _normName(c.name) === _normName(legacyName));
-    if (byLegacy) return byLegacy;
-  }
+  // TODO: migrate last-cleaner fallback (previously stored in localStorage)
   const topKey = Object.entries(st.freq)
     .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))[0]?.[0];
   if (topKey) {
@@ -244,7 +240,7 @@ export function maybeAutoAssignPreferredCleaner(booking, reason) {
   if (!booking || booking.status === 'cancelled') return false;
   if (!booking.checkout || new Date(booking.checkout) < new Date()) return false;
   // Check auto-assign toggle — default ON
-  if (localStorage.getItem(lsKey('auto-assign-cleaner')) === 'off') return false;
+  if (window._appConfig && window._appConfig.auto_assign_cleaner === false) return false;
   const state = getBookingCleanerState(booking);
   if (state.key !== 'unassigned') return false;
   const preferred = getPreferredCleaner();
@@ -294,7 +290,11 @@ export async function quickAssignLastCleaner(bookingId) {
     if (sameAssignment) {
       booking.cleanerConfirmed = !!prev.cleanerConfirmed;
       normalizeBookingCleanState();
-      save();
+      try {
+        await saveCleanToCloud(prev);
+      } catch (e) {
+        console.error('[StayOps] Cloud save failed:', e);
+      }
       globalThis.showBanner('No changes — already assigned to ' + preferred.name, 'ok');
       return;
     }
@@ -318,8 +318,11 @@ export async function quickAssignLastCleaner(bookingId) {
     booking.cleanerConfirmed = false;
     recordCleanerAssignmentUsage(preferred);
     normalizeBookingCleanState();
-    save();
-    if (typeof saveCleanToCloud === 'function') saveCleanToCloud(newClean).catch(() => {});
+    try {
+      await saveCleanToCloud(newClean);
+    } catch (e) {
+      console.error('[StayOps] Cloud save failed:', e);
+    }
     if (typeof saveBookingToCloud === 'function') saveBookingToCloud(booking).catch(() => {});
     globalThis.showBanner('✓ Assigned to ' + preferred.name + ' — awaiting cleaner response', 'ok');
     globalThis.renderBookings();
@@ -327,13 +330,17 @@ export async function quickAssignLastCleaner(bookingId) {
     populateSelects();
     if (globalThis.getCurrentSection && globalThis.getCurrentSection() === 'cleaning') renderCleaning();
     _sendCleanerAssignmentNotifications(booking, preferred, booking.checkout, 'quick-assign-' + bookingId)
-      .then(notify => {
+      .then(async notify => {
         if (notify.emailSent) {
           globalThis.showBanner('✉️ Email sent to ' + preferred.name, 'ok');
         } else {
           if (window.confirm('Notify ' + preferred.name + ' via SMS?')) {
             newClean.notified = true;
-            save();
+            try {
+              await saveCleanToCloud(newClean);
+            } catch (e) {
+              console.error('[StayOps] Cloud save failed:', e);
+            }
             openNotifyModal(newClean.id);
           }
         }
@@ -780,8 +787,9 @@ export function reassignClean(cleanId) {
     c.cleanerConfirmed = false;
     c.notified = false;
     normalizeBookingCleanState();
-    save();
-    if (typeof saveCleanToCloud === 'function') saveCleanToCloud(c).catch(() => {});
+    if (typeof saveCleanToCloud === 'function') {
+      saveCleanToCloud(c).catch(e => console.error('[StayOps] Cloud save failed:', e));
+    }
   } else {
     console.log('[StayOps] reassignClean: clean not found', cleanId);
     globalThis.showDetail(cleanId);
@@ -803,8 +811,7 @@ export function markCleanerConfirmed(id) {
   const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)));
   if (b) b.cleanerConfirmed = true;
   normalizeBookingCleanState();
-  save();
-  if (typeof saveCleanToCloud === 'function') saveCleanToCloud(c).catch(() => {});
+  if (typeof saveCleanToCloud === 'function') saveCleanToCloud(c).catch(e => console.error('[StayOps] Cloud save failed:', e));
   if (b && typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(() => {});
   globalThis.showBanner('✅ Cleaner confirmed', 'ok');
   renderCleaning();
@@ -820,8 +827,7 @@ export function markCleanDeclined(id) {
   const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)));
   if (b) b.cleanerConfirmed = false;
   normalizeBookingCleanState();
-  save();
-  if (typeof saveCleanToCloud === 'function') saveCleanToCloud(c).catch(() => {});
+  if (typeof saveCleanToCloud === 'function') saveCleanToCloud(c).catch(e => console.error('[StayOps] Cloud save failed:', e));
   if (b && typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(() => {});
   globalThis.showBanner('Clean marked as declined — reassign when ready', 'warn');
   renderCleaning();
@@ -851,7 +857,7 @@ export function populateCleanerSelect() {
   const sel = document.getElementById('clean-name');
   if (!sel) return;
   if (cleaners.length > 0) {
-    const lastCleaner = localStorage.getItem(lsKey('last-cleaner')) || '';
+    const lastCleaner = '';
     sel.innerHTML = cleaners.map(c => `<option value="${c.name}" data-phone="${c.phone||''}" ${c.name===lastCleaner?'selected':''}>${c.name}${c.phone?' — '+c.phone:''}</option>`).join('');
   } else {
     sel.innerHTML = '<option value="">No cleaners saved — add in Settings</option>';
@@ -881,8 +887,9 @@ export function toggleCleanerConfirmed(id) {
     if (typeof saveCleaningJobToCloud === 'function') saveCleaningJobToCloud(matchedClean);
   }
   normalizeBookingCleanState();
-  save();
-  if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
+  if (matchedClean && typeof saveCleanToCloud === 'function') {
+    saveCleanToCloud(matchedClean).catch(e => console.error('[StayOps] Cloud save failed:', e));
+  }
   // Fix: also persist the booking's cleaner_confirmed to Supabase so both
   // tables stay in sync (previously only the clean record was saved).
   if (typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(() => {});
@@ -891,11 +898,90 @@ export function toggleCleanerConfirmed(id) {
   renderCleaning();
 }
 export function loadCleanerLearning() {
-  return loadJSON(lsKey('cleaner-learning')) || { lastCleanerId: null, frequency: {} };
+  return (window._appConfig && window._appConfig.cleaner_learning) || { lastCleanerId: null, frequency: {} };
 }
 
+/** Edge Function expects cleaners.id (Supabase UUID). App stores that on cleaner._cloudId; cleaner.id is local. */
+function _resolveInviteCleanerCloudId(passed) {
+  const raw = passed != null ? String(passed).trim() : '';
+  if (!raw) return '';
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) return raw;
+  const list = typeof globalThis.loadCleaners === 'function' ? globalThis.loadCleaners() : [];
+  for (const c of list) {
+    if (!c) continue;
+    if (String(c.id) === raw) {
+      const pk = c._cloudId || c.cloud_id;
+      return pk ? String(pk) : '';
+    }
+  }
+  return '';
+}
+
+async function inviteCleaner(cleanerId) {
+  if (!cleanerId) return;
+  const cleaners = window._cleaners || [];
+  const cleaner = cleaners.find(c => (c._cloudId || c.cloud_id) === cleanerId);
+  if (!cleaner) { alert('Cleaner not found'); return; }
+  if (!cleaner.email) { alert('Add an email address to this cleaner first'); return; }
+
+  const btn = document.getElementById('invite-btn-' + cleanerId);
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+  const appUrl = window.location.origin;
+  const html = `
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+      <h2 style="color:#1E3A2F">You're invited to StayOps</h2>
+      <p>Hi ${cleaner.name || 'there'},</p>
+      <p>You've been added as a cleaner on StayOps. Create your account to view and manage your assigned cleans.</p>
+      <a href="${appUrl}" style="display:inline-block;padding:14px 28px;background:#1E3A2F;color:white;text-decoration:none;border-radius:10px;font-weight:bold;margin:16px 0">Sign Up on StayOps</a>
+      <p style="color:#999;font-size:13px">Use this email address (${cleaner.email}) when signing up so your account is automatically linked.</p>
+    </div>
+  `;
+
+  try {
+    let authToken = '';
+    if (window._sb) {
+      const { data } = await window._sb.auth.getSession();
+      authToken = data?.session?.access_token || '';
+    }
+
+    const res = await fetch('/.netlify/functions/send-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { 'Authorization': 'Bearer ' + authToken } : {})
+      },
+      body: JSON.stringify({
+        to: cleaner.email,
+        subject: 'You\'re invited to StayOps',
+        html: html
+      })
+    });
+
+    const result = await res.json();
+    if (result.success || result.status === 'ok') {
+      if (typeof globalThis.showBanner === 'function') globalThis.showBanner('Invitation sent to ' + cleaner.email, 'ok');
+      if (btn) { btn.textContent = 'Invited ✓'; btn.style.opacity = '0.6'; }
+
+      // Update invitation status in Supabase
+      if (window._sb && cleanerId) {
+        window._sb.from('cleaners').update({ invitation_status: 'invited' }).eq('id', cleanerId).then(() => {});
+      }
+    } else {
+      alert('Failed to send invite: ' + (result.error || 'Unknown error'));
+      if (btn) { btn.disabled = false; btn.textContent = 'Invite to App'; }
+    }
+  } catch (e) {
+    alert('Failed to send invite: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Invite to App'; }
+  }
+}
+window.inviteCleaner = inviteCleaner;
+
 export function saveCleanerLearning(state) {
-  localStorage.setItem(lsKey('cleaner-learning'), JSON.stringify(state || { lastCleanerId: null, frequency: {} }));
+  window._appConfig = window._appConfig || {};
+  window._appConfig.cleaner_learning = state || { lastCleanerId: null, frequency: {} };
+  // TODO: migrate to Supabase app_config
 }
 
 export function updateCleanerLearning(cleanerObj, assignmentSource) {
@@ -916,8 +1002,7 @@ export function updateCleanerLearning(cleanerObj, assignmentSource) {
   if (shouldUpdateLastCleaner) learning.lastCleanerId = cleanerObj.id;
 
   saveCleanerLearning(learning);
-  // Keep existing suggestion behavior that relies on the cleaner name.
-  localStorage.setItem(lsKey('last-cleaner'), cleanerObj.name || '');
+  // TODO: migrate last-cleaner to Supabase app_config.ui_preferences
 }
 export function autoFillCleanDate() {
   const bookingIdRaw = document.getElementById('clean-booking-select').value;
@@ -935,7 +1020,7 @@ export function addClean() {
   const cleaner = selectEl ? selectEl.value.trim() : document.getElementById('clean-name').value.trim();
   const date=document.getElementById('clean-date').value;
   if (!bookingIdRaw||!cleaner||!date){globalThis.showBanner('⚠ Please fill all fields','warn'); releaseCleaningLock('addClean'); return;}
-  localStorage.setItem(lsKey('last-cleaner'), cleaner);
+  // TODO: migrate last-cleaner to Supabase app_config.ui_preferences
   const booking = bookings.find(b => String(b.id) === String(bookingIdRaw) || (b._cloudId && String(b._cloudId) === String(bookingIdRaw)));
   if (!booking) { globalThis.showBanner('⚠ Booking not found — it may have been deleted', 'warn'); releaseCleaningLock('addClean'); return; }
   const bookingId = booking.id;
@@ -958,15 +1043,18 @@ export function addClean() {
   else cleans.push(newClean);
   booking.cleanerConfirmed = false;
   if (cleanerObj) recordCleanerAssignmentUsage(cleanerObj);
-  save();
-  if (typeof saveCleansToCloud === 'function') saveCleansToCloud(cleans).catch(() => {});
+  if (typeof saveCleanToCloud === 'function') {
+    saveCleanToCloud(newClean).catch(e => console.error('[StayOps] Cloud save failed:', e));
+  }
   globalThis.showBanner('✅ Clean scheduled for ' + newClean.date, 'ok');
   // Prompt to send SMS — only mark notified if user confirms
   globalThis.showAppModal({ title: '💬 Send SMS?', msg: `Notify ${cleaner} about this booking now?`, confirmText: 'Send SMS', cancelText: 'Later' })
     .then(ok => {
       if (ok) {
         newClean.notified = true;
-        save();
+        if (typeof saveCleanToCloud === 'function') {
+          saveCleanToCloud(newClean).catch(e => console.error('[StayOps] Cloud save failed:', e));
+        }
         switchCleanView('timeline');
         globalThis.renderBookings();
         openNotifyModal(newClean.id);
@@ -983,7 +1071,9 @@ export function toggleClean(id) {
   const c=cleans.find(c=>c.id===id);
   if (c){
     c.done=!c.done;
-    save();
+    if (typeof saveCleanToCloud === 'function') {
+      saveCleanToCloud(c).catch(e => console.error('[StayOps] Cloud save failed:', e));
+    }
     renderCleaning(); globalThis.renderDashboard();
   }
 }
@@ -1021,7 +1111,11 @@ export async function cleanerAccept(cleanId) {
   if (b) b.cleanerConfirmed = true;
   try {
     normalizeBookingCleanState();
-    save();
+    try {
+      await saveCleanToCloud(c);
+    } catch (e) {
+      console.error('[StayOps] Cloud save failed:', e);
+    }
     // Try direct Supabase first (works in Safari), fall back to Netlify function (home screen PWA)
     if (typeof saveCleansToCloud === 'function' && window._supabaseUser) {
       saveCleansToCloud(cleans).catch(() => {});
@@ -1030,15 +1124,24 @@ export async function cleanerAccept(cleanId) {
     }
     renderCleanerCleans();
     globalThis.showBanner('✓ Clean accepted!', 'ok');
-    // Push owner
-    const ownerSub = await getFreshOwnerSub();
-    if (ownerSub) {
-      sendPushToDevice(ownerSub,
-        '✅ Clean Confirmed',
-        `${c.cleaner} accepted the clean for ${c.guestName || 'guest'} on ${fmt(c.date)}`,
-        '/',
-        'accept-' + cleanId
-      );
+    // Push owner via user_id mode (cleaner doesn't have owner's local sub)
+    try {
+      const { uid } = (typeof globalThis.getCleanerParams === 'function') ? globalThis.getCleanerParams() : {};
+      if (uid) {
+        fetch('/.netlify/functions/send-push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: uid,
+            title: '✅ Clean Confirmed',
+            body: c.cleaner + ' accepted the clean for ' + (c.guestName || 'guest') + ' on ' + fmt(c.date),
+            url: '/',
+            tag: 'accept-' + cleanId
+          })
+        }).catch(e => console.warn('[StayOps] Push notify failed:', e));
+      }
+    } catch (e) {
+      console.warn('[StayOps] Push notify failed:', e);
     }
   } finally {
     releaseCleaningLock(lockKey);
@@ -1064,7 +1167,11 @@ export async function cleanerDecline(cleanId) {
   if (b) b.cleanerConfirmed = false;
   try {
     normalizeBookingCleanState();
-    save();
+    try {
+      await saveCleanToCloud(c);
+    } catch (e) {
+      console.error('[StayOps] Cloud save failed:', e);
+    }
     if (typeof saveCleansToCloud === 'function' && window._supabaseUser) {
       saveCleansToCloud(cleans).catch(() => {});
     } else {
@@ -1073,15 +1180,24 @@ export async function cleanerDecline(cleanId) {
     if (typeof saveCleaningJobToCloud === 'function' && window._supabaseUser) saveCleaningJobToCloud(c);
     renderCleanerCleans();
     globalThis.showBanner('Clean declined', 'ok');
-    // Push owner
-    const ownerSub = await getFreshOwnerSub();
-    if (ownerSub) {
-      sendPushToDevice(ownerSub,
-        '❌ Clean Declined',
-        `${c.cleaner} cannot do the clean for ${c.guestName || 'guest'} on ${fmt(c.date)}. Reassign needed.`,
-        '/',
-        'decline-' + cleanId
-      );
+    // Push owner via user_id mode (cleaner doesn't have owner's local sub)
+    try {
+      const { uid } = (typeof globalThis.getCleanerParams === 'function') ? globalThis.getCleanerParams() : {};
+      if (uid) {
+        fetch('/.netlify/functions/send-push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: uid,
+            title: '❌ Clean Declined',
+            body: c.cleaner + ' cannot do the clean for ' + (c.guestName || 'guest') + ' on ' + fmt(c.date) + '. Reassign needed.',
+            url: '/',
+            tag: 'decline-' + cleanId
+          })
+        }).catch(e => console.warn('[StayOps] Push notify failed:', e));
+      }
+    } catch (e) {
+      console.warn('[StayOps] Push notify failed:', e);
     }
   } finally {
     releaseCleaningLock(lockKey);
@@ -1100,7 +1216,11 @@ export async function cleanerMarkDone(cleanId) {
   if (b) b.cleanerConfirmed = true;
   try {
     normalizeBookingCleanState();
-    save();
+    try {
+      await saveCleanToCloud(c);
+    } catch (e) {
+      console.error('[StayOps] Cloud save failed:', e);
+    }
     if (typeof saveCleansToCloud === 'function' && window._supabaseUser) {
       saveCleansToCloud(cleans).catch(() => {});
     } else {
@@ -1109,15 +1229,24 @@ export async function cleanerMarkDone(cleanId) {
     renderCleanerCleans();
     if (typeof saveCleaningJobToCloud === 'function' && window._supabaseUser) saveCleaningJobToCloud(c);
     globalThis.showBanner('✓ Clean marked as complete', 'ok');
-    // Push owner
-    const ownerSub = await getFreshOwnerSub();
-    if (ownerSub) {
-      sendPushToDevice(ownerSub,
-        '🏡 Clean Complete!',
-        `${c.cleaner} has finished the clean for ${c.guestName || 'guest'} on ${fmt(c.date)}`,
-        '/',
-        'done-' + cleanId
-      );
+    // Push owner via user_id mode (cleaner doesn't have owner's local sub)
+    try {
+      const { uid } = (typeof globalThis.getCleanerParams === 'function') ? globalThis.getCleanerParams() : {};
+      if (uid) {
+        fetch('/.netlify/functions/send-push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: uid,
+            title: '🏡 Clean Complete!',
+            body: c.cleaner + ' has finished the clean for ' + (c.guestName || 'guest') + ' on ' + fmt(c.date),
+            url: '/',
+            tag: 'done-' + cleanId
+          })
+        }).catch(e => console.warn('[StayOps] Push notify failed:', e));
+      }
+    } catch (e) {
+      console.warn('[StayOps] Push notify failed:', e);
     }
   } finally {
     releaseCleaningLock(lockKey);
@@ -1170,7 +1299,13 @@ export async function assignCleanerToBooking(bookingIdParam) {
   if (sameAssignment && !alreadyConfirmed) {
     booking.cleanerConfirmed = !!prev.cleanerConfirmed;
     normalizeBookingCleanState();
-    save();
+    if (prev && typeof saveCleanToCloud === 'function') {
+      try {
+        await saveCleanToCloud(prev);
+      } catch (e) {
+        console.error('[StayOps] Cloud save failed:', e);
+      }
+    }
     globalThis.showBanner('No changes — already assigned to ' + cleanerObj.name, 'ok');
     globalThis.showDetail(detailId);
     releaseCleaningLock(lockKey);
@@ -1199,7 +1334,6 @@ export async function assignCleanerToBooking(bookingIdParam) {
   try {
     normalizeBookingCleanState();
     recordCleanerAssignmentUsage(cleanerObj);
-    save();
     if (typeof saveCleanToCloud === 'function') {
       console.log('[StayOps] saveCleanToCloud starting', { localId: newClean.id, _cloudId: newClean._cloudId });
       await saveCleanToCloud(newClean);
