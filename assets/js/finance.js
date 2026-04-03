@@ -20,7 +20,7 @@ import {
 } from './bank-import.js';
 import { findMatchesForTransaction, getReconciliationSummary } from './reconciliation.js';
 import { bookings, expenses, replaceArrayInPlace } from './state.js';
-import { escHtml, fmt, fyLabel, fyMonths } from './utils.js';
+import { escHtml, fmt, fyLabel, fyMonths, escapeJsSingleQuotedHtmlAttr } from './utils.js';
 import { renderPortfolioFinance, isPortfolioMode } from './property.js';
 import {
   clearExpensePhoto,
@@ -2259,13 +2259,55 @@ function renderExpenses() {
   let displayKeys = monthKeys;
   if (!_expShowOlderMonths && monthKeys.length > 6) displayKeys = monthKeys.slice(0, 6);
 
-  listEl.innerHTML = displayKeys
-    .map((sk) => {
-      const { items, label } = grouped[sk];
-      return `<div class="fin-month-hdr">${escHtml(label)}</div>
-        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">${items.map(expRow).join('')}</div>`;
-    })
-    .join('');
+  // Desktop: table view for expenses
+  if (window.innerWidth >= 1024) {
+    const allFiltered = monthKeys.flatMap(sk => grouped[sk].items);
+    const tblRows = allFiltered.map(e => {
+      const isRefund = Number(e.amount) < 0;
+      const amtColor = isRefund ? '#1D9E75' : '#A32D2D';
+      const prefix = isRefund ? '+' : '';
+      const catCol = getCategoryColor(e.category);
+      const hasRec = expenseHasReceiptAttached(e);
+      const recHtml = hasRec ? '<span style="color:#185FA5;font-size:11px">Attached</span>' : '<span style="color:#A32D2D;font-size:11px">None</span>';
+      return `<tr onclick="openExpenseView('${escapeJsSingleQuotedHtmlAttr(String(e.id))}')" style="cursor:pointer">
+        <td>${fmt(e.date)}</td>
+        <td><strong>${escHtml(e.merchant || 'Unknown')}</strong>${e.description ? '<div style="font-size:11px;color:var(--text-soft)">' + escHtml(e.description) + '</div>' : ''}</td>
+        <td><span style="font-size:11px;font-weight:600;color:${catCol};background:${catCol}15;padding:2px 8px;border-radius:6px">${escHtml(e.category || '')}</span></td>
+        <td>${recHtml}</td>
+        <td style="text-align:right;font-weight:500;color:${amtColor}">${prefix}$${Math.abs(Number(e.amount)).toFixed(2)}</td>
+      </tr>`;
+    }).join('');
+
+    // Expense categories breakdown
+    const catTotals = {};
+    allFiltered.forEach(e => {
+      const cat = e.category || 'Other';
+      catTotals[cat] = (catTotals[cat] || 0) + Math.abs(Number(e.amount) || 0);
+    });
+    const catBreakdown = Object.entries(catTotals)
+      .sort((a, b) => b[1] - a[1])
+      .map(([cat, total]) => {
+        const col = getCategoryColor(cat);
+        return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0ede8;font-size:13px"><span style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:' + col + '"></span>' + escHtml(cat) + '</span><span style="font-weight:500">$' + total.toFixed(0) + '</span></div>';
+      }).join('');
+
+    listEl.innerHTML = '<div style="display:grid;grid-template-columns:1fr minmax(260px,300px);gap:20px">' +
+      '<div class="card" style="padding:0;overflow:hidden;overflow-x:auto"><table class="desktop-table"><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Receipt</th><th style="text-align:right">Amount</th></tr></thead><tbody>' + tblRows + '</tbody></table></div>' +
+      '<div style="display:flex;flex-direction:column;gap:16px">' +
+        '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">This Month</div>' +
+          '<div style="font-family:\'DM Serif Display\',serif;font-size:28px;color:var(--forest)">$' + Math.abs(monthSum).toFixed(0) + '</div>' +
+          '<div style="font-size:12px;color:var(--text-soft);margin-top:4px">' + monthCnt + ' expenses</div></div>' +
+        '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">By Category</div>' + catBreakdown + '</div>' +
+      '</div></div>';
+  } else {
+    listEl.innerHTML = displayKeys
+      .map((sk) => {
+        const { items, label } = grouped[sk];
+        return `<div class="fin-month-hdr">${escHtml(label)}</div>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">${items.map(expRow).join('')}</div>`;
+      })
+      .join('');
+  }
 
   globalThis.animateList('#expenses-list');
   setTimeout(globalThis.attachLongPress, 60);

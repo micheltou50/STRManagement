@@ -771,6 +771,12 @@ export function renderCleaning() {
 
   const showProperty = isPortfolioMode();
 
+  // Desktop: table view regardless of view mode
+  if (window.innerWidth >= 1024) {
+    _renderCleanDesktopTable(data, showProperty);
+    return;
+  }
+
   if (cleaningViewMode === 'timeline') {
     renderCleanTimeline(data, showProperty);
   } else if (cleaningViewMode === 'pipeline') {
@@ -778,6 +784,75 @@ export function renderCleaning() {
   } else if (cleaningViewMode === 'property') {
     renderCleanByProperty(data);
   }
+}
+
+function _renderCleanDesktopTable(data, showProperty) {
+  const list = document.getElementById('cleaning-list');
+  if (!list) return;
+
+  const items = data.filtered;
+  if (!items.length) {
+    list.innerHTML = '<div class="card" style="text-align:center;padding:40px"><div style="font-size:36px;margin-bottom:10px;opacity:0.4">&#10003;</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">All clear</div><div style="font-size:12px;color:var(--text-soft)">No cleans match this filter</div></div>';
+    return;
+  }
+
+  const fmtSh = d => { if (!d) return ''; return new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day:'numeric', month:'short' }); };
+  const statusBadge = item => {
+    if (item.status === 'confirmed') return '<span class="dt-badge dt-badge-green">Confirmed</span>';
+    if (item.status === 'unassigned') return '<span class="dt-badge dt-badge-red">Unassigned</span>';
+    if (item.status === 'awaiting') return '<span class="dt-badge dt-badge-amber">Awaiting</span>';
+    return '<span class="dt-badge dt-badge-gray">' + escHtml(item.status) + '</span>';
+  };
+
+  const propTh = showProperty ? '<th>Property</th>' : '';
+  const rows = items.map(item => {
+    const propTd = showProperty ? '<td style="font-size:12px;color:var(--text-soft)">' + escHtml(item.propertyId ? getPropertyNameById(item.propertyId) : '') + '</td>' : '';
+    const cleanerHtml = item.cleaner
+      ? '<span style="color:var(--moss);font-weight:500">' + escHtml(item.cleaner) + '</span>'
+      : '<span style="color:var(--red);font-size:12px">Unassigned</span>';
+    const costHtml = item.clean && item.clean.cost ? '$' + Number(item.clean.cost).toLocaleString() : '—';
+    const bid = item.booking ? escapeJsSingleQuotedHtmlAttr(String(item.booking._cloudId || item.booking.id)) : '';
+    const onclick = bid ? ' onclick="showDetail(\'' + bid + '\')" style="cursor:pointer"' : '';
+    return '<tr' + onclick + '>' +
+      '<td>' + fmtSh(item.date) + '</td>' +
+      propTd +
+      '<td><strong>' + escHtml(item.guest) + '</strong></td>' +
+      '<td>' + cleanerHtml + '</td>' +
+      '<td>' + statusBadge(item) + '</td>' +
+      '<td>' + costHtml + '</td>' +
+      '</tr>';
+  }).join('');
+
+  // Cleaner summary sidebar
+  const cleanerMap = {};
+  items.forEach(item => {
+    const name = item.cleaner || 'Unassigned';
+    if (!cleanerMap[name]) cleanerMap[name] = 0;
+    cleanerMap[name]++;
+  });
+  const cleanerSummary = Object.entries(cleanerMap)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, count]) => {
+      const col = name === 'Unassigned' ? 'var(--red)' : 'var(--moss)';
+      return '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f0ede8;font-size:13px"><span style="font-weight:500">' + escHtml(name) + '</span><span style="color:' + col + '">' + count + ' clean' + (count > 1 ? 's' : '') + '</span></div>';
+    }).join('');
+
+  const confirmed = items.filter(i => i.status === 'confirmed').length;
+  const unassigned = items.filter(i => i.status === 'unassigned').length;
+  const awaiting = items.filter(i => i.status === 'awaiting').length;
+
+  list.innerHTML = '<div style="display:grid;grid-template-columns:1fr minmax(280px,320px);gap:20px">' +
+    '<div class="card" style="padding:0;overflow:hidden;overflow-x:auto">' +
+      '<table class="desktop-table"><thead><tr><th>Date</th>' + propTh + '<th>Guest</th><th>Cleaner</th><th>Status</th><th>Cost</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+    '</div>' +
+    '<div style="display:flex;flex-direction:column;gap:16px">' +
+      '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Cleaner Summary</div>' + cleanerSummary + '</div>' +
+      '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Overview</div>' +
+        '<div style="font-family:\'DM Serif Display\',serif;font-size:28px;color:var(--forest)">' + items.length + ' cleans</div>' +
+        '<div style="font-size:12px;color:var(--text-soft);margin-top:4px">' + confirmed + ' confirmed · ' + awaiting + ' awaiting · ' + unassigned + ' unassigned</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
 }
 
 export function reassignClean(cleanId) {
