@@ -858,6 +858,27 @@ function computeDedupedTodayAlerts(isPortfolio) {
         null
       );
     }
+
+    // Review cleaning cost — done cleans in last 7 days with no fee on booking
+    if (c.done && c.date) {
+      const cd = parseLocalDayStart(c.date);
+      const daysSince = Number.isNaN(cd.getTime()) ? 99 : Math.ceil((todayStart - cd) / 86400000);
+      if (daysSince >= 0 && daysSince <= 7) {
+        const bk = bookings.find(
+          x => String(x.id) === String(c.bookingId) || (x._cloudId && String(x._cloudId) === String(c.bookingId))
+        );
+        if (bk && !Number(bk.cleaningFee)) {
+          pushAlert(
+            'e',
+            'Review cleaning cost',
+            `${propName} · ${c.guestName || bk.name || 'Guest'} · cleaned ${fmtShort(c.date)}`,
+            false,
+            c.id,
+            bk.id
+          );
+        }
+      }
+    }
   });
 
   const seen = new Set();
@@ -878,7 +899,11 @@ function buildNeedsAttentionHtmlFromDeduped(deduped) {
     .map(a => {
       const dot = a.urgent ? '#E24B4A' : '#BA7517';
       let onclk;
-      if (a.type === 'b' && a.bookingLocalId != null) {
+      if (a.type === 'e' && a.bookingLocalId != null) {
+        const bk = bookings.find(x => String(x.id) === String(a.bookingLocalId));
+        const bidEsc = escapeJsSingleQuotedHtmlAttr(String(bk ? bk._cloudId || bk.id : a.bookingLocalId));
+        onclk = `onclick="showDetail('${bidEsc}')"`;
+      } else if (a.type === 'b' && a.bookingLocalId != null) {
         const bk = bookings.find(x => String(x.id) === String(a.bookingLocalId));
         const bidEsc = escapeJsSingleQuotedHtmlAttr(String(bk ? bk._cloudId || bk.id : a.bookingLocalId));
         onclk = `onclick="jumpToAssignClean('${bidEsc}')"`;
@@ -2106,10 +2131,10 @@ function renderMaintenance() {
           </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0">
-          <button onclick="deleteMaintenance(${m.id})" style="font-size:10px;color:var(--text-soft);background:none;border:none;cursor:pointer">✕</button>
+          <button onclick="deleteMaintenance('${m.id}')" style="font-size:10px;color:var(--text-soft);background:none;border:none;cursor:pointer">✕</button>
           ${m.status !== 'resolved' ? `
-          <button onclick="resolveIssue(${m.id})" style="font-size:11px;background:var(--moss);color:white;border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'DM Sans',sans-serif">Mark Resolved</button>
-          <button onclick="setMaintInProgress(${m.id})" style="font-size:11px;background:var(--forest-light);color:var(--sage);border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'DM Sans',sans-serif">In Progress</button>
+          <button onclick="resolveIssue('${m.id}')" style="font-size:11px;background:var(--moss);color:white;border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'DM Sans',sans-serif">Mark Resolved</button>
+          <button onclick="setMaintInProgress('${m.id}')" style="font-size:11px;background:var(--forest-light);color:var(--sage);border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'DM Sans',sans-serif">In Progress</button>
           ` : ''}
         </div>
       </div>
@@ -2213,10 +2238,10 @@ function renderInventory() {
     listEl.innerHTML = `<div class="card" style="padding:0">
       <div style="padding:10px 16px 6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);border-bottom:1px solid var(--warm)">${lowItems.length} item${lowItems.length!==1?'s':''} to reorder</div>
       ` + lowItems.map(i => `
-      <div onclick="restockItem(${i.id})" style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--warm);cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='var(--mist)'" onmouseout="this.style.background=''">
+      <div onclick="restockItem('${i.id}')" style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--warm);cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='var(--mist)'" onmouseout="this.style.background=''">
         <div style="width:22px;height:22px;border-radius:5px;border:2px solid var(--stone);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--moss)">+</div>
         <div>
-          <div style="font-weight:600;font-size:14px">${i.name}${i.unit?' <span style="font-size:12px;font-weight:400;color:var(--text-soft)">(${i.unit})</span>':''}</div>
+          <div style="font-weight:600;font-size:14px">${i.name}${i.unit?` <span style="font-size:12px;font-weight:400;color:var(--text-soft)">(${i.unit})</span>`:''}</div>
           <div style="font-size:11px;color:var(--text-soft);margin-top:2px">Stock: ${i.stock} · Reorder below ${i.threshold}</div>
         </div>
       </div>`).join('') + `</div>`;
@@ -2234,10 +2259,10 @@ function renderInventory() {
         <div style="font-size:12px;color:var(--text-soft);margin-top:1px">Reorder below ${i.threshold}${i.unit?' '+i.unit:''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-        <button onclick="adjustStock(${i.id},-1)" style="width:30px;height:30px;border-radius:50%;border:1px solid var(--stone);background:white;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;flex-shrink:0">−</button>
+        <button onclick="adjustStock('${i.id}',-1)" style="width:30px;height:30px;border-radius:50%;border:1px solid var(--stone);background:white;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;flex-shrink:0">−</button>
         <span style="font-weight:700;font-size:17px;min-width:26px;text-align:center;color:${isLow?'var(--red)':'var(--forest)'}">${i.stock}</span>
-        <button onclick="adjustStock(${i.id},1)" style="width:30px;height:30px;border-radius:50%;border:none;background:var(--forest);color:white;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;flex-shrink:0">+</button>
-        <button onclick="openInvEdit(${i.id})" style="width:30px;height:30px;border-radius:50%;border:1px solid var(--stone);background:white;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--forest)">ℹ</button>
+        <button onclick="adjustStock('${i.id}',1)" style="width:30px;height:30px;border-radius:50%;border:none;background:var(--forest);color:white;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;flex-shrink:0">+</button>
+        <button onclick="openInvEdit('${i.id}')" style="width:30px;height:30px;border-radius:50%;border:1px solid var(--stone);background:white;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--forest)">ℹ</button>
       </div>
     </div>`;
   }).join('') + `</div>`;
@@ -2265,7 +2290,7 @@ function updateThreshold(id, val) {
 }
 
 function adjustStock(id, delta) {
-  const item = inventory.find(i => i.id === id);
+  const item = inventory.find(i => String(i.id) === String(id));
   if (item) { item.stock = Math.max(0, item.stock + delta); savePropertyData(); renderInventory(); }
 }
 
@@ -2301,7 +2326,7 @@ async function deleteInventoryItem(id) {
 // ── INVENTORY EDIT ────────────────────────────────────────────────────────────
 let editingInvId = null;
 function openInvEdit(id) {
-  const i = inventory.find(i => i.id === id);
+  const i = inventory.find(i => String(i.id) === String(id));
   if (!i) return;
   editingInvId = id;
   document.getElementById('ie-name').value = i.name || '';
@@ -2737,7 +2762,7 @@ function getCleanerParams() {
   try {
     const saved = JSON.parse(localStorage.getItem('gh-cleaner-session') || 'null');
     if (saved && saved.id) return { id: saved.id, encoded: saved.encoded || null, uid: saved.uid || null };
-  } catch (e) {}
+  } catch (e) { /* ignore malformed session JSON */ }
   return { id: null, encoded: null, uid: null };
 }
 globalThis.getCleanerParams = getCleanerParams;
@@ -3142,9 +3167,9 @@ function renderCleanerInventory() {
           ${i.unit?`<div style="font-size:11px;color:var(--text-soft);margin-top:2px">${i.unit}</div>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-          <button onclick="cleanerAdjustStock(${i.id},-1)" style="width:36px;height:36px;border-radius:50%;border:1.5px solid var(--stone);background:white;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">−</button>
+          <button onclick="cleanerAdjustStock('${i.id}',-1)" style="width:36px;height:36px;border-radius:50%;border:1.5px solid var(--stone);background:white;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">−</button>
           <span style="font-weight:700;font-size:18px;min-width:28px;text-align:center;color:${isLow?'var(--red)':'var(--forest)'}">${i.stock}</span>
-          <button onclick="cleanerAdjustStock(${i.id},1)" style="width:36px;height:36px;border-radius:50%;border:none;background:var(--forest);color:white;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">+</button>
+          <button onclick="cleanerAdjustStock('${i.id}',1)" style="width:36px;height:36px;border-radius:50%;border:none;background:var(--forest);color:white;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">+</button>
         </div>
       </div>`;
     }).join('') + `</div>`;
@@ -3176,7 +3201,7 @@ async function cleanerAddInventoryItem() {
 }
 
 function cleanerAdjustStock(id, delta) {
-  const item = inventory.find(i => i.id === id);
+  const item = inventory.find(i => String(i.id) === String(id));
   if (!item) return;
   item.stock = Math.max(0, item.stock + delta);
   savePropertyData(); renderCleanerInventory();
@@ -3407,12 +3432,12 @@ function isOnboardingComplete() {
   try {
     const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
     if (!props.length) return false;
-  } catch(e) {}
+  } catch(e) { /* ignore if getAllProperties is not yet defined */ }
   if (localStorage.getItem('gh-setup-complete') === '1') return true;
   try {
     const cfg = typeof getActivePropertyConfig === 'function' ? getActivePropertyConfig() : null;
     if (cfg && cfg.name) return true;
-  } catch(e) {}
+  } catch(e) { /* ignore if getActivePropertyConfig is not yet defined */ }
   return false;
 }
 
@@ -3835,7 +3860,7 @@ async function cleanerMarkDone(cleanId) {
           body: JSON.stringify({
             user_id: uid,
             title: '🏡 Clean Complete!',
-            body: cleanerName + ' has finished the clean for ' + guestName + (cleanDate ? ' on ' + cleanDate : ''),
+            body: cleanerName + ' has finished the clean for ' + guestName + (cleanDate ? ' on ' + cleanDate : '') + ' — review cleaning cost',
             url: '/',
             tag: 'done-' + cleanId
           })
@@ -3983,7 +4008,7 @@ function renderCleanerProfile() {
   html += '</div>';
   html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #f5f5f3">';
   html += '<span style="font-size:13px;color:#999">Notifications</span>';
-  html += '<span id="cleaner-notif-status" style="font-size:13px;font-weight:600;color:#999">Checking…</span>';
+  html += '<span id="cleaner-profile-notif-status" style="font-size:13px;font-weight:600;color:#999"></span>';
   html += '</div>';
 
   const cleans = window._cleanerData.myCleans || [];
@@ -4005,26 +4030,26 @@ function renderCleanerProfile() {
 
   container.innerHTML = html;
 
-  // Check notification status synchronously from Notification.permission
-  const el = document.getElementById('cleaner-notif-status');
-  if (el) {
+  // Check notification status — use unique ID to avoid conflict with legacy header element
+  const notifEl = document.getElementById('cleaner-profile-notif-status');
+  if (notifEl) {
     const enableBtn =
       '<button onclick="window._enableCleanerNotifs()" style="background:var(--forest,#1E3A2F);color:white;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer">Enable</button>';
     if (typeof Notification === 'undefined' || !('serviceWorker' in navigator)) {
-      el.innerHTML = '<span style="color:#C0392B">Not supported</span>';
+      notifEl.innerHTML = '<span style="color:#C0392B">Not supported</span>';
     } else if (Notification.permission === 'granted') {
-      el.innerHTML = '<span style="color:#1D9E75">✓ Enabled</span>';
+      notifEl.innerHTML = '<span style="color:#1D9E75">✓ Enabled</span>';
     } else if (Notification.permission === 'denied') {
-      el.innerHTML = '<span style="color:#C0392B">Blocked</span>';
+      notifEl.innerHTML = '<span style="color:#C0392B">Blocked</span>';
     } else {
-      el.innerHTML = enableBtn;
+      notifEl.innerHTML = enableBtn;
     }
   }
 }
 window.renderCleanerProfile = renderCleanerProfile;
 
 window._enableCleanerNotifs = async function () {
-  const el = document.getElementById('cleaner-notif-status');
+  const el = document.getElementById('cleaner-profile-notif-status');
   if (el) el.innerHTML = '<span style="color:#999">Enabling…</span>';
   try {
     const cr = window._cleanerData && window._cleanerData.cleanerRecord;

@@ -60,7 +60,7 @@ exports.handler = async (event) => {
     try {
       const raw = row.skipped_ids;
       if (raw) skippedIds = new Set(JSON.parse(raw));
-    } catch (e) {}
+    } catch (e) { /* ignore malformed skipped-IDs JSON */ }
 
     // ── 2. Refresh access token via Microsoft identity platform ───────
     const tokenRes = await fetch(

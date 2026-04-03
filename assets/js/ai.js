@@ -118,7 +118,7 @@ export function addAIIgnoreItem(type, key, label, reason) {
   globalThis.showBanner('✓ Added to ignore list — won\'t flag this again', 'ok');
 }
 export function removeAIIgnoreItem(id) {
-  saveAIIgnoreList(loadAIIgnoreList().filter(i => i.id !== id));
+  saveAIIgnoreList(loadAIIgnoreList().filter(i => String(i.id) !== String(id)));
   renderAIIgnoreList();
   globalThis.showBanner('✓ Removed from ignore list', 'ok');
 }
@@ -139,7 +139,7 @@ export function renderAIIgnoreList() {
         ${item.reason ? `<div style="font-size:11px;color:var(--text-soft);margin-top:2px;font-style:italic">${item.reason}</div>` : ''}
         <div style="font-size:11px;color:var(--text-soft);margin-top:2px">Added ${item.addedDate}</div>
       </div>
-      <button onclick="removeAIIgnoreItem(${item.id})" style="font-size:11px;color:var(--red);background:none;border:1px solid var(--red);border-radius:20px;padding:4px 10px;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;flex-shrink:0">Remove</button>
+      <button onclick="removeAIIgnoreItem('${item.id}')" style="font-size:11px;color:var(--red);background:none;border:1px solid var(--red);border-radius:20px;padding:4px 10px;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;flex-shrink:0">Remove</button>
     </div>`).join('');
 }
 export function promptIgnore(type, key, label) {

@@ -315,6 +315,59 @@ exports.handler = async (event) => {
       console.error('[StayOps] daily-notifications: no_response section', message);
       results.errors.push({ section: 'no_response', message });
     }
+
+    // ── Review cleaning cost: done cleans in last 3 days with no fee on booking ──
+    try {
+      const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 3600000).toISOString();
+      const { data: doneCleans, error: dcErr } = await sb
+        .from('cleans')
+        .select('id, property_id, booking_id, guest_name, clean_date')
+        .eq('done', true)
+        .gte('completed_at', threeDaysAgo);
+
+      if (dcErr) throw dcErr;
+      results.review_cost = 0;
+
+      for (const c of doneCleans || []) {
+        if (!c.booking_id) continue;
+        const recent = await hasRecentNotification({
+          supabaseAdmin: sb,
+          type: 'review_cleaning_cost',
+          referenceId: c.id,
+          withinMinutes: DEDUP_MINUTES,
+        });
+        if (recent) continue;
+
+        // Check if booking has a cleaning fee entered
+        const { data: bk } = await sb
+          .from('bookings')
+          .select('cleaning_fee')
+          .or('local_id.eq.' + c.booking_id + ',id.eq.' + c.booking_id)
+          .limit(1)
+          .maybeSingle();
+
+        if (bk && Number(bk.cleaning_fee)) continue; // fee already entered
+
+        const { data: props } = await sb.from('properties').select('id, name').eq('id', c.property_id).limit(1);
+        const propertyName = (props && props[0] && props[0].name) || 'Property';
+        const guest = (c.guest_name || 'Guest').trim();
+
+        const pushRes = await sendPushToOwner({
+          supabaseAdmin: sb,
+          propertyId: c.property_id,
+          title: '💰 Review Cleaning Cost',
+          body: propertyName + ' · ' + guest + ' — clean completed, cost not entered',
+          url: '/',
+          type: 'review_cleaning_cost',
+          referenceId: c.id,
+        });
+        if (pushRes && pushRes.sent > 0) results.review_cost++;
+      }
+    } catch (e) {
+      const message = e && e.message ? e.message : String(e);
+      console.error('[StayOps] daily-notifications: review_cost section', message);
+      results.errors.push({ section: 'review_cost', message });
+    }
   } catch (e) {
     const message = e && e.message ? e.message : String(e);
     console.error('[StayOps] daily-notifications: fatal', message);

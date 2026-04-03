@@ -1,0 +1,206 @@
+// eslint.config.js — StayOps
+// Flat config format (ESLint 9+).
+// Goal: catch real bugs (syntax, undefined vars, unreachable code) without
+// being noisy about style. Rules are intentionally minimal.
+
+import js from '@eslint/js';
+
+const browserGlobals = {
+  window: 'readonly',
+  document: 'readonly',
+  navigator: 'readonly',
+  location: 'readonly',
+  history: 'readonly',
+  localStorage: 'readonly',
+  sessionStorage: 'readonly',
+  fetch: 'readonly',
+  console: 'readonly',
+  setTimeout: 'readonly',
+  clearTimeout: 'readonly',
+  setInterval: 'readonly',
+  clearInterval: 'readonly',
+  Promise: 'readonly',
+  URL: 'readonly',
+  URLSearchParams: 'readonly',
+  FormData: 'readonly',
+  Blob: 'readonly',
+  File: 'readonly',
+  FileReader: 'readonly',
+  Event: 'readonly',
+  CustomEvent: 'readonly',
+  MutationObserver: 'readonly',
+  IntersectionObserver: 'readonly',
+  ResizeObserver: 'readonly',
+  requestAnimationFrame: 'readonly',
+  cancelAnimationFrame: 'readonly',
+  alert: 'readonly',
+  confirm: 'readonly',
+  Notification: 'readonly',
+  ServiceWorkerRegistration: 'readonly',
+  PushManager: 'readonly',
+  globalThis: 'readonly',
+  crypto: 'readonly',
+  atob: 'readonly',
+  btoa: 'readonly',
+  HTMLElement: 'readonly',
+  HTMLInputElement: 'readonly',
+  HTMLSelectElement: 'readonly',
+  HTMLTextAreaElement: 'readonly',
+  Element: 'readonly',
+  Node: 'readonly',
+  NodeList: 'readonly',
+  Text: 'readonly',
+  Image: 'readonly',
+  Audio: 'readonly',
+  MediaStream: 'readonly',
+  AbortController: 'readonly',
+  AbortSignal: 'readonly',
+  Headers: 'readonly',
+  Request: 'readonly',
+  Response: 'readonly',
+  ReadableStream: 'readonly',
+  TextDecoder: 'readonly',
+  TextEncoder: 'readonly',
+  Intl: 'readonly',
+  JSON: 'readonly',
+  Math: 'readonly',
+  Date: 'readonly',
+  Array: 'readonly',
+  Object: 'readonly',
+  String: 'readonly',
+  Number: 'readonly',
+  Boolean: 'readonly',
+  Symbol: 'readonly',
+  Map: 'readonly',
+  Set: 'readonly',
+  WeakMap: 'readonly',
+  WeakSet: 'readonly',
+  Error: 'readonly',
+  TypeError: 'readonly',
+  RangeError: 'readonly',
+  isNaN: 'readonly',
+  isFinite: 'readonly',
+  parseInt: 'readonly',
+  parseFloat: 'readonly',
+  encodeURIComponent: 'readonly',
+  decodeURIComponent: 'readonly',
+  encodeURI: 'readonly',
+  decodeURI: 'readonly',
+  // Supabase CDN global
+  supabase: 'readonly',
+  // jsPDF CDN globals
+  jsPDF: 'readonly',
+  jspdf: 'readonly',
+  // App globals exposed via main.js globalThis
+  render: 'readonly',
+  state: 'readonly',
+};
+
+const nodeGlobals = {
+  require: 'readonly',
+  module: 'readonly',
+  exports: 'readonly',
+  __dirname: 'readonly',
+  __filename: 'readonly',
+  process: 'readonly',
+  Buffer: 'readonly',
+  console: 'readonly',
+  setTimeout: 'readonly',
+  clearTimeout: 'readonly',
+  setInterval: 'readonly',
+  clearInterval: 'readonly',
+  Promise: 'readonly',
+  URL: 'readonly',
+  URLSearchParams: 'readonly',
+  fetch: 'readonly',
+  Headers: 'readonly',
+  Request: 'readonly',
+  Response: 'readonly',
+  globalThis: 'readonly',
+  JSON: 'readonly',
+  Math: 'readonly',
+  Date: 'readonly',
+  Array: 'readonly',
+  Object: 'readonly',
+  String: 'readonly',
+  Number: 'readonly',
+  Boolean: 'readonly',
+  Symbol: 'readonly',
+  Map: 'readonly',
+  Set: 'readonly',
+  Error: 'readonly',
+  TypeError: 'readonly',
+  isNaN: 'readonly',
+  parseInt: 'readonly',
+  parseFloat: 'readonly',
+  encodeURIComponent: 'readonly',
+  decodeURIComponent: 'readonly',
+};
+
+export default [
+  // ── Frontend modules ─────────────────────────────────────────────────
+  {
+    files: ['assets/js/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: browserGlobals,
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+
+      // ── Bug-catching rules ──
+      // Note: no-undef is 'warn' (not 'error') because this codebase uses cross-module
+      // globals (functions assigned to globalThis in main.js, called from other modules).
+      // ESLint can't see those cross-file links, so many no-undef hits are false positives.
+      'no-undef': 'warn',
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-unreachable': 'error',     // code after return/throw — always a real bug
+      'no-constant-condition': 'error',
+      'no-duplicate-case': 'error',
+      'no-self-assign': 'error',
+      'no-template-curly-in-string': 'error', // "${var}" in a regular string — real bug
+      'no-empty': ['error', { allowEmptyCatch: false }], // empty catch = silenced errors
+      'eqeqeq': ['error', 'always', { null: 'ignore' }], // == null ok, others must use ===
+      'no-useless-assignment': 'warn',
+      'preserve-caught-error': 'off',
+
+      // ── Style rules intentionally OFF ──
+      'no-console': 'off',
+      'semi': 'off',
+      'quotes': 'off',
+      'indent': 'off',
+      'comma-dangle': 'off',
+    },
+  },
+
+  // ── Netlify serverless functions (CommonJS / Node) ────────────────────
+  {
+    files: ['Netlify/functions/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'commonjs',
+      globals: nodeGlobals,
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+      'no-undef': 'error',
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-unreachable': 'error',
+      'no-duplicate-case': 'error',
+      'no-self-assign': 'error',
+      'no-empty': ['error', { allowEmptyCatch: false }],
+      'no-template-curly-in-string': 'error',
+      'eqeqeq': ['error', 'always', { null: 'ignore' }],
+      'preserve-caught-error': 'off',
+      'no-console': 'off',
+      'semi': 'off',
+      'quotes': 'off',
+    },
+  },
+
+  // ── Ignore www/ (auto-synced copy), node_modules, android, ios ───────
+  {
+    ignores: ['www/', 'node_modules/', 'android/', 'ios/', 'scripts/', 'supabase/'],
+  },
+];

@@ -154,7 +154,7 @@ exports.handler = async (event) => {
         const parsed = typeof err.body === 'string' ? JSON.parse(err.body) : err.body;
         apnsReason = parsed.reason || parsed.error || null;
       }
-    } catch (_) {}
+    } catch (_) { /* ignore JSON parse error on push error body */ }
     console.error('[send-push] Push failed status=' + status + ' reason=' + apnsReason + ' msg=' + (err.message || ''));
     return {
       statusCode: status,

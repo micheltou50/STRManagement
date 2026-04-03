@@ -2,6 +2,11 @@
   "name": "stayops",
   "version": "1.0.0",
   "description": "StayOps property manager",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint assets/js/ Netlify/functions/",
+    "lint:fix": "eslint assets/js/ Netlify/functions/ --fix"
+  },
   "dependencies": {
     "@capacitor/android": "^8.3.0",
     "@capacitor/cli": "^8.3.0",
@@ -9,5 +14,9 @@
     "@capacitor/ios": "^8.3.0",
     "@supabase/supabase-js": "^2.100.1",
     "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.1.0"
   }
 }

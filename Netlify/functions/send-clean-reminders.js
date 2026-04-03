@@ -150,7 +150,6 @@ exports.handler = async (event) => {
 
   for (const clean of cleans) {
     // Resolve cleaner email — try cleaner_id first, then name match
-    let cleanerEmail = '';
     let cleanerRecord = null;
 
     if (clean.cleaner_id) {
@@ -173,7 +172,7 @@ exports.handler = async (event) => {
       cleanerRecord = byName;
     }
 
-    cleanerEmail = (cleanerRecord?.email || '').trim();
+    const cleanerEmail = (cleanerRecord?.email || '').trim();
 
     if (!cleanerEmail) {
       console.log(`[send-clean-reminders] No email for cleaner "${clean.cleaner}" — skipping clean ${clean.id}`);

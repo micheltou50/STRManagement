@@ -27,7 +27,7 @@ function parsePushSubscription(raw) {
   try {
     const o = typeof raw === 'string' ? JSON.parse(raw) : raw;
     if (o && typeof o.endpoint === 'string' && o.keys && o.keys.p256dh && o.keys.auth) return o;
-  } catch (_) {}
+  } catch (_) { /* ignore malformed subscription JSON */ }
   return null;
 }
 

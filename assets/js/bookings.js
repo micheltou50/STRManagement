@@ -492,7 +492,7 @@ function showDetail(id) {
       <div style="border-top:0.5px solid rgba(0,0,0,0.1)"></div>
       <div class="toggle-wrap" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;margin:0;border:none">
         <span style="font-size:13px;color:#1a1a1a">Cleaner confirmed</span>
-        <button type="button" class="toggle ${matchedClean?.cleanerConfirmed ?? b.cleanerConfirmed ? 'on' : ''}" onclick="toggleCleanerConfirmed(${b.id})" aria-label="Toggle cleaner confirmed" style="flex-shrink:0"></button>
+        <button type="button" class="toggle ${matchedClean?.cleanerConfirmed ?? b.cleanerConfirmed ? 'on' : ''}" onclick="toggleCleanerConfirmed('${b.id}')" aria-label="Toggle cleaner confirmed" style="flex-shrink:0"></button>
       </div>
       <div style="border-top:0.5px solid rgba(0,0,0,0.1)"></div>
       <div style="padding:14px">
@@ -511,7 +511,7 @@ function showDetail(id) {
       <div id="clean-cost-edit" style="display:none;margin-top:12px">
         <div style="display:flex;gap:8px;align-items:center">
           <input type="number" id="actual-clean-fee" value="${Number(b.cleaningFee || 0)}" placeholder="0" style="flex:1;padding:10px 12px;border:0.5px solid rgba(0,0,0,0.1);border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box">
-          <button type="button" onclick="saveCleaningFee(${b.id})" style="background:#2D5A3D;color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;font-family:inherit;touch-action:manipulation">Save</button>
+          <button type="button" onclick="saveCleaningFee('${b._cloudId || b.id}')" style="background:#2D5A3D;color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;font-family:inherit;touch-action:manipulation">Save</button>
         </div>
       </div>
     </div>`

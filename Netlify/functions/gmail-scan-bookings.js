@@ -63,7 +63,7 @@ exports.handler = async (event) => {
     try {
       const raw = cfgRows[0].gmail_skipped_ids;
       if (raw) skippedIds = new Set(JSON.parse(raw));
-    } catch (e) {}
+    } catch (e) { /* ignore malformed skipped-IDs JSON */ }
 
     // ── 2. Exchange refresh token for access token ──────────────────────
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {

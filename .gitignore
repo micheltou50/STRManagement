@@ -1,9 +1,13 @@
 .DS_Store
-.DS_Store
-.DS_Store
-/supabase
-/supabase/functions
 
 # Local Netlify folder
 .netlify
 node_modules
+
+# Supabase (managed via CLI)
+/supabase
+/supabase/functions
+
+# www/assets/js/ is auto-synced from assets/js/ by the pre-commit hook.
+# Never edit files here directly — edit in assets/js/ instead.
+www/assets/js/

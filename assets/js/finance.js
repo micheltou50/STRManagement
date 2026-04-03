@@ -729,7 +729,7 @@ async function bankImportRunImport() {
 
     try {
       globalThis.savePropertyData();
-    } catch (_) {}
+    } catch (_) { /* ignore if savePropertyData is not available */ }
 
     await logImportSession(userId, _bankImportFilename, {
       total: _bankImportRows.length,
@@ -2228,7 +2228,7 @@ function renderExpenses() {
     const recBlock = hasRec
       ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#185FA5;font-family:'DM Sans',sans-serif">${svgClip}Receipt attached</span>`
       : `<span style="font-size:11px;color:#A32D2D;font-family:'DM Sans',sans-serif">No receipt</span>`;
-    return `<div class="expense-item" data-expense-id="${e.id}" onclick="openExpenseView(${e.id})"
+    return `<div class="expense-item" data-expense-id="${e.id}" onclick="openExpenseView('${e.id}')"
       style="background:#fff;border-radius:10px;padding:12px 14px;display:flex;gap:12px;align-items:flex-start;cursor:pointer;border:0.5px solid rgba(0,0,0,0.06);
       box-shadow:0 1px 2px rgba(0,0,0,0.02);border-left:3px solid ${catCol};border-top-left-radius:0;border-bottom-left-radius:0;
       -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;font-family:'DM Sans',sans-serif">
@@ -2575,11 +2575,11 @@ function openExpenseView(id) {
 
     <!-- ── Primary action ── -->
     <button class="btn-primary" style="width:100%;margin-bottom:8px"
-            onclick="globalThis.closeDetailModal();openExpenseEdit(${e.id})">✏️ Edit Expense</button>
+            onclick="globalThis.closeDetailModal();openExpenseEdit('${e.id}')">✏️ Edit Expense</button>
 
     <!-- ── Destructive action (secondary) ── -->
     <button class="btn-secondary" style="width:100%;margin-bottom:8px;background:#FDECEA;color:var(--red);border-color:#FDECEA"
-            onclick="globalThis.closeDetailModal();deleteExpense(${e.id})">🗑 Delete Expense</button>
+            onclick="globalThis.closeDetailModal();deleteExpense('${e.id}')">🗑 Delete Expense</button>
   `;
   document.getElementById('detail-modal').classList.add('open');
   document.body.style.overflow = 'hidden';

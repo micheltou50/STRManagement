@@ -14,6 +14,37 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="./assets/css/styles.css">
 
+<!-- Sentry — error monitoring. Replace YOUR_DSN with your project DSN from sentry.io -->
+<script
+  src="https://js.sentry-cdn.com/e031cec3998447f5b9bd2098146630ab.min.js"
+  crossorigin="anonymous"
+></script>
+<script>
+  if (window.Sentry) {
+    Sentry.init({
+      // Replace the dsn value with your project DSN from sentry.io → Settings → Client Keys
+      dsn: 'https://e031cec3998447f5b9bd2098146630ab@o4511154504794112.ingest.us.sentry.io/4511154514296832',
+      environment: location.hostname === 'localhost' ? 'development' : 'production',
+      // Only capture unhandled errors and promise rejections — no noise from extensions
+      integrations: [],
+      // Sample 100% of errors in production
+      tracesSampleRate: 0,
+      // Ignore errors from browser extensions and benign network failures
+      ignoreErrors: [
+        'ResizeObserver loop limit exceeded',
+        'Non-Error promise rejection captured',
+        /chrome-extension/,
+        /safari-extension/,
+      ],
+      beforeSend(event) {
+        // Don't send errors from localhost to keep the dashboard clean
+        if (location.hostname === 'localhost') return null;
+        return event;
+      },
+    });
+  }
+</script>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script>
@@ -1681,7 +1712,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script type="module" src="./assets/js/main.js?v=20260403p01"></script>
+<script type="module" src="./assets/js/main.js?v=20260403p02"></script>
 
 
 <!-- Custom confirm/prompt modals -->

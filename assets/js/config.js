@@ -315,7 +315,7 @@ function migrateLegacySinglePropertyConfig() {
   try {
     const raw = localStorage.getItem(PROPERTY_CONFIG_KEY);
     if (raw) source = JSON.parse(raw);
-  } catch (e) {}
+  } catch (e) { /* ignore malformed localStorage JSON */ }
 
   if (!source) {
     // Legacy fallback from older keys
@@ -439,7 +439,7 @@ export function getCurrentHostEmail() {
   try {
     const profile = JSON.parse(localStorage.getItem('gh-host-profile') || 'null');
     if (profile && profile.email) return profile.email;
-  } catch (e) {}
+  } catch (e) { /* ignore malformed profile JSON */ }
   return localStorage.getItem('gh-inv-email') || '';
 }
 
@@ -563,7 +563,7 @@ function _syncLegacyMirrorsFromActive() {
   if (cfg.owner && cfg.owner.name) localStorage.setItem('gh-inv-name', cfg.owner.name);
 
   // Keep single-property shadow for backward-compatible reads.
-  try { localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(cfg)); } catch (e) {}
+  try { localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(cfg)); } catch (e) { /* ignore storage quota errors */ }
 }
 
 

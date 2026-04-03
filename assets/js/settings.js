@@ -338,7 +338,7 @@ function copyCalendarFeedUrl() {
   };
   navigator.clipboard.writeText(url).then(done).catch(() => {
     input.select();
-    try { document.execCommand('copy'); } catch (e) {}
+    try { document.execCommand('copy'); } catch (e) { /* deprecated API, ignore failures */ }
     done();
   });
 }
@@ -784,7 +784,7 @@ function addCleaner() {
   openSettingsPanel('team');
 }
 function deleteCleaner(id) {
-  saveCleaners(loadCleaners().filter(c => c.id !== id));
+  saveCleaners(loadCleaners().filter(c => String(c.id) !== String(id)));
   renderTeamList();
   populateCleanerSelect();
   populateContractorSelect();
@@ -804,7 +804,7 @@ function renderTeamList() {
   const roleColors = {Cleaner:'var(--moss)',Plumber:'#1565C0',Electrician:'#E65100',Landscaper:'#2E7D32',Builder:'#6A1B9A',Handyman:'#00838F',Other:'var(--stone)'};
   el.innerHTML = `<div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:12px">` +
     people.map((c, i) => `
-    <div class="settings-cat-item" onclick="openCleanerProfile(${c.id})" ${i===people.length-1?'style="border-bottom:none"':''}>
+    <div class="settings-cat-item" onclick="openCleanerProfile('${c.id}')" ${i===people.length-1?'style="border-bottom:none"':''}>
       <div style="display:flex;align-items:center;gap:12px">
         <div style="width:36px;height:36px;border-radius:50%;background:${roleColors[c.role]||'var(--stone)'};color:white;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${c.name.charAt(0)}</div>
         <div>
@@ -817,7 +817,7 @@ function renderTeamList() {
     </div>`).join('') + `</div>`;
 }
 function openCleanerProfile(id) {
-  const c = loadCleaners().find(x => x.id === id);
+  const c = loadCleaners().find(x => String(x.id) === String(id));
   if (!c) return;
   const PERM_LABELS = [
     { key: 'firstName',  label: 'Guest first name' },
@@ -851,14 +851,14 @@ function openCleanerProfile(id) {
           <div style="font-weight:700;font-size:17px">${c.name}</div>
           <div style="font-size:12px;color:var(--text-soft)">${c.role||'Cleaner'}</div>
         </div>
-        <button onclick="deleteCleaner(${c.id})" style="background:none;border:none;color:var(--red);font-size:13px;cursor:pointer;padding:4px 8px">Remove</button>
+        <button onclick="deleteCleaner('${c.id}')" style="background:none;border:none;color:var(--red);font-size:13px;cursor:pointer;padding:4px 8px">Remove</button>
       </div>
       <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:10px">Contact</div>
       <label>Mobile</label>
       <input type="tel" id="cp-phone-${c.id}" value="${c.phone||''}" placeholder="e.g. 0412 345 678">
       <label>Email</label>
       <input type="email" id="cp-email-${c.id}" value="${c.email||''}" placeholder="e.g. ${c.name.toLowerCase()}@email.com">
-      <button class="btn-secondary" onclick="saveCleanerContact(${c.id})" style="margin-top:4px">Save Contact</button>
+      <button class="btn-secondary" onclick="saveCleanerContact('${c.id}')" style="margin-top:4px">Save Contact</button>
       <div id="cp-contact-confirm-${c.id}" style="font-size:12px;color:var(--moss);margin-top:4px;display:none">✓ Saved</div>
     </div>
     <div class="card" style="margin-bottom:10px">
@@ -877,7 +877,7 @@ function openCleanerProfile(id) {
 }
 function saveCleanerContact(id) {
   const list = loadCleaners();
-  const c = list.find(x => x.id === id);
+  const c = list.find(x => String(x.id) === String(id));
   if (!c) return;
   const phoneEl = document.getElementById('cp-phone-' + id);
   const emailEl = document.getElementById('cp-email-' + id);
@@ -903,7 +903,7 @@ function renderStorageViewer() {
     const val = localStorage.getItem(k);
     let items = [];
     let count = 0;
-    try { items = JSON.parse(val || '[]'); count = Array.isArray(items) ? items.length : 0; } catch(e) {}
+    try { items = JSON.parse(val || '[]'); count = Array.isArray(items) ? items.length : 0; } catch(e) { /* ignore malformed localStorage JSON */ }
     const label = k.endsWith('bookings') ? '🏠 Bookings' : k.endsWith('cleans') ? '🧹 Cleans' : '💰 Expenses';
     return `
     <div style="padding:12px 0;border-bottom:1px solid var(--warm)">
@@ -1040,7 +1040,7 @@ function renderCleanerAccessList() {
   }
   el.innerHTML = `<div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:12px">` +
     cleaners.map((c, i) => `
-    <div class="settings-cat-item" onclick="openCleanerProfile(${c.id})" ${i===cleaners.length-1?'style="border-bottom:none"':''}>
+    <div class="settings-cat-item" onclick="openCleanerProfile('${c.id}')" ${i===cleaners.length-1?'style="border-bottom:none"':''}>
       <div style="display:flex;align-items:center;gap:12px">
         <div style="width:36px;height:36px;border-radius:50%;background:var(--forest);color:white;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${c.name.charAt(0)}</div>
         <div>

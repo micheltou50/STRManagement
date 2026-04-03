@@ -235,7 +235,7 @@ async function getGmailAccessToken({ gmailToken, gmailRefreshToken, googleClient
     try {
       const tokenObj = typeof gmailToken === 'string' ? JSON.parse(gmailToken) : gmailToken;
       refreshToken = tokenObj && (tokenObj.refresh_token || tokenObj.refreshToken || tokenObj.refreshTokenValue) || null;
-    } catch (_) {}
+    } catch (_) { /* ignore malformed token JSON */ }
   }
   if (!refreshToken) return null;
 

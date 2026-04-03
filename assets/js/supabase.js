@@ -1512,7 +1512,7 @@ export async function hydrateFromCloud() {
     try {
       const user = await getCurrentSupabaseUser();
       if (user && user.id) await validatePropertyIds(user.id);
-    } catch (e) {}
+    } catch (e) { /* non-critical, ignore property ID validation failures */ }
 
     console.log('[StayOps] hydrateFromCloud complete');
   } catch (e) {
