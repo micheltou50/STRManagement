@@ -1893,24 +1893,44 @@ export async function handleMagicLinkSubmit() {
 }
 
 export function showCleanerApp() {
-  document.body.classList.add('cleaner-mode');
-  const login = document.getElementById('stayops-login-screen');
-  const app = document.getElementById('main-content');
-  const nav = document.querySelector('.nav');
-  const hdr = document.querySelector('.header');
-  if (login) login.style.display = 'none';
-  if (app) app.style.display = '';
-  if (nav) nav.style.display = 'none';
-  if (hdr) hdr.style.display = 'none';
-  hideLoadingScreen();
+  // Hide everything host-related
+  const mainContent = document.getElementById('main-content');
+  const hostNav = document.querySelector('.nav:not(#cleaner-nav)');
+  const header = document.querySelector('.header');
+  const loginScreen = document.getElementById('stayops-login-screen');
+  const legacyCleanerApp = document.getElementById('cleaner-app');
 
+  if (mainContent) mainContent.style.display = 'none';
+  if (hostNav) hostNav.style.display = 'none';
+  if (header) header.style.display = 'none';
+  if (loginScreen) loginScreen.style.display = 'none';
+  if (legacyCleanerApp) legacyCleanerApp.style.display = 'none';
+
+  // Remove old cleaner mode classes (CSS toggles #cleaner-app / PIN screen from these)
+  document.body.classList.remove('cleaner-mode', 'cleaner-pin-active');
+
+  // Hide any remaining node whose text reads as CLEANER VIEW (legacy header subtitle)
+  try {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (!node.nodeValue || !node.nodeValue.trim()) continue;
+      if (!node.nodeValue.toUpperCase().includes('CLEANER VIEW')) continue;
+      const el = node.parentElement;
+      const block = el && el.closest ? el.closest('#cleaner-app, .cleaner-header') : null;
+      if (block) block.style.display = 'none';
+    }
+  } catch (_) { /* ignore */ }
+
+  // Show new cleaner UI
   const cleanerNav = document.getElementById('cleaner-nav');
   const cleanerContent = document.getElementById('cleaner-content');
   if (cleanerNav) cleanerNav.style.display = '';
   if (cleanerContent) cleanerContent.style.display = '';
 
-  if (app) app.style.display = 'none';
+  hideLoadingScreen();
 
+  // Load cleaner data
   loadCleanerDashboard().then((data) => {
     if (data) {
       window._cleanerData = data;

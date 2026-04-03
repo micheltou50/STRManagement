@@ -223,6 +223,23 @@ exports.handler = async (event) => {
           continue;
         }
 
+        const rawEmailType = String(parsed.email_type || parsed.emailType || '').toLowerCase();
+        if (
+          (parsed.skipped === true && rawEmailType !== 'cancellation') ||
+          rawEmailType === 'enquiry' ||
+          rawEmailType === 'other' ||
+          rawEmailType === 'payout_notification'
+        ) {
+          results.skipped++;
+          newlySkipped.push(msgId);
+          results.details.push({
+            msgId,
+            status: 'skipped',
+            reason: 'Non-confirmation email' + (rawEmailType ? ' (' + rawEmailType + ')' : ''),
+          });
+          continue;
+        }
+
         let resolvedProp = defaultProp;
         let propertyUnconfirmed = false;
 
@@ -248,7 +265,7 @@ exports.handler = async (event) => {
         const propertyName = resolvedProp.name;
         const mgmtFeeRate  = resolvedProp.mgmtFeeRate;
 
-        const emailType = parsed.emailType || 'new_booking';
+        const emailType = rawEmailType;
         const confCode = (parsed.confirmationCode || '').trim();
 
         // ── Cancellation ─────────────────────────────────────────────
@@ -290,84 +307,63 @@ exports.handler = async (event) => {
           continue;
         }
 
-        // ── Modification ─────────────────────────────────────────────
-        if (emailType === 'modification') {
-          const match = findExistingBooking(existingBookings, confCode, parsed.guestName, null);
-          if (match) {
-            const datesChanged =
-              (parsed.checkin && parsed.checkin !== match.checkin) ||
-              (parsed.checkout && parsed.checkout !== match.checkout);
-            const patch = { updated_at: new Date().toISOString(), gmail_message_id: msgId };
-            if (parsed.checkin) patch.checkin = parsed.checkin;
-            if (parsed.checkout) patch.checkout = parsed.checkout;
-            if (parsed.checkin && parsed.checkout) patch.nights = daysBetween(parsed.checkin, parsed.checkout);
-            if (parsed.guests) patch.guests = parsed.guests;
-            if (parsed.hostPayout) patch.host_payout = parsed.hostPayout;
-            if (parsed.cleaningFee) patch.cleaning_fee = parsed.cleaningFee;
+        // ── Confirmation only: insert/update booking rows ────────────
+        if (emailType !== 'confirmation') {
+          results.skipped++;
+          newlySkipped.push(msgId);
+          results.details.push({
+            msgId,
+            status: 'skipped',
+            reason: rawEmailType ? 'Expected confirmation, got: ' + rawEmailType : 'Missing or invalid email_type',
+          });
+          continue;
+        }
 
-            await fetch(
-              SUPABASE_URL + '/rest/v1/bookings?id=eq.' + enc(match.id),
-              {
-                method: 'PATCH',
-                headers: { ...sbHeaders, Prefer: 'return=minimal' },
-                body: JSON.stringify(patch),
-              }
-            );
-            results.updated++;
-            results.details.push({ msgId, status: 'updated', guest: parsed.guestName, checkin: parsed.checkin });
-            const priceChanged =
-              (parsed.hostPayout != null && Number(parsed.hostPayout) !== Number(match.host_payout || 0)) ||
-              (parsed.cleaningFee != null && Number(parsed.cleaningFee) !== Number(match.cleaning_fee || 0));
-            if (datesChanged || priceChanged) {
-              const modPropName = (propMap.find(p => p.id === match.property_id) || {}).name || propertyName;
-              const { data: modRow, error: modFetchErr } = await supabaseAdmin
-                .from('bookings')
-                .select('id, property_id, guest_name, checkin, checkout, guests, platform, host_payout, status')
-                .eq('id', match.id)
-                .maybeSingle();
-              if (!modFetchErr && modRow) {
-                await notifyBookingOwnerPush(supabaseAdmin, {
-                  notifyType: 'booking_modified',
-                  propertyId: match.property_id,
-                  bookingRow: modRow,
-                  fallbackPropertyName: modPropName,
-                });
-              }
+        const match = findExistingBooking(existingBookings, confCode, parsed.guestName, null);
+        if (match) {
+          const datesChanged =
+            (parsed.checkin && parsed.checkin !== match.checkin) ||
+            (parsed.checkout && parsed.checkout !== match.checkout);
+          const patch = { updated_at: new Date().toISOString(), gmail_message_id: msgId };
+          if (parsed.checkin) patch.checkin = parsed.checkin;
+          if (parsed.checkout) patch.checkout = parsed.checkout;
+          if (parsed.checkin && parsed.checkout) patch.nights = daysBetween(parsed.checkin, parsed.checkout);
+          if (parsed.guests) patch.guests = parsed.guests;
+          if (parsed.hostPayout) patch.host_payout = parsed.hostPayout;
+          if (parsed.cleaningFee) patch.cleaning_fee = parsed.cleaningFee;
+
+          await fetch(
+            SUPABASE_URL + '/rest/v1/bookings?id=eq.' + enc(match.id),
+            {
+              method: 'PATCH',
+              headers: { ...sbHeaders, Prefer: 'return=minimal' },
+              body: JSON.stringify(patch),
             }
-          } else if (parsed.checkin && parsed.checkout) {
-            const inserted = await insertNewBooking(SUPABASE_URL, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed, emailFrom);
-            if (inserted) {
-              results.imported++;
-              const insRow = await fetchBookingRowByGmailMessageId(supabaseAdmin, uid, msgId);
-              if (insRow) {
-                await notifyBookingOwnerPush(supabaseAdmin, {
-                  notifyType: 'new_booking',
-                  propertyId: insRow.property_id || propertyId,
-                  bookingRow: insRow,
-                  fallbackPropertyName: propertyName,
-                });
-              }
-            }
-            results.details.push({ msgId, status: 'imported', guest: parsed.guestName, checkin: parsed.checkin, note: 'modification without matching original' });
-            if (propertyUnconfirmed) {
-              needsReview.push({
-                guest: parsed.guestName || 'Guest',
-                checkin: parsed.checkin,
-                checkout: parsed.checkout,
-                platform: parsed.platform || '',
-                gmail_message_id: msgId,
-                assigned_property: propertyName,
+          );
+          results.updated++;
+          results.details.push({ msgId, status: 'updated', guest: parsed.guestName, checkin: parsed.checkin });
+          const priceChanged =
+            (parsed.hostPayout != null && Number(parsed.hostPayout) !== Number(match.host_payout || 0)) ||
+            (parsed.cleaningFee != null && Number(parsed.cleaningFee) !== Number(match.cleaning_fee || 0));
+          if (datesChanged || priceChanged) {
+            const modPropName = (propMap.find(p => p.id === match.property_id) || {}).name || propertyName;
+            const { data: modRow, error: modFetchErr } = await supabaseAdmin
+              .from('bookings')
+              .select('id, property_id, guest_name, checkin, checkout, guests, platform, host_payout, status')
+              .eq('id', match.id)
+              .maybeSingle();
+            if (!modFetchErr && modRow) {
+              await notifyBookingOwnerPush(supabaseAdmin, {
+                notifyType: 'booking_modified',
+                propertyId: match.property_id,
+                bookingRow: modRow,
+                fallbackPropertyName: modPropName,
               });
             }
-          } else {
-            results.skipped++;
-            newlySkipped.push(msgId);
-            results.details.push({ msgId, status: 'skipped', reason: 'Modification but no matching booking and missing dates' });
           }
           continue;
         }
 
-        // ── New booking ──────────────────────────────────────────────
         if (!parsed.checkin || !parsed.checkout) {
           results.skipped++;
           newlySkipped.push(msgId);
@@ -745,17 +741,23 @@ async function parseBookingEmail(apiKey, subject, from, body, singlePropertyName
     'CRITICAL DISTINCTION:\n' +
     '- HOST emails say things like: "You have a new reservation", "Your guest X is arriving", "You\'ll earn $X", "Host payout", "New booking at ' + (singlePropertyName || 'your property') + '"\n' +
     '- PERSONAL TRAVEL emails say things like: "Your trip to X", "Your stay at Hotel Y", "Your booking at Restaurant Z", "Your flight"\n' +
-    '- Only extract HOST booking notifications. If this looks like a personal travel/hotel/restaurant booking where the email recipient is the traveller, return not_a_booking.\n\n' +
-    'Analyse this email and return ONLY valid JSON with no other text.\n\n' +
-    'Classify the email type:\n' +
-    '- "new_booking" — a new guest reservation at the host\'s property\n' +
-    '- "cancellation" — a guest booking has been cancelled\n' +
-    '- "modification" — an existing guest booking\'s dates, guests, or payout have changed\n' +
-    '- "not_a_booking" — marketing, review, payout receipt, personal travel booking, message from guest, or anything else\n\n' +
-    'If not_a_booking, return: {"not_a_booking": true}\n\n' +
-    'Otherwise return:\n' +
+    '- Only extract HOST booking notifications. If this looks like a personal travel/hotel/restaurant booking where the email recipient is the traveller, return {"email_type":"other","skipped":true}.\n\n' +
+    'First determine the email type. Only extract booking details (guest, dates, payout, confirmation code, etc.) if it is a confirmation.\n\n' +
+    'Classify each email as exactly one of:\n' +
+    '- "enquiry" — a booking request or inquiry that is NOT yet confirmed (e.g. pending, awaiting host response, pre-approval, inquiry thread).\n' +
+    '- "confirmation" — the reservation is confirmed for the host (new booking OR a confirmed change to dates/guests/payout for an existing reservation).\n' +
+    '- "cancellation" — the guest booking has been cancelled; include whatever identifiers you can for matching (guest name, confirmation code, dates).\n' +
+    '- "payout_notification" — payout on the way, payout sent, remittance, or earnings notices without a full reservation confirmation.\n' +
+    '- "other" — marketing, review requests, guest chat messages, unrelated content, or anything that does not fit above.\n\n' +
+    'For any email where email_type is NOT "confirmation", return ONLY a minimal object with no booking fields, e.g.:\n' +
+    '{"email_type":"enquiry","skipped":true}\n' +
+    'Use skipped: true for enquiry, payout_notification, and other.\n\n' +
+    'For email_type "cancellation", return JSON with "email_type":"cancellation", "skipped": false, plus guestName, confirmationCode, and checkin/checkout when present (for matching an existing booking). Do not include full booking extraction for non-confirmation types except cancellation as above.\n\n' +
+    'If the email is not a host booking-related message at all, return: {"not_a_booking": true}\n\n' +
+    'For email_type "confirmation" ONLY, return valid JSON with no other text:\n' +
     '{\n' +
-    '  "emailType": "new_booking" or "cancellation" or "modification",\n' +
+    '  "email_type": "confirmation",\n' +
+    '  "skipped": false,\n' +
     '  "guestName": "Full name of the guest staying at the property",\n' +
     '  "checkin": "YYYY-MM-DD" (null if not found),\n' +
     '  "checkout": "YYYY-MM-DD" (null if not found),\n' +
@@ -769,12 +771,10 @@ async function parseBookingEmail(apiKey, subject, from, body, singlePropertyName
     '}\n\n' +
     'Rules:\n' +
     '- Dates must be YYYY-MM-DD. ' + yearRule + '\n' +
-    '- confirmationCode is CRITICAL for matching cancellations/modifications.\n' +
+    '- confirmationCode is CRITICAL for matching cancellations and updates.\n' +
     '- hostPayout = amount the HOST receives. Look for "Total payout", "You\'ll earn", "Host payout".\n' +
     '- Platform: detect from From address (@airbnb.com = "airbnb").\n' +
-    '- Payout receipts ("your payout is on the way") = not_a_booking.\n' +
-    '- Review requests = not_a_booking.\n' +
-    '- Guest messages = not_a_booking.\n' +
+    '- Do not classify a mere inquiry or "request to book" as confirmation; wait for the language of a confirmed reservation.\n' +
     propertyMatchRule +
     '\nSubject: ' + subject + '\nFrom: ' + from + '\nBody:\n' + body;
 

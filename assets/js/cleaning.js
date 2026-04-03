@@ -918,52 +918,62 @@ function _resolveInviteCleanerCloudId(passed) {
 }
 
 async function inviteCleaner(cleanerId) {
-  if (!window._sb) return;
-  const cloudCleanerId = _resolveInviteCleanerCloudId(cleanerId);
-  if (!cloudCleanerId) {
-    if (cleanerId != null && String(cleanerId).trim() !== '') {
-      alert('Cleaner not found or not synced. Save your team in Settings, then try again.');
-    }
-    return;
-  }
+  if (!cleanerId) return;
+  const cleaners = window._cleaners || [];
+  const cleaner = cleaners.find(c => (c._cloudId || c.cloud_id) === cleanerId);
+  if (!cleaner) { alert('Cleaner not found'); return; }
+  if (!cleaner.email) { alert('Add an email address to this cleaner first'); return; }
 
-  const { data: { session } } = await window._sb.auth.getSession();
-  if (!session) { alert('Not signed in'); return; }
-
-  const btn = document.getElementById('invite-btn-' + cloudCleanerId)
-    || document.getElementById('invite-btn-' + cleanerId);
+  const btn = document.getElementById('invite-btn-' + cleanerId);
   if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
 
+  const appUrl = window.location.origin;
+  const html = `
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+      <h2 style="color:#1E3A2F">You're invited to StayOps</h2>
+      <p>Hi ${cleaner.name || 'there'},</p>
+      <p>You've been added as a cleaner on StayOps. Create your account to view and manage your assigned cleans.</p>
+      <a href="${appUrl}" style="display:inline-block;padding:14px 28px;background:#1E3A2F;color:white;text-decoration:none;border-radius:10px;font-weight:bold;margin:16px 0">Sign Up on StayOps</a>
+      <p style="color:#999;font-size:13px">Use this email address (${cleaner.email}) when signing up so your account is automatically linked.</p>
+    </div>
+  `;
+
   try {
-    const response = await fetch(
-      'https://nbeuyypgiipptxlqnhel.supabase.co/functions/v1/invite-cleaner',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + session.access_token
-        },
-        body: JSON.stringify({ cleaner_id: cloudCleanerId })
-      }
-    );
-
-    const result = await response.json();
-
-    if (result.error) {
-      alert('Invite failed: ' + result.error);
-      if (btn) { btn.disabled = false; btn.textContent = 'Invite'; }
-      return;
+    let authToken = '';
+    if (window._sb) {
+      const { data } = await window._sb.auth.getSession();
+      authToken = data?.session?.access_token || '';
     }
 
-    if (typeof showBanner === 'function') showBanner(result.message || 'Invitation sent!', 'ok');
-    if (btn) { btn.disabled = false; btn.textContent = 'Invited ✓'; btn.style.opacity = '0.6'; }
+    const res = await fetch('/.netlify/functions/send-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { 'Authorization': 'Bearer ' + authToken } : {})
+      },
+      body: JSON.stringify({
+        to: cleaner.email,
+        subject: 'You\'re invited to StayOps',
+        html: html
+      })
+    });
 
-    if (typeof renderCleaning === 'function') renderCleaning();
-    if (typeof globalThis.renderTeamList === 'function') globalThis.renderTeamList();
+    const result = await res.json();
+    if (result.success || result.status === 'ok') {
+      if (typeof globalThis.showBanner === 'function') globalThis.showBanner('Invitation sent to ' + cleaner.email, 'ok');
+      if (btn) { btn.textContent = 'Invited ✓'; btn.style.opacity = '0.6'; }
 
+      // Update invitation status in Supabase
+      if (window._sb && cleanerId) {
+        window._sb.from('cleaners').update({ invitation_status: 'invited' }).eq('id', cleanerId).then(() => {});
+      }
+    } else {
+      alert('Failed to send invite: ' + (result.error || 'Unknown error'));
+      if (btn) { btn.disabled = false; btn.textContent = 'Invite to App'; }
+    }
   } catch (e) {
-    alert('Invite failed: ' + e.message);
-    if (btn) { btn.disabled = false; btn.textContent = 'Invite'; }
+    alert('Failed to send invite: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Invite to App'; }
   }
 }
 window.inviteCleaner = inviteCleaner;

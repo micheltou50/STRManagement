@@ -2533,6 +2533,7 @@ if (isCleanerMode()) {
 // ── BUTTON PRESS FEEL ─────────────────────────────────────────────────────────
 function attachButtonPress() {
   document.querySelectorAll('button, .settings-cat-item, .booking-item, .expense-item').forEach(el => {
+    if (el.hasAttribute('data-no-press')) return;
     if (el.dataset.pressAttached) return;
     el.dataset.pressAttached = '1';
     el.addEventListener('touchstart', () => { el.classList.add('btn-press'); }, { passive:true });
@@ -3538,78 +3539,193 @@ function renderNewCleanerView(data) {
   if (!data) return;
   const { cleanerRecord, myCleans } = data;
 
+  // Hide FAB — cleaners don't need the quick-add button
+  const fab = document.querySelector('.fab');
+  if (fab) fab.style.display = 'none';
+  const qaFab = document.getElementById('quick-add-fab');
+  if (qaFab) qaFab.style.display = 'none';
+
+  // Set header date badge (normally only set during host init)
+  renderHeaderDateBadge();
+
   const greeting = document.getElementById('cleaner-greeting');
   if (greeting) greeting.textContent = 'Welcome, ' + (cleanerRecord.name || 'Cleaner');
+
+  // Update header subtitle — show property name instead of location
+  const headerSub = document.querySelector('.cleaner-header .header-sub-name');
+  if (headerSub) {
+    const propName = window._cleanerData && window._cleanerData.property && window._cleanerData.property.name;
+    headerSub.textContent = propName || '';
+  }
 
   const container = document.getElementById('cleaner-section-cleans');
   if (!container) return;
 
-  const today = new Date().toISOString().split('T')[0];
-  const actionNeeded = myCleans.filter((c) => !c.done && !c.cleaner_confirmed && !c.cleaner_declined);
-  const upcoming = myCleans.filter((c) => !c.done && c.cleaner_confirmed && c.clean_date >= today);
-  const completed = myCleans.filter((c) => c.done);
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+
+  function formatDate(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr + 'T00:00:00');
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return days[d.getDay()] + ', ' + d.getDate() + ' ' + months[d.getMonth()];
+  }
+
+  function daysUntil(dateStr) {
+    if (!dateStr) return null;
+    const d = new Date(dateStr + 'T00:00:00');
+    const diff = Math.ceil((d - today) / (1000 * 60 * 60 * 24));
+    return diff;
+  }
+
+  function urgencyPill(days) {
+    if (days === null) return '';
+    let bg, color, label;
+    if (days < 0) {
+      bg = '#F1EFE8'; color = '#5F5E5A'; label = 'Past';
+    } else if (days === 0) {
+      bg = '#FCEBEB'; color = '#A32D2D'; label = 'Today';
+    } else if (days === 1) {
+      bg = '#FCEBEB'; color = '#A32D2D'; label = 'Tomorrow';
+    } else if (days <= 7) {
+      bg = '#FCEBEB'; color = '#A32D2D'; label = 'In ' + days + ' days';
+    } else if (days <= 30) {
+      bg = '#FAEEDA'; color = '#854F0B'; label = 'In ' + days + ' days';
+    } else {
+      bg = '#E1F5EE'; color = '#0F6E56'; label = 'In ' + days + ' days';
+    }
+    return '<div style="font-size:11px;font-weight:500;background:' + bg + ';color:' + color + ';padding:3px 10px;border-radius:12px;white-space:nowrap">' + label + '</div>';
+  }
+
+  const actionNeeded = myCleans.filter(c => !c.done && !c.cleaner_confirmed && !c.cleaner_declined);
+  const upcoming = myCleans.filter(c => !c.done && c.cleaner_confirmed && c.clean_date >= todayStr);
+  const completed = myCleans.filter(c => c.done);
 
   let html = '';
 
+  // Action needed
   if (actionNeeded.length) {
-    html += '<div style="margin-bottom:20px">';
-    html += '<div style="font-size:13px;font-weight:700;color:#C0392B;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Action Needed</div>';
-    actionNeeded.forEach((c) => {
+    html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:12px">';
+    html += '<div style="width:8px;height:8px;border-radius:50%;background:#E24B4A"></div>';
+    html += '<span style="font-size:12px;font-weight:500;color:#A32D2D;text-transform:uppercase;letter-spacing:0.4px">Action needed</span>';
+    html += '<span style="font-size:11px;color:#999;margin-left:2px">' + actionNeeded.length + '</span>';
+    html += '</div>';
+
+    actionNeeded.forEach(c => {
       const prop = c.properties || {};
-      html += '<div style="background:white;border-radius:14px;padding:16px;margin-bottom:10px;border-left:4px solid #C0392B;box-shadow:0 1px 4px rgba(0,0,0,0.06)">';
-      html += '<div style="font-weight:700;font-size:15px;color:var(--forest,#1E3A2F)">' + (prop.name || 'Property') + '</div>';
-      html += '<div style="font-size:13px;color:#666;margin-top:2px">' + (prop.address || '') + '</div>';
-      html += '<div style="font-size:13px;color:#333;margin-top:8px"><strong>Date:</strong> ' + (c.clean_date || '') + '</div>';
-      html += '<div style="font-size:13px;color:#333"><strong>Guest:</strong> ' + (c.guest_name || 'N/A') + '</div>';
+      const days = daysUntil(c.clean_date);
+      const guests = c.guests || '';
+      const guestLine = (c.guest_name || 'Guest') + (guests ? ' · ' + guests + ' guests' : '');
+
+      html += '<div style="background:white;border:0.5px solid #eee;border-left:3px solid #E24B4A;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
+      html += '<div>';
+      html += '<div style="font-size:17px;font-weight:500;color:#1a1a1a">' + formatDate(c.clean_date) + '</div>';
+      html += '<div style="font-size:13px;color:#888;margin-top:2px">' + guestLine + '</div>';
+      html += '</div>';
+      html += urgencyPill(days);
+      html += '</div>';
+      html += '<div style="margin-top:10px;padding:10px 12px;background:#f7f7f5;border-radius:6px">';
+      html += '<div style="font-size:13px;font-weight:500;color:#333">' + (prop.name || 'Property') + '</div>';
+      html += '<div style="font-size:12px;color:#888;margin-top:1px">' + (prop.address || '') + '</div>';
+      html += '</div>';
       html += '<div style="display:flex;gap:8px;margin-top:12px">';
-      html += '<button onclick="cleanerAcceptClean(\'' + c.id + '\')" style="flex:1;padding:12px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer">Accept</button>';
-      html += '<button onclick="cleanerDeclineClean(\'' + c.id + '\')" style="flex:1;padding:12px;background:white;color:#C0392B;border:1.5px solid #C0392B;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer">Decline</button>';
+      html += '<button type="button" data-action="accept" data-clean-id="' + String(c.id) + '" style="flex:1;padding:10px;background:#1E3A2F;color:white;border:none;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Accept</button>';
+      html += '<button type="button" data-action="decline" data-clean-id="' + String(c.id) + '" style="flex:1;padding:10px;background:transparent;color:#A32D2D;border:1px solid #F09595;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Decline</button>';
       html += '</div></div>';
     });
-    html += '</div>';
   }
 
+  // Upcoming confirmed
   if (upcoming.length) {
-    html += '<div style="margin-bottom:20px">';
-    html += '<div style="font-size:13px;font-weight:700;color:#3B6D11;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Upcoming - Confirmed</div>';
-    upcoming.forEach((c) => {
+    html += '<div style="display:flex;align-items:center;gap:6px;margin:20px 0 12px">';
+    html += '<div style="width:8px;height:8px;border-radius:50%;background:#1D9E75"></div>';
+    html += '<span style="font-size:12px;font-weight:500;color:#0F6E56;text-transform:uppercase;letter-spacing:0.4px">Confirmed</span>';
+    html += '<span style="font-size:11px;color:#999;margin-left:2px">' + upcoming.length + '</span>';
+    html += '</div>';
+
+    upcoming.forEach(c => {
       const prop = c.properties || {};
+      const days = daysUntil(c.clean_date);
       const checkInInfo = prop.check_in_info || {};
-      html += '<div style="background:white;border-radius:14px;padding:16px;margin-bottom:10px;border-left:4px solid #3B6D11;box-shadow:0 1px 4px rgba(0,0,0,0.06)">';
-      html += '<div style="font-weight:700;font-size:15px;color:var(--forest,#1E3A2F)">' + (prop.name || 'Property') + '</div>';
-      html += '<div style="font-size:13px;color:#666;margin-top:2px">' + (prop.address || '') + '</div>';
-      html += '<div style="font-size:13px;color:#333;margin-top:8px"><strong>Date:</strong> ' + (c.clean_date || '') + '</div>';
-      html += '<div style="font-size:13px;color:#333"><strong>Guest:</strong> ' + (c.guest_name || 'N/A') + '</div>';
-      if (checkInInfo.lockbox_code) {
-        html += '<div style="font-size:13px;color:#333;margin-top:6px"><strong>Lockbox:</strong> ' + checkInInfo.lockbox_code + '</div>';
+      const guests = c.guests || '';
+      const guestLine = (c.guest_name || 'Guest') + (guests ? ' · ' + guests + ' guests' : '');
+
+      html += '<div style="background:white;border:0.5px solid #eee;border-left:3px solid #1D9E75;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
+      html += '<div>';
+      html += '<div style="font-size:17px;font-weight:500;color:#1a1a1a">' + formatDate(c.clean_date) + '</div>';
+      html += '<div style="font-size:13px;color:#888;margin-top:2px">' + guestLine + '</div>';
+      html += '</div>';
+      html += urgencyPill(days);
+      html += '</div>';
+      html += '<div style="margin-top:10px;padding:10px 12px;background:#f7f7f5;border-radius:6px">';
+      html += '<div style="font-size:13px;font-weight:500;color:#333">' + (prop.name || 'Property') + '</div>';
+      html += '<div style="font-size:12px;color:#888;margin-top:1px">' + (prop.address || '') + '</div>';
+      html += '</div>';
+
+      if (checkInInfo.lockbox_code || checkInInfo.instructions) {
+        html += '<div style="margin-top:8px;padding:10px 12px;background:#f7f7f5;border-radius:6px;font-size:12px;color:#666">';
+        html += '<div style="font-weight:500;margin-bottom:2px;color:#333">Access info</div>';
+        let accessParts = [];
+        if (checkInInfo.lockbox_code) accessParts.push('Lockbox: ' + checkInInfo.lockbox_code);
+        if (checkInInfo.instructions) accessParts.push(checkInInfo.instructions);
+        html += accessParts.join(' · ');
+        html += '</div>';
       }
-      if (checkInInfo.instructions) {
-        html += '<div style="font-size:12px;color:#666;margin-top:4px">' + checkInInfo.instructions + '</div>';
+
+      const cleanDateObj = new Date(c.clean_date + 'T00:00:00');
+      const isToday = c.clean_date === todayStr;
+      const isPast = cleanDateObj < today;
+      if (isToday || isPast) {
+        html += '<button type="button" data-action="done" data-clean-id="' + String(c.id) + '" style="width:100%;margin-top:10px;padding:10px;background:transparent;color:#1E3A2F;border:1px solid #ccc;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Mark as done</button>';
       }
-      html += '<button onclick="cleanerMarkDone(\'' + c.id + '\')" style="width:100%;margin-top:12px;padding:12px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer">Mark as Done</button>';
       html += '</div>';
     });
-    html += '</div>';
   }
 
+  // Completed
   if (completed.length) {
-    html += '<div style="margin-bottom:20px">';
-    html += '<div style="font-size:13px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Completed</div>';
-    completed.slice(0, 10).forEach((c) => {
-      const prop = c.properties || {};
-      html += '<div style="background:#f9f9f7;border-radius:14px;padding:14px 16px;margin-bottom:8px;opacity:0.7">';
-      html += '<div style="font-weight:600;font-size:14px;color:#333">' + (prop.name || 'Property') + '</div>';
-      html += '<div style="font-size:12px;color:#999;margin-top:2px">' + (c.clean_date || '') + ' · ' + (c.guest_name || '') + '</div>';
-      html += '</div>';
-    });
+    html += '<div style="display:flex;align-items:center;gap:6px;margin:20px 0 12px">';
+    html += '<div style="width:8px;height:8px;border-radius:50%;background:#999"></div>';
+    html += '<span style="font-size:12px;font-weight:500;color:#999;text-transform:uppercase;letter-spacing:0.4px">Completed</span>';
     html += '</div>';
+
+    completed.slice(0, 10).forEach(c => {
+      const prop = c.properties || {};
+      html += '<div style="background:#f9f9f7;border:0.5px solid #eee;border-radius:8px;padding:12px 16px;margin-bottom:8px;opacity:0.7">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+      html += '<div>';
+      html += '<div style="font-size:14px;font-weight:500;color:#555">' + formatDate(c.clean_date) + '</div>';
+      html += '<div style="font-size:12px;color:#999;margin-top:1px">' + (c.guest_name || '') + ' · ' + (prop.name || '') + '</div>';
+      html += '</div>';
+      html += '<div style="font-size:11px;color:#999">Done</div>';
+      html += '</div></div>';
+    });
   }
 
   if (!html) {
-    html = '<div style="text-align:center;padding:40px 20px;color:#999"><div style="font-size:40px;margin-bottom:12px">✨</div><div style="font-size:15px;font-weight:600">No cleans assigned yet</div><div style="font-size:13px;margin-top:6px">Your host will assign cleans to you here.</div></div>';
+    html = '<div style="text-align:center;padding:40px 20px;color:#999"><div style="font-size:40px;margin-bottom:12px">✨</div><div style="font-size:15px;font-weight:500">No cleans assigned yet</div><div style="font-size:13px;margin-top:6px">Your host will assign cleans to you here.</div></div>';
   }
 
   container.innerHTML = html;
+
+  if (!container._cleanerDelegated) {
+    container.addEventListener('click', async function (e) {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      const action = btn.getAttribute('data-action');
+      const cleanId = btn.getAttribute('data-clean-id');
+      if (!cleanId) return;
+      if (action === 'accept') await cleanerAcceptClean(cleanId);
+      else if (action === 'decline') await cleanerDeclineClean(cleanId);
+      else if (action === 'done') await cleanerMarkDone(cleanId);
+    }, true);
+    container._cleanerDelegated = true;
+  }
 }
 window.renderNewCleanerView = renderNewCleanerView;
 
@@ -3831,6 +3947,13 @@ function renderCleanerProfile() {
 
   const cr = window._cleanerData.cleanerRecord;
 
+  // Update header subtitle — show property name instead of location
+  const headerSub = document.querySelector('.cleaner-header .header-sub-name');
+  if (headerSub) {
+    const propName = window._cleanerData.property && window._cleanerData.property.name;
+    headerSub.textContent = propName || '';
+  }
+
   let html = '';
   html += '<div style="background:white;border-radius:16px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">';
   html += '<div style="text-align:center;margin-bottom:20px">';
@@ -3845,6 +3968,10 @@ function renderCleanerProfile() {
   html += '<div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #f5f5f3">';
   html += '<span style="font-size:13px;color:#999">Phone</span>';
   html += '<span style="font-size:13px;font-weight:600;color:#333">' + (cr.phone || '—') + '</span>';
+  html += '</div>';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #f5f5f3">';
+  html += '<span style="font-size:13px;color:#999">Notifications</span>';
+  html += '<span id="cleaner-notif-status" style="font-size:13px;font-weight:600;color:#999">Checking…</span>';
   html += '</div>';
 
   const cleans = window._cleanerData.myCleans || [];
@@ -3865,8 +3992,61 @@ function renderCleanerProfile() {
   html += '<button onclick="cleanerSignOut()" style="width:100%;margin-top:20px;padding:14px;background:white;color:#C0392B;border:1.5px solid #C0392B;border-radius:12px;font-weight:700;font-size:14px;cursor:pointer">Sign Out</button>';
 
   container.innerHTML = html;
+
+  // Async check notification status
+  (async () => {
+    const el = document.getElementById('cleaner-notif-status');
+    if (!el) return;
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        el.innerHTML = '<span style="color:#C0392B">Not supported</span>';
+        return;
+      }
+      const perm = typeof Notification !== 'undefined' ? Notification.permission : 'default';
+      if (perm === 'denied') {
+        el.innerHTML = '<span style="color:#C0392B">Blocked in browser settings</span>';
+        return;
+      }
+      const reg = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('SW timeout')), 3000))
+      ]);
+      const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
+      if (sub && perm === 'granted') {
+        el.innerHTML = '<span style="color:#1D9E75">✓ Enabled</span>';
+      } else {
+        el.innerHTML = '<button onclick="window._enableCleanerNotifs()" style="background:var(--forest,#1E3A2F);color:white;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer">Enable</button>';
+      }
+    } catch (e) {
+      console.warn('[StayOps] Notif status check failed:', e);
+      el.innerHTML = '<button onclick="window._enableCleanerNotifs()" style="background:var(--forest,#1E3A2F);color:white;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer">Enable</button>';
+    }
+  })();
 }
 window.renderCleanerProfile = renderCleanerProfile;
+
+window._enableCleanerNotifs = async function () {
+  const el = document.getElementById('cleaner-notif-status');
+  if (el) el.innerHTML = '<span style="color:#999">Enabling…</span>';
+  try {
+    const cr = window._cleanerData && window._cleanerData.cleanerRecord;
+    const cleanerId = cr ? cr.id : null;
+    if (typeof globalThis.subscribeToPush === 'function') {
+      await globalThis.subscribeToPush('cleaner', cleanerId);
+    } else {
+      // Fallback: import dynamically
+      const { subscribeToPush } = await import('./notifications.js');
+      await subscribeToPush('cleaner', cleanerId);
+    }
+    if (el) el.innerHTML = '<span style="color:#1D9E75">✓ Enabled</span>';
+    if (typeof globalThis.showBanner === 'function') {
+      globalThis.showBanner('Notifications enabled!', 'success');
+    }
+  } catch (e) {
+    console.warn('[StayOps] Enable notifs failed:', e);
+    if (el) el.innerHTML = '<span style="color:#C0392B">Failed — try again</span>';
+  }
+};
 
 function showCleanerSection(section) {
   ['cleans', 'calendar', 'profile'].forEach((s) => {

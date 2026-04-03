@@ -317,6 +317,7 @@ export async function subscribeToPush(role, cleanerId) {
     return null;
   }
 }
+globalThis.subscribeToPush = subscribeToPush;
 
 export async function sendPushToDevice(subscription, title, body, url, tag) {
   if (!subscription) { console.warn('sendPushToDevice called with no subscription'); return { ok: false, reason: 'no-subscription' }; }
@@ -351,6 +352,7 @@ export async function sendPushToDevice(subscription, title, body, url, tag) {
     return { ok: false, reason: e && e.message ? e.message : 'push-send-failed' };
   }
 }
+globalThis.sendPushToDevice = sendPushToDevice;
 
 export function getOwnerSub() { return getPushSubs().owner || null; }
 export function getCleanerSub(cleanerId) { return (getPushSubs().cleaners || {})[String(cleanerId)] || null; }
@@ -358,6 +360,7 @@ export function getCleanerSub(cleanerId) { return (getPushSubs().cleaners || {})
 export async function getFreshOwnerSub() {
   return getOwnerSub();
 }
+globalThis.getFreshOwnerSub = getFreshOwnerSub;
 
 export async function _sendCleanerAssignmentNotifications(booking, cleanerObj, date, tag) {
   let pushSent = false;

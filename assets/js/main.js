@@ -10,7 +10,7 @@ import {
   saveBookingToCloud, saveBookingsToCloud, deleteBookingFromCloud, saveHostConfigToSupabase, loadHostConfigFromSupabase,
   showLoadingScreen, hideLoadingScreen, setLoadingStatus, showLoginScreen, handleAuthFailure, showAppChrome,
   handleLoginSubmit, handleSignUpSubmit, handleMagicLinkSubmit, toggleSignUp, hostSignOut,
-  detectUserRole, showCleanerApp,
+  detectUserRole, showCleanerApp, loadCleanerDashboard,
 } from './supabase.js';
 import { calcNights, calcNet } from './utils.js';
 import {
@@ -72,6 +72,7 @@ globalThis.attachModalHandleDrag = attachModalHandleDrag;
 globalThis.closeDetailModal = closeDetailModal;
 globalThis.closeModal = closeModal;
 globalThis.hydrateFromCloud = hydrateFromCloud;
+globalThis.loadCleanerDashboard = loadCleanerDashboard;
 globalThis.processScanNeedsReview = processScanNeedsReview;
 globalThis.render = render;
 globalThis.renderAll = renderAll;
@@ -358,33 +359,6 @@ globalThis.handleAuthFailure = handleAuthFailure;
     window._oauthError = decodeURIComponent(oauthError);
   }
 
-  // Cleaner mode bypasses host auth entirely
-  if (isCleanerMode()) {
-    migrateConfigFromLegacySettings();
-    initPropertyUI();
-    attachButtonPress();
-    attachModalHandleDrag();
-    document.getElementById('modal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
-    document.getElementById('detail-modal').addEventListener('click', function(e) { if (e.target === this) closeDetailModal(); });
-    document.getElementById('notify-modal').addEventListener('click', function(e) { if (e.target === this) closeNotifyModal(); });
-    const { uid } = getCleanerParams();
-    if (!uid) {
-      _showCleanerLinkError('Invalid cleaner link — ask the owner to re-send your link from Settings.');
-    } else if (isCleanerAuthed()) {
-      document.body.classList.add('cleaner-mode');
-      // Hydrate from Netlify function (handles home screen PWA with no Supabase session)
-      const ok = await hydrateCleanerFromFunction();
-      if (ok) {
-        renderCleanerView();
-      } else {
-        _showCleanerLinkError('Could not load your cleaning data — check your connection and try again.');
-      }
-    } else {
-      document.body.classList.add('cleaner-pin-active');
-    }
-    return;
-  }
-
   if (typeof showLoadingScreen === 'function') showLoadingScreen('Checking your session…');
 
   // Check for active Supabase session (recover from invalid/expired refresh tokens)
@@ -408,22 +382,55 @@ globalThis.handleAuthFailure = handleAuthFailure;
   }
 
   if (!session) {
-    // No session — show login screen and wait
+    // No Supabase session — fall back to legacy cleaner PIN mode if present.
+    if (isCleanerMode()) {
+      migrateConfigFromLegacySettings();
+      initPropertyUI();
+      attachButtonPress();
+      attachModalHandleDrag();
+      document.getElementById('modal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
+      document.getElementById('detail-modal').addEventListener('click', function(e) { if (e.target === this) closeDetailModal(); });
+      document.getElementById('notify-modal').addEventListener('click', function(e) { if (e.target === this) closeNotifyModal(); });
+      const { uid } = getCleanerParams();
+      if (!uid) {
+        _showCleanerLinkError('Invalid cleaner link — ask the owner to re-send your link from Settings.');
+      } else if (isCleanerAuthed()) {
+        document.body.classList.add('cleaner-mode');
+        // Hydrate from Netlify function (handles home screen PWA with no Supabase session)
+        const ok = await hydrateCleanerFromFunction();
+        if (ok) {
+          renderCleanerView();
+        } else {
+          _showCleanerLinkError('Could not load your cleaning data — check your connection and try again.');
+        }
+      } else {
+        document.body.classList.add('cleaner-pin-active');
+      }
+      return;
+    }
+    // No session and not in legacy cleaner mode — show login screen and wait.
     console.log('[StayOps] No session — showing login screen');
     if (typeof showLoginScreen === 'function') showLoginScreen();
     else if (typeof hideLoadingScreen === 'function') hideLoadingScreen();
     return;
   }
 
-  const role = await detectUserRole();
-  if (role === 'cleaner') {
-    showCleanerApp();
-    return;
-  }
-
   // Existing session — init app FIRST (establishes property/storage keys),
   // THEN hydrate from cloud so data lands under the correct scoped keys.
   console.log('[StayOps] Boot step: session found, starting boot');
+  console.log('[StayOps] Boot step: detecting user role...');
+  try {
+    const role = await detectUserRole();
+    console.log('[StayOps] Boot step: detected role =', role);
+    if (role === 'cleaner') {
+      console.log('[StayOps] Boot step: routing to cleaner view');
+      showCleanerApp();
+      return;
+    }
+  } catch (e) {
+    console.error('[StayOps] Boot step: detectUserRole failed:', e);
+  }
+  console.log('[StayOps] Boot step: continuing with host boot');
   if (typeof showLoadingScreen === 'function') showLoadingScreen('Signing you in…');
 
   try {

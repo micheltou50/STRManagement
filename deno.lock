@@ -11,7 +11,11 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
-        "npm:@supabase/supabase-js@^2.39.0",
+        "npm:@capacitor/android@^8.3.0",
+        "npm:@capacitor/cli@^8.3.0",
+        "npm:@capacitor/core@^8.3.0",
+        "npm:@capacitor/ios@^8.3.0",
+        "npm:@supabase/supabase-js@^2.100.1",
         "npm:web-push@^3.6.7"
       ]
     }
