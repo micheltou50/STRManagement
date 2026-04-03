@@ -64,6 +64,7 @@ exports.handler = async (event) => {
       };
     }
 
+<<<<<<< HEAD
     try {
       webpush.setVapidDetails(
         process.env.VAPID_SUBJECT || 'mailto:micheltou50@gmail.com',
@@ -74,17 +75,64 @@ exports.handler = async (event) => {
       console.error('[send-push] VAPID config error:', vapidErr.message);
       return { statusCode: 500, headers: CORS, body: JSON.stringify({ ok: false, error: 'VAPID config error', code: 'VAPID_CONFIG_ERROR' }) };
     }
+=======
+    webpush.setVapidDetails(
+      process.env.VAPID_SUBJECT || 'mailto:micheltou50@gmail.com',
+      process.env.VAPID_PUBLIC_KEY,
+      process.env.VAPID_PRIVATE_KEY
+    );
+>>>>>>> fe489c3b644607abac2b21256de0b879eeac4c90
 
     const pushPayload = JSON.stringify({ title, body: body || '', url: url || '/', tag: tag || 'stayops' });
 
     // ── user_id mode: look up all subscriptions from app_config ──
     if (user_id) {
+<<<<<<< HEAD
       try {
         const { createClient } = require('@supabase/supabase-js');
         const sbUrl = process.env.SUPABASE_URL;
         const sbKey = process.env.SUPABASE_SERVICE_KEY;
         if (!sbUrl || !sbKey) {
           return { statusCode: 500, headers: CORS, body: JSON.stringify({ ok: false, error: 'Supabase not configured', code: 'NO_SUPABASE' }) };
+=======
+      const { createClient } = require('@supabase/supabase-js');
+      const sbUrl = process.env.SUPABASE_URL;
+      const sbKey = process.env.SUPABASE_SERVICE_KEY;
+      if (!sbUrl || !sbKey) {
+        return { statusCode: 500, headers: CORS, body: JSON.stringify({ ok: false, error: 'Supabase not configured', code: 'NO_SUPABASE' }) };
+      }
+      const sb = createClient(sbUrl, sbKey);
+      const { data, error: dbErr } = await sb
+        .from('app_config')
+        .select('push_subscriptions')
+        .eq('user_id', user_id)
+        .maybeSingle();
+
+      if (dbErr || !data) {
+        console.log('[send-push] No app_config for user_id', user_id, dbErr);
+        return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, sent: 0, reason: 'no-config' }) };
+      }
+
+      const subs = Array.isArray(data.push_subscriptions) ? data.push_subscriptions : [];
+      if (!subs.length) {
+        console.log('[send-push] No push_subscriptions for user_id', user_id);
+        return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, sent: 0, reason: 'no-subscriptions' }) };
+      }
+
+      let sent = 0, failed = 0;
+      const staleEndpoints = [];
+      for (const sub of subs) {
+        try {
+          await webpush.sendNotification(sub, pushPayload);
+          sent++;
+        } catch (e) {
+          const sc = e && e.statusCode;
+          console.warn('[send-push] Push failed for endpoint:', sub.endpoint, sc || e.message);
+          if (sc === 404 || sc === 410) {
+            staleEndpoints.push(sub.endpoint);
+          }
+          failed++;
+>>>>>>> fe489c3b644607abac2b21256de0b879eeac4c90
         }
         const sb = createClient(sbUrl, sbKey);
         const { data, error: dbErr } = await sb
@@ -133,6 +181,21 @@ exports.handler = async (event) => {
         console.error('[send-push] user_id mode error:', userIdErr.message || userIdErr);
         return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: false, sent: 0, error: userIdErr.message || 'user_id mode failed' }) };
       }
+<<<<<<< HEAD
+=======
+      // Clean up stale (expired/unsubscribed) endpoints
+      if (staleEndpoints.length) {
+        const filtered = subs.filter(s => s && s.endpoint && !staleEndpoints.includes(s.endpoint));
+        await sb
+          .from('app_config')
+          .update({ push_subscriptions: filtered, updated_at: new Date().toISOString() })
+          .eq('user_id', user_id)
+          .then(() => console.log('[send-push] Removed', staleEndpoints.length, 'stale endpoints'))
+          .catch(e => console.warn('[send-push] Stale cleanup failed:', e.message));
+      }
+      console.log('[send-push] user_id mode: sent=' + sent + ' failed=' + failed + ' stale=' + staleEndpoints.length);
+      return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, sent, failed }) };
+>>>>>>> fe489c3b644607abac2b21256de0b879eeac4c90
     }
 
     // ── Direct subscription mode (original) ──

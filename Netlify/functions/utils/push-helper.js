@@ -5,7 +5,11 @@
 
 const webpush = require('web-push');
 
+<<<<<<< HEAD
 const VAPID_SUBJECT = 'mailto:micheltou50@gmail.com';
+=======
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:micheltou50@gmail.com';
+>>>>>>> fe489c3b644607abac2b21256de0b879eeac4c90
 
 let _vapidConfigured = false;
 
