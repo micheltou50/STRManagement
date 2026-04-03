@@ -1094,6 +1094,16 @@ async function saveCleaningFee(bookingId) {
   const input = document.getElementById('actual-clean-fee');
   if (!b || !input) return;
   b.cleaningFee = Number(input.value) || 0;
+
+  // Recalculate management payout (same formula as saveEdit)
+  const mgmtPct = Number(b.mgmtFeeRaw) || 0;
+  if (mgmtPct) {
+    const mgmtBase = (Number(b.hostPayout) || 0) - b.cleaningFee;
+    b.mgmtFee = Math.round((mgmtBase * mgmtPct) / 100 * 100) / 100;
+    b.mgmtPayout = b.mgmtFee;
+    b.netPayout = Math.round((mgmtBase - b.mgmtFee) * 100) / 100;
+  }
+
   if (typeof globalThis.saveBookingToCloud === 'function') {
     try {
       await globalThis.saveBookingToCloud(b);
@@ -1102,7 +1112,9 @@ async function saveCleaningFee(bookingId) {
       globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
     }
   }
-  globalThis.showBanner('✓ Cleaning fee saved & synced', 'ok');
+  globalThis.showBanner('✓ Cleaning fee saved & payout recalculated', 'ok');
+  // Refresh the detail view so the updated payout is visible
+  if (typeof showDetail === 'function') showDetail(bookingId);
 }
 
 /** Aliases for clarity (same as showEditModal / saveEdit). */
