@@ -2402,6 +2402,28 @@ label {
     margin: 0 auto;
   }
 
+  /* ── Desktop Tables ─────────────────────────────────────────────────── */
+  .desktop-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .desktop-table th { text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-soft); padding:10px 14px; border-bottom:1px solid var(--warm); background:var(--mist); }
+  .desktop-table td { padding:12px 14px; border-bottom:1px solid #f0ede8; vertical-align:middle; }
+  .desktop-table tr:hover td { background:rgba(31,90,67,0.03); }
+  .desktop-table tr:last-child td { border-bottom:none; }
+
+  /* Desktop badges */
+  .dt-badge { display:inline-flex; align-items:center; font-size:11px; font-weight:600; padding:3px 10px; border-radius:20px; white-space:nowrap; }
+  .dt-badge-green { background:#EAF3DE; color:#3B6D11; }
+  .dt-badge-amber { background:#FAEEDA; color:#854F0B; }
+  .dt-badge-red { background:#FDECEA; color:#A32D2D; }
+  .dt-badge-gray { background:#F1EFE8; color:#5F5E5A; }
+  .dt-badge-blue { background:#E8F0FE; color:#185FA5; }
+
+  /* Platform pills */
+  .dt-platform { font-size:11px; font-weight:500; padding:2px 8px; border-radius:6px; }
+  .platform-airbnb { background:#FF585D20; color:#FF385C; }
+  .platform-vrbo { background:#1B5FFE20; color:#1B5FFE; }
+  .platform-booking { background:#003B9520; color:#003B95; }
+  .platform-direct { background:#6B6B6B15; color:#6B6B6B; }
+
   /* ── Cleaner mode: exclude from desktop layout ─────────────────────── */
   body.cleaner-mode {
     display: block !important;

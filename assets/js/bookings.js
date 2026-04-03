@@ -191,23 +191,69 @@ function renderBookings(filter) {
   }
 
   const sorted = [...filtered].sort((a, b) => new Date(a.checkin) - new Date(b.checkin));
-  const grouped = sorted.reduce((acc, b) => {
-    const d = new Date(b.checkin || b.checkout || Date.now());
-    const key = d.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(b);
-    return acc;
-  }, {});
 
-  list.innerHTML = Object.entries(grouped)
-    .map(
-      ([monthLabel, items]) => `
-    <div style="margin-bottom:4px">
-      <div style="font-size:11px;font-weight:700;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.9px;padding:16px 4px 8px">${escHtml(monthLabel)}</div>
-      ${items.map(b => buildBookingListCardFromBooking(b)).join('')}
-    </div>`
-    )
-    .join('');
+  // Desktop: table view | Mobile: card view
+  if (window.innerWidth >= 1024) {
+    const fmtShort = d => { if (!d) return ''; const dt = new Date(d); return dt.toLocaleDateString('en-AU', { day:'numeric', month:'short' }); };
+    const platformClass = p => { const lp = (p||'').toLowerCase(); if (lp.includes('airbnb')) return 'platform-airbnb'; if (lp.includes('vrbo')||lp.includes('homeaway')) return 'platform-vrbo'; if (lp.includes('booking')) return 'platform-booking'; return 'platform-direct'; };
+    const statusBadge = b => {
+      const today = new Date().toISOString().split('T')[0];
+      const ci = (b.checkin||'').slice(0,10);
+      const co = (b.checkout||'').slice(0,10);
+      if (b.status === 'cancelled') return '<span class="dt-badge dt-badge-gray">Cancelled</span>';
+      if (ci === today) return '<span class="dt-badge dt-badge-green">Arriving</span>';
+      if (co === today) return '<span class="dt-badge dt-badge-amber">Departing</span>';
+      if (ci < today && co > today) return '<span class="dt-badge dt-badge-green">In-house</span>';
+      if (co < today) return '<span class="dt-badge dt-badge-gray">Completed</span>';
+      return '<span class="dt-badge dt-badge-blue">Confirmed</span>';
+    };
+    const cleanerForBooking = b => {
+      const mc = typeof findMatchingCleanForBooking === 'function' ? findMatchingCleanForBooking(b) : null;
+      if (mc && mc.cleaner) return `<span style="color:var(--moss);font-weight:500">${escHtml(mc.cleaner)}</span>`;
+      return '<span style="color:var(--red);font-size:12px">Unassigned</span>';
+    };
+
+    const rows = sorted.map(b => {
+      const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
+      return `<tr onclick="showDetail('${bid}')" style="cursor:pointer">
+        <td><strong>${escHtml(b.name)}</strong></td>
+        <td>${fmtShort(b.checkin)}</td>
+        <td>${fmtShort(b.checkout)}</td>
+        <td>${b.nights || ''}</td>
+        <td>$${Number(b.hostPayout||0).toLocaleString()}</td>
+        <td><span class="dt-platform ${platformClass(b.platform)}">${escHtml(b.platform||'Direct')}</span></td>
+        <td>${cleanerForBooking(b)}</td>
+        <td>${statusBadge(b)}</td>
+      </tr>`;
+    }).join('');
+
+    list.innerHTML = `<div class="card" style="padding:0;overflow:hidden;overflow-x:auto">
+      <table class="desktop-table">
+        <thead><tr>
+          <th>Guest</th><th>Check-in</th><th>Check-out</th><th>Nights</th><th>Payout</th><th>Platform</th><th>Cleaner</th><th>Status</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  } else {
+    const grouped = sorted.reduce((acc, b) => {
+      const d = new Date(b.checkin || b.checkout || Date.now());
+      const key = d.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(b);
+      return acc;
+    }, {});
+
+    list.innerHTML = Object.entries(grouped)
+      .map(
+        ([monthLabel, items]) => `
+      <div style="margin-bottom:4px">
+        <div style="font-size:11px;font-weight:700;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.9px;padding:16px 4px 8px">${escHtml(monthLabel)}</div>
+        ${items.map(b => buildBookingListCardFromBooking(b)).join('')}
+      </div>`
+      )
+      .join('');
+  }
 
   if (typeof globalThis.animateList === 'function') globalThis.animateList('#bookings-list');
   setTimeout(() => {

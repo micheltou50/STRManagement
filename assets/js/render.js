@@ -1706,6 +1706,81 @@ function buildSinglePropertyTodayDashboardMarkup() {
     ) +
     `</div>`;
 
+  // Desktop: 2-column grid layout
+  if (window.innerWidth >= 1024) {
+    const upcoming = [...activeBookings]
+      .filter(b => parseLocalDayStart(b.checkout) >= todayStart)
+      .sort((a, b) => parseLocalDayStart(a.checkin) - parseLocalDayStart(b.checkin))
+      .slice(0, 8);
+    const fmtSh = d => { if (!d) return ''; const dt = new Date(d); return dt.toLocaleDateString('en-AU', { day:'numeric', month:'short' }); };
+    const platformCls = p => { const lp = (p||'').toLowerCase(); if (lp.includes('airbnb')) return 'platform-airbnb'; if (lp.includes('vrbo')) return 'platform-vrbo'; return 'platform-direct'; };
+    const statusBdg = b => {
+      const today = new Date().toISOString().split('T')[0];
+      const ci = (b.checkin||'').slice(0,10), co = (b.checkout||'').slice(0,10);
+      if (ci === today) return '<span class="dt-badge dt-badge-green">Arriving</span>';
+      if (co === today) return '<span class="dt-badge dt-badge-amber">Departing</span>';
+      if (ci < today && co > today) return '<span class="dt-badge dt-badge-green">In-house</span>';
+      return '<span class="dt-badge dt-badge-blue">Confirmed</span>';
+    };
+    const tblRows = upcoming.map(b => {
+      const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
+      return `<tr onclick="showDetail('${bid}')" style="cursor:pointer"><td><strong>${escHtml(b.name)}</strong></td><td>${fmtSh(b.checkin)}</td><td>${fmtSh(b.checkout)}</td><td>$${Number(b.hostPayout||0).toLocaleString()}</td><td><span class="dt-platform ${platformCls(b.platform)}">${escHtml(b.platform||'Direct')}</span></td><td>${statusBdg(b)}</td></tr>`;
+    }).join('');
+
+    const upcomingTable = `<div class="card" style="padding:0;overflow:hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 16px 12px">
+        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft)">Upcoming Bookings</span>
+        <span onclick="showSection('bookings')" style="font-size:12px;color:var(--moss);cursor:pointer;font-weight:500">View all &rarr;</span>
+      </div>
+      <table class="desktop-table"><thead><tr><th>Guest</th><th>Check-in</th><th>Check-out</th><th>Payout</th><th>Platform</th><th>Status</th></tr></thead><tbody>${tblRows || '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-soft)">No upcoming bookings</td></tr>'}</tbody></table>
+    </div>`;
+
+    // Today's cleans
+    const todayCleans = cleans.filter(c => {
+      const cd = (c.date||'').slice(0,10);
+      const todayStr = todayStart.toISOString().split('T')[0];
+      return cd === todayStr && !c.done;
+    });
+    const cleansHtml = todayCleans.length
+      ? todayCleans.map(c => `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f0ede8">
+          <div style="flex:1"><div style="font-size:13px;font-weight:500">${escHtml(c.guestName||c.name||'Guest')}</div><div style="font-size:11px;color:var(--text-soft)">${escHtml(c.propertyName||'')}</div></div>
+          <div style="text-align:right"><div style="font-size:12px;color:var(--moss);font-weight:500">${escHtml(c.cleaner||'Unassigned')}</div><span class="dt-badge ${c.cleanerConfirmed?'dt-badge-green':'dt-badge-amber'}" style="font-size:10px">${c.cleanerConfirmed?'Confirmed':'Pending'}</span></div>
+        </div>`).join('')
+      : '<div style="text-align:center;padding:16px;color:var(--text-soft);font-size:13px">No cleans scheduled today</div>';
+
+    // Occupancy card
+    const occCard = `<div class="card">
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Monthly Occupancy</div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+        <span style="font-family:'DM Serif Display',serif;font-size:32px;color:var(--forest)">${occupancyThisMonth}%</span>
+        <span style="font-size:12px;color:var(--moss)">${bookedNightsMonth}/${daysThisMonth} nights</span>
+      </div>
+      <div style="height:8px;background:#e8e0d5;border-radius:4px;overflow:hidden"><div style="height:100%;background:var(--moss);border-radius:4px;width:${occupancyThisMonth}%"></div></div>
+    </div>`;
+
+    return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:20px">
+      <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">${occupancyThisMonth}%</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Occupancy</div></div>
+      <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$${Math.round(revenueThisMonth).toLocaleString()}</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Revenue</div></div>
+      <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">${activeBookings.length}</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
+      <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$${Math.round(revenueNext30).toLocaleString()}</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 380px;gap:20px">
+      <div style="display:flex;flex-direction:column;gap:16px">
+        ${upcomingTable}
+        ${unifiedCalHtml}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        ${needsHtml ? '<div class="card">' + needsHtml + '</div>' : ''}
+        <div class="card">
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Today's Cleaning</div>
+          ${cleansHtml}
+        </div>
+        ${occCard}
+        ${quickHtml}
+      </div>
+    </div>`;
+  }
+
   return (
     statusHtml +
     needsHtml +
