@@ -3745,15 +3745,19 @@ async function cleanerAcceptClean(cleanId) {
       const guestName = cleanData?.guest_name || cleanData?.guestName || 'guest';
       const cleanDate = cleanData?.clean_date || cleanData?.date || '';
       const cleanerName = data.cleanerRecord?.name || 'Cleaner';
-      const ownerSub = typeof globalThis.getFreshOwnerSub === 'function' ? await globalThis.getFreshOwnerSub() : null;
-      if (ownerSub && typeof globalThis.sendPushToDevice === 'function') {
-        await globalThis.sendPushToDevice(
-          ownerSub,
-          '✅ Clean Confirmed',
-          cleanerName + ' accepted the clean for ' + guestName + (cleanDate ? ' on ' + cleanDate : ''),
-          '/',
-          'accept-' + cleanId
-        );
+      const { uid } = getCleanerParams();
+      if (uid) {
+        await fetch('/.netlify/functions/send-push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: uid,
+            title: '✅ Clean Confirmed',
+            body: cleanerName + ' accepted the clean for ' + guestName + (cleanDate ? ' on ' + cleanDate : ''),
+            url: '/',
+            tag: 'accept-' + cleanId
+          })
+        });
       }
     } catch (e) {
       console.warn('[StayOps] Push notify failed:', e);
@@ -3782,15 +3786,19 @@ async function cleanerDeclineClean(cleanId) {
       const guestName = cleanData?.guest_name || cleanData?.guestName || 'guest';
       const cleanDate = cleanData?.clean_date || cleanData?.date || '';
       const cleanerName = data.cleanerRecord?.name || 'Cleaner';
-      const ownerSub = typeof globalThis.getFreshOwnerSub === 'function' ? await globalThis.getFreshOwnerSub() : null;
-      if (ownerSub && typeof globalThis.sendPushToDevice === 'function') {
-        await globalThis.sendPushToDevice(
-          ownerSub,
-          '❌ Clean Declined',
-          cleanerName + ' cannot do the clean for ' + guestName + (cleanDate ? ' on ' + cleanDate : '') + '. Reassign needed.',
-          '/',
-          'decline-' + cleanId
-        );
+      const { uid } = getCleanerParams();
+      if (uid) {
+        await fetch('/.netlify/functions/send-push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: uid,
+            title: '❌ Clean Declined',
+            body: cleanerName + ' cannot do the clean for ' + guestName + (cleanDate ? ' on ' + cleanDate : '') + '. Reassign needed.',
+            url: '/',
+            tag: 'decline-' + cleanId
+          })
+        });
       }
     } catch (e) {
       console.warn('[StayOps] Push notify failed:', e);
@@ -3819,15 +3827,19 @@ async function cleanerMarkDone(cleanId) {
       const guestName = cleanData?.guest_name || cleanData?.guestName || 'guest';
       const cleanDate = cleanData?.clean_date || cleanData?.date || '';
       const cleanerName = data.cleanerRecord?.name || 'Cleaner';
-      const ownerSub = typeof globalThis.getFreshOwnerSub === 'function' ? await globalThis.getFreshOwnerSub() : null;
-      if (ownerSub && typeof globalThis.sendPushToDevice === 'function') {
-        await globalThis.sendPushToDevice(
-          ownerSub,
-          '🏡 Clean Complete!',
-          cleanerName + ' has finished the clean for ' + guestName + (cleanDate ? ' on ' + cleanDate : ''),
-          '/',
-          'done-' + cleanId
-        );
+      const { uid } = getCleanerParams();
+      if (uid) {
+        await fetch('/.netlify/functions/send-push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: uid,
+            title: '🏡 Clean Complete!',
+            body: cleanerName + ' has finished the clean for ' + guestName + (cleanDate ? ' on ' + cleanDate : ''),
+            url: '/',
+            tag: 'done-' + cleanId
+          })
+        });
       }
     } catch (e) {
       console.warn('[StayOps] Push notify failed:', e);
