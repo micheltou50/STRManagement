@@ -358,7 +358,45 @@ export function getOwnerSub() { return getPushSubs().owner || null; }
 export function getCleanerSub(cleanerId) { return (getPushSubs().cleaners || {})[String(cleanerId)] || null; }
 
 export async function getFreshOwnerSub() {
-  return getOwnerSub();
+  // Try in-memory first (works when host is logged in on same device)
+  const local = getOwnerSub();
+  if (local) return local;
+
+  // Cleaner context: fetch host's push subscription from Supabase
+  try {
+    const sb = globalThis._sb || window._sb;
+    if (!sb) { console.warn('[Push] No Supabase client for getFreshOwnerSub'); return null; }
+
+    // Get property_id from cleaner data or active property
+    const propId = (window._cleanerData && window._cleanerData.property && window._cleanerData.property.id)
+      || localStorage.getItem('gh-active-property')
+      || null;
+    if (!propId) { console.warn('[Push] No property_id for getFreshOwnerSub'); return null; }
+
+    const { data, error } = await sb
+      .from('app_config')
+      .select('push_subscriptions')
+      .eq('property_id', propId)
+      .maybeSingle();
+
+    if (error || !data) {
+      console.warn('[Push] getFreshOwnerSub query failed:', error);
+      return null;
+    }
+
+    // push_subscriptions is a jsonb array of subscription objects
+    const subs = data.push_subscriptions;
+    if (Array.isArray(subs) && subs.length > 0) {
+      console.log('[Push] getFreshOwnerSub: found', subs.length, 'subscription(s) from Supabase');
+      return subs[0]; // Return the first (most recent) subscription
+    }
+
+    console.warn('[Push] getFreshOwnerSub: no subscriptions in app_config');
+    return null;
+  } catch (e) {
+    console.warn('[Push] getFreshOwnerSub error:', e);
+    return null;
+  }
 }
 globalThis.getFreshOwnerSub = getFreshOwnerSub;
 
