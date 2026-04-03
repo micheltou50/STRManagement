@@ -3225,6 +3225,16 @@ function renderCleanerView() {
  * finishAppInit — runs standard app init after login or session restore.
  */
 async function finishAppInit() {
+  // Desktop sidebar branding
+  if (window.innerWidth >= 1024) {
+    const nav = document.querySelector('.nav');
+    if (nav && !document.getElementById('sidebar-brand')) {
+      const brand = document.createElement('div');
+      brand.id = 'sidebar-brand';
+      brand.innerHTML = 'Stay<span>Ops</span>';
+      nav.prepend(brand);
+    }
+  }
   migrateConfigFromLegacySettings();
   renderPropertySwitcher();
   initFxSettings();

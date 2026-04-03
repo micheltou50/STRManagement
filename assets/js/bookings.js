@@ -352,12 +352,18 @@ function showDetail(id) {
         <div style="flex:1;background:#FCEBEB;border:0.5px solid #FCEBEB;border-radius:10px;padding:12px;text-align:center;color:#A32D2D;font-size:13px;font-weight:500;cursor:pointer;box-sizing:border-box;touch-action:manipulation" onclick="deleteBooking('${safeIdEsc}')">Delete booking</div>
       </div>
     `;
-    document.getElementById('detail-modal').classList.add('open');
-    document.body.style.overflow = 'hidden';
-    _hideDetailModalDefaultCloseBtn();
-    setTimeout(() => {
-      if (typeof globalThis.attachModalHandleDrag === 'function') globalThis.attachModalHandleDrag();
-    }, 0);
+    const _dp = window.innerWidth >= 1024 && document.getElementById('desktop-detail-panel');
+    if (_dp) {
+      _dp.innerHTML = document.getElementById('detail-content').innerHTML;
+      _dp.style.padding = '20px';
+    } else {
+      document.getElementById('detail-modal').classList.add('open');
+      document.body.style.overflow = 'hidden';
+      _hideDetailModalDefaultCloseBtn();
+      setTimeout(() => {
+        if (typeof globalThis.attachModalHandleDrag === 'function') globalThis.attachModalHandleDrag();
+      }, 0);
+    }
     return;
   }
 
@@ -527,12 +533,18 @@ function showDetail(id) {
       <div style="flex:1;background:#FCEBEB;border:0.5px solid #FCEBEB;border-radius:10px;padding:12px;text-align:center;color:#A32D2D;font-size:13px;font-weight:500;cursor:pointer;box-sizing:border-box;touch-action:manipulation" onclick="deleteBooking('${safeIdEsc}')">Delete booking</div>
     </div>
   `;
-  document.getElementById('detail-modal').classList.add('open');
-  document.body.style.overflow = 'hidden';
-  _hideDetailModalDefaultCloseBtn();
-  setTimeout(() => {
-    if (typeof globalThis.attachModalHandleDrag === 'function') globalThis.attachModalHandleDrag();
-  }, 0);
+  const _dp2 = window.innerWidth >= 1024 && document.getElementById('desktop-detail-panel');
+  if (_dp2) {
+    _dp2.innerHTML = document.getElementById('detail-content').innerHTML;
+    _dp2.style.padding = '20px';
+  } else {
+    document.getElementById('detail-modal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+    _hideDetailModalDefaultCloseBtn();
+    setTimeout(() => {
+      if (typeof globalThis.attachModalHandleDrag === 'function') globalThis.attachModalHandleDrag();
+    }, 0);
+  }
 }
 
 function showEditModal(id) {
