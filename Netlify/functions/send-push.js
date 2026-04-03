@@ -64,52 +64,75 @@ exports.handler = async (event) => {
       };
     }
 
-    webpush.setVapidDetails(
-      process.env.VAPID_SUBJECT || 'mailto:admin@glenhaven21.netlify.app',
-      process.env.VAPID_PUBLIC_KEY,
-      process.env.VAPID_PRIVATE_KEY
-    );
+    try {
+      webpush.setVapidDetails(
+        process.env.VAPID_SUBJECT || 'mailto:micheltou50@gmail.com',
+        process.env.VAPID_PUBLIC_KEY,
+        process.env.VAPID_PRIVATE_KEY
+      );
+    } catch (vapidErr) {
+      console.error('[send-push] VAPID config error:', vapidErr.message);
+      return { statusCode: 500, headers: CORS, body: JSON.stringify({ ok: false, error: 'VAPID config error', code: 'VAPID_CONFIG_ERROR' }) };
+    }
 
     const pushPayload = JSON.stringify({ title, body: body || '', url: url || '/', tag: tag || 'stayops' });
 
     // ── user_id mode: look up all subscriptions from app_config ──
     if (user_id) {
-      const { createClient } = require('@supabase/supabase-js');
-      const sbUrl = process.env.SUPABASE_URL;
-      const sbKey = process.env.SUPABASE_SERVICE_KEY;
-      if (!sbUrl || !sbKey) {
-        return { statusCode: 500, headers: CORS, body: JSON.stringify({ ok: false, error: 'Supabase not configured', code: 'NO_SUPABASE' }) };
-      }
-      const sb = createClient(sbUrl, sbKey);
-      const { data, error: dbErr } = await sb
-        .from('app_config')
-        .select('push_subscriptions')
-        .eq('user_id', user_id)
-        .maybeSingle();
-
-      if (dbErr || !data) {
-        console.log('[send-push] No app_config for user_id', user_id, dbErr);
-        return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, sent: 0, reason: 'no-config' }) };
-      }
-
-      const subs = Array.isArray(data.push_subscriptions) ? data.push_subscriptions : [];
-      if (!subs.length) {
-        console.log('[send-push] No push_subscriptions for user_id', user_id);
-        return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, sent: 0, reason: 'no-subscriptions' }) };
-      }
-
-      let sent = 0, failed = 0;
-      for (const sub of subs) {
-        try {
-          await webpush.sendNotification(sub, pushPayload);
-          sent++;
-        } catch (e) {
-          console.warn('[send-push] Push failed for endpoint:', sub.endpoint, e.statusCode || e.message);
-          failed++;
+      try {
+        const { createClient } = require('@supabase/supabase-js');
+        const sbUrl = process.env.SUPABASE_URL;
+        const sbKey = process.env.SUPABASE_SERVICE_KEY;
+        if (!sbUrl || !sbKey) {
+          return { statusCode: 500, headers: CORS, body: JSON.stringify({ ok: false, error: 'Supabase not configured', code: 'NO_SUPABASE' }) };
         }
+        const sb = createClient(sbUrl, sbKey);
+        const { data, error: dbErr } = await sb
+          .from('app_config')
+          .select('push_subscriptions')
+          .eq('user_id', user_id)
+          .maybeSingle();
+
+        if (dbErr || !data) {
+          console.log('[send-push] No app_config for user_id', user_id, dbErr);
+          return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, sent: 0, reason: 'no-config' }) };
+        }
+
+        const rawSubs = Array.isArray(data.push_subscriptions) ? data.push_subscriptions : [];
+        // Validate each subscription has required fields
+        const subs = rawSubs.filter(s => s && typeof s === 'object' && typeof s.endpoint === 'string' && s.keys && s.keys.p256dh && s.keys.auth);
+        if (!subs.length) {
+          console.log('[send-push] No valid push_subscriptions for user_id', user_id, '(raw count:', rawSubs.length + ')');
+          return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, sent: 0, reason: 'no-subscriptions' }) };
+        }
+
+        let sent = 0, failed = 0;
+        const staleEndpoints = [];
+        for (const sub of subs) {
+          try {
+            await webpush.sendNotification(sub, pushPayload);
+            sent++;
+          } catch (e) {
+            const code = e && e.statusCode;
+            console.warn('[send-push] Push failed for endpoint:', sub.endpoint, code || e.message);
+            if (code === 404 || code === 410) staleEndpoints.push(sub.endpoint);
+            failed++;
+          }
+        }
+
+        // Clean up expired subscriptions
+        if (staleEndpoints.length) {
+          const cleaned = rawSubs.filter(s => !staleEndpoints.includes(s && s.endpoint));
+          await sb.from('app_config').update({ push_subscriptions: cleaned }).eq('user_id', user_id);
+          console.log('[send-push] Removed', staleEndpoints.length, 'stale endpoints');
+        }
+
+        console.log('[send-push] user_id mode: sent=' + sent + ' failed=' + failed);
+        return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, sent, failed }) };
+      } catch (userIdErr) {
+        console.error('[send-push] user_id mode error:', userIdErr.message || userIdErr);
+        return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: false, sent: 0, error: userIdErr.message || 'user_id mode failed' }) };
       }
-      console.log('[send-push] user_id mode: sent=' + sent + ' failed=' + failed);
-      return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, sent, failed }) };
     }
 
     // ── Direct subscription mode (original) ──

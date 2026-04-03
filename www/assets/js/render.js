@@ -3745,7 +3745,7 @@ async function cleanerAcceptClean(cleanId) {
       const guestName = cleanData?.guest_name || cleanData?.guestName || 'guest';
       const cleanDate = cleanData?.clean_date || cleanData?.date || '';
       const cleanerName = data.cleanerRecord?.name || 'Cleaner';
-      const { uid } = getCleanerParams();
+      const uid = cleanData?.user_id || getCleanerParams().uid;
       if (uid) {
         await fetch('/.netlify/functions/send-push', {
           method: 'POST',
@@ -3786,7 +3786,7 @@ async function cleanerDeclineClean(cleanId) {
       const guestName = cleanData?.guest_name || cleanData?.guestName || 'guest';
       const cleanDate = cleanData?.clean_date || cleanData?.date || '';
       const cleanerName = data.cleanerRecord?.name || 'Cleaner';
-      const { uid } = getCleanerParams();
+      const uid = cleanData?.user_id || getCleanerParams().uid;
       if (uid) {
         await fetch('/.netlify/functions/send-push', {
           method: 'POST',
@@ -3827,7 +3827,7 @@ async function cleanerMarkDone(cleanId) {
       const guestName = cleanData?.guest_name || cleanData?.guestName || 'guest';
       const cleanDate = cleanData?.clean_date || cleanData?.date || '';
       const cleanerName = data.cleanerRecord?.name || 'Cleaner';
-      const { uid } = getCleanerParams();
+      const uid = cleanData?.user_id || getCleanerParams().uid;
       if (uid) {
         await fetch('/.netlify/functions/send-push', {
           method: 'POST',
