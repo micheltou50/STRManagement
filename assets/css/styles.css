@@ -2320,12 +2320,12 @@ label {
   /* ── Phase 5: Section-specific layouts ─────────────────────────────── */
   /* Cleaning */
   #section-cleaning .section-stack {
-    max-width: 900px;
+    max-width: none;
   }
 
   /* Finance */
   #section-finance {
-    max-width: 1000px;
+    max-width: none;
   }
   #finance-hub {
     max-width: 600px;
@@ -2357,14 +2357,18 @@ label {
     overflow-wrap: break-word;
     word-break: break-word;
   }
-  /* Desktop table — guest name gets more room, other cols stay tight */
+  /* Desktop table — keep rows tight but allow key columns to breathe */
   .desktop-table td {
     white-space: nowrap;
   }
   .desktop-table td:first-child {
     white-space: nowrap;
+    min-width: 100px;
+  }
+  /* Description/name columns can wrap on 2nd column */
+  .desktop-table td:nth-child(2) {
+    white-space: normal;
     min-width: 140px;
-    font-size: 13px;
   }
 
   /* ── Phase 6: Typography & Spacing Polish ──────────────────────────── */
