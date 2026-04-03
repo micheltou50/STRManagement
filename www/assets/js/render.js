@@ -4005,80 +4005,21 @@ function renderCleanerProfile() {
 
   container.innerHTML = html;
 
-  // Async check notification status (timeouts avoid hanging forever on SW/getSubscription)
-  (async () => {
-    const el = document.getElementById('cleaner-notif-status');
-    if (!el) return;
-    const cleanerId = cr && cr.id != null ? String(cr.id) : null;
-    const perm = typeof Notification !== 'undefined' ? Notification.permission : 'default';
+  // Check notification status synchronously from Notification.permission
+  const el = document.getElementById('cleaner-notif-status');
+  if (el) {
     const enableBtn =
       '<button onclick="window._enableCleanerNotifs()" style="background:var(--forest,#1E3A2F);color:white;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer">Enable</button>';
-
-    function showEnabled() {
+    if (typeof Notification === 'undefined' || !('serviceWorker' in navigator)) {
+      el.innerHTML = '<span style="color:#C0392B">Not supported</span>';
+    } else if (Notification.permission === 'granted') {
       el.innerHTML = '<span style="color:#1D9E75">✓ Enabled</span>';
-    }
-
-    try {
-      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-        el.innerHTML = '<span style="color:#C0392B">Not supported</span>';
-        return;
-      }
-      if (perm === 'denied') {
-        el.innerHTML = '<span style="color:#C0392B">Blocked in browser settings</span>';
-        return;
-      }
-
-      // Subscription saved with this cleaner id (Supabase-auth cleaners; avoids SW-only path)
-      if (cleanerId && perm === 'granted') {
-        const stored = getCleanerSub(cleanerId);
-        if (stored && stored.endpoint) {
-          showEnabled();
-          return;
-        }
-      }
-
-      const withTimeout = (p, ms) =>
-        Promise.race([
-          p,
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
-        ]);
-
-      let reg = null;
-      try {
-        reg = await withTimeout(navigator.serviceWorker.ready, 5000);
-      } catch (e) {
-        console.warn('[StayOps] Notif status: serviceWorker.ready', e);
-      }
-
-      let sub = null;
-      if (reg && reg.pushManager) {
-        try {
-          sub = await withTimeout(reg.pushManager.getSubscription(), 5000);
-        } catch (e) {
-          console.warn('[StayOps] Notif status: getSubscription', e);
-        }
-      }
-
-      if (sub && perm === 'granted') {
-        showEnabled();
-        return;
-      }
-
-      if (perm === 'default') {
-        el.innerHTML =
-          '<span style="display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">' +
-          '<span style="color:#666">Disabled</span>' +
-          enableBtn +
-          '</span>';
-        return;
-      }
-
-      el.innerHTML = enableBtn;
-    } catch (e) {
-      console.warn('[StayOps] Notif status check failed:', e);
+    } else if (Notification.permission === 'denied') {
+      el.innerHTML = '<span style="color:#C0392B">Blocked</span>';
+    } else {
       el.innerHTML = enableBtn;
     }
-  })();
+  }
 }
 window.renderCleanerProfile = renderCleanerProfile;
 
