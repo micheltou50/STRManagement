@@ -30,21 +30,21 @@ exports.handler = async (event) => {
       };
     }
 
-    const { subscription, title, body, url, tag } = payload;
+    const { subscription, user_id, title, body, url, tag } = payload;
 
-    if (!subscription || !title) {
+    if (!title) {
       return {
         statusCode: 400,
         headers: CORS,
-        body: JSON.stringify({ ok: false, error: 'Missing subscription or title', code: 'MISSING_FIELDS' })
+        body: JSON.stringify({ ok: false, error: 'Missing title', code: 'MISSING_FIELDS' })
       };
     }
 
-    if (!subscription.endpoint || !subscription.keys || !subscription.keys.p256dh || !subscription.keys.auth) {
+    if (!subscription && !user_id) {
       return {
         statusCode: 400,
         headers: CORS,
-        body: JSON.stringify({ ok: false, error: 'Invalid push subscription payload', code: 'INVALID_SUBSCRIPTION' })
+        body: JSON.stringify({ ok: false, error: 'Missing subscription or user_id', code: 'MISSING_FIELDS' })
       };
     }
 
@@ -70,10 +70,58 @@ exports.handler = async (event) => {
       process.env.VAPID_PRIVATE_KEY
     );
 
-    await webpush.sendNotification(
-      subscription,
-      JSON.stringify({ title, body: body || '', url: url || '/', tag: tag || 'glenhaven' })
-    );
+    const pushPayload = JSON.stringify({ title, body: body || '', url: url || '/', tag: tag || 'stayops' });
+
+    // ── user_id mode: look up all subscriptions from app_config ──
+    if (user_id) {
+      const { createClient } = require('@supabase/supabase-js');
+      const sbUrl = process.env.SUPABASE_URL;
+      const sbKey = process.env.SUPABASE_SERVICE_KEY;
+      if (!sbUrl || !sbKey) {
+        return { statusCode: 500, headers: CORS, body: JSON.stringify({ ok: false, error: 'Supabase not configured', code: 'NO_SUPABASE' }) };
+      }
+      const sb = createClient(sbUrl, sbKey);
+      const { data, error: dbErr } = await sb
+        .from('app_config')
+        .select('push_subscriptions')
+        .eq('user_id', user_id)
+        .maybeSingle();
+
+      if (dbErr || !data) {
+        console.log('[send-push] No app_config for user_id', user_id, dbErr);
+        return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, sent: 0, reason: 'no-config' }) };
+      }
+
+      const subs = Array.isArray(data.push_subscriptions) ? data.push_subscriptions : [];
+      if (!subs.length) {
+        console.log('[send-push] No push_subscriptions for user_id', user_id);
+        return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, sent: 0, reason: 'no-subscriptions' }) };
+      }
+
+      let sent = 0, failed = 0;
+      for (const sub of subs) {
+        try {
+          await webpush.sendNotification(sub, pushPayload);
+          sent++;
+        } catch (e) {
+          console.warn('[send-push] Push failed for endpoint:', sub.endpoint, e.statusCode || e.message);
+          failed++;
+        }
+      }
+      console.log('[send-push] user_id mode: sent=' + sent + ' failed=' + failed);
+      return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, sent, failed }) };
+    }
+
+    // ── Direct subscription mode (original) ──
+    if (!subscription.endpoint || !subscription.keys || !subscription.keys.p256dh || !subscription.keys.auth) {
+      return {
+        statusCode: 400,
+        headers: CORS,
+        body: JSON.stringify({ ok: false, error: 'Invalid push subscription payload', code: 'INVALID_SUBSCRIPTION' })
+      };
+    }
+
+    await webpush.sendNotification(subscription, pushPayload);
 
     return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true }) };
 
