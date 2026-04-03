@@ -571,7 +571,7 @@ async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, 
     mgmt_fee_raw: rate,
     mgmt_fee: mgmtFee,
     mgmt_payout: mgmtFee,        // manager's cut
-    platform: detectPlatform(emailFrom),
+    platform: parsed.platform || detectPlatform(emailFrom),
     confirmation_code: parsed.confirmationCode || '',
     status: 'confirmed',
     source: 'gmail',

@@ -783,6 +783,8 @@ export function renderCleaning() {
 export function reassignClean(cleanId) {
   const c = cleans.find(cl => String(cl.id) === String(cleanId));
   if (c) {
+    c.cleaner = '';
+    c.cleanerId = null;
     c.cleanerDeclined = false;
     c.cleanerConfirmed = false;
     c.notified = false;
