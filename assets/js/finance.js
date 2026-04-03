@@ -2269,12 +2269,13 @@ function renderExpenses() {
       const catCol = getCategoryColor(e.category);
       const hasRec = expenseHasReceiptAttached(e);
       const recHtml = hasRec ? '<span style="color:#185FA5;font-size:11px">Attached</span>' : '<span style="color:#A32D2D;font-size:11px">None</span>';
+      const descShort = (e.description || '').length > 40 ? (e.description || '').slice(0, 40) + '...' : (e.description || '');
       return `<tr onclick="openExpenseView('${escapeJsSingleQuotedHtmlAttr(String(e.id))}')" style="cursor:pointer">
-        <td>${fmt(e.date)}</td>
-        <td><strong>${escHtml(e.merchant || 'Unknown')}</strong>${e.description ? '<div style="font-size:11px;color:var(--text-soft)">' + escHtml(e.description) + '</div>' : ''}</td>
-        <td><span style="font-size:11px;font-weight:600;color:${catCol};background:${catCol}15;padding:2px 8px;border-radius:6px">${escHtml(e.category || '')}</span></td>
-        <td>${recHtml}</td>
-        <td style="text-align:right;font-weight:500;color:${amtColor}">${prefix}$${Math.abs(Number(e.amount)).toFixed(2)}</td>
+        <td style="white-space:nowrap">${fmt(e.date)}</td>
+        <td style="max-width:200px"><strong>${escHtml(e.merchant || 'Unknown')}</strong>${descShort ? '<div style="font-size:11px;color:var(--text-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(descShort) + '</div>' : ''}</td>
+        <td style="white-space:nowrap"><span style="font-size:11px;font-weight:600;color:${catCol};background:${catCol}15;padding:2px 8px;border-radius:6px">${escHtml(e.category || '')}</span></td>
+        <td style="white-space:nowrap">${recHtml}</td>
+        <td style="text-align:right;font-weight:500;color:${amtColor};white-space:nowrap">${prefix}$${Math.abs(Number(e.amount)).toFixed(2)}</td>
       </tr>`;
     }).join('');
 
