@@ -2358,17 +2358,14 @@ label {
     word-break: break-word;
   }
   /* Desktop table — keep rows tight but allow key columns to breathe */
-  .desktop-table td {
-    white-space: nowrap;
-  }
-  .desktop-table td:first-child {
-    white-space: nowrap;
-    min-width: 100px;
-  }
-  /* Description/name columns can wrap on 2nd column */
+  .desktop-table { table-layout: auto; }
+  .desktop-table td { white-space: nowrap; }
+  .desktop-table td:first-child { white-space: nowrap; min-width: 80px; }
+  /* Description/merchant column — wrap but cap width so other cols show */
   .desktop-table td:nth-child(2) {
     white-space: normal;
-    min-width: 140px;
+    min-width: 120px;
+    max-width: 220px;
   }
 
   /* ── Phase 6: Typography & Spacing Polish ──────────────────────────── */
