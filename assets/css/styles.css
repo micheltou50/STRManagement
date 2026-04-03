@@ -2283,23 +2283,11 @@ label {
     border-radius: 16px !important;
   }
 
-  /* ── Phase 3: Dashboard Multi-Column ───────────────────────────────── */
-  #section-today .section-stack,
-  #dashboard-today-mount {
-    display: grid !important;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-  }
-  /* Full-width items span both columns */
-  #dashboard-today-mount > .dashboard-hero,
-  #dashboard-today-mount > .stats-row,
-  #dashboard-today-mount > .attention-summary,
-  #dashboard-today-mount > .dashboard-calendar,
-  #dashboard-today-mount > [style*="Needs Attention"],
-  #section-today .section-stack > .section-heading,
-  #section-today .section-stack > h2,
-  #section-today .section-stack > .card:first-child {
-    grid-column: 1 / -1;
+  /* ── Phase 3: Dashboard — JS handles desktop layout directly ─────── */
+  /* Remove any inherited grid on the mount — the JS renders its own grid */
+  #dashboard-today-mount,
+  #portfolio-dashboard > div {
+    display: block !important;
   }
   .stats-row {
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
@@ -2369,16 +2357,14 @@ label {
     overflow-wrap: break-word;
     word-break: break-word;
   }
-  /* Desktop table text should not overflow */
+  /* Desktop table — guest name gets more room, other cols stay tight */
   .desktop-table td {
-    max-width: 200px;
-    overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
   }
   .desktop-table td:first-child {
-    max-width: 180px;
-    white-space: normal;
+    white-space: nowrap;
+    min-width: 140px;
+    font-size: 13px;
   }
 
   /* ── Phase 6: Typography & Spacing Polish ──────────────────────────── */
