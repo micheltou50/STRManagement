@@ -319,8 +319,9 @@ export async function subscribeToPush(role, cleanerId) {
 }
 globalThis.subscribeToPush = subscribeToPush;
 
-export async function sendPushToDevice(subscription, title, body, url, tag) {
+export async function sendPushToDevice(subscription, title, body, url, tag, opts) {
   if (!subscription) { console.warn('sendPushToDevice called with no subscription'); return { ok: false, reason: 'no-subscription' }; }
+  const extra = opts || {};
   try {
     console.log('[Push] before sending push endpoint:', subscription && subscription.endpoint ? subscription.endpoint : null);
     console.log('[Push] before sending push subscription (safe stringify):', safePushStringify(subscription || null));
@@ -328,7 +329,7 @@ export async function sendPushToDevice(subscription, title, body, url, tag) {
     const res = await fetch(getPushFunctionUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subscription, title, body, url, tag })
+      body: JSON.stringify({ subscription, title, body, url, tag, ...extra })
     });
     console.log('[Push] send push HTTP status:', res.status);
     console.log('Push HTTP status:', res.status);
@@ -374,7 +375,8 @@ export async function _sendCleanerAssignmentNotifications(booking, cleanerObj, d
       '🏡 New Clean Assigned',
       `${booking.name || 'Guest'} · ${fmt(date)}`,
       cleanerLinkForId(cleanerObj),
-      tag || ('assign-' + String(booking.id || Date.now()))
+      tag || ('assign-' + String(booking.id || Date.now())),
+      { skipEmail: true } // email already sent via sendCleanerEmail below
     );
     pushSent = !!(pushRes && pushRes.ok);
   } else {
