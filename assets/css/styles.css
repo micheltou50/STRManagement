@@ -2330,6 +2330,10 @@ label {
   #finance-hub {
     max-width: 600px;
   }
+  #expenses-main-block,
+  .expenses-main-block {
+    max-width: none !important;
+  }
 
   /* Property */
   #section-property {
