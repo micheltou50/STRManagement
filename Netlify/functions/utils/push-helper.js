@@ -98,7 +98,7 @@ async function sendPushToOwner({
 
   const { data: cfgRows, error: cErr } = await supabaseAdmin
     .from('app_config')
-    .select('push_subscriptions')
+    .select('push_subscriptions, notification_config')
     .eq('user_id', uid)
     .limit(1);
 
@@ -108,6 +108,29 @@ async function sendPushToOwner({
   }
 
   const row = Array.isArray(cfgRows) && cfgRows.length ? cfgRows[0] : null;
+
+  // Check notification_config toggles
+  if (row && row.notification_config && type) {
+    const nc = row.notification_config;
+    // Map notification types to config keys
+    const typeToKey = {
+      checkin_today: 'push_checkin',
+      checkout_today: 'push_checkout',
+      unassigned_clean: 'push_unassigned_clean',
+      no_response: 'push_no_response',
+      review_cleaning_cost: 'push_review_cost',
+      monthly_summary: 'push_monthly_summary',
+      cleaner_confirmed: 'push_cleaner_confirm',
+      cleaner_declined: 'push_cleaner_decline',
+      clean_done: 'push_clean_done',
+    };
+    const cfgKey = typeToKey[type];
+    if (cfgKey && nc[cfgKey] === false) {
+      console.log('[StayOps] push-helper: notification disabled by config —', type, '→', cfgKey);
+      return { sent: 0, removed: 0 };
+    }
+  }
+
   const subs = subscriptionsFromAppConfigRow(row);
 
   if (!subs.length) {

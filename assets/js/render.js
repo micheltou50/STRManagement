@@ -449,6 +449,8 @@ function showSection(name) {
     return;
   } else if (name === 'property') {
     backToPropertyHub();
+  } else if (name === 'admin') {
+    if (typeof globalThis.renderAdmin === 'function') globalThis.renderAdmin();
   } else if (name === 'settings') {
     // Show settings main menu, hide any open cats/panels
     _resetSettingsToMenu();
@@ -3427,6 +3429,11 @@ async function finishAppInit() {
     }
   } else {
     await globalThis.showSetupIfNeeded();
+    // Show admin nav button for owner
+    if (typeof globalThis.isAdminSync === 'function' && globalThis.isAdminSync()) {
+      const adminNav = document.getElementById('nav-admin');
+      if (adminNav) adminNav.style.display = '';
+    }
   }
 }
 

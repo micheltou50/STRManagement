@@ -527,7 +527,7 @@ async function getCloudPropertyId() {
 
 // ── HOST CONFIG ───────────────────────────────────────────────────────────────
 
-async function saveHostConfigToCloud(configData) {
+export async function saveHostConfigToCloud(configData) {
   // Delegate to savePropertyToCloud — same data, one source of truth
   if (configData) await savePropertyToCloud(configData);
 }
@@ -1494,6 +1494,7 @@ export async function hydrateFromCloud() {
         auto_assign_cleaner: cloudAppConfig.auto_assign_cleaner ?? true,
         api_key: cloudAppConfig.anthropic_api_key || (activeCloud && activeCloud.anthropic_api_key) || '',
         mgmt_fee_rate: cloudAppConfig.mgmt_fee_rate || (activeCloud && activeCloud.mgmt_fee_rate) || 0,
+        notification_config: cloudAppConfig.notification_config || {},
       };
       console.log('[StayOps] Hydrated app config from cloud');
     }

@@ -385,8 +385,8 @@ export function savePropertyConfig(updates) {
     localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(first));
     _syncLegacyMirrorsFromActive();
 
-    if (!window._stayOpsHydrating && typeof saveHostConfigToCloud === 'function') {
-      saveHostConfigToCloud(first);
+    if (!window._stayOpsHydrating && typeof globalThis.saveHostConfigToCloud === 'function') {
+      globalThis.saveHostConfigToCloud(first);
     }
     return first;
   }
@@ -408,8 +408,8 @@ export function savePropertyConfig(updates) {
   localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(merged));
   _syncLegacyMirrorsFromActive();
 
-  if (!window._stayOpsHydrating && typeof saveHostConfigToCloud === 'function') {
-    saveHostConfigToCloud(merged);
+  if (!window._stayOpsHydrating && typeof globalThis.saveHostConfigToCloud === 'function') {
+    globalThis.saveHostConfigToCloud(merged);
   }
   return merged;
 }

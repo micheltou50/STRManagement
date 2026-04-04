@@ -5,7 +5,7 @@ import {
   addPropertyConfig, savePropertyConfig, hasValidPropertyConfig, migrateConfigFromLegacySettings, initPropertyUI,
 } from './config.js';
 import {
-  getSupabaseSession, getCurrentSupabaseUser, seedLocalConfigFromCloud, hydrateFromCloud, savePropertyToCloud,
+  getSupabaseSession, getCurrentSupabaseUser, seedLocalConfigFromCloud, hydrateFromCloud, savePropertyToCloud, saveHostConfigToCloud,
   loadCleansFromCloud, saveCleansToCloud, saveInventoryToCloud, saveMaintenanceToCloud, deleteMaintenanceFromCloud,
   saveBookingToCloud, saveBookingsToCloud, deleteBookingFromCloud, saveHostConfigToSupabase, loadHostConfigFromSupabase,
   showLoadingScreen, hideLoadingScreen, setLoadingStatus, showLoginScreen, handleAuthFailure, showAppChrome,
@@ -46,6 +46,10 @@ import {
   calPrev, calNext, openCalPreview, closeCalPreview, addNote, showDetail, showEditModal, saveEdit, editCalcNights, editCalcNet, filterBookings, addBooking,
   deleteBooking, importAirbnbCSV, importCSV, switchModalTab, saveCleaningFee
 } from './bookings.js';
+import {
+  renderAdmin, switchAdminTab, adminHandleToggle, adminToggleTemplate, adminSendTestEmail,
+  isAdminSync, getNotificationConfig, isNotifEnabled
+} from './admin.js';
 import {
   showBanner, platformIcon, reloadInMemoryData, showSection, jumpToCleaningActionNeeded, jumpToScheduleClean, render, renderAll, renderDashboard, renderHeaderDateBadge,
   applyStayopsPostSwitchAction, openModal, closeModal, closeDetailModal, _checkModalsClosed, openQuickAddMenu, closeQuickAddMenu, runFullRefresh, ensureHostIdentityAndRestore, renderMaintenance,
@@ -89,6 +93,10 @@ globalThis.saveCleansToCloud = saveCleansToCloud;
 globalThis.getCurrentSupabaseUser = getCurrentSupabaseUser;
 globalThis.getFreshOwnerSub = getFreshOwnerSub;
 globalThis.sendPushToDevice = sendPushToDevice;
+globalThis.renderAdmin = renderAdmin;
+globalThis.isAdminSync = isAdminSync;
+globalThis.getNotificationConfig = getNotificationConfig;
+globalThis.isNotifEnabled = isNotifEnabled;
 
 // Called from index.html onclick/onchange handlers
 window.handleLoginSubmit        = handleLoginSubmit;
@@ -211,6 +219,10 @@ window.testNotificationConfig   = testNotificationConfig;
 window.toggleAutoAssignCleaner  = toggleAutoAssignCleaner;
 window.toggleExpenseAddForm     = toggleExpenseAddForm;
 window.toggleExpenseList        = toggleExpenseList;
+window.switchAdminTab           = switchAdminTab;
+window.adminHandleToggle        = adminHandleToggle;
+window.adminToggleTemplate      = adminToggleTemplate;
+window.adminSendTestEmail       = adminSendTestEmail;
 
 // Called from dynamically generated HTML (onclick strings in template literals)
 window.adjustStock              = adjustStock;
@@ -322,6 +334,7 @@ globalThis.loadHostConfigFromSupabase = loadHostConfigFromSupabase;
 globalThis.showSetupIfNeeded = showSetupIfNeeded;
 globalThis.loadCleansFromCloud = loadCleansFromCloud;
 globalThis.savePropertyToCloud = savePropertyToCloud;
+globalThis.saveHostConfigToCloud = saveHostConfigToCloud;
 globalThis.deleteMaintenanceFromCloud = deleteMaintenanceFromCloud;
 globalThis.saveInventoryToCloud = saveInventoryToCloud;
 globalThis.saveMaintenanceToCloud = saveMaintenanceToCloud;

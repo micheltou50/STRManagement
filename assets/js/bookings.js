@@ -25,6 +25,7 @@ import {
   assignCleanerToBooking,
   toggleCleanerConfirmed,
 } from './cleaning.js';
+import { sendCleanerEmail } from './notifications.js';
 // ── DASHBOARD CALENDAR STATE ─────────────────────────────────────────────────
 let calYear = new Date().getFullYear();
 let calMonth = new Date().getMonth();
@@ -859,6 +860,35 @@ async function deleteBooking(id) {
   );
 
   // In-memory arrays are the source of truth (cloud already deleted above).
+
+  // ── Send cancellation email to assigned cleaner(s) ──────────────────────
+  if (orphanedCleans.length && typeof globalThis.isNotifEnabled === 'function' && globalThis.isNotifEnabled('email_cancellation')) {
+    for (const c of orphanedCleans) {
+      if (!c.cleaner) continue;
+      try {
+        // Look up cleaner email from the cleaners list
+        const cleaners = (typeof globalThis.loadCleaners === 'function' ? globalThis.loadCleaners() : []) || [];
+        const cleanerObj = cleaners.find(cl =>
+          cl.name === c.cleaner || String(cl.id) === String(c.cleanerId || c.cleaner_id)
+        );
+        const email = cleanerObj && cleanerObj.email ? cleanerObj.email.trim() : '';
+        if (email) {
+          await sendCleanerEmail({
+            cleanerName: c.cleaner,
+            cleanerEmail: email,
+            guestName: deletedGuestName || 'Guest',
+            checkin: deletedBooking.checkin ? fmt(deletedBooking.checkin) : '',
+            checkout: deletedBooking.checkout ? fmt(deletedBooking.checkout) : '',
+            cleanDate: c.date || (deletedBooking.checkout ? fmt(deletedBooking.checkout) : ''),
+            type: 'cancellation',
+          });
+          console.log('[StayOps] Cancellation email sent to', c.cleaner, email);
+        }
+      } catch (e) {
+        console.warn('[StayOps] Cancellation email failed for', c.cleaner, e);
+      }
+    }
+  }
 
   const user = typeof globalThis.getCurrentSupabaseUser === 'function' ? await globalThis.getCurrentSupabaseUser() : null;
   if (user && window._sb) {

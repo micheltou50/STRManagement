@@ -364,6 +364,12 @@ export async function getFreshOwnerSub() {
 globalThis.getFreshOwnerSub = getFreshOwnerSub;
 
 export async function _sendCleanerAssignmentNotifications(booking, cleanerObj, date, tag) {
+  // Check if assignment notifications are disabled in admin config
+  if (typeof globalThis.isNotifEnabled === 'function' && !globalThis.isNotifEnabled('notif_assignment')) {
+    console.log('[StayOps] Assignment notifications disabled by admin config');
+    return { pushSent: false, emailAttempted: false, emailSent: false };
+  }
+
   let pushSent = false;
   let emailAttempted = false;
   let emailSent = false;

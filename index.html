@@ -12,9 +12,9 @@
 <link rel="apple-touch-icon" id="pwa-touch-icon" href="./icon-host-192.png">
 <link rel="icon" type="image/png" href="./icon-host-192.png">
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="./assets/css/styles.css?v=20260403">
+<link rel="stylesheet" href="./assets/css/styles.css?v=20260403b">
 
-<!-- Sentry — error monitoring. Replace YOUR_DSN with your project DSN from sentry.io -->
+<!-- Sentry — error monitoring -->
 <script
   src="https://js.sentry-cdn.com/e031cec3998447f5b9bd2098146630ab.min.js"
   crossorigin="anonymous"
@@ -22,25 +22,15 @@
 <script>
   if (window.Sentry) {
     Sentry.init({
-      // Replace the dsn value with your project DSN from sentry.io → Settings → Client Keys
       dsn: 'https://e031cec3998447f5b9bd2098146630ab@o4511154504794112.ingest.us.sentry.io/4511154514296832',
       environment: location.hostname === 'localhost' ? 'development' : 'production',
-      // Only capture unhandled errors and promise rejections — no noise from extensions
-      integrations: [],
-      // Sample 100% of errors in production
       tracesSampleRate: 0,
-      // Ignore errors from browser extensions and benign network failures
       ignoreErrors: [
         'ResizeObserver loop limit exceeded',
         'Non-Error promise rejection captured',
         /chrome-extension/,
         /safari-extension/,
       ],
-      beforeSend(event) {
-        // Don't send errors from localhost to keep the dashboard clean
-        if (location.hostname === 'localhost') return null;
-        return event;
-      },
     });
   }
 </script>
@@ -369,6 +359,7 @@
   <button class="nav-btn" onclick="showSection('cleaning')" id="nav-cleaning"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><path d="M9 5a2 2 0 012-2h2a2 2 0 012 2v0a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>Cleaning</button>
   <button class="nav-btn" onclick="showSection('finance')" id="nav-finance"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>Finance</button>
   <button class="nav-btn" onclick="showSection('property')" id="nav-property"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>Property</button>
+  <button class="nav-btn" onclick="showSection('admin')" id="nav-admin" style="display:none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>Admin</button>
 </div>
 
 
@@ -856,6 +847,9 @@
       </div>
     </div>
   </div>
+
+  <!-- ADMIN (owner-only, hidden by default) -->
+  <div id="section-admin" class="section-hidden section-stack"></div>
 
   <!-- SETTINGS -->
   <div id="section-settings" class="section-hidden">

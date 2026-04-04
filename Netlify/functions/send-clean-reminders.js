@@ -145,10 +145,25 @@ exports.handler = async (event) => {
 
   console.log(`[send-clean-reminders] Found ${cleans.length} clean(s) to process`);
 
+  // ── 1b. Check notification_config — bail if email_reminder is disabled ──
+  // Group cleans by user_id to check config once per owner
+  const ownerIds = [...new Set(cleans.map(c => c.user_id).filter(Boolean))];
+  const disabledOwners = new Set();
+  for (const oid of ownerIds) {
+    const { data: cfg } = await sb.from('app_config').select('notification_config').eq('user_id', oid).maybeSingle();
+    if (cfg && cfg.notification_config && cfg.notification_config.email_reminder === false) {
+      disabledOwners.add(oid);
+      console.log('[send-clean-reminders] email_reminder disabled for user', oid);
+    }
+  }
+
   // ── 2. For each clean, look up the cleaner email ─────────────────────────
   let sent = 0, skipped = 0;
 
   for (const clean of cleans) {
+    // Skip if owner has disabled email reminders
+    if (disabledOwners.has(clean.user_id)) { skipped++; continue; }
+
     // Resolve cleaner email — try cleaner_id first, then name match
     let cleanerRecord = null;
 
