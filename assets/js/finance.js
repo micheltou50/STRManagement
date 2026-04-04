@@ -18,7 +18,7 @@ import {
   skipTransaction,
   logImportSession,
 } from './bank-import.js';
-import { findMatchesForTransaction, getReconciliationSummary } from './reconciliation.js';
+import { findMatchesForTransaction, getReconciliationSummary, getAllTransactionsWithStatus } from './reconciliation.js';
 import { bookings, expenses, replaceArrayInPlace } from './state.js';
 import { escHtml, fmt, fyLabel, fyMonths, escapeJsSingleQuotedHtmlAttr } from './utils.js';
 import { renderPortfolioFinance, isPortfolioMode } from './property.js';
@@ -27,7 +27,7 @@ import {
   getExpensePhotoUploadSnapshot,
   isExpensePhotoConverting,
 } from './ai.js';
-import { uploadReceiptToStorage, saveExpenseToCloud, deleteExpenseFromCloud } from './supabase.js';
+import { uploadReceiptToStorage, saveExpenseToCloud, deleteExpenseFromCloud, getCurrentSupabaseUser } from './supabase.js';
 
 let financeTab = 'expenses';
 /** Keeps Finance hub vs sub-screens across renderFinance() / sync refresh. */
@@ -59,6 +59,49 @@ const FINANCE_CATEGORY_COLOR_FALLBACK = [
   '#D85A30',
   '#888780',
 ];
+
+/* ── ATO Tax Category Mapping (Phase 1A) ──────────────────────────────────── */
+const ATO_CATEGORY_MAP = {
+  'Cleaning & Garden':       'cleaning',
+  'Maintenance & Repairs':   'repairs',
+  'Supplies & Consumables':  'sundry',
+  'Utilities & Rates':       'water_rates',
+  'Insurance':               'insurance',
+  'Furnishings & Equipment': 'depreciation',
+  'Renovation':              'capital_works',
+  'Professional Services':   'accounting_legal',
+  'Other':                   'sundry'
+};
+
+const ATO_FIELD_LABELS = {
+  advertising:      'Advertising',
+  body_corporate:   'Body Corporate',
+  borrowing:        'Borrowing Expenses',
+  cleaning:         'Cleaning',
+  council_rates:    'Council Rates',
+  capital_works:    'Capital Works',
+  depreciation:     'Depreciation',
+  gardening:        'Gardening',
+  insurance:        'Insurance',
+  interest:         'Interest on Loans',
+  land_tax:         'Land Tax',
+  legal:            'Legal Fees',
+  accounting_legal: 'Accounting & Legal',
+  pest_control:     'Pest Control',
+  repairs:          'Repairs & Maintenance',
+  stationery:       'Stationery & Postage',
+  travel:           'Travel',
+  water_rates:      'Water & Rates',
+  sundry:           'Sundry / Other'
+};
+
+function getAtoField(category) {
+  return ATO_CATEGORY_MAP[category] || 'sundry';
+}
+
+function getAtoFieldLabel(category) {
+  return ATO_FIELD_LABELS[getAtoField(category)] || 'Sundry / Other';
+}
 
 function _finPad2(n) {
   return String(n).padStart(2, '0');
@@ -767,7 +810,7 @@ function backToFinanceHub() {
   if (finc) finc.style.display = '';
   const hub = document.getElementById('finance-hub');
   if (hub) hub.style.display = 'block';
-  ['finance-expenses-view', 'finance-reports-view'].forEach(id => {
+  ['finance-expenses-view', 'finance-reports-view', 'finance-reconciliation-view', 'finance-recurring-view', 'finance-depreciation-view', 'finance-tax-export-view'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
@@ -780,7 +823,11 @@ function renderFinanceHubCounts() {
   const rptEl = document.getElementById('finance-hub-count-reports');
   const catEl = document.getElementById('finance-hub-count-cats');
   const priEl = document.getElementById('finance-hub-count-pricing');
-  if (expEl) expEl.textContent = `${(expenses || []).length} items`;
+  if (expEl) {
+    const total = (expenses || []).length;
+    const missing = (expenses || []).filter(e => Number(e.amount) > 0 && !expenseHasReceiptAttached(e)).length;
+    expEl.innerHTML = total + ' items' + (missing ? ' <span style="display:inline-block;background:#D44;color:#fff;font-size:10px;font-weight:600;border-radius:8px;padding:1px 6px;margin-left:6px;vertical-align:middle">' + missing + ' no receipt</span>' : '');
+  }
   if (rptEl) rptEl.textContent = '3 items';
   if (catEl) {
     try {
@@ -791,6 +838,15 @@ function renderFinanceHubCounts() {
     }
   }
   if (priEl) priEl.textContent = 'AI';
+  const recEl = document.getElementById('finance-hub-count-recurring');
+  if (recEl) {
+    try {
+      const n = typeof globalThis.getRecurringTemplates === 'function' ? globalThis.getRecurringTemplates().length : 0;
+      recEl.textContent = n ? n + ' template' + (n > 1 ? 's' : '') : 'Auto-generated expenses';
+    } catch (_) {
+      recEl.textContent = 'Auto-generated expenses';
+    }
+  }
 }
 
 /** Toggle the Add Expense form panel open/closed. */
@@ -819,14 +875,18 @@ function closeExpenseAddForm() {
   if (chevron) chevron.textContent = '›';
 }
 
-/** Navigate into a Finance sub-view (expenses or reports). */
+/** Navigate into a Finance sub-view (expenses, reports, reconciliation, or recurring). */
 function showFinanceSub(sub) {
   if (sub === 'expenses') financeSubView = 'expenses';
   else if (sub === 'reports') financeSubView = 'reports';
+  else if (sub === 'reconciliation') financeSubView = 'reconciliation';
+  else if (sub === 'recurring') financeSubView = 'recurring';
+  else if (sub === 'depreciation') financeSubView = 'depreciation';
+  else if (sub === 'tax-export') financeSubView = 'tax-export';
   financeTab = sub;
   const hub = document.getElementById('finance-hub');
   if (hub) hub.style.display = 'none';
-  ['finance-expenses-view', 'finance-reports-view'].forEach(id => {
+  ['finance-expenses-view', 'finance-reports-view', 'finance-reconciliation-view', 'finance-recurring-view', 'finance-depreciation-view', 'finance-tax-export-view'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
@@ -835,6 +895,14 @@ function showFinanceSub(sub) {
     if (el) el.style.display = 'block';
     renderExpenses();
     populateExpenseCatSelect();
+  } else if (sub === 'reconciliation') {
+    showReconciliationView();
+  } else if (sub === 'recurring') {
+    showRecurringView();
+  } else if (sub === 'depreciation') {
+    showDepreciationView();
+  } else if (sub === 'tax-export') {
+    showTaxExportView();
   } else if (sub === 'reports') {
     const el = document.getElementById('finance-reports-view');
     if (el) el.style.display = 'block';
@@ -852,6 +920,38 @@ function showFinanceSub(sub) {
     if (pm) pm.style.display = '';
     if (pf) pf.style.display = 'none';
     renderRevenue();
+  }
+}
+
+function showRecurringView() {
+  document.getElementById('finance-hub').style.display = 'none';
+  document.getElementById('finance-recurring-view').style.display = 'block';
+  if (typeof globalThis.renderRecurringPanel === 'function') globalThis.renderRecurringPanel();
+  // Populate category dropdown
+  const catSel = document.getElementById('rec-category');
+  if (catSel) {
+    catSel.innerHTML = '';
+    getExpenseCats().forEach(c => {
+      const o = document.createElement('option');
+      o.value = c; o.textContent = c;
+      catSel.appendChild(o);
+    });
+  }
+}
+
+function showDepreciationView() {
+  document.getElementById('finance-hub').style.display = 'none';
+  document.getElementById('finance-depreciation-view').style.display = 'block';
+  if (typeof globalThis.renderDepreciationPanel === 'function') globalThis.renderDepreciationPanel();
+  // Populate preset dropdown
+  const presetSel = document.getElementById('dep-preset');
+  if (presetSel && presetSel.options.length <= 1 && typeof globalThis.DEPRECIATION_PRESETS !== 'undefined') {
+    globalThis.DEPRECIATION_PRESETS.forEach((p, i) => {
+      const o = document.createElement('option');
+      o.value = i;
+      o.textContent = p.label + (p.usefulLife ? ' (' + p.usefulLife + ' yr)' : '');
+      presetSel.appendChild(o);
+    });
   }
 }
 
@@ -1070,6 +1170,10 @@ function renderFinance() {
     _restoreFinanceExpensesView();
   } else if (financeSubView === 'reports') {
     _restoreFinanceReportsView();
+  } else if (financeSubView === 'reconciliation') {
+    showFinanceSub('reconciliation');
+  } else if (financeSubView === 'tax-export') {
+    showFinanceSub('tax-export');
   } else {
     backToFinanceHub();
   }
@@ -1933,6 +2037,25 @@ function expenseHasReceiptAttached(e) {
   return false;
 }
 
+/** Show a once-daily banner nudge for expenses older than 7 days without receipts (Phase 1B). */
+function checkReceiptNudge() {
+  try {
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (localStorage.getItem('receipt-nudge-last') === todayStr) return;
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const allExp = Array.isArray(expenses) ? expenses : [];
+    const count = allExp.filter(e =>
+      Number(e.amount) > 0 &&
+      !expenseHasReceiptAttached(e) &&
+      (e.date || '') <= sevenDaysAgo
+    ).length;
+    if (count > 0) {
+      globalThis.showBanner('\u{1F4CE} ' + count + ' expense' + (count === 1 ? ' is' : 's are') + ' missing receipts', 'warn');
+    }
+    localStorage.setItem('receipt-nudge-last', todayStr);
+  } catch (_) { /* silent */ }
+}
+
 function _setExpensePillLabel(btnId, text) {
   const btn = document.getElementById(btnId);
   if (!btn) return;
@@ -2217,6 +2340,19 @@ function renderExpenses() {
     return;
   }
 
+  // ── Missing-receipt card (Phase 1B) ──
+  const _missingReceiptCount = propertyExpenses.filter(e => Number(e.amount) > 0 && !expenseHasReceiptAttached(e)).length;
+  const _missingReceiptCard = (_missingReceiptCount > 0 && recF !== 'none')
+    ? '<div style="background:#FFF8F0;border:1px solid #F0DCC8;border-radius:10px;padding:12px 16px;margin:0 0 12px;display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="document.getElementById(\'expense-filter-receipt\').value=\'none\';renderExpenses()">'
+      + '<div style="display:flex;align-items:center;gap:10px">'
+      + '<span style="font-size:18px">\u{1F4CE}</span>'
+      + '<div>'
+      + '<div style="font-weight:500;font-size:14px;color:#1a1a1a;font-family:\'DM Sans\',sans-serif">' + _missingReceiptCount + ' expense' + (_missingReceiptCount === 1 ? '' : 's') + ' missing receipts</div>'
+      + '<div style="font-size:12px;color:var(--text-soft);font-family:\'DM Sans\',sans-serif">Tap to view</div>'
+      + '</div></div>'
+      + '<div style="color:#C7C7CC;font-size:20px;font-weight:300">\u203A</div></div>'
+    : '';
+
   const expRow = (e) => {
     const isRefund = Number(e.amount) < 0;
     const amtColor = isRefund ? '#1D9E75' : '#E24B4A';
@@ -2292,7 +2428,7 @@ function renderExpenses() {
         return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0ede8;font-size:13px"><span style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:' + col + '"></span>' + escHtml(cat) + '</span><span style="font-weight:500">$' + total.toFixed(0) + '</span></div>';
       }).join('');
 
-    listEl.innerHTML = '<div style="display:grid;grid-template-columns:1fr minmax(260px,300px);gap:20px">' +
+    listEl.innerHTML = _missingReceiptCard + '<div style="display:grid;grid-template-columns:1fr minmax(260px,300px);gap:20px">' +
       '<div class="card" style="padding:0;overflow:hidden;overflow-x:auto"><table class="desktop-table"><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Receipt</th><th style="text-align:right">Amount</th></tr></thead><tbody>' + tblRows + '</tbody></table></div>' +
       '<div style="display:flex;flex-direction:column;gap:16px">' +
         '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">This Month</div>' +
@@ -2301,7 +2437,7 @@ function renderExpenses() {
         '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">By Category</div>' + catBreakdown + '</div>' +
       '</div></div>';
   } else {
-    listEl.innerHTML = displayKeys
+    listEl.innerHTML = _missingReceiptCard + displayKeys
       .map((sk) => {
         const { items, label } = grouped[sk];
         return `<div class="fin-month-hdr">${escHtml(label)}</div>
@@ -2323,6 +2459,7 @@ function renderExpenses() {
 
   syncExpensePillStyles();
   refreshReconciliationFooter();
+  checkReceiptNudge();
 }
 
 function addExpense(opts = {}) {
@@ -3102,6 +3239,531 @@ function exportReportCSV() {
   globalThis.showBanner('✅ CSV downloaded','success');
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+ *  TAX EXPORT (Phase 4) — ATO-ready PDF & CSV
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+let _taxExportFY = (() => {
+  const now = new Date();
+  return now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+})();
+
+function taxExportFYPrev() { _taxExportFY--; showTaxExportView(); }
+function taxExportFYNext() { _taxExportFY++; showTaxExportView(); }
+
+/** Expenses scoped to a given FY (July to June). Same logic as renderReport. */
+function _taxFYExpenses(fy) {
+  const propertyExpenses = _financeScopedExpenses();
+  return propertyExpenses.filter(e => {
+    const d = new Date(e.date);
+    const m = d.getMonth(); const yr = d.getFullYear();
+    return (yr === fy && m >= 6) || (yr === fy + 1 && m <= 5);
+  });
+}
+
+/** Group expenses by ATO field, returning sorted array of { field, label, expenses, total, withReceipt, missingReceipt }. */
+function _taxGroupByATO(fyExpenses) {
+  const groups = {};
+  fyExpenses.forEach(e => {
+    const field = getAtoField(e.category);
+    const label = ATO_FIELD_LABELS[field] || 'Sundry / Other';
+    if (!groups[field]) groups[field] = { field, label, expenses: [], total: 0, withReceipt: 0, missingReceipt: 0 };
+    groups[field].expenses.push(e);
+    groups[field].total += Number(e.amount || 0);
+    if (expenseHasReceiptAttached(e)) groups[field].withReceipt++;
+    else groups[field].missingReceipt++;
+  });
+  return Object.values(groups).sort((a, b) => b.total - a.total);
+}
+
+function showTaxExportView() {
+  const el = document.getElementById('finance-tax-export-view');
+  if (el) el.style.display = 'block';
+
+  const fy = _taxExportFY;
+  const fyLbl = document.getElementById('tax-export-fy-label');
+  if (fyLbl) fyLbl.textContent = fyLabel(fy);
+
+  const allExp = _taxFYExpenses(fy);
+  const totalAmt = allExp.reduce((s, e) => s + Number(e.amount || 0), 0);
+  const withReceipt = allExp.filter(e => expenseHasReceiptAttached(e)).length;
+  const pct = allExp.length ? Math.round(withReceipt / allExp.length * 100) : 0;
+
+  // Depreciation total
+  const depTotal = typeof globalThis.getTotalDepreciationForFY === 'function' ? globalThis.getTotalDepreciationForFY(fy) : 0;
+
+  const summaryEl = document.getElementById('tax-export-summary');
+  if (summaryEl) {
+    summaryEl.textContent = `${allExp.length} expenses \u00B7 $${totalAmt.toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} total \u00B7 ${pct}% with receipts \u00B7 $${depTotal.toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} depreciation`;
+  }
+
+  // Preview: ATO category breakdown
+  const groups = _taxGroupByATO(allExp);
+  const previewEl = document.getElementById('tax-export-preview');
+  if (previewEl) {
+    let html = '<div class="card" style="padding:16px">';
+    html += '<div style="font-weight:500;font-size:14px;margin-bottom:12px;color:#1a1a1a">Deductions by ATO Category</div>';
+    if (groups.length === 0) {
+      html += '<div style="font-size:13px;color:var(--text-soft)">No expenses recorded for this financial year.</div>';
+    } else {
+      groups.forEach(g => {
+        const missingBadge = g.missingReceipt > 0
+          ? ` <span style="display:inline-block;background:#D44;color:#fff;font-size:10px;font-weight:600;border-radius:8px;padding:1px 6px;margin-left:4px;vertical-align:middle">${g.missingReceipt} no receipt</span>`
+          : '';
+        html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)">
+          <div>
+            <div style="font-size:13px;font-weight:500;color:#1a1a1a">${escHtml(g.label)}${missingBadge}</div>
+            <div style="font-size:11px;color:var(--text-soft)">${g.expenses.length} item${g.expenses.length !== 1 ? 's' : ''}</div>
+          </div>
+          <div style="font-size:14px;font-weight:500;color:#1D9E75">$${g.total.toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+        </div>`;
+      });
+      if (depTotal > 0) {
+        html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)">
+          <div>
+            <div style="font-size:13px;font-weight:500;color:#1a1a1a">Depreciation (Assets)</div>
+            <div style="font-size:11px;color:var(--text-soft)">From asset register</div>
+          </div>
+          <div style="font-size:14px;font-weight:500;color:#1D9E75">$${depTotal.toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+        </div>`;
+      }
+      const grandTotal = totalAmt + depTotal;
+      html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0 0">
+        <div style="font-size:13px;font-weight:600;color:#1a1a1a">Total Deductions</div>
+        <div style="font-size:15px;font-weight:600;color:#1E3A2F">$${grandTotal.toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+      </div>`;
+    }
+    html += '</div>';
+    previewEl.innerHTML = html;
+  }
+}
+
+/* ── Tax PDF Export ───────────────────────────────────────────────────────── */
+
+function exportTaxPDF() {
+  if (!window.jspdf) { globalThis.showBanner('\u27F3 PDF library loading, try again in a moment', 'warn'); return; }
+  const fy = _taxExportFY;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const FOREST = [30, 58, 47];
+  const SAGE   = [143, 175, 133];
+  const SOFT   = [120, 120, 120];
+  const fw = 190; // usable width
+  let y = 15;
+
+  // ── 1. Header ──
+  doc.setFillColor(...FOREST);
+  doc.rect(0, 0, 210, 26, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(16); doc.setFont('helvetica', 'bold');
+  doc.text(getCurrentPropertyName() + ' \u2014 Tax Summary', 10, 12);
+  doc.setFontSize(11); doc.setFont('helvetica', 'normal');
+  doc.text(fyLabel(fy), 10, 19);
+  doc.setFontSize(9);
+  const genDate = 'Generated ' + new Date().toLocaleDateString('en-AU');
+  const host = typeof globalThis.getHostProfile === 'function' ? globalThis.getHostProfile() : null;
+  const abnLine = host && host.abn ? 'ABN ' + host.abn + '  \u00B7  ' + genDate : genDate;
+  doc.text(abnLine, 200, 19, { align: 'right' });
+  y = 34;
+
+  // ── 2. Rental Income ──
+  const months = fyMonths(fy);
+  const propertyBookings = _financeScopedBookings();
+  const fmt2 = n => '$' + Number(n).toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const platforms = ['Airbnb', 'VRBO', 'Direct'];
+  const platRevs = {};
+  let fyTotalRev = 0;
+  platforms.forEach(p => { platRevs[p] = 0; });
+  months.forEach(({ year, month }) => {
+    const bs = propertyBookings.filter(b => b.status !== 'cancelled' && (() => { const d = new Date(b.checkin); return d.getFullYear() === year && d.getMonth() === month; })());
+    bs.forEach(b => {
+      const amt = Number(b.hostPayout || 0);
+      fyTotalRev += amt;
+      const p = b.platform || 'Direct';
+      if (platRevs[p] !== undefined) platRevs[p] += amt;
+      else platRevs['Direct'] += amt;
+    });
+  });
+
+  doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(...FOREST);
+  doc.text('Rental Income', 10, y); y += 4;
+  const incomeBody = platforms.filter(p => platRevs[p] > 0).map(p => [p, fmt2(platRevs[p])]);
+  if (incomeBody.length === 0) incomeBody.push(['No bookings recorded', '\u2014']);
+  incomeBody.push(['Total Rental Income', fmt2(fyTotalRev)]);
+  doc.autoTable({
+    startY: y, margin: { left: 10, right: 10 },
+    head: [['Platform', 'Total Revenue']],
+    body: incomeBody,
+    headStyles: { fillColor: FOREST, textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 9 },
+    alternateRowStyles: { fillColor: [248, 252, 248] },
+    didDrawRow: data => {
+      if (data.row.index === incomeBody.length - 1) {
+        Object.values(data.row.cells).forEach(c => { c.styles.fontStyle = 'bold'; c.styles.fillColor = [220, 236, 220]; });
+      }
+    }
+  });
+  y = doc.lastAutoTable.finalY + 8;
+
+  // ── 3. Deductions by ATO Category ──
+  const allExp = _taxFYExpenses(fy);
+  const groups = _taxGroupByATO(allExp);
+  const fyTotalExp = allExp.reduce((s, e) => s + Number(e.amount || 0), 0);
+
+  doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(...FOREST);
+  doc.text('Deductions by ATO Category', 10, y); y += 4;
+
+  if (groups.length > 0) {
+    const deductBody = groups.map(g => [g.label, String(g.expenses.length), fmt2(g.total), String(g.withReceipt), String(g.missingReceipt)]);
+    deductBody.push(['Total Expenses', String(allExp.length), fmt2(fyTotalExp), '', '']);
+    doc.autoTable({
+      startY: y, margin: { left: 10, right: 10 },
+      head: [['ATO Category', 'Items', 'Total', 'Receipts', 'Missing']],
+      body: deductBody,
+      headStyles: { fillColor: FOREST, textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 9 },
+      alternateRowStyles: { fillColor: [248, 252, 248] },
+      didDrawRow: data => {
+        // Highlight rows with missing receipts in amber
+        if (data.row.index < groups.length) {
+          const g = groups[data.row.index];
+          if (g && g.missingReceipt > 0) {
+            Object.values(data.row.cells).forEach(c => { c.styles.fillColor = [255, 248, 230]; });
+          }
+        }
+        // Bold total row
+        if (data.row.index === deductBody.length - 1) {
+          Object.values(data.row.cells).forEach(c => { c.styles.fontStyle = 'bold'; c.styles.fillColor = [220, 236, 220]; });
+        }
+      }
+    });
+    y = doc.lastAutoTable.finalY + 8;
+  } else {
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(...SOFT);
+    doc.text('No expenses recorded for this financial year.', 10, y); y += 8;
+  }
+
+  // ── 4. Depreciation Schedule ──
+  const depAssets = typeof globalThis.getDepreciationAssets === 'function' ? globalThis.getDepreciationAssets() : [];
+  const activePid = getActivePropertyId();
+  const filteredAssets = depAssets.filter(a => !a.propertyId || a.propertyId === activePid);
+  let depTotal = 0;
+
+  if (filteredAssets.length > 0) {
+    // Check if we need a new page
+    if (y > 240) { doc.addPage(); y = 15; }
+    doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(...FOREST);
+    doc.text('Depreciation Schedule', 10, y); y += 4;
+
+    const depBody = filteredAssets.map(a => {
+      const depAmt = typeof globalThis.getAssetDepreciationForFY === 'function'
+        ? globalThis.getAssetDepreciationForFY(a, fy) : 0;
+      depTotal += depAmt;
+      return [
+        a.name || 'Unnamed',
+        fmt2(Number(a.cost || 0)),
+        a.method === 'straight_line' ? 'Straight Line' : 'Diminishing',
+        (a.usefulLife || '') + ' yr',
+        fmt2(depAmt)
+      ];
+    });
+    depBody.push(['Total Depreciation', '', '', '', fmt2(depTotal)]);
+    doc.autoTable({
+      startY: y, margin: { left: 10, right: 10 },
+      head: [['Asset Name', 'Cost', 'Method', 'Life', 'FY Deduction']],
+      body: depBody,
+      headStyles: { fillColor: FOREST, textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 9 },
+      alternateRowStyles: { fillColor: [248, 252, 248] },
+      didDrawRow: data => {
+        if (data.row.index === depBody.length - 1) {
+          Object.values(data.row.cells).forEach(c => { c.styles.fontStyle = 'bold'; c.styles.fillColor = [220, 236, 220]; });
+        }
+      }
+    });
+    y = doc.lastAutoTable.finalY + 8;
+  }
+
+  // ── 5. Summary ──
+  if (y > 240) { doc.addPage(); y = 15; }
+  doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(...FOREST);
+  doc.text('Tax Summary', 10, y); y += 4;
+
+  const totalDeductions = fyTotalExp + depTotal;
+  const netRentalIncome = fyTotalRev - totalDeductions;
+  const withReceipt = allExp.filter(e => expenseHasReceiptAttached(e)).length;
+  const receiptPct = allExp.length ? Math.round(withReceipt / allExp.length * 100) : 100;
+
+  const summaryBody = [
+    ['Total Rental Income', fmt2(fyTotalRev)],
+    ['Total Expense Deductions', '- ' + fmt2(fyTotalExp)],
+    ['Total Depreciation Deductions', '- ' + fmt2(depTotal)],
+    ['Total Deductions', '- ' + fmt2(totalDeductions)],
+    ['Net Rental Income' + (netRentalIncome < 0 ? ' (Loss)' : ''), (netRentalIncome < 0 ? '- ' : '') + fmt2(Math.abs(netRentalIncome))],
+    ['Receipt Coverage', withReceipt + ' of ' + allExp.length + ' expenses (' + receiptPct + '%)'],
+  ];
+  doc.autoTable({
+    startY: y, margin: { left: 10, right: 10 },
+    head: [['Item', 'Amount']],
+    body: summaryBody,
+    headStyles: { fillColor: FOREST, textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 9 },
+    alternateRowStyles: { fillColor: [248, 252, 248] },
+    didDrawRow: data => {
+      if (data.row.index === 4) {
+        Object.values(data.row.cells).forEach(c => {
+          c.styles.fontStyle = 'bold';
+          c.styles.fillColor = netRentalIncome >= 0 ? [220, 236, 220] : [254, 226, 226];
+        });
+      }
+    }
+  });
+
+  doc.save(`${getCurrentPropertyName()}-Tax_Summary-${fyLabel(fy).replace(/ /g, '_')}.pdf`);
+  globalThis.showBanner('\u2705 Tax PDF exported', 'success');
+}
+
+/* ── Tax CSV Export ───────────────────────────────────────────────────────── */
+
+function exportTaxCSV() {
+  const fy = _taxExportFY;
+  const allExp = _taxFYExpenses(fy);
+  const rows = [];
+
+  // Header row
+  rows.push([getCurrentPropertyName() + ' \u2014 Tax Export \u2014 ' + fyLabel(fy)]);
+  rows.push([]);
+  rows.push(['Date', 'Merchant', 'Description', 'Category', 'ATO Tax Field', 'Amount', 'Receipt Status', 'Reconciled']);
+
+  // Sort by date ascending
+  const sorted = allExp.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  sorted.forEach(e => {
+    const atoField = getAtoFieldLabel(e.category);
+    const receiptStatus = expenseHasReceiptAttached(e) ? 'Yes' : 'No';
+    const reconciled = e.reconciled ? 'Yes' : 'No';
+    rows.push([
+      e.date || '',
+      e.merchant || '',
+      e.description || '',
+      e.category || '',
+      atoField,
+      Number(e.amount || 0).toFixed(2),
+      receiptStatus,
+      reconciled
+    ]);
+  });
+
+  // Depreciation section
+  const depAssets = typeof globalThis.getDepreciationAssets === 'function' ? globalThis.getDepreciationAssets() : [];
+  const activePid = getActivePropertyId();
+  const filteredAssets = depAssets.filter(a => !a.propertyId || a.propertyId === activePid);
+
+  if (filteredAssets.length > 0) {
+    rows.push([]);
+    rows.push(['Depreciation Schedule']);
+    rows.push(['Asset Name', 'Purchase Date', 'Cost', 'Method', 'Useful Life (yr)', 'FY Deduction']);
+    let depTotal = 0;
+    filteredAssets.forEach(a => {
+      const depAmt = typeof globalThis.getAssetDepreciationForFY === 'function'
+        ? globalThis.getAssetDepreciationForFY(a, fy) : 0;
+      depTotal += depAmt;
+      rows.push([
+        a.name || '',
+        a.purchaseDate || '',
+        Number(a.cost || 0).toFixed(2),
+        a.method === 'straight_line' ? 'Straight Line' : 'Diminishing Value',
+        a.usefulLife || '',
+        depAmt.toFixed(2)
+      ]);
+    });
+    rows.push(['Total Depreciation', '', '', '', '', depTotal.toFixed(2)]);
+  }
+
+  // Summary section
+  const fyTotalExp = allExp.reduce((s, e) => s + Number(e.amount || 0), 0);
+  const depTotalAll = filteredAssets.reduce((s, a) => {
+    return s + (typeof globalThis.getAssetDepreciationForFY === 'function' ? globalThis.getAssetDepreciationForFY(a, fy) : 0);
+  }, 0);
+  rows.push([]);
+  rows.push(['Summary']);
+  rows.push(['Total Expenses', fyTotalExp.toFixed(2)]);
+  rows.push(['Total Depreciation', depTotalAll.toFixed(2)]);
+  rows.push(['Total Deductions', (fyTotalExp + depTotalAll).toFixed(2)]);
+
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${getCurrentPropertyName()}-Tax_Export-${fyLabel(fy).replace(/ /g, '_')}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  globalThis.showBanner('\u2705 Tax CSV downloaded', 'success');
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ *  RECONCILIATION / TRANSACTION MAP VIEW
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+let _reconTxns = [];         // cached list from last fetch
+let _reconFilter = 'all';    // current pill filter
+
+function showReconciliationView() {
+  const el = document.getElementById('finance-reconciliation-view');
+  if (el) el.style.display = 'block';
+  renderReconciliationView();
+}
+
+async function renderReconciliationView() {
+  const summaryBar = document.getElementById('reconciliation-summary-bar');
+  const filtersEl  = document.getElementById('reconciliation-filters');
+  const listEl     = document.getElementById('reconciliation-list');
+  if (!summaryBar || !filtersEl || !listEl) return;
+
+  // Show loading state
+  listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-soft);font-size:13px;font-family:\'DM Sans\',sans-serif">Loading transactions...</div>';
+
+  const user = await getCurrentSupabaseUser();
+  if (!user) {
+    listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-soft);font-size:13px">Sign in to view transactions.</div>';
+    summaryBar.innerHTML = '';
+    filtersEl.innerHTML = '';
+    return;
+  }
+
+  _reconTxns = await getAllTransactionsWithStatus(user.id);
+  _reconFilter = 'all';
+
+  if (_reconTxns.length === 0) {
+    summaryBar.innerHTML = '';
+    filtersEl.innerHTML = '';
+    listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-soft);font-size:13px;font-family:\'DM Sans\',sans-serif">No bank transactions imported yet. Use <b>Import bank CSV</b> in the Expenses view to get started.</div>';
+    return;
+  }
+
+  // Compute totals per status
+  const totals = { matched: 0, unaccounted: 0, personal: 0, skipped: 0 };
+  for (const t of _reconTxns) {
+    totals[t.status] = (totals[t.status] || 0) + Math.abs(t.amount);
+  }
+
+  // Render summary bar
+  summaryBar.innerHTML = `
+    <div style="display:flex;gap:8px;padding:0 16px;margin:0 auto 12px;max-width:560px;flex-wrap:wrap">
+      <div style="flex:1;min-width:100px;background:#E8F5E9;border-radius:8px;padding:8px 12px;text-align:center">
+        <div style="font-size:18px;font-weight:600;color:#2E7D32">$${fmt(totals.matched)}</div>
+        <div style="font-size:11px;color:#388E3C">Matched</div>
+      </div>
+      <div style="flex:1;min-width:100px;background:#FFF3E0;border-radius:8px;padding:8px 12px;text-align:center">
+        <div style="font-size:18px;font-weight:600;color:#E65100">$${fmt(totals.unaccounted)}</div>
+        <div style="font-size:11px;color:#F57C00">Unaccounted</div>
+      </div>
+      <div style="flex:1;min-width:100px;background:#F3E5F5;border-radius:8px;padding:8px 12px;text-align:center">
+        <div style="font-size:18px;font-weight:600;color:#7B1FA2">$${fmt(totals.personal)}</div>
+        <div style="font-size:11px;color:#9C27B0">Personal</div>
+      </div>
+    </div>`;
+
+  // Render filter pills
+  renderReconciliationFilters(filtersEl);
+
+  // Render list
+  renderReconciliationList(listEl);
+}
+
+function renderReconciliationFilters(container) {
+  const pills = [
+    { key: 'all', label: 'All' },
+    { key: 'matched', label: 'Matched' },
+    { key: 'unaccounted', label: 'Unaccounted' },
+    { key: 'personal', label: 'Personal' },
+    { key: 'skipped', label: 'Skipped' },
+  ];
+
+  container.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap">${pills.map(p => {
+    const isActive = _reconFilter === p.key;
+    const bg    = isActive ? '#1E3A2F' : '#F5F3EF';
+    const color = isActive ? '#fff'    : '#555';
+    const bdr   = isActive ? '#1E3A2F' : '#E0DCD5';
+    return `<button onclick="filterReconciliation('${p.key}')" style="background:${bg};border:1px solid ${bdr};border-radius:20px;padding:6px 14px;font-size:12px;font-family:'DM Sans',sans-serif;cursor:pointer;color:${color}">${p.label}</button>`;
+  }).join('')}</div>`;
+}
+
+function filterReconciliation(status) {
+  _reconFilter = status;
+  const filtersEl = document.getElementById('reconciliation-filters');
+  const listEl    = document.getElementById('reconciliation-list');
+  if (filtersEl) renderReconciliationFilters(filtersEl);
+  if (listEl)    renderReconciliationList(listEl);
+}
+
+function renderReconciliationList(container) {
+  const filtered = _reconFilter === 'all'
+    ? _reconTxns
+    : _reconTxns.filter(t => t.status === _reconFilter);
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-soft);font-size:13px;font-family:\'DM Sans\',sans-serif">No transactions in this category.</div>';
+    return;
+  }
+
+  container.innerHTML = filtered.map(t => {
+    const dateStr = t.date || '';
+    const desc    = escHtml(t.description || 'No description');
+    const amt     = fmt(Math.abs(t.amount));
+
+    let badge = '';
+    let rightInfo = '';
+
+    if (t.status === 'matched') {
+      const merchant = escHtml(t.expenseMerchant || 'Linked expense');
+      badge = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#2E7D32"><span style="width:6px;height:6px;border-radius:50%;background:#4CAF50;display:inline-block"></span> ${merchant}</span>`;
+      rightInfo = badge;
+    } else if (t.status === 'personal') {
+      badge = `<span style="display:inline-block;font-size:11px;background:#ECEFF1;color:#546E7A;border-radius:4px;padding:2px 8px">Personal</span>`;
+      rightInfo = badge;
+    } else if (t.status === 'skipped') {
+      badge = `<span style="display:inline-block;font-size:11px;background:#ECEFF1;color:#546E7A;border-radius:4px;padding:2px 8px">Skipped</span>`;
+      rightInfo = badge;
+    } else {
+      badge = `<span style="display:inline-block;font-size:11px;background:#FFF3E0;color:#E65100;border-radius:4px;padding:2px 8px;margin-bottom:4px">Unaccounted</span>`;
+      const safeDesc = escapeJsSingleQuotedHtmlAttr(t.description || '');
+      rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badge}<button onclick="reconCreateExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(dateStr)}','${amt}','${safeDesc}')" style="font-size:11px;color:#185FA5;background:none;border:1px solid #185FA5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">Create Expense</button></div>`;
+    }
+
+    return `<div style="background:#fff;border-radius:10px;padding:12px 14px;margin-bottom:8px;border:0.5px solid rgba(0,0,0,0.06);display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:11px;color:var(--text-soft);margin-bottom:2px">${dateStr}</div>
+        <div style="font-size:14px;font-weight:500;color:#1a1a1a;font-family:'DM Sans',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${desc}</div>
+        <div style="font-size:15px;font-weight:600;color:#1a1a1a;margin-top:2px">$${amt}</div>
+      </div>
+      <div style="flex-shrink:0;text-align:right">${rightInfo}</div>
+    </div>`;
+  }).join('');
+}
+
+/** Pre-fill the expense form from an unaccounted transaction, then navigate to expenses. */
+function reconCreateExpense(txnId, date, amount, description) {
+  // Navigate to the expenses sub-view
+  showFinanceSub('expenses');
+
+  // Open the add form if it's not already open
+  const panel = document.getElementById('expense-add-form-panel');
+  if (panel && panel.style.display === 'none') {
+    toggleExpenseAddForm();
+  }
+
+  // Pre-fill form fields
+  setTimeout(() => {
+    const dateEl   = document.getElementById('exp-date');
+    const amountEl = document.getElementById('exp-amount');
+    const descEl   = document.getElementById('exp-description');
+    if (dateEl)   dateEl.value   = date;
+    if (amountEl) amountEl.value = amount;
+    if (descEl)   descEl.value   = description;
+  }, 100);
+}
+
 export {
   backToFinanceHub,
   toggleExpenseAddForm,
@@ -3171,8 +3833,21 @@ export {
   exportReportPDF,
   exportReportCSV,
   _getInvoiceIdentity,
+  getAtoField,
+  getAtoFieldLabel,
+  checkReceiptNudge,
+  showReconciliationView,
+  renderReconciliationView,
+  filterReconciliation,
+  showDepreciationView,
+  exportTaxPDF,
+  exportTaxCSV,
+  taxExportFYPrev,
+  taxExportFYNext,
 };
 
+globalThis.reconCreateExpense = reconCreateExpense;
+globalThis.filterReconciliation = filterReconciliation;
 globalThis.exitBankImportReview = exitBankImportReview;
 globalThis.bankImportCancelLoad = bankImportRestoreBackup;
 globalThis.bankImportOnPropChange = bankImportOnPropChange;
@@ -3201,3 +3876,7 @@ window.fyPrev = fyPrev;
 window.fyNext = fyNext;
 window.exportReportPDF = exportReportPDF;
 window.exportReportCSV = exportReportCSV;
+window.exportTaxPDF = exportTaxPDF;
+window.exportTaxCSV = exportTaxCSV;
+window.taxExportFYPrev = taxExportFYPrev;
+window.taxExportFYNext = taxExportFYNext;

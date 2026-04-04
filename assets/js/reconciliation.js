@@ -316,6 +316,79 @@ export async function autoReconcile(userId) {
 }
 
 /**
+ * Fetch ALL bank transactions for a user with their classification status.
+ * @param {string} userId
+ * @returns {Promise<Array<{id:string,date:string,description:string,amount:number,status:string,expenseMerchant:string|null,expenseCategory:string|null,is_personal:boolean,skipped:boolean,expense_id:string|null}>>}
+ */
+export async function getAllTransactionsWithStatus(userId) {
+  const sb = getSb();
+  if (!sb || !userId) {
+    console.log('[StayOps] getAllTransactionsWithStatus: missing Supabase client or userId');
+    return [];
+  }
+
+  const { data: txns, error } = await sb
+    .from('bank_transactions')
+    .select('id, date, description, amount, expense_id, is_personal, skipped')
+    .eq('user_id', userId)
+    .order('date', { ascending: false });
+
+  if (error) {
+    console.log('[StayOps] getAllTransactionsWithStatus query error:', error.message || error);
+    return [];
+  }
+
+  if (!txns || txns.length === 0) return [];
+
+  // Gather linked expense IDs to fetch merchant/category in one query
+  const linkedExpenseIds = txns
+    .filter(t => t.expense_id)
+    .map(t => t.expense_id);
+
+  let expenseMap = {};
+  if (linkedExpenseIds.length > 0) {
+    const { data: expRows, error: expErr } = await sb
+      .from('expenses')
+      .select('id, merchant, category')
+      .in('id', linkedExpenseIds);
+
+    if (!expErr && expRows) {
+      for (const e of expRows) {
+        expenseMap[e.id] = { merchant: e.merchant || null, category: e.category || null };
+      }
+    }
+  }
+
+  return txns.map(t => {
+    let status;
+    if (t.is_personal) {
+      status = 'personal';
+    } else if (t.skipped) {
+      status = 'skipped';
+    } else if (t.expense_id) {
+      status = 'matched';
+    } else {
+      status = 'unaccounted';
+    }
+
+    const linked = t.expense_id ? expenseMap[t.expense_id] : null;
+
+    return {
+      id: t.id,
+      date: t.date,
+      description: t.description || '',
+      amount: Number(t.amount) || 0,
+      status,
+      expenseMerchant: linked ? linked.merchant : null,
+      expenseCategory: linked ? linked.category : null,
+      is_personal: !!t.is_personal,
+      skipped: !!t.skipped,
+      expense_id: t.expense_id || null,
+    };
+  });
+}
+
+/**
  * @param {string} userId
  */
 export async function getReconciliationSummary(userId) {

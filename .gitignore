@@ -1,4 +1,6 @@
 .DS_Store
+.claude/
+admin-page-mockup.html
 
 # Local Netlify folder
 .netlify

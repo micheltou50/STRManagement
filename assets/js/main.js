@@ -7,7 +7,7 @@ import {
 import {
   getSupabaseSession, getCurrentSupabaseUser, seedLocalConfigFromCloud, hydrateFromCloud, savePropertyToCloud, saveHostConfigToCloud,
   loadCleansFromCloud, saveCleansToCloud, saveInventoryToCloud, saveMaintenanceToCloud, deleteMaintenanceFromCloud,
-  saveBookingToCloud, saveBookingsToCloud, deleteBookingFromCloud, saveHostConfigToSupabase, loadHostConfigFromSupabase,
+  saveBookingToCloud, saveBookingsToCloud, deleteBookingFromCloud, saveHostConfigToSupabase, loadHostConfigFromSupabase, saveAppConfigToCloud, saveExpenseToCloud,
   showLoadingScreen, hideLoadingScreen, setLoadingStatus, showLoginScreen, handleAuthFailure, showAppChrome,
   handleLoginSubmit, handleSignUpSubmit, handleMagicLinkSubmit, toggleSignUp, hostSignOut,
   detectUserRole, showCleanerApp, loadCleanerDashboard,
@@ -34,8 +34,23 @@ import {
   fyNext, renderReport, revPrev, revNext, renderRevenue, mgmtPrev, mgmtNext, renderManagement, toggleMgmtSelect, mgmtCheckboxChange, mgmtToggleSelectAll, generateInvoice, confirmInvoiceClient, renderClientsList,
   addClient, deleteClient, saveBankDetails, saveInvoiceDetails, updateExpenseCat, addExpenseCat, deleteExpenseCat, resetExpenseCats, populateExpenseCatSelect, merchantAutocomplete, selectMerchantSuggest, hideMerchantSuggest,
   toggleExpenseList, toggleExpenseMonth, clearExpenseFilters, renderExpenses, addExpense, saveExpenseToDriveAndSheet, deleteExpense, attachEditExpensePhoto, clearEditExpensePhoto, openExpenseView, openExpenseEdit, closeExpenseEdit,
-  saveExpenseEdit, getExpenseCats, populateMgmtFeePanel, saveMgmtFeeRate, ownerAutoSendToggle, saveOwnerReportSettings, sendOwnerReport, exportReportPDF, exportReportCSV
+  saveExpenseEdit, getExpenseCats, populateMgmtFeePanel, saveMgmtFeeRate, ownerAutoSendToggle, saveOwnerReportSettings, sendOwnerReport, exportReportPDF, exportReportCSV,
+  getAtoField, getAtoFieldLabel, checkReceiptNudge,
+  showReconciliationView, renderReconciliationView, filterReconciliation,
+  showDepreciationView,
+  exportTaxPDF, exportTaxCSV, taxExportFYPrev, taxExportFYNext
 } from './finance.js';
+import {
+  getRecurringTemplates, addRecurringTemplate, deleteRecurringTemplate,
+  processRecurringTemplates, renderRecurringPanel, toggleRecurringEnabled,
+  saveRecurringFromForm, getFrequencyLabel, getFrequencyOptions
+} from './recurring.js';
+import {
+  getDepreciationAssets, addDepreciationAsset, deleteDepreciationAsset,
+  getAssetDepreciationForFY, getTotalDepreciationForFY, getAssetSchedule,
+  renderDepreciationPanel, showDepreciationDetail, deleteDepreciationAssetUI,
+  saveDepreciationFromForm, onDepPresetChange, DEPRECIATION_PRESETS
+} from './depreciation.js';
 import {
   renderConnectionSummary, refreshConnectionSummarySoon, connectGmail, connectOutlook, maybeAutoScanGmail, scanGmailBookings, maybeAutoScanOutlook, scanOutlookBookings, populateCalendarFeedPanel, copyCalendarFeedUrl, _resetSettingsToMenu, openSettingsCat,
   openSettingsPanel, closeSettingsPanel, closeSettingsCat, renderSettings, clearCacheAndResync, saveSMSTemplate, saveGeminiKey, saveApiKey, getApiKey, getHostProfile, saveHostProfile, saveHostProfilePanel,
@@ -97,6 +112,17 @@ globalThis.renderAdmin = renderAdmin;
 globalThis.isAdminSync = isAdminSync;
 globalThis.getNotificationConfig = getNotificationConfig;
 globalThis.isNotifEnabled = isNotifEnabled;
+globalThis.processRecurringTemplates = processRecurringTemplates;
+globalThis.renderRecurringPanel = renderRecurringPanel;
+globalThis.getRecurringTemplates = getRecurringTemplates;
+globalThis.saveAppConfigToCloud = saveAppConfigToCloud;
+globalThis.saveExpenseToCloud = saveExpenseToCloud;
+globalThis.renderDepreciationPanel = renderDepreciationPanel;
+globalThis.getDepreciationAssets = getDepreciationAssets;
+globalThis.getTotalDepreciationForFY = getTotalDepreciationForFY;
+globalThis.getAssetDepreciationForFY = getAssetDepreciationForFY;
+globalThis.getAssetSchedule = getAssetSchedule;
+globalThis.DEPRECIATION_PRESETS = DEPRECIATION_PRESETS;
 
 // Called from index.html onclick/onchange handlers
 window.handleLoginSubmit        = handleLoginSubmit;
@@ -205,6 +231,9 @@ window.sendOwnerReport          = sendOwnerReport;
 window.sendSMS                  = sendSMS;
 window.setInvView               = setInvView;
 window.showFinanceSub           = showFinanceSub;
+window.showReconciliationView   = showReconciliationView;
+window.renderReconciliationView = renderReconciliationView;
+window.filterReconciliation     = filterReconciliation;
 window.showPropertySub          = showPropertySub;
 window.showSection              = showSection;
 window.switchActiveProperty     = switchActiveProperty;
@@ -223,6 +252,17 @@ window.switchAdminTab           = switchAdminTab;
 window.adminHandleToggle        = adminHandleToggle;
 window.adminToggleTemplate      = adminToggleTemplate;
 window.adminSendTestEmail       = adminSendTestEmail;
+window.saveRecurringFromForm    = saveRecurringFromForm;
+window.toggleRecurringEnabled   = toggleRecurringEnabled;
+window.deleteRecurringTemplate  = deleteRecurringTemplate;
+window.saveDepreciationFromForm = saveDepreciationFromForm;
+window.deleteDepreciationAssetUI = deleteDepreciationAssetUI;
+window.showDepreciationDetail   = showDepreciationDetail;
+window.onDepPresetChange        = onDepPresetChange;
+window.exportTaxPDF             = exportTaxPDF;
+window.exportTaxCSV             = exportTaxCSV;
+window.taxExportFYPrev          = taxExportFYPrev;
+window.taxExportFYNext          = taxExportFYNext;
 
 // Called from dynamically generated HTML (onclick strings in template literals)
 window.adjustStock              = adjustStock;
@@ -292,6 +332,9 @@ window.toggleExpenseMonth       = toggleExpenseMonth;
 window.toggleMgmtSelect         = toggleMgmtSelect;
 window.mgmtCheckboxChange       = mgmtCheckboxChange;
 window.mgmtToggleSelectAll      = mgmtToggleSelectAll;
+window.getAtoField              = getAtoField;
+window.getAtoFieldLabel         = getAtoFieldLabel;
+window.checkReceiptNudge        = checkReceiptNudge;
 
 // Called from supabase.js typeof window.X guards (boot sequence)
 window.getAllProperties          = getAllProperties;

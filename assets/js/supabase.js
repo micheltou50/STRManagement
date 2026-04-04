@@ -1495,6 +1495,8 @@ export async function hydrateFromCloud() {
         api_key: cloudAppConfig.anthropic_api_key || (activeCloud && activeCloud.anthropic_api_key) || '',
         mgmt_fee_rate: cloudAppConfig.mgmt_fee_rate || (activeCloud && activeCloud.mgmt_fee_rate) || 0,
         notification_config: cloudAppConfig.notification_config || {},
+        recurring_templates: cloudAppConfig.recurring_templates || [],
+        depreciation_assets: cloudAppConfig.depreciation_assets || [],
       };
       console.log('[StayOps] Hydrated app config from cloud');
     }
@@ -1514,6 +1516,11 @@ export async function hydrateFromCloud() {
       const user = await getCurrentSupabaseUser();
       if (user && user.id) await validatePropertyIds(user.id);
     } catch (e) { /* non-critical, ignore property ID validation failures */ }
+
+    // Auto-generate recurring expenses (runs after both expenses and app config are loaded)
+    if (typeof globalThis.processRecurringTemplates === 'function') {
+      globalThis.processRecurringTemplates().catch(e => console.warn('[StayOps] recurring expense generation failed', e));
+    }
 
     console.log('[StayOps] hydrateFromCloud complete');
   } catch (e) {

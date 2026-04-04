@@ -32,6 +32,32 @@
         /safari-extension/,
       ],
     });
+
+    // Capture all console.error and console.warn as Sentry events
+    // so silently-caught failures are visible in the dashboard.
+    var _origError = console.error;
+    var _origWarn  = console.warn;
+    console.error = function() {
+      _origError.apply(console, arguments);
+      try {
+        var msg = Array.prototype.map.call(arguments, function(a) {
+          return a instanceof Error ? a.message : (typeof a === 'object' ? JSON.stringify(a) : String(a));
+        }).join(' ');
+        if (/extension|ResizeObserver/i.test(msg)) return;
+        Sentry.captureMessage(msg, 'error');
+      } catch(e) {}
+    };
+    console.warn = function() {
+      _origWarn.apply(console, arguments);
+      try {
+        var msg = Array.prototype.map.call(arguments, function(a) {
+          return a instanceof Error ? a.message : (typeof a === 'object' ? JSON.stringify(a) : String(a));
+        }).join(' ');
+        if (!/\[StayOps\]|failed|error/i.test(msg)) return;
+        if (/extension|ResizeObserver/i.test(msg)) return;
+        Sentry.captureMessage(msg, 'warning');
+      } catch(e) {}
+    };
   }
 </script>
 
@@ -518,6 +544,46 @@
           <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
 
+        <div class="settings-cat-item" onclick="showFinanceSub('reconciliation')">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"></path></svg>
+            </div>
+            <div><div style="font-weight:500;font-size:16px;color:#1a1a1a">Transaction Map</div><div id="finance-hub-count-reconciliation" style="font-size:13px;color:var(--text-soft)">Bank statement reconciliation</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">&rsaquo;</div>
+        </div>
+
+        <div class="settings-cat-item" onclick="showFinanceSub('recurring')">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path></svg>
+            </div>
+            <div><div style="font-weight:500;font-size:16px;color:#1a1a1a">Recurring</div><div id="finance-hub-count-recurring" style="font-size:13px;color:var(--text-soft)">Auto-generated expenses</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">&#8250;</div>
+        </div>
+
+        <div class="settings-cat-item" onclick="showFinanceSub('depreciation')">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+            </div>
+            <div><div style="font-weight:500;font-size:16px;color:#1a1a1a">Depreciation</div><div id="finance-hub-count-depreciation" style="font-size:13px;color:var(--text-soft)">Asset register &amp; deductions</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">&rsaquo;</div>
+        </div>
+
+        <div class="settings-cat-item" onclick="showFinanceSub('tax-export')">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            </div>
+            <div><div style="font-weight:500;font-size:16px;color:#1a1a1a">Tax Export</div><div style="font-size:13px;color:var(--text-soft)">ATO-ready reports for your accountant</div></div>
+          </div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">&rsaquo;</div>
+        </div>
+
         <div class="settings-cat-item" onclick="openFinancePanelFromHub('expense-cats')">
           <div style="display:flex;align-items:center;gap:14px">
             <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0">
@@ -525,7 +591,7 @@
             </div>
             <div><div style="font-weight:500;font-size:16px;color:#1a1a1a">Categories</div><div style="font-size:13px;color:var(--text-soft)">Manage and rename expense categories</div></div>
           </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+          <div style="color:#C7C7CC;font-size:20px;font-weight:300">&rsaquo;</div>
         </div>
 
         <div class="settings-cat-item" onclick="openFinancePanelFromHub('smart-pricing')" style="border-bottom:none">
@@ -733,6 +799,110 @@
             <div id="mgmt-fy-content"></div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ── RECONCILIATION VIEW ── -->
+    <div id="finance-reconciliation-view" style="display:none">
+      <div class="settings-back" onclick="backToFinanceHub()" style="color:#185FA5">&#8249; Finance</div>
+      <div style="padding:4px 16px 8px;max-width:560px;margin:0 auto">
+        <h2 style="margin:0 0 4px;font-size:16px;font-weight:500;font-family:'DM Sans',sans-serif;color:#1a1a1a">Transaction Map</h2>
+        <p style="margin:0 0 12px;font-size:13px;color:var(--text-soft);font-family:'DM Sans',sans-serif">Every imported bank transaction and what it's linked to.</p>
+      </div>
+      <div id="reconciliation-summary-bar"></div>
+      <div id="reconciliation-filters" style="padding:0 16px;max-width:560px;margin:0 auto 8px"></div>
+      <div id="reconciliation-list" style="padding:0 16px;max-width:560px;margin:0 auto"></div>
+    </div>
+
+    <!-- ── RECURRING VIEW ── -->
+    <div id="finance-recurring-view" style="display:none">
+      <div class="settings-back" onclick="backToFinanceHub()" style="color:#185FA5">&#8249; Finance</div>
+      <div style="padding:4px 16px 8px;max-width:560px;margin:0 auto">
+        <h2 style="margin:0 0 4px;font-size:16px;font-weight:500;font-family:'DM Sans',sans-serif;color:#1a1a1a">Recurring Expenses</h2>
+        <p style="margin:0 0 12px;font-size:13px;color:var(--text-soft);font-family:'DM Sans',sans-serif">Auto-generate expenses on a schedule.</p>
+      </div>
+      <div id="recurring-list" style="padding:0 16px;max-width:560px;margin:0 auto"></div>
+      <div style="padding:12px 16px;max-width:560px;margin:0 auto">
+        <div class="card" style="padding:16px">
+          <div style="font-weight:500;font-size:14px;margin-bottom:12px;font-family:'DM Sans',sans-serif">Add Recurring Expense</div>
+          <input type="text" id="rec-merchant" placeholder="e.g. Sydney Water" style="width:100%;margin-bottom:8px">
+          <input type="text" id="rec-description" placeholder="Description (optional)" style="width:100%;margin-bottom:8px">
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <input type="number" id="rec-amount" placeholder="Amount" step="0.01" min="0" style="flex:1">
+            <select id="rec-frequency" style="flex:1">
+              <option value="">Frequency&#8230;</option>
+              <option value="weekly">Weekly</option>
+              <option value="fortnightly">Fortnightly</option>
+              <option value="monthly">Monthly</option>
+              <option value="quarterly">Quarterly</option>
+              <option value="annual">Annual</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <select id="rec-category" style="flex:1"></select>
+            <input type="date" id="rec-start-date" style="flex:1">
+          </div>
+          <button class="btn-primary" onclick="saveRecurringFromForm()" style="width:100%">Add Recurring</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── DEPRECIATION VIEW ── -->
+    <div id="finance-depreciation-view" style="display:none">
+      <div class="settings-back" onclick="backToFinanceHub()" style="color:#185FA5">&#8249; Finance</div>
+      <div style="padding:4px 16px 8px;max-width:560px;margin:0 auto">
+        <h2 style="margin:0 0 4px;font-size:16px;font-weight:500;font-family:'DM Sans',sans-serif;color:#1a1a1a">Depreciation</h2>
+        <p style="margin:0 0 12px;font-size:13px;color:var(--text-soft);font-family:'DM Sans',sans-serif">Track asset depreciation for tax deductions.</p>
+      </div>
+      <div id="depreciation-list" style="padding:0 16px;max-width:560px;margin:0 auto"></div>
+      <div style="padding:12px 16px;max-width:560px;margin:0 auto">
+        <div class="card" style="padding:16px">
+          <div style="font-weight:500;font-size:14px;margin-bottom:12px;font-family:'DM Sans',sans-serif">Add Asset</div>
+          <select id="dep-preset" onchange="onDepPresetChange()" style="width:100%;margin-bottom:8px">
+            <option value="">Choose preset or custom&#8230;</option>
+          </select>
+          <input type="text" id="dep-name" placeholder="e.g. Samsung Washing Machine" style="width:100%;margin-bottom:8px">
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <input type="number" id="dep-cost" placeholder="Cost ($)" step="0.01" min="0" style="flex:1">
+            <input type="date" id="dep-purchase-date" style="flex:1">
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <input type="number" id="dep-useful-life" placeholder="Life (years)" min="1" max="40" style="flex:1">
+            <select id="dep-method" style="flex:1">
+              <option value="diminishing">Diminishing Value</option>
+              <option value="straight_line">Straight Line</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <input type="number" id="dep-residual" placeholder="Residual value ($)" step="0.01" min="0" value="0" style="flex:1">
+            <input type="text" id="dep-notes" placeholder="Notes (optional)" style="flex:1">
+          </div>
+          <button class="btn-primary" onclick="saveDepreciationFromForm()" style="width:100%">Add Asset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TAX EXPORT VIEW ── -->
+    <div id="finance-tax-export-view" style="display:none">
+      <div class="settings-back" onclick="backToFinanceHub()" style="color:#185FA5">&#8249; Finance</div>
+      <div style="padding:4px 16px 16px;max-width:560px;margin:0 auto">
+        <h2 style="margin:0 0 4px;font-size:16px;font-weight:500;font-family:'DM Sans',sans-serif;color:#1a1a1a">Tax Export</h2>
+        <p style="margin:0 0 16px;font-size:13px;color:var(--text-soft);font-family:'DM Sans',sans-serif">Generate ATO-ready reports grouped by deduction category.</p>
+
+        <div class="card" style="padding:16px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <button onclick="taxExportFYPrev()" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px 8px;color:#185FA5">&#8249;</button>
+            <div id="tax-export-fy-label" style="font-weight:600;font-size:16px;font-family:'DM Sans',sans-serif;color:#1a1a1a"></div>
+            <button onclick="taxExportFYNext()" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px 8px;color:#185FA5">&#8250;</button>
+          </div>
+          <div id="tax-export-summary" style="font-size:13px;color:var(--text-soft);font-family:'DM Sans',sans-serif;margin-bottom:16px;text-align:center"></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-primary" onclick="exportTaxPDF()" style="flex:1">Export PDF</button>
+            <button class="btn-primary" onclick="exportTaxCSV()" style="flex:1;background:#F5F3EF;color:#1a1a1a;border:1px solid #E0DCD5">Export CSV</button>
+          </div>
+        </div>
+
+        <div id="tax-export-preview" style="font-family:'DM Sans',sans-serif"></div>
       </div>
     </div>
 

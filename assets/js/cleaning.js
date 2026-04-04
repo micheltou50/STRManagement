@@ -1449,7 +1449,9 @@ export async function assignCleanerToBooking(bookingIdParam) {
         nights: booking.nights ? String(booking.nights) : ''
       }).then(result => {
         if (result.ok) globalThis.showBanner('✉️ Email sent to ' + cleanerObj.name, 'ok');
-        else if (result.reason !== 'no-key' && result.reason !== 'no-email') console.warn('Email failed:', result);
+        else if (result.reason !== 'no-key' && result.reason !== 'no-email') {
+          if (window.Sentry) window.Sentry.captureMessage('Cleaner email failed: ' + (result.reason || 'unknown'), 'warning');
+        }
       });
     }
     if (!cleanerEmail && !pushSent) {
