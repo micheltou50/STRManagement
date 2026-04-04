@@ -33,6 +33,11 @@ export const DEFAULT_PROPERTY_CONFIG = {
   region:     '',
   country:    'Australia',
 
+  airbnbListingUrl:   '',
+  airbnbListingId:    '',
+  airbnbListingTitle: '',
+  bookingComUrl:      '',
+
   branding: {
     subtitle: '',
     tagline:  '',

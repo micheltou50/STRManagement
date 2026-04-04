@@ -150,6 +150,29 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
 
       <form id="setup-form" novalidate>
 
+        <!-- ══ SECTION: LISTING LINK ══ -->
+        <div class="ss-label">Listing Link <span class="ss-opt">(optional)</span></div>
+
+        <div class="ss-row">
+          <div class="ss-field ss-wide">
+            <label class="ss-lbl" for="s-airbnb-url">Airbnb Listing URL</label>
+            <input type="url" id="s-airbnb-url" class="ss-inp"
+              placeholder="https://www.airbnb.com/rooms/12345678"
+              value="${ea(cfg.airbnbListingUrl || '')}" autocomplete="off">
+            <div class="ss-hint" id="s-airbnb-hint">Paste your listing URL to auto-fill property details.</div>
+          </div>
+        </div>
+
+        <div class="ss-row">
+          <div class="ss-field ss-wide">
+            <label class="ss-lbl" for="s-bookingcom-url">Booking.com URL <span class="ss-opt">(optional)</span></label>
+            <input type="url" id="s-bookingcom-url" class="ss-inp"
+              placeholder="https://www.booking.com/hotel/au/your-property.html"
+              value="${ea(cfg.bookingComUrl || '')}" autocomplete="off">
+            <div class="ss-hint">Helps match bookings from Booking.com (future).</div>
+          </div>
+        </div>
+
         <!-- ══ SECTION: PROPERTY ══ -->
         <div class="ss-label">Property</div>
 
@@ -360,6 +383,47 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
   const cancelBtn = overlay.querySelector('#setup-cancel');
   if (cancelBtn) cancelBtn.addEventListener('click', onDone);
 
+  // Airbnb URL fetch-on-paste
+  const _airbnbInput = overlay.querySelector('#s-airbnb-url');
+  if (_airbnbInput) {
+    const _doAirbnbFetch = async () => {
+      const url = _airbnbInput.value.trim();
+      if (!url || !url.match(/airbnb\.[a-z.]+\/rooms\/\d+/i)) return;
+      const hint = overlay.querySelector('#s-airbnb-hint');
+      if (hint) hint.innerHTML = '<span style="color:var(--forest)">⏳ Fetching listing details…</span>';
+      try {
+        const res = await fetch('/.netlify/functions/fetch-listing', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        });
+        const data = await res.json();
+        if (data.error && !data.listingId) {
+          if (hint) hint.innerHTML = '<span style="color:var(--red)">⚠ ' + (data.error || 'Could not fetch') + '</span>';
+          return;
+        }
+        // Auto-fill ONLY empty fields
+        const _fill = (id, val) => { const el = overlay.querySelector('#' + id); if (el && !el.value && val) el.value = val; };
+        _fill('s-name', data.title);
+        _fill('s-beds', data.bedrooms);
+        _fill('s-guests', data.maxGuests);
+        _fill('s-baths', data.bathrooms);
+        if (data.propertyType) {
+          const typeEl = overlay.querySelector('#s-type');
+          if (typeEl && !typeEl.value) typeEl.value = data.propertyType;
+        }
+        // Store listing metadata for config builder
+        _airbnbInput.dataset.listingId = data.listingId || '';
+        _airbnbInput.dataset.listingTitle = data.title || '';
+        if (hint) hint.innerHTML = '<span style="color:var(--moss)">✓ Details loaded from Airbnb</span>';
+      } catch (e) {
+        if (hint) hint.innerHTML = '<span style="color:var(--red)">⚠ Could not fetch — enter details manually.</span>';
+      }
+    };
+    _airbnbInput.addEventListener('paste', () => setTimeout(_doAirbnbFetch, 150));
+    _airbnbInput.addEventListener('blur', _doAirbnbFetch);
+  }
+
   return overlay;
 }
 
@@ -435,6 +499,10 @@ function _setupBuildConfig(overlay, createMode) {
     state,
     region:  region  || undefined,
     country: v('s-country') || 'Australia',
+    airbnbListingUrl: v('s-airbnb-url') || '',
+    airbnbListingId: ((overlay.querySelector('#s-airbnb-url') || {}).dataset || {}).listingId || '',
+    airbnbListingTitle: ((overlay.querySelector('#s-airbnb-url') || {}).dataset || {}).listingTitle || '',
+    bookingComUrl: v('s-bookingcom-url') || '',
 
     branding: {
       subtitle: [suburb, state].filter(Boolean).join(' · '),
@@ -479,6 +547,10 @@ function _setupBlankConfig() {
     state: '',
     region: '',
     country: d.country || 'Australia',
+    airbnbListingUrl: '',
+    airbnbListingId: '',
+    airbnbListingTitle: '',
+    bookingComUrl: '',
     branding: { subtitle: '', tagline: '' },
     property: { bedrooms: '', maxGuests: '', bathrooms: '', type: 'house' },
     owner: { name: '', email: '', phone: '' },

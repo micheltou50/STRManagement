@@ -102,7 +102,7 @@ exports.handler = async (event) => {
     const pidParam = (event.queryStringParameters || {}).pid || '';
     const propRes = await fetch(
       SUPABASE_URL + '/rest/v1/properties?user_id=eq.' + enc(uid) +
-        '&select=id,name,address,suburb,state,mgmt_fee_rate&order=created_at.asc',
+        '&select=id,name,address,suburb,state,mgmt_fee_rate,airbnb_listing_id,airbnb_listing_title&order=created_at.asc',
       { headers: sbHeaders }
     );
     const allProps = await propRes.json();
@@ -117,6 +117,8 @@ exports.handler = async (event) => {
       suburb:      p.suburb || '',
       state:       p.state || '',
       mgmtFeeRate: p.mgmt_fee_rate != null ? Number(p.mgmt_fee_rate) : 0,
+      airbnbListingId: p.airbnb_listing_id || '',
+      airbnbListingTitle: p.airbnb_listing_title || '',
     }));
 
     const defaultProp = (pidParam && propMap.find(p => p.id === pidParam)) || propMap[0];
@@ -124,6 +126,9 @@ exports.handler = async (event) => {
 
     const propertyListStr = propMap.map((p, i) =>
       (i + 1) + '. "' + p.name + '"' +
+      (p.airbnbListingTitle && p.airbnbListingTitle !== p.name
+        ? ' (Airbnb listing: "' + p.airbnbListingTitle + '")'
+        : '') +
       (p.address ? ' at ' + p.address : '') +
       (p.suburb ? ', ' + p.suburb : '') +
       (p.state ? ' ' + p.state : '')
@@ -237,19 +242,43 @@ exports.handler = async (event) => {
 
         let resolvedProp = defaultProp;
         let propertyUnconfirmed = false;
-        if (!isSingleProperty) {
-          if (parsed.propertyMatch) {
+
+        if (!isSingleProperty && parsed && !parsed.not_a_booking) {
+          let matched = false;
+
+          // Tier 1: Match by Airbnb listing ID (bulletproof)
+          if (parsed.airbnbListingId) {
+            const byListingId = propMap.find(p =>
+              p.airbnbListingId && p.airbnbListingId === String(parsed.airbnbListingId)
+            );
+            if (byListingId) { resolvedProp = byListingId; matched = true; }
+          }
+
+          // Tier 2: Match by listing title
+          if (!matched && parsed.listingTitle) {
+            const lt = String(parsed.listingTitle).toLowerCase().trim();
+            const byTitle = propMap.find(p =>
+              p.airbnbListingTitle && (
+                p.airbnbListingTitle.toLowerCase().trim() === lt ||
+                p.airbnbListingTitle.toLowerCase().includes(lt) ||
+                lt.includes(p.airbnbListingTitle.toLowerCase())
+              )
+            );
+            if (byTitle) { resolvedProp = byTitle; matched = true; }
+          }
+
+          // Tier 3: Fuzzy match by property name (existing fallback)
+          if (!matched && parsed.propertyMatch) {
             const matchName = String(parsed.propertyMatch).toLowerCase().trim();
             const found = propMap.find(p =>
               p.name.toLowerCase().trim() === matchName ||
               p.name.toLowerCase().includes(matchName) ||
               matchName.includes(p.name.toLowerCase())
             );
-            if (found) resolvedProp = found;
-            else propertyUnconfirmed = true;
-          } else {
-            propertyUnconfirmed = true;
+            if (found) { resolvedProp = found; matched = true; }
           }
+
+          if (!matched) { propertyUnconfirmed = true; }
         }
         const propertyId   = resolvedProp.id;
         const propertyName = resolvedProp.name;
@@ -545,7 +574,9 @@ async function parseBookingEmail(apiKey, subject, from, body, singlePropertyName
       'Identify which property this booking email is about based on the property name, ' +
       'address, listing title, or location mentioned in the email body or subject. ' +
       'Return the EXACT property name from the list above in a "propertyMatch" field.\n' +
-      'If you cannot confidently determine which property, set "propertyMatch" to null.\n'
+      'If you cannot confidently determine which property, set "propertyMatch" to null.\n' +
+      'If the email contains an Airbnb listing URL (e.g. airbnb.com/rooms/12345), extract the numeric listing ID into "airbnbListingId".\n' +
+      'If the email mentions the listing title (often in the subject like "Reservation confirmed - <title>"), return it in "listingTitle".\n'
     : '';
 
   const propertyMatchJson = propertyList
@@ -589,6 +620,8 @@ async function parseBookingEmail(apiKey, subject, from, body, singlePropertyName
     '  "hostPayout": host payout amount as a number (0 if not found),\n' +
     '  "cleaningFee": cleaning fee as a number (0 if not found),\n' +
     '  "platform": "airbnb" or "vrbo" or "booking.com" or "stayz" or "direct" or other,\n' +
+    '  "airbnbListingId": "numeric Airbnb listing ID if a URL like airbnb.com/rooms/12345 appears in the email, or null",\n' +
+    '  "listingTitle": "the Airbnb listing title from the email subject or body (e.g. from \'Reservation confirmed - Seaview Cottage\'), or null",\n' +
     propertyMatchJson +
     '  "confirmationCode": "confirmation/reservation code",\n' +
     '  "status": "confirmed" or "cancelled"\n' +
