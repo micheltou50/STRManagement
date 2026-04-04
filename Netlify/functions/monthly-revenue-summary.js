@@ -4,7 +4,7 @@
 // CommonJS. Uses ./utils/push-helper.js
 
 const { createClient } = require('@supabase/supabase-js');
-const { sendPushToOwner, hasRecentNotification } = require('./utils/push-helper');
+const { sendPushToHost, hasRecentNotification } = require('./utils/push-helper');
 
 const SYDNEY_TZ = 'Australia/Sydney';
 
@@ -193,7 +193,7 @@ exports.handler = async (event) => {
               withinMinutes: 1440,
             });
             if (!recent) {
-              await sendPushToOwner({
+              await sendPushToHost({
                 supabaseAdmin,
                 propertyId: property.id,
                 title: '📊 ' + monthName + ' Summary — ' + (property.name || 'Property'),
@@ -239,7 +239,7 @@ exports.handler = async (event) => {
             });
             if (!recentPortfolio) {
               const anchorPropertyId = userProperties[0].id;
-              await sendPushToOwner({
+              await sendPushToHost({
                 supabaseAdmin,
                 propertyId: anchorPropertyId,
                 title: '📊 ' + monthName + ' Portfolio Summary',

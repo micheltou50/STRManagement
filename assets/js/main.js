@@ -14,7 +14,7 @@ import {
 } from './supabase.js';
 import { calcNights, calcNet } from './utils.js';
 import {
-  _sendCleanerAssignmentNotifications, enableNotificationsManually, resetPushOnly, updateNotifStatus, subscribeToPush, sendPushToDevice, getCleanerSub, getFreshOwnerSub, sendCleanerEmail, cleanerLinkForId, openNotifyModal, sendCleanerReminder, pickContact, sendSMS,
+  _sendCleanerAssignmentNotifications, enableNotificationsManually, resetPushOnly, updateNotifStatus, subscribeToPush, sendPushToDevice, getCleanerSub, getFreshHostSub, sendCleanerEmail, cleanerLinkForId, openNotifyModal, sendCleanerReminder, pickContact, sendSMS,
   closeNotifyModal, applyPreset, loadEmailTemplate, saveEmailTemplate, resetEmailTemplate, insertTemplateVar, openEmailTemplatePanel, updateEmailPreview, testNotificationConfig, testCleanerEmail
 } from './notifications.js';
 import {
@@ -106,7 +106,7 @@ globalThis.saveBookingsToCloud = saveBookingsToCloud;
 globalThis.deleteBookingFromCloud = deleteBookingFromCloud;
 globalThis.saveCleansToCloud = saveCleansToCloud;
 globalThis.getCurrentSupabaseUser = getCurrentSupabaseUser;
-globalThis.getFreshOwnerSub = getFreshOwnerSub;
+globalThis.getFreshHostSub = getFreshHostSub;
 globalThis.sendPushToDevice = sendPushToDevice;
 globalThis.renderAdmin = renderAdmin;
 globalThis.isAdminSync = isAdminSync;

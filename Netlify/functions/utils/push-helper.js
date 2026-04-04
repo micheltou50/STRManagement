@@ -69,7 +69,7 @@ async function persistAppConfigAfterStalePushEndpoints(supabaseAdmin, userId, ra
  * @param {string} params.referenceId
  * @returns {Promise<{ sent: number, removed: number }>}
  */
-async function sendPushToOwner({
+async function sendPushToHost({
   supabaseAdmin,
   propertyId,
   title,
@@ -79,7 +79,7 @@ async function sendPushToOwner({
   referenceId,
 }) {
   if (!supabaseAdmin || !propertyId) {
-    console.log('[StayOps] push-helper: sendPushToOwner missing supabaseAdmin or propertyId');
+    console.log('[StayOps] push-helper: sendPushToHost missing supabaseAdmin or propertyId');
     return { sent: 0, removed: 0 };
   }
 
@@ -215,6 +215,6 @@ async function hasRecentNotification({ supabaseAdmin, type, referenceId, withinM
 }
 
 module.exports = {
-  sendPushToOwner,
+  sendPushToHost,
   hasRecentNotification,
 };

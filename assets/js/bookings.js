@@ -137,7 +137,7 @@ function openCalPreview(bookingId) {
       <span class="cp-chip">🌙 ${escHtml(String(b.nights))} night${b.nights !== 1 ? 's' : ''}</span>
       ${b.platform ? `<span class="cp-chip">${b.platform === 'Airbnb' ? '🏠' : b.platform === 'VRBO' ? '🏡' : '📋'} ${escHtml(b.platform)}</span>` : ''}
     </div>
-    ${payout ? `<div class="cp-payout">$${payout.toLocaleString()}</div><div class="cp-payout-label">Host payout</div>` : ''}
+    ${payout ? `<div class="cp-payout">$${payout.toLocaleString()}</div><div class="cp-payout-label">Gross revenue</div>` : ''}
     <div class="cp-actions">
       <button class="cp-btn-primary" onclick="closeCalPreview();showDetail('${escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id))}')">View booking</button>
       <button class="cp-btn-ghost" onclick="closeCalPreview()">Close</button>
@@ -511,7 +511,7 @@ function showDetail(id) {
     <div style="font-size:12px;font-weight:500;color:#999;margin:0 0 6px 2px">Financials</div>
     <div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden">
       <div style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px;color:#666">Host payout</span>
+        <span style="font-size:13px;color:#666">Gross revenue</span>
         <span style="font-size:13px;font-weight:500;color:#1D9E75">$${Number(b.hostPayout || 0).toLocaleString()}</span>
       </div>
       <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
@@ -528,7 +528,7 @@ function showDetail(id) {
       </div>
       <div style="border-top:0.5px solid rgba(0,0,0,0.1)"></div>
       <div style="padding:12px 14px;background:#f5f5f3;border-radius:0 0 12px 12px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px;font-weight:500;color:#1a1a1a">Net payout</span>
+        <span style="font-size:13px;font-weight:500;color:#1a1a1a">Owner payout</span>
         <span style="font-size:14px;font-weight:500;color:#1D9E75">$${Number(b.netPayout || 0).toLocaleString()}</span>
       </div>
     </div>
@@ -612,14 +612,14 @@ function showEditModal(id) {
       <div class="field"><label>Guests</label><input type="number" id="e-guests" value="${b.guests}"></div>
     </div>
     <div class="form-row">
-      <div class="field"><label>Host Payout ($)</label><input type="number" id="e-hostpayout" value="${b.hostPayout}" oninput="editCalcNet()"></div>
+      <div class="field"><label>Gross Revenue ($)</label><input type="number" id="e-hostpayout" value="${b.hostPayout}" oninput="editCalcNet()"></div>
       <div class="field"><label>Cleaning Fee ($)</label><input type="number" id="e-cleaningfee" value="${b.cleaningFee}" oninput="editCalcNet()"></div>
     </div>
     <div class="form-row">
       <div class="field"><label>Mgmt Fee (%)</label><input type="number" id="e-mgmtfee" value="${b.mgmtFeeRaw || Math.round((b.mgmtFee / b.hostPayout) * 1000) / 10 || 0}" min="0" max="100" step="0.1" oninput="editCalcNet()"></div>
       <div class="field"><label>Mgmt Payout</label><input type="text" id="e-mgmtpayout" value="$${Number(b.mgmtPayout || 0).toFixed(2)}" style="background:var(--warm);color:var(--text-soft);font-style:italic" readonly></div>
     </div>
-    <label>Net Payout ($)</label>
+    <label>Owner Payout ($)</label>
     <input type="text" id="e-netpayout" value="$${Number(b.netPayout || 0).toFixed(2)}" readonly style="background:var(--warm);color:var(--text-soft);font-style:italic">
     <label>Platform</label>
     <div style="padding:10px 12px;background:var(--warm);border-radius:var(--radius-sm);font-size:14px;color:var(--text-soft);font-style:italic">

@@ -24,7 +24,7 @@ import {
   sendPushToDevice,
   cleanerLinkForId,
   sendCleanerEmail,
-  getFreshOwnerSub,
+  getFreshHostSub,
 } from './notifications.js';
 import {
   saveCleanToCloud,

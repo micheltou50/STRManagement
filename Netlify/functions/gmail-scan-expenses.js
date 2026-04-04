@@ -1,5 +1,5 @@
 const { createClient } = require('@supabase/supabase-js');
-const { sendPushToOwner } = require('./utils/push-helper.js');
+const { sendPushToHost } = require('./utils/push-helper.js');
 
 const ALLOWED_CATEGORIES = new Set([
   'cleaning',
@@ -179,7 +179,7 @@ exports.handler = async (event) => {
               if (logInsertErr) throw logInsertErr;
 
               try {
-                await sendPushToOwner({
+                await sendPushToHost({
                   supabaseAdmin,
                   propertyId: property.id,
                   title: '🧾 Invoice Imported — ' + propertyName,

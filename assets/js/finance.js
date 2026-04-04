@@ -1263,7 +1263,7 @@ function renderReport() {
       </div>
       <div style="margin-top:12px" class="report-kpi-grid">
         <div class="report-kpi"><div class="report-kpi-val">${fmt2(fyTotalRev)}</div><div class="report-kpi-label">Total Revenue</div></div>
-        <div class="report-kpi"><div class="report-kpi-val">${fmt2(fyTotalNet)}</div><div class="report-kpi-label">Net Payout</div></div>
+        <div class="report-kpi"><div class="report-kpi-val">${fmt2(fyTotalNet)}</div><div class="report-kpi-label">Owner Payout</div></div>
         <div class="report-kpi" style="background:${fyNetIncome>=0?'#EDF7ED':'#FEF2F2'}"><div class="report-kpi-val" style="color:${fyNetIncome>=0?'var(--forest)':'var(--red)'}">${fmt2(Math.abs(fyNetIncome))}</div><div class="report-kpi-label">Net Income ${fyNetIncome<0?'(Loss)':''}</div></div>
         <div class="report-kpi"><div class="report-kpi-val">${fyOccupancy.toFixed(0)}%</div><div class="report-kpi-label">Occupancy</div></div>
       </div>
@@ -1354,8 +1354,8 @@ function renderReport() {
       <div class="report-section-title">Net Income Summary</div>
       <table class="report-table">
         <tbody>
-          <tr><td>Total Revenue (Host Payout)</td><td>${fmt2(fyTotalRev)}</td></tr>
-          <tr><td>Net Payout (after fees)</td><td>${fmt2(fyTotalNet)}</td></tr>
+          <tr><td>Total Revenue (Gross)</td><td>${fmt2(fyTotalRev)}</td></tr>
+          <tr><td>Owner Payout (after fees)</td><td>${fmt2(fyTotalNet)}</td></tr>
           <tr><td>Total Expenses</td><td style="color:var(--red)">− ${fmt2(fyTotalExp)}</td></tr>
           <tr class="highlight-row"><td>Net Income</td><td style="color:${fyNetIncome>=0?'var(--forest)':'var(--red)'}">${fyNetIncome<0?'−':''} ${fmt2(Math.abs(fyNetIncome))}</td></tr>
         </tbody>
@@ -1392,10 +1392,10 @@ function renderRevenue() {
   document.getElementById('revenue-sub').textContent = monthBookings.length + ' booking' + (monthBookings.length!==1?'s':'');
   document.getElementById('finance-summary-content').innerHTML = `
     <div class="finance-summary">
-      <div class="finance-row"><span class="finance-label">Host payout</span><span class="finance-val" style="color:#1a1a1a;font-weight:500">$${totalHost.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
+      <div class="finance-row"><span class="finance-label">Gross revenue</span><span class="finance-val" style="color:#1a1a1a;font-weight:500">$${totalHost.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
       <div class="finance-row"><span class="finance-label">Cleaning fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${totalCleaning.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
       <div class="finance-row"><span class="finance-label">Management fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${totalMgmt.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
-      <div class="finance-row finance-total"><span class="finance-label">Net payout</span><span class="finance-val" style="color:#1D9E75">$${totalNet.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
+      <div class="finance-row finance-total"><span class="finance-label">Owner payout</span><span class="finance-val" style="color:#1D9E75">$${totalNet.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
     </div>`;
   document.getElementById('revenue-breakdown').innerHTML = monthBookings.length ? [...monthBookings].sort((a,b)=>new Date(a.checkin)-new Date(b.checkin)).map(b=>`
     <div class="fin-rev-row">
@@ -1686,7 +1686,7 @@ function buildInvoicePDF(selected, client) {
   </div>
   <table>
     <thead><tr>
-      <th>Guest</th><th>Dates</th><th style="text-align:right">Host Payout</th>
+      <th>Guest</th><th>Dates</th><th style="text-align:right">Gross Revenue</th>
       <th style="text-align:right">Cleaning Fee</th><th style="text-align:center">Mgmt %</th>
       <th style="text-align:right">Management Payout</th>
     </tr></thead>
@@ -3069,7 +3069,7 @@ function _buildReportDoc(fy) {
 
   const kpis = [
     { label:'Total Revenue', val: fmt2(fyRev) },
-    { label:'Net Payout',    val: fmt2(fyNet) },
+    { label:'Owner Payout',  val: fmt2(fyNet) },
     { label:'Net Income',    val: fmt2(Math.abs(fyNetInc)) + (fyNetInc<0?' (Loss)':'') },
     { label:'Occupancy',     val: fyOcc.toFixed(0)+'%' },
   ];
@@ -3162,8 +3162,8 @@ function _buildReportDoc(fy) {
     startY: y, margin: { left:10, right:10 },
     head: [['Item','Amount']],
     body: [
-      ['Total Revenue (Host Payout)', fmt2(fyRev)],
-      ['Net Payout (after platform fees)', fmt2(fyNet)],
+      ['Total Revenue (Gross)', fmt2(fyRev)],
+      ['Owner Payout (after fees)', fmt2(fyNet)],
       ['Total Expenses', '- ' + fmt2(fyTotalExp)],
       ['Net Income', (fyNetInc<0?'- ':'')+fmt2(Math.abs(fyNetInc))],
     ],
@@ -3276,6 +3276,45 @@ function _taxGroupByATO(fyExpenses) {
   return Object.values(groups).sort((a, b) => b.total - a.total);
 }
 
+/** Compute host management income across ALL properties for a given FY.
+ *  Returns { byProperty: [{ propertyId, propertyName, total }], grandTotal }.
+ */
+function _hostMgmtIncomeForFY(fy) {
+  const allBookings = Array.isArray(bookings) ? bookings : [];
+  const months = fyMonths(fy);
+  const props = getAllProperties() || [];
+  const cloudIds = window._cloudPropertyIds || {};
+
+  // Build a map: cloud property ID -> property name
+  const nameMap = {};
+  props.forEach(p => {
+    const cloudId = p.supabaseId || cloudIds[p.propertyId] || '';
+    if (cloudId) nameMap[cloudId] = p.name || 'Unnamed Property';
+    // Also map the local propertyId in case bookings use it
+    if (p.propertyId) nameMap[p.propertyId] = p.name || 'Unnamed Property';
+  });
+
+  // Filter bookings to this FY and accumulate mgmtPayout by property
+  const totals = {}; // propertyId -> total
+  months.forEach(({ year, month }) => {
+    allBookings.forEach(b => {
+      if (b.status === 'cancelled') return;
+      const d = new Date(b.checkin);
+      if (d.getFullYear() !== year || d.getMonth() !== month) return;
+      const pid = _bookingPropertyId(b) || 'unknown';
+      const amt = Number(b.mgmtPayout || 0);
+      if (amt <= 0) return;
+      totals[pid] = (totals[pid] || 0) + amt;
+    });
+  });
+
+  const byProperty = Object.entries(totals)
+    .map(([pid, total]) => ({ propertyId: pid, propertyName: nameMap[pid] || pid, total }))
+    .sort((a, b) => b.total - a.total);
+  const grandTotal = byProperty.reduce((s, p) => s + p.total, 0);
+  return { byProperty, grandTotal };
+}
+
 function showTaxExportView() {
   const el = document.getElementById('finance-tax-export-view');
   if (el) el.style.display = 'block';
@@ -3335,6 +3374,40 @@ function showTaxExportView() {
     }
     html += '</div>';
     previewEl.innerHTML = html;
+  }
+
+  // ── Host Management Income card ──
+  const hostIncome = _hostMgmtIncomeForFY(fy);
+  let hostEl = document.getElementById('tax-export-host-income');
+  if (!hostEl) {
+    hostEl = document.createElement('div');
+    hostEl.id = 'tax-export-host-income';
+    hostEl.style.fontFamily = "'DM Sans',sans-serif";
+    const previewContainer = document.getElementById('tax-export-preview');
+    if (previewContainer) previewContainer.parentNode.insertBefore(hostEl, previewContainer.nextSibling);
+  }
+  if (hostEl) {
+    const fmtAU = n => '$' + Number(n).toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    let hHtml = '<div class="card" style="padding:16px;margin-top:12px">';
+    hHtml += '<div style="font-weight:500;font-size:14px;margin-bottom:4px;color:#1a1a1a">\uD83D\uDCCA Host Management Income (Your Tax)</div>';
+    hHtml += `<div style="font-size:11px;color:var(--text-soft);margin-bottom:12px">${fyLabel(fy)} \u00B7 All properties</div>`;
+    if (hostIncome.byProperty.length === 0) {
+      hHtml += '<div style="font-size:13px;color:var(--text-soft)">No management fee income recorded for this financial year.</div>';
+    } else {
+      hostIncome.byProperty.forEach(p => {
+        hHtml += `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)">
+          <div style="font-size:13px;font-weight:500;color:#1a1a1a">${escHtml(p.propertyName)}</div>
+          <div style="font-size:14px;font-weight:500;color:#1D9E75">${fmtAU(p.total)}</div>
+        </div>`;
+      });
+      hHtml += `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0 0">
+        <div style="font-size:13px;font-weight:600;color:#1a1a1a">Total Management Income</div>
+        <div style="font-size:15px;font-weight:600;color:#1E3A2F">${fmtAU(hostIncome.grandTotal)}</div>
+      </div>`;
+    }
+    hHtml += '<div style="font-size:11px;color:var(--text-soft);margin-top:10px;font-style:italic">This is your management fee income for your own tax return.</div>';
+    hHtml += '</div>';
+    hostEl.innerHTML = hHtml;
   }
 }
 
@@ -3519,6 +3592,33 @@ function exportTaxPDF() {
     }
   });
 
+  // ── 6. Host Management Income ──
+  y = doc.lastAutoTable.finalY + 8;
+  const hostIncome = _hostMgmtIncomeForFY(fy);
+  if (hostIncome.byProperty.length > 0) {
+    if (y > 240) { doc.addPage(); y = 15; }
+    doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(...FOREST);
+    doc.text('Host Management Income Summary', 10, y); y += 2;
+    doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(...SOFT);
+    doc.text('Management fees earned across all properties — for the host\'s own tax return', 10, y); y += 4;
+
+    const hostBody = hostIncome.byProperty.map(p => [p.propertyName, fmt2(p.total)]);
+    hostBody.push(['Total Management Income', fmt2(hostIncome.grandTotal)]);
+    doc.autoTable({
+      startY: y, margin: { left: 10, right: 10 },
+      head: [['Property', 'Management Fee Income']],
+      body: hostBody,
+      headStyles: { fillColor: FOREST, textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 9 },
+      alternateRowStyles: { fillColor: [248, 252, 248] },
+      didDrawRow: data => {
+        if (data.row.index === hostBody.length - 1) {
+          Object.values(data.row.cells).forEach(c => { c.styles.fontStyle = 'bold'; c.styles.fillColor = [220, 236, 220]; });
+        }
+      }
+    });
+  }
+
   doc.save(`${getCurrentPropertyName()}-Tax_Summary-${fyLabel(fy).replace(/ /g, '_')}.pdf`);
   globalThis.showBanner('\u2705 Tax PDF exported', 'success');
 }
@@ -3589,6 +3689,20 @@ function exportTaxCSV() {
   rows.push(['Total Expenses', fyTotalExp.toFixed(2)]);
   rows.push(['Total Depreciation', depTotalAll.toFixed(2)]);
   rows.push(['Total Deductions', (fyTotalExp + depTotalAll).toFixed(2)]);
+
+  // Host Management Income section
+  const hostIncome = _hostMgmtIncomeForFY(fy);
+  if (hostIncome.byProperty.length > 0) {
+    rows.push([]);
+    rows.push(['HOST MANAGEMENT INCOME']);
+    rows.push(['Property', 'Management Fee Income']);
+    hostIncome.byProperty.forEach(p => {
+      rows.push([p.propertyName, p.total.toFixed(2)]);
+    });
+    rows.push(['Total Management Income', hostIncome.grandTotal.toFixed(2)]);
+    rows.push([]);
+    rows.push(['Note: This is management fee income for the host\'s own tax return.']);
+  }
 
   const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });

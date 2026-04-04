@@ -16,7 +16,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const { createClient } = require('@supabase/supabase-js');
-const { sendPushToOwner, hasRecentNotification } = require('./utils/push-helper');
+const { sendPushToHost, hasRecentNotification } = require('./utils/push-helper');
 
 exports.handler = async (event) => {
   const uid = (event.queryStringParameters || {}).uid;
@@ -521,7 +521,7 @@ async function notifyBookingOwnerPush(supabaseAdmin, { notifyType, propertyId, b
       return;
     }
 
-    await sendPushToOwner({
+    await sendPushToHost({
       supabaseAdmin,
       propertyId,
       title,

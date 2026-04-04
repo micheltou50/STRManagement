@@ -274,7 +274,7 @@ import {
   isAwaitingCleanerResponse,
   renderConnectionSummary,
 } from './state.js';
-import { getCleanerSub, sendPushToDevice, getPushSubs, getOwnerSub } from './notifications.js';
+import { getCleanerSub, sendPushToDevice, getPushSubs, getHostSub } from './notifications.js';
 import { loadCleaners } from './bookings.js';
 import { processScanNeedsReview, isCleanerMode } from './property.js';
 """

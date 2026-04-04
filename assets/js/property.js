@@ -717,6 +717,7 @@ function renderPortfolioPropertyTab() {
         '<div>' +
           '<div style="font-weight:700;font-size:16px;color:var(--text)">' + escHtml(p.name || p.propertyId) + '</div>' +
           '<div style="font-size:12px;color:var(--text-soft)">' + escHtml(tagline) + '</div>' +
+          (p.owner && p.owner.name ? '<div style="font-size:11px;color:var(--text-soft);margin-top:2px">Owner: ' + escHtml(p.owner.name) + '</div>' : '') +
         '</div>' +
         '<div style="background:' + statusBg + ';color:' + statusColour + ';font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px">' + statusLabel + '</div>' +
       '</div>' +

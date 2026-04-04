@@ -52,9 +52,9 @@ function parsePushSubscriptionsArray(raw) {
 }
 
 /**
- * Add this device's owner subscription to app_config.push_subscriptions (dedup by endpoint).
+ * Add this device's host subscription to app_config.push_subscriptions (dedup by endpoint).
  */
-async function mergeOwnerPushSubscriptionToCloud(subJson) {
+async function mergeHostPushSubscriptionToCloud(subJson) {
   if (!subJson || !subJson.endpoint) return;
   const sb = getSupabaseClient();
   const user = await getCurrentSupabaseUser();
@@ -104,7 +104,7 @@ async function mergeOwnerPushSubscriptionToCloud(subJson) {
   }
 }
 
-async function removeOwnerPushSubscriptionFromCloudByEndpoint(endpoint) {
+async function removeHostPushSubscriptionFromCloudByEndpoint(endpoint) {
   if (!endpoint) return;
   const sb = getSupabaseClient();
   const user = await getCurrentSupabaseUser();
@@ -129,17 +129,17 @@ async function removeOwnerPushSubscriptionFromCloudByEndpoint(endpoint) {
 }
 
 /** Unsubscribe this browser from push and remove its endpoint from push_subscriptions. */
-export async function unsubscribeOwnerPushNotifications() {
+export async function unsubscribeHostPushNotifications() {
   if (!('serviceWorker' in navigator)) return;
   const reg = await navigator.serviceWorker.ready;
   const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
   if (!sub) {
-    console.log('[StayOps] unsubscribeOwnerPushNotifications: no active subscription');
+    console.log('[StayOps] unsubscribeHostPushNotifications: no active subscription');
     return;
   }
   const endpoint = sub.endpoint;
   await sub.unsubscribe();
-  await removeOwnerPushSubscriptionFromCloudByEndpoint(endpoint);
+  await removeHostPushSubscriptionFromCloudByEndpoint(endpoint);
   console.log('[StayOps] Device unsubscribed from push notifications');
 }
 
@@ -149,7 +149,7 @@ export function getPushSubs() {
 }
 export function savePushSubsLocal(subs) {
   console.log('[Push] savePushSubsLocal: saving local + requesting AppData sync', {
-    hasOwner: !!(subs && subs.owner),
+    hasHost: !!(subs && subs.host),
     cleanerCount: Object.keys((subs && subs.cleaners) || {}).length
   });
   window._appConfig = window._appConfig || {};
@@ -171,7 +171,7 @@ export async function enableNotificationsManually() {
     return;
   }
 
-  const sub = await subscribeToPush('owner');
+  const sub = await subscribeToPush('host');
   if (result) result.style.display = 'block';
   if (sub) {
     if (result) { result.style.color = 'var(--moss)'; result.textContent = '✓ Notifications enabled on this device!'; }
@@ -200,7 +200,7 @@ export async function resetPushOnly() {
       const endpoint = sub.endpoint;
       const unsubscribed = await sub.unsubscribe();
       console.log('[Push] Reset Push Only unsubscribe result:', unsubscribed);
-      await removeOwnerPushSubscriptionFromCloudByEndpoint(endpoint);
+      await removeHostPushSubscriptionFromCloudByEndpoint(endpoint);
       console.log('[StayOps] Device unsubscribed from push notifications');
     } else {
       console.log('[Push] Reset Push Only: no existing subscription');
@@ -237,7 +237,7 @@ export function updateNotifStatus() {
     return;
   }
   const perm = Notification.permission;
-  const sub = getOwnerSub();
+  const sub = getHostSub();
   if (perm === 'granted' && sub) {
     if (el) { el.textContent = '✅ Notifications active on this device.'; el.style.background = '#F0FAF4'; el.style.color = 'var(--moss)'; }
     if (menuRow) menuRow.textContent = '✅ Active';
@@ -295,16 +295,16 @@ export async function subscribeToPush(role, cleanerId) {
     console.log('[Push] subscription endpoint (full):', subJson.endpoint || null);
     console.log('[Push] subscription object (safe stringify):', safePushStringify(subJson || null));
     const subs = getPushSubs();
-    if (role === 'owner') {
-      subs.owner = subJson;
+    if (role === 'host') {
+      subs.host = subJson;
     } else if (role === 'cleaner' && cleanerId) {
       if (!subs.cleaners) subs.cleaners = {};
       subs.cleaners[String(cleanerId)] = subJson;
     }
     console.log('[Push] before saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
     savePushSubsLocal(subs);
-    if (role === 'owner') {
-      await mergeOwnerPushSubscriptionToCloud(subJson);
+    if (role === 'host') {
+      await mergeHostPushSubscriptionToCloud(subJson);
     }
     console.log('[Push] after saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
     console.log('Subscription saved for role:', role, cleanerId || '');
@@ -340,7 +340,7 @@ export async function sendPushToDevice(subscription, title, body, url, tag, opts
     const ok = !!(res.ok && data.ok);
     if (data.expired) {
       const subs = getPushSubs();
-      if (subs.owner && JSON.stringify(subs.owner) === JSON.stringify(subscription)) delete subs.owner;
+      if (subs.host && JSON.stringify(subs.host) === JSON.stringify(subscription)) delete subs.host;
       Object.keys(subs.cleaners || {}).forEach(id => {
         if (JSON.stringify(subs.cleaners[id]) === JSON.stringify(subscription)) delete subs.cleaners[id];
       });
@@ -355,13 +355,13 @@ export async function sendPushToDevice(subscription, title, body, url, tag, opts
 }
 globalThis.sendPushToDevice = sendPushToDevice;
 
-export function getOwnerSub() { return getPushSubs().owner || null; }
+export function getHostSub() { return getPushSubs().host || null; }
 export function getCleanerSub(cleanerId) { return (getPushSubs().cleaners || {})[String(cleanerId)] || null; }
 
-export async function getFreshOwnerSub() {
-  return getOwnerSub();
+export async function getFreshHostSub() {
+  return getHostSub();
 }
-globalThis.getFreshOwnerSub = getFreshOwnerSub;
+globalThis.getFreshHostSub = getFreshHostSub;
 
 export async function _sendCleanerAssignmentNotifications(booking, cleanerObj, date, tag) {
   // Check if assignment notifications are disabled in admin config
@@ -930,13 +930,13 @@ export async function testNotificationConfig() {
   const pushFunctionUrl = (getPushFunctionUrl() || '').trim();
   const pushSupported = ('Notification' in window);
   const perm = pushSupported ? Notification.permission : 'unsupported';
-  const ownerSub = getOwnerSub();
+  const hostSub = getHostSub();
 
   const checks = [];
   if (ownerEmail) checks.push('Owner email configured');
   if (pushFunctionUrl) checks.push('Push function URL configured');
   if (pushSupported) checks.push('Browser supports notifications');
-  if (perm === 'granted' && ownerSub) checks.push('Push enabled on this device');
+  if (perm === 'granted' && hostSub) checks.push('Push enabled on this device');
 
   const missing = [];
   if (!ownerEmail) missing.push('owner email missing');
@@ -950,7 +950,7 @@ export async function testNotificationConfig() {
 
   const pushMsg = !pushSupported
     ? 'push not supported on this browser'
-    : (perm === 'granted' && ownerSub)
+    : (perm === 'granted' && hostSub)
       ? 'push ready on this device'
       : 'push not enabled on this device yet';
 

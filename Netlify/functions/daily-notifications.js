@@ -14,10 +14,10 @@
 //   app_config (user_id, push_subscriptions jsonb[]),
 //   notification_log (property_id, type, reference_id, title, body, sent_at).
 //
-// Push: ./utils/push-helper.js (sendPushToOwner, hasRecentNotification).
+// Push: ./utils/push-helper.js (sendPushToHost, hasRecentNotification).
 
 const { createClient } = require('@supabase/supabase-js');
-const { sendPushToOwner, hasRecentNotification } = require('./utils/push-helper');
+const { sendPushToHost, hasRecentNotification } = require('./utils/push-helper');
 
 const SYDNEY_TZ = 'Australia/Sydney';
 const UNASSIGNED_WINDOW_HRS = 48;
@@ -148,7 +148,7 @@ exports.handler = async (event) => {
         const propertyName = propNames[b.property_id] || 'Property';
         const n = Number(b.guests) || 1;
         const guest = (b.guest_name || 'Guest').trim();
-        const pushRes = await sendPushToOwner({
+        const pushRes = await sendPushToHost({
           supabaseAdmin: sb,
           propertyId: b.property_id,
           title: '🔑 Check-in Today — ' + propertyName,
@@ -187,7 +187,7 @@ exports.handler = async (event) => {
         if (recent) continue;
         const propertyName = propNames[b.property_id] || 'Property';
         const guest = (b.guest_name || 'Guest').trim();
-        const pushRes = await sendPushToOwner({
+        const pushRes = await sendPushToHost({
           supabaseAdmin: sb,
           propertyId: b.property_id,
           title: '🧹 Checkout Today — ' + propertyName,
@@ -233,7 +233,7 @@ exports.handler = async (event) => {
         if (recent) continue;
         const propertyName = propNames[c.property_id] || 'Property';
         const hoursRounded = Math.max(0, Math.round(hrs));
-        const pushRes = await sendPushToOwner({
+        const pushRes = await sendPushToHost({
           supabaseAdmin: sb,
           propertyId: c.property_id,
           title: '⚠️ No Cleaner Assigned',
@@ -299,7 +299,7 @@ exports.handler = async (event) => {
         const cleanerName =
           (cid && cleanerNameByLocalId[cid]) || String(c.cleaner || '').trim() || 'Cleaner';
         const propertyName = propNames[c.property_id] || 'Property';
-        const pushRes = await sendPushToOwner({
+        const pushRes = await sendPushToHost({
           supabaseAdmin: sb,
           propertyId: c.property_id,
           title: '⏰ No Cleaner Response',
@@ -352,7 +352,7 @@ exports.handler = async (event) => {
         const propertyName = (props && props[0] && props[0].name) || 'Property';
         const guest = (c.guest_name || 'Guest').trim();
 
-        const pushRes = await sendPushToOwner({
+        const pushRes = await sendPushToHost({
           supabaseAdmin: sb,
           propertyId: c.property_id,
           title: '💰 Review Cleaning Cost',
