@@ -2,7 +2,6 @@
   "name": "stayops",
   "version": "1.0.0",
   "description": "StayOps property manager",
-  "type": "module",
   "scripts": {
     "lint": "eslint assets/js/ Netlify/functions/",
     "lint:fix": "eslint assets/js/ Netlify/functions/ --fix"
