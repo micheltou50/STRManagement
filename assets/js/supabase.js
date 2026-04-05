@@ -290,10 +290,13 @@ export async function seedLocalConfigFromCloud() {
         suburb, state,
         region: row.region || existing.region || '',
         country: row.country || existing.country || 'Australia',
+        platforms:          Array.isArray(row.platforms) ? row.platforms : (existing.platforms || []),
         airbnbListingId:    row.airbnb_listing_id    || existing.airbnbListingId    || '',
         airbnbListingUrl:   row.airbnb_listing_url   || existing.airbnbListingUrl   || '',
         airbnbListingTitle: row.airbnb_listing_title || existing.airbnbListingTitle || '',
         bookingComUrl:      row.booking_com_url      || existing.bookingComUrl      || '',
+        stayzUrl:           row.stayz_url            || existing.stayzUrl           || '',
+        vrboUrl:            row.vrbo_url             || existing.vrboUrl            || '',
         branding: {
           subtitle: [suburb, state].filter(Boolean).join(' · '),
           tagline: row.tagline || exBrand.tagline || [suburb, state].filter(Boolean).join(', ')
@@ -445,10 +448,13 @@ export async function savePropertyToCloud(cfg) {
       report_frequency:     (cfg.owner && cfg.owner.reportFrequency) || null,
       last_report_sent_at:  (cfg.owner && cfg.owner.lastReportSentAt) || null,
       anthropic_api_key: localStorage.getItem('gh-api-key') || null,
+      platforms:            Array.isArray(cfg.platforms) ? cfg.platforms : null,
       airbnb_listing_id:    cfg.airbnbListingId || null,
       airbnb_listing_url:   cfg.airbnbListingUrl || null,
       airbnb_listing_title: cfg.airbnbListingTitle || null,
       booking_com_url:      cfg.bookingComUrl || null,
+      stayz_url:            cfg.stayzUrl || null,
+      vrbo_url:             cfg.vrboUrl || null,
       mgmt_fee_rate:     (window._appConfig && window._appConfig.mgmt_fee_rate != null) ? window._appConfig.mgmt_fee_rate : null,
       updated_at:        cfg.updated_at || new Date().toISOString()
     };
@@ -1351,10 +1357,13 @@ export async function hydrateFromCloud() {
         suburb, state,
         region: row.region || existing.region || '',
         country: row.country || existing.country || 'Australia',
+        platforms:          Array.isArray(row.platforms) ? row.platforms : (existing.platforms || []),
         airbnbListingId:    row.airbnb_listing_id    || existing.airbnbListingId    || '',
         airbnbListingUrl:   row.airbnb_listing_url   || existing.airbnbListingUrl   || '',
         airbnbListingTitle: row.airbnb_listing_title || existing.airbnbListingTitle || '',
         bookingComUrl:      row.booking_com_url      || existing.bookingComUrl      || '',
+        stayzUrl:           row.stayz_url            || existing.stayzUrl           || '',
+        vrboUrl:            row.vrbo_url             || existing.vrboUrl            || '',
         branding: {
           subtitle: [suburb, state].filter(Boolean).join(' · '),
           tagline: row.tagline || exBrand.tagline || [suburb, state].filter(Boolean).join(', ')

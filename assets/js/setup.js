@@ -150,28 +150,25 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
 
       <form id="setup-form" novalidate>
 
-        <!-- ══ SECTION: LISTING LINK ══ -->
-        <div class="ss-label">Listing Link <span class="ss-opt">(optional)</span></div>
-
-        <div class="ss-row">
-          <div class="ss-field ss-wide">
-            <label class="ss-lbl" for="s-airbnb-url">Airbnb Listing URL</label>
-            <input type="url" id="s-airbnb-url" class="ss-inp"
-              placeholder="https://www.airbnb.com/rooms/12345678"
-              value="${ea(cfg.airbnbListingUrl || '')}" autocomplete="off">
-            <div class="ss-hint" id="s-airbnb-hint">Paste your listing URL to auto-fill property details.</div>
-          </div>
+        <!-- ══ SECTION: PLATFORMS ══ -->
+        <div class="ss-label">Platforms</div>
+        <div class="ss-hint" style="margin-bottom:12px">Select the platforms you list this property on.</div>
+        <div id="s-platforms-grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
+          ${['airbnb','booking','stayz','vrbo','direct'].map(p => {
+            const labels = { airbnb:'Airbnb', booking:'Booking.com', stayz:'Stayz', vrbo:'VRBO', direct:'Direct' };
+            const colors = { airbnb:'#FF5A5F', booking:'#003580', stayz:'#00A699', vrbo:'#1B468E', direct:'#1E3A2F' };
+            const icons  = { airbnb:'🏠', booking:'🅱️', stayz:'🌊', vrbo:'🏡', direct:'📅' };
+            const active = Array.isArray(cfg.platforms) && cfg.platforms.includes(p);
+            return '<div class="ss-plat-chip' + (active ? ' active' : '') + '" data-platform="' + p + '" ' +
+              'style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:20px;' +
+              'border:2px solid ' + (active ? colors[p] : '#E5E5EA') + ';background:' + (active ? colors[p]+'15' : '#fff') + ';' +
+              'cursor:pointer;font-size:13px;font-weight:600;color:' + (active ? colors[p] : '#999') + '">' +
+              icons[p] + ' ' + labels[p] + '</div>';
+          }).join('')}
         </div>
 
-        <div class="ss-row">
-          <div class="ss-field ss-wide">
-            <label class="ss-lbl" for="s-bookingcom-url">Booking.com URL <span class="ss-opt">(optional)</span></label>
-            <input type="url" id="s-bookingcom-url" class="ss-inp"
-              placeholder="https://www.booking.com/hotel/au/your-property.html"
-              value="${ea(cfg.bookingComUrl || '')}" autocomplete="off">
-            <div class="ss-hint">Helps match bookings from Booking.com (future).</div>
-          </div>
-        </div>
+        <!-- ══ LISTING URLS (shown per selected platform) ══ -->
+        <div id="s-listing-urls"></div>
 
         <!-- ══ SECTION: PROPERTY ══ -->
         <div class="ss-label">Property</div>
@@ -383,46 +380,94 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
   const cancelBtn = overlay.querySelector('#setup-cancel');
   if (cancelBtn) cancelBtn.addEventListener('click', onDone);
 
-  // Airbnb URL fetch-on-paste
-  const _airbnbInput = overlay.querySelector('#s-airbnb-url');
-  if (_airbnbInput) {
-    const _doAirbnbFetch = async () => {
-      const url = _airbnbInput.value.trim();
-      if (!url || !url.match(/airbnb\.[a-z.]+\/rooms\/\d+/i)) return;
-      const hint = overlay.querySelector('#s-airbnb-hint');
-      if (hint) hint.innerHTML = '<span style="color:var(--forest)">⏳ Fetching listing details…</span>';
-      try {
-        const res = await fetch('/.netlify/functions/fetch-listing', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url }),
-        });
-        const data = await res.json();
-        if (data.error && !data.listingId) {
-          if (hint) hint.innerHTML = '<span style="color:var(--red)">⚠ ' + (data.error || 'Could not fetch') + '</span>';
-          return;
+  // ── Platform chip toggles + dynamic listing URL fields ──
+  const _platformDefs = {
+    airbnb:  { label:'Airbnb',      color:'#FF5A5F', placeholder:'https://www.airbnb.com/rooms/12345678',    hint:'Paste your listing URL to auto-fill property details.' },
+    booking: { label:'Booking.com', color:'#003580', placeholder:'https://www.booking.com/hotel/au/your-property.html', hint:'Helps match bookings from Booking.com.' },
+    stayz:   { label:'Stayz',       color:'#00A699', placeholder:'https://www.stayz.com.au/accommodation/...', hint:'Helps match bookings from Stayz.' },
+    vrbo:    { label:'VRBO',        color:'#1B468E', placeholder:'https://www.vrbo.com/12345678',              hint:'Helps match bookings from VRBO.' },
+  };
+  const _selectedPlatforms = new Set(Array.isArray(cfg.platforms) ? cfg.platforms : []);
+
+  function _renderListingUrls() {
+    const container = overlay.querySelector('#s-listing-urls');
+    if (!container) return;
+    const urlPlatforms = ['airbnb','booking','stayz','vrbo'].filter(p => _selectedPlatforms.has(p));
+    if (!urlPlatforms.length) { container.innerHTML = ''; return; }
+    container.innerHTML = '<div class="ss-label" style="margin-top:4px">Listing URLs <span class="ss-opt">(optional)</span></div>' +
+      urlPlatforms.map(p => {
+        const def = _platformDefs[p];
+        const fieldId = 's-url-' + p;
+        const hintId = 's-hint-' + p;
+        const val = (p === 'airbnb' ? cfg.airbnbListingUrl : p === 'booking' ? cfg.bookingComUrl : p === 'stayz' ? cfg.stayzUrl : cfg.vrboUrl) || '';
+        return '<div class="ss-row"><div class="ss-field ss-wide">' +
+          '<label class="ss-lbl" for="' + fieldId + '">' + def.label + ' URL</label>' +
+          '<input type="url" id="' + fieldId + '" class="ss-inp" placeholder="' + def.placeholder + '" value="' + ea(val) + '" autocomplete="off">' +
+          '<div class="ss-hint" id="' + hintId + '">' + def.hint + '</div>' +
+          '</div></div>';
+      }).join('');
+
+    // Airbnb fetch-on-paste
+    const airbnbInput = container.querySelector('#s-url-airbnb');
+    if (airbnbInput) {
+      const _doFetch = async () => {
+        const url = airbnbInput.value.trim();
+        if (!url || !url.match(/airbnb\.[a-z.]+\/rooms\/\d+/i)) return;
+        const hint = container.querySelector('#s-hint-airbnb');
+        if (hint) hint.innerHTML = '<span style="color:var(--forest)">⏳ Fetching listing details…</span>';
+        try {
+          const res = await fetch('/.netlify/functions/fetch-listing', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }),
+          });
+          const data = await res.json();
+          if (data.error && !data.listingId) {
+            if (hint) hint.innerHTML = '<span style="color:var(--red)">⚠ ' + (data.error || 'Could not fetch') + '</span>';
+            return;
+          }
+          const _fill = (id, val) => { const el = overlay.querySelector('#' + id); if (el && !el.value && val) el.value = val; };
+          _fill('s-name', data.title);
+          _fill('s-beds', data.bedrooms);
+          _fill('s-guests', data.maxGuests);
+          _fill('s-baths', data.bathrooms);
+          if (data.propertyType) { const t = overlay.querySelector('#s-type'); if (t && !t.value) t.value = data.propertyType; }
+          airbnbInput.dataset.listingId = data.listingId || '';
+          airbnbInput.dataset.listingTitle = data.title || '';
+          if (hint) hint.innerHTML = '<span style="color:var(--moss)">✓ Details loaded from Airbnb</span>';
+        } catch (e) {
+          if (hint) hint.innerHTML = '<span style="color:var(--red)">⚠ Could not fetch — enter details manually.</span>';
         }
-        // Auto-fill ONLY empty fields
-        const _fill = (id, val) => { const el = overlay.querySelector('#' + id); if (el && !el.value && val) el.value = val; };
-        _fill('s-name', data.title);
-        _fill('s-beds', data.bedrooms);
-        _fill('s-guests', data.maxGuests);
-        _fill('s-baths', data.bathrooms);
-        if (data.propertyType) {
-          const typeEl = overlay.querySelector('#s-type');
-          if (typeEl && !typeEl.value) typeEl.value = data.propertyType;
-        }
-        // Store listing metadata for config builder
-        _airbnbInput.dataset.listingId = data.listingId || '';
-        _airbnbInput.dataset.listingTitle = data.title || '';
-        if (hint) hint.innerHTML = '<span style="color:var(--moss)">✓ Details loaded from Airbnb</span>';
-      } catch (e) {
-        if (hint) hint.innerHTML = '<span style="color:var(--red)">⚠ Could not fetch — enter details manually.</span>';
-      }
-    };
-    _airbnbInput.addEventListener('paste', () => setTimeout(_doAirbnbFetch, 150));
-    _airbnbInput.addEventListener('blur', _doAirbnbFetch);
+      };
+      airbnbInput.addEventListener('paste', () => setTimeout(_doFetch, 150));
+      airbnbInput.addEventListener('blur', _doFetch);
+    }
   }
+
+  // Wire up platform chip clicks
+  overlay.querySelectorAll('.ss-plat-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const p = chip.dataset.platform;
+      const def = _platformDefs[p];
+      if (_selectedPlatforms.has(p)) {
+        _selectedPlatforms.delete(p);
+        chip.style.borderColor = '#E5E5EA';
+        chip.style.background = '#fff';
+        chip.style.color = '#999';
+      } else {
+        _selectedPlatforms.add(p);
+        chip.style.borderColor = def ? def.color : '#1E3A2F';
+        chip.style.background = (def ? def.color : '#1E3A2F') + '15';
+        chip.style.color = def ? def.color : '#1E3A2F';
+      }
+      _renderListingUrls();
+    });
+  });
+
+  // Initial render of URL fields
+  _renderListingUrls();
+
+  // Store selected platforms on overlay for config builder to read
+  overlay._selectedPlatforms = _selectedPlatforms;
 
   return overlay;
 }
@@ -499,10 +544,13 @@ function _setupBuildConfig(overlay, createMode) {
     state,
     region:  region  || undefined,
     country: v('s-country') || 'Australia',
-    airbnbListingUrl: v('s-airbnb-url') || '',
-    airbnbListingId: ((overlay.querySelector('#s-airbnb-url') || {}).dataset || {}).listingId || '',
-    airbnbListingTitle: ((overlay.querySelector('#s-airbnb-url') || {}).dataset || {}).listingTitle || '',
-    bookingComUrl: v('s-bookingcom-url') || '',
+    platforms: overlay._selectedPlatforms ? Array.from(overlay._selectedPlatforms) : [],
+    airbnbListingUrl: (overlay.querySelector('#s-url-airbnb') || {}).value || '',
+    airbnbListingId: ((overlay.querySelector('#s-url-airbnb') || {}).dataset || {}).listingId || '',
+    airbnbListingTitle: ((overlay.querySelector('#s-url-airbnb') || {}).dataset || {}).listingTitle || '',
+    bookingComUrl: (overlay.querySelector('#s-url-booking') || {}).value || '',
+    stayzUrl: (overlay.querySelector('#s-url-stayz') || {}).value || '',
+    vrboUrl: (overlay.querySelector('#s-url-vrbo') || {}).value || '',
 
     branding: {
       subtitle: [suburb, state].filter(Boolean).join(' · '),
@@ -547,10 +595,13 @@ function _setupBlankConfig() {
     state: '',
     region: '',
     country: d.country || 'Australia',
+    platforms: [],
     airbnbListingUrl: '',
     airbnbListingId: '',
     airbnbListingTitle: '',
     bookingComUrl: '',
+    stayzUrl: '',
+    vrboUrl: '',
     branding: { subtitle: '', tagline: '' },
     property: { bedrooms: '', maxGuests: '', bathrooms: '', type: 'house' },
     owner: { name: '', email: '', phone: '' },
