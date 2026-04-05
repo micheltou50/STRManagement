@@ -80,7 +80,9 @@ function renderConnectionSummary() {
           <img src="https://www.microsoft.com/favicon.ico" width="18" height="18" style="border-radius:3px"> Connect Outlook
         </button>
       `}
-    </div>`
+    </div>
+
+    ${_renderCMCard()}`
   ;
 }
 async function connectGmail() {
@@ -484,6 +486,9 @@ function openSettingsPanel(panelId, returnSection) {
   }
   if (panelId === 'integrations') {
     renderConnectionSummary();
+  }
+  if (panelId === 'cm-mapping') {
+    loadCMMapping();
   }
   if (panelId === 'owner-report') {
     populateOwnerReportPanel();
@@ -1103,6 +1108,341 @@ function copyCleanerLinkById(id) {
     .catch(() => globalThis.showBanner('⚠ Copy failed — select the link manually', 'warn'));
 }
 
+// ── CHANNEL MANAGER ──────────────────────────────────────────────────────────
+
+function _renderCMCard() {
+  const cmConnected = window._appConfig && window._appConfig.channel_manager_connected;
+  if (cmConnected) {
+    const provider = escHtml((window._appConfig.channel_manager_provider || '').toUpperCase());
+    const tier = escHtml(window._appConfig.channel_manager_tier || 'self-serve');
+    const lastSync = window._appConfig.channel_manager_last_sync;
+    const syncError = window._appConfig.channel_manager_sync_error || '';
+    let lastSyncFormatted = '';
+    if (lastSync) {
+      try { lastSyncFormatted = new Date(lastSync).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }); } catch(e) { lastSyncFormatted = lastSync; }
+    }
+    return `<div style="background:var(--mist);padding:14px 16px;border-radius:10px;margin-top:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-weight:600;font-size:14px">📡 Channel Manager</div>
+        <span style="font-size:11px;color:var(--moss)">✓ Connected</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-soft);margin-bottom:8px">
+        Provider: <strong>${provider}</strong> · Tier: <strong>${tier}</strong>
+        ${lastSync ? ' · Last sync: ' + lastSyncFormatted : ''}
+        ${syncError ? '<br><span style="color:var(--red)">⚠ ' + escHtml(syncError) + '</span>' : ''}
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="syncCMBookings()" class="btn-primary" style="padding:8px 14px;font-size:12px" id="cm-sync-btn">🔄 Sync Now</button>
+        <button onclick="openSettingsPanel('cm-mapping')" style="padding:8px 14px;font-size:12px;background:var(--warm);border:none;border-radius:var(--radius-sm);cursor:pointer;font-weight:600;color:var(--forest)">🗺️ Properties</button>
+        <button onclick="disconnectCM()" style="padding:8px 14px;font-size:12px;background:none;border:1px solid var(--red);border-radius:var(--radius-sm);cursor:pointer;color:var(--red)">Disconnect</button>
+      </div>
+    </div>`;
+  }
+  // Not connected
+  return `<div style="background:var(--mist);padding:14px 16px;border-radius:10px;margin-top:8px">
+    <div style="font-weight:600;font-size:14px;margin-bottom:4px">📡 Channel Manager</div>
+    <div style="font-size:11px;color:var(--text-soft);margin-bottom:12px;line-height:1.5">Sync bookings in real-time across Airbnb, Booking.com, VRBO, and more. No more double bookings.</div>
+    <div style="display:flex;gap:8px">
+      <button onclick="openSettingsPanel('cm-connect')" class="btn-primary" style="flex:1;padding:10px;font-size:13px">I have an account</button>
+      <button onclick="openSettingsPanel('cm-request')" style="flex:1;padding:10px;font-size:13px;background:var(--warm);border:none;border-radius:var(--radius-sm);cursor:pointer;font-weight:600;color:var(--forest)">Set it up for me</button>
+    </div>
+  </div>`;
+}
+
+async function testCMConnection() {
+  const user = await getCurrentSupabaseUser();
+  if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
+
+  const provider = document.getElementById('cm-provider')?.value || 'beds24';
+  const apiKey = (document.getElementById('cm-api-key')?.value || '').trim();
+  if (!apiKey) { globalThis.showBanner('⚠ Please enter your API key', 'warn'); return; }
+
+  const btn = document.getElementById('cm-connect-btn');
+  const statusEl = document.getElementById('cm-connect-status');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Testing…'; }
+  if (statusEl) { statusEl.style.color = 'var(--text-soft)'; statusEl.textContent = 'Connecting…'; }
+
+  try {
+    const res = await fetch('/.netlify/functions/cm-test-connection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: user.id, provider, apiKey })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Connection failed');
+
+    // Save to app config
+    if (!window._appConfig) window._appConfig = {};
+    window._appConfig.channel_manager_provider = provider;
+    window._appConfig.channel_manager_connected = true;
+    window._appConfig.channel_manager_tier = 'self-serve';
+    await saveAppConfigToCloud({
+      channel_manager_provider: provider,
+      channel_manager_connected: true,
+      channel_manager_tier: 'self-serve',
+    });
+
+    if (statusEl) { statusEl.style.color = 'var(--moss)'; statusEl.textContent = '✓ Connected! Redirecting to property mapping…'; }
+    globalThis.showBanner('✓ Channel manager connected', 'ok');
+    setTimeout(() => openSettingsPanel('cm-mapping'), 800);
+  } catch (e) {
+    if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = '⚠ ' + e.message; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Test & Connect'; }
+  }
+}
+
+async function syncCMBookings() {
+  const user = await getCurrentSupabaseUser();
+  if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
+
+  const btn = document.getElementById('cm-sync-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing…'; }
+
+  try {
+    const res = await fetch('/.netlify/functions/cm-sync-bookings?uid=' + encodeURIComponent(user.id));
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Sync failed');
+
+    // Update last sync time in app config
+    if (!window._appConfig) window._appConfig = {};
+    window._appConfig.channel_manager_last_sync = new Date().toISOString();
+    window._appConfig.channel_manager_sync_error = null;
+    await saveAppConfigToCloud({
+      channel_manager_last_sync: window._appConfig.channel_manager_last_sync,
+      channel_manager_sync_error: null,
+    });
+
+    const totalChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0);
+    if (totalChanges > 0) {
+      if (typeof globalThis.hydrateFromCloud === 'function') await globalThis.hydrateFromCloud();
+      globalThis.reloadInMemoryData();
+      globalThis.renderAll();
+      const parts = [];
+      if (data.imported) parts.push(data.imported + ' imported');
+      if (data.updated) parts.push(data.updated + ' updated');
+      if (data.cancelled) parts.push(data.cancelled + ' cancelled');
+      globalThis.showBanner('✓ CM sync: ' + parts.join(', '), 'ok');
+    } else {
+      globalThis.showBanner('✓ Channel manager in sync — no new bookings', 'ok');
+    }
+    renderConnectionSummary();
+  } catch (e) {
+    if (!window._appConfig) window._appConfig = {};
+    window._appConfig.channel_manager_sync_error = e.message;
+    globalThis.showBanner('⚠ CM sync failed: ' + e.message, 'warn');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync Now'; }
+  }
+}
+
+async function requestCMSetup() {
+  const user = await getCurrentSupabaseUser();
+  if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
+
+  const btn = document.getElementById('cm-request-btn');
+  const statusEl = document.getElementById('cm-request-status');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Sending…'; }
+
+  try {
+    // Get host email for the notification
+    const hostProfile = typeof getHostProfile === 'function' ? getHostProfile() : {};
+    const hostEmail = user.email || (hostProfile && hostProfile.email) || 'unknown';
+
+    // Send push notification to admin
+    const res = await fetch('/.netlify/functions/send-push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        uid: user.id,
+        title: '🛎️ Channel Manager Setup Request',
+        body: 'User ' + hostEmail + ' (uid: ' + user.id + ') requested managed CM setup.',
+        admin: true,
+      })
+    });
+
+    // Update app config to mark tier as managed
+    if (!window._appConfig) window._appConfig = {};
+    window._appConfig.channel_manager_tier = 'managed';
+    await saveAppConfigToCloud({ channel_manager_tier: 'managed' });
+
+    if (statusEl) { statusEl.style.color = 'var(--moss)'; statusEl.textContent = '✓ Request sent! We'll be in touch shortly.'; }
+    globalThis.showBanner('✓ Setup request sent', 'ok');
+  } catch (e) {
+    if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = '⚠ Failed to send request'; }
+    globalThis.showBanner('⚠ Could not send request: ' + e.message, 'warn');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Request Setup'; }
+  }
+}
+
+async function disconnectCM() {
+  globalThis.showAppModal(
+    'Disconnect Channel Manager?',
+    'This will stop syncing bookings from your channel manager. Your existing bookings won\'t be affected.',
+    async () => {
+      try {
+        const user = await getCurrentSupabaseUser();
+        if (!user) return;
+
+        // Clear channel manager fields from app config
+        if (!window._appConfig) window._appConfig = {};
+        window._appConfig.channel_manager_provider = '';
+        window._appConfig.channel_manager_connected = false;
+        window._appConfig.channel_manager_tier = '';
+        window._appConfig.channel_manager_last_sync = null;
+        window._appConfig.channel_manager_sync_error = null;
+        await saveAppConfigToCloud({
+          channel_manager_provider: '',
+          channel_manager_connected: false,
+          channel_manager_tier: '',
+          channel_manager_last_sync: null,
+          channel_manager_sync_error: null,
+        });
+
+        // Delete channel property mappings
+        try {
+          await window._sb.from('channel_property_map').delete().eq('user_id', user.id);
+        } catch (e) {
+          console.warn('[StayOps] Failed to delete CM property mappings:', e.message);
+        }
+
+        renderConnectionSummary();
+        globalThis.showBanner('✓ Channel manager disconnected', 'ok');
+      } catch (e) {
+        globalThis.showBanner('⚠ Disconnect failed: ' + e.message, 'warn');
+      }
+    }
+  );
+}
+
+async function loadCMMapping() {
+  const user = await getCurrentSupabaseUser();
+  if (!user) return;
+  const listEl = document.getElementById('cm-mapping-list');
+  const statusEl = document.getElementById('cm-mapping-status');
+  if (!listEl) return;
+  listEl.innerHTML = '<div style="font-size:12px;color:var(--text-soft)">Loading properties…</div>';
+
+  try {
+    // Fetch CM properties from the API
+    const res = await fetch('/.netlify/functions/cm-get-properties?uid=' + encodeURIComponent(user.id));
+    const cmData = await res.json();
+    if (!res.ok) throw new Error(cmData.error || 'Failed to load CM properties');
+    const cmProperties = cmData.properties || [];
+
+    // Fetch current mappings from Supabase
+    const { data: mappings } = await window._sb
+      .from('channel_property_map')
+      .select('*')
+      .eq('user_id', user.id);
+    const mappingsByProp = {};
+    (mappings || []).forEach(m => { mappingsByProp[m.property_id] = m; });
+
+    // Get local StayOps properties
+    const allProps = typeof getAllProperties === 'function' ? getAllProperties() : [];
+    if (!allProps.length) {
+      listEl.innerHTML = '<div style="font-size:12px;color:var(--text-soft)">No StayOps properties found. Add a property first.</div>';
+      return;
+    }
+
+    let html = '';
+    allProps.forEach(prop => {
+      const propId = prop.supabaseId || prop.id;
+      const propName = prop.name || prop.id;
+      const existing = mappingsByProp[propId];
+      const selectedCmId = existing ? existing.cm_property_id : '';
+
+      html += `<div style="background:var(--mist);padding:12px;border-radius:10px;margin-bottom:8px">
+        <div style="font-weight:600;font-size:13px;margin-bottom:6px">${escHtml(propName)}</div>
+        <select onchange="saveCMMapping('${escHtml(propId)}', this.value, '', this.options[this.selectedIndex].text)"
+          style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--card-bg)">
+          <option value="">— Not mapped —</option>
+          ${cmProperties.map(cp =>
+            `<option value="${escHtml(cp.id)}" ${String(cp.id) === String(selectedCmId) ? 'selected' : ''}>${escHtml(cp.name || cp.id)}</option>`
+          ).join('')}
+        </select>
+      </div>`;
+    });
+    listEl.innerHTML = html;
+  } catch (e) {
+    listEl.innerHTML = '<div style="font-size:12px;color:var(--red)">⚠ ' + escHtml(e.message) + '</div>';
+    console.warn('[StayOps] loadCMMapping error:', e);
+  }
+}
+
+async function saveCMMapping(propertyId, cmPropId, cmRoomId, cmPropName) {
+  const user = await getCurrentSupabaseUser();
+  if (!user) return;
+  const statusEl = document.getElementById('cm-mapping-status');
+
+  try {
+    if (!cmPropId) {
+      // Remove mapping
+      await window._sb.from('channel_property_map').delete()
+        .eq('user_id', user.id)
+        .eq('property_id', propertyId);
+      if (statusEl) { statusEl.style.color = 'var(--text-soft)'; statusEl.textContent = 'Mapping removed'; }
+      return;
+    }
+    // Upsert mapping
+    const { error } = await window._sb.from('channel_property_map').upsert({
+      user_id: user.id,
+      property_id: propertyId,
+      cm_property_id: cmPropId,
+      cm_room_id: cmRoomId || null,
+      cm_property_name: cmPropName || '',
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,property_id' });
+    if (error) throw new Error(error.message);
+    if (statusEl) { statusEl.style.color = 'var(--moss)'; statusEl.textContent = '✓ Mapping saved'; }
+  } catch (e) {
+    if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = '⚠ ' + e.message; }
+    globalThis.showBanner('⚠ Failed to save mapping: ' + e.message, 'warn');
+  }
+}
+
+async function maybeAutoSyncCM() {
+  try {
+    if (!window._appConfig || !window._appConfig.channel_manager_connected) return;
+    const user = window._supabaseUser;
+    if (!user) return;
+
+    // Only run if last sync was > 4 hours ago
+    const lastSync = window._appConfig.channel_manager_last_sync;
+    if (lastSync) {
+      const elapsed = Date.now() - new Date(lastSync).getTime();
+      if (elapsed < 4 * 60 * 60 * 1000) return;
+    }
+
+    const res = await fetch('/.netlify/functions/cm-sync-bookings?uid=' + encodeURIComponent(user.id));
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // Update last sync time silently
+    window._appConfig.channel_manager_last_sync = new Date().toISOString();
+    window._appConfig.channel_manager_sync_error = null;
+    saveAppConfigToCloud({
+      channel_manager_last_sync: window._appConfig.channel_manager_last_sync,
+      channel_manager_sync_error: null,
+    }).catch(() => {});
+
+    const totalChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0);
+    if (totalChanges > 0) {
+      if (typeof globalThis.hydrateFromCloud === 'function') await globalThis.hydrateFromCloud();
+      globalThis.reloadInMemoryData();
+      globalThis.renderAll();
+      const parts = [];
+      if (data.imported) parts.push(data.imported + ' imported');
+      if (data.updated) parts.push(data.updated + ' updated');
+      if (data.cancelled) parts.push(data.cancelled + ' cancelled');
+      globalThis.showBanner('✓ ' + parts.join(', ') + ' from channel manager', 'ok');
+    }
+  } catch (e) {
+    console.warn('[cm-auto-sync] background sync error:', e.message);
+  }
+}
+
 /** Navigate to Settings section (main settings menu). */
 function openSettings() {
   globalThis.showSection('settings');
@@ -1166,4 +1506,11 @@ export {
   clearCleanerPinById,
   saveCleanerPerm,
   copyCleanerLinkById,
+  testCMConnection,
+  syncCMBookings,
+  requestCMSetup,
+  disconnectCM,
+  loadCMMapping,
+  saveCMMapping,
+  maybeAutoSyncCM,
 };

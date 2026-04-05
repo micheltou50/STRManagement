@@ -1375,6 +1375,54 @@
       <div style="padding:10px 12px;background:var(--mist);border-radius:var(--radius-sm);font-size:12px;color:var(--text-soft);line-height:1.6">These are <strong>manual diagnostics</strong> only. They do not auto-run and do not send live cleaner emails or push alerts.</div>
     </div>
 
+    <!-- PANEL: CHANNEL MANAGER — CONNECT (Tier 1: self-serve) -->
+    <div id="settings-panel-cm-connect" style="display:none">
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Integrations</div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-title">🔗 Connect Channel Manager</div>
+        <label>Provider</label>
+        <select id="cm-provider" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;background:var(--card-bg);margin-bottom:12px">
+          <option value="beds24">Beds24</option>
+          <option value="hostaway">Hostaway</option>
+        </select>
+        <label>API Key / Invite Code</label>
+        <input type="text" id="cm-api-key" placeholder="Paste your API key or invite code" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;box-sizing:border-box;margin-bottom:8px">
+        <div class="ss-hint">Find this in your Beds24 or Hostaway account settings.</div>
+        <div id="cm-connect-status" style="font-size:12px;min-height:18px;margin-top:8px"></div>
+      </div>
+      <button class="btn-primary" onclick="testCMConnection()" id="cm-connect-btn" style="width:100%">Test & Connect</button>
+    </div>
+
+    <!-- PANEL: CHANNEL MANAGER — REQUEST (Tier 2: managed setup) -->
+    <div id="settings-panel-cm-request" style="display:none">
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Integrations</div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-title">🛎️ Managed Channel Manager</div>
+        <div style="font-size:13px;color:var(--text-soft);line-height:1.5;margin-bottom:16px">We'll set up and manage a channel manager account for your properties. You just need to authorise your Airbnb and other platform accounts when prompted.</div>
+        <div style="font-size:13px;color:var(--text);line-height:1.5;margin-bottom:12px"><strong>What's included:</strong></div>
+        <div style="font-size:12px;color:var(--text-soft);line-height:1.8;margin-bottom:16px">
+          ✓ Beds24 account setup & configuration<br>
+          ✓ All your platforms connected (Airbnb, Booking.com, etc.)<br>
+          ✓ Real-time booking sync to StayOps<br>
+          ✓ Availability sync — no more double bookings<br>
+          ✓ Ongoing maintenance & support
+        </div>
+        <div id="cm-request-status" style="font-size:12px;min-height:18px;margin-bottom:8px"></div>
+      </div>
+      <button class="btn-primary" onclick="requestCMSetup()" id="cm-request-btn" style="width:100%">Request Setup</button>
+    </div>
+
+    <!-- PANEL: CHANNEL MANAGER — PROPERTY MAPPING -->
+    <div id="settings-panel-cm-mapping" style="display:none">
+      <div class="settings-back" onclick="closeSettingsPanel()">‹ Integrations</div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-title">🗺️ Property Mapping</div>
+        <div style="font-size:13px;color:var(--text-soft);line-height:1.5;margin-bottom:14px">Link your StayOps properties to your channel manager properties so bookings sync to the right place.</div>
+        <div id="cm-mapping-list"></div>
+        <div id="cm-mapping-status" style="font-size:12px;min-height:18px;margin-top:8px"></div>
+      </div>
+    </div>
+
     <!-- PANEL: PUSH NOTIFICATIONS -->
     <div id="settings-panel-notifications" style="display:none">
       <div class="settings-back" onclick="closeSettingsPanel()">‹ Property</div>

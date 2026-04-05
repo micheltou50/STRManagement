@@ -16,6 +16,9 @@
 [functions."send-clean-reminders"]
   schedule = "0 22 * * *"
 
+[functions."cm-sync-bookings"]
+  schedule = "0 */4 * * *"
+
 [[headers]]
   for = "/assets/js/*"
   [headers.values]

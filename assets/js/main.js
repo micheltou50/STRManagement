@@ -55,7 +55,8 @@ import {
   renderConnectionSummary, refreshConnectionSummarySoon, connectGmail, connectOutlook, maybeAutoScanGmail, scanGmailBookings, maybeAutoScanOutlook, scanOutlookBookings, populateCalendarFeedPanel, copyCalendarFeedUrl, _resetSettingsToMenu, openSettingsCat,
   openSettingsPanel, closeSettingsPanel, closeSettingsCat, renderSettings, clearCacheAndResync, saveSMSTemplate, saveGeminiKey, saveApiKey, getApiKey, getHostProfile, saveHostProfile, saveHostProfilePanel,
   renderHostProfileRow, loadCleaners, saveCleaners, addCleaner, deleteCleaner, renderTeamList, openCleanerProfile, saveCleanerContact, populateContractorSelect, renderStorageViewer, getFx, saveFxSetting,
-  initFxSettings, initSettingsSwipeBack, toggleAutoAssignCleaner, resetConnectionCheckerResults, openCleanerSettings, renderCleanerAccessList, saveCleanerPinById, clearCleanerPinById, saveCleanerPerm, copyCleanerLinkById
+  initFxSettings, initSettingsSwipeBack, toggleAutoAssignCleaner, resetConnectionCheckerResults, openCleanerSettings, renderCleanerAccessList, saveCleanerPinById, clearCleanerPinById, saveCleanerPerm, copyCleanerLinkById,
+  testCMConnection, syncCMBookings, requestCMSetup, disconnectCM, loadCMMapping, saveCMMapping, maybeAutoSyncCM
 } from './settings.js';
 import {
   calPrev, calNext, openCalPreview, closeCalPreview, addNote, showDetail, showEditModal, saveEdit, editCalcNights, editCalcNet, filterBookings, addBooking,
@@ -315,6 +316,11 @@ window.saveEdit                 = saveEdit;
 window.saveEmailTemplate        = saveEmailTemplate;
 window.scanGmailBookings        = scanGmailBookings;
 window.scanOutlookBookings      = scanOutlookBookings;
+window.testCMConnection         = testCMConnection;
+window.syncCMBookings           = syncCMBookings;
+window.requestCMSetup           = requestCMSetup;
+window.disconnectCM             = disconnectCM;
+window.saveCMMapping            = saveCMMapping;
 window.selectMerchantSuggest    = selectMerchantSuggest;
 window.sendCleanerReminder      = sendCleanerReminder;
 window.setMaintInProgress       = setMaintInProgress;
@@ -358,6 +364,7 @@ window.applyStayopsPostSwitchAction = applyStayopsPostSwitchAction;
 window.checkAutoSendReport      = checkAutoSendReport;
 window.maybeAutoScanGmail       = maybeAutoScanGmail;
 window.maybeAutoScanOutlook     = maybeAutoScanOutlook;
+window.maybeAutoSyncCM          = maybeAutoSyncCM;
 window._obGoToStep              = _obGoToStep;
 
 // Internal reference used by calendar navigation
@@ -545,9 +552,12 @@ globalThis.handleAuthFailure = handleAuthFailure;
     setTimeout(maybeAutoScanGmail, 3000);
     // Auto-scan Outlook for new booking emails
     setTimeout(maybeAutoScanOutlook, 4500);
+    // Auto-sync channel manager bookings
+    setTimeout(maybeAutoSyncCM, 6000);
     // Periodic re-scan every 15 minutes while app is open
     setInterval(maybeAutoScanGmail, 15 * 60 * 1000);
     setInterval(maybeAutoScanOutlook, 15 * 60 * 1000 + 1500);
+    setInterval(maybeAutoSyncCM, 4 * 60 * 60 * 1000);
   } catch (e) {
     console.error('[StayOps] Boot failed:', e);
   } finally {

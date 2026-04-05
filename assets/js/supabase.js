@@ -1145,18 +1145,32 @@ export async function saveBookingToCloud(booking) {
       .single();
     if (!insErr && insData) {
       booking._cloudId = insData.id;
-      return;
+    } else {
+      // Conflict or other insert failure — fall back to upsert/update without property_id.
+      console.log('[StayOps] GUARD: property_id stripped from booking update to prevent reassignment:', String(booking.id));
+      const { data: upData, error: upErr } = await window._sb
+        .from('bookings')
+        .upsert(basePayload, { onConflict: 'local_id,user_id' })
+        .select()
+        .single();
+      if (upErr) throw new Error(upErr.message || 'Supabase upsert failed');
+      if (upData) booking._cloudId = upData.id;
     }
+  }
 
-    // Conflict or other insert failure — fall back to upsert/update without property_id.
-    console.log('[StayOps] GUARD: property_id stripped from booking update to prevent reassignment:', String(booking.id));
-    const { data: upData, error: upErr } = await window._sb
-      .from('bookings')
-      .upsert(basePayload, { onConflict: 'local_id,user_id' })
-      .select()
-      .single();
-    if (upErr) throw new Error(upErr.message || 'Supabase upsert failed');
-    if (upData) booking._cloudId = upData.id;
+  // Push availability to channel manager if connected
+  if (window._appConfig && window._appConfig.channel_manager_connected && booking.source !== 'channel_manager') {
+    fetch('/.netlify/functions/cm-push-availability', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        uid: user.id,
+        propertyId: booking.property_id || booking._propertyId,
+        checkin: booking.checkin,
+        checkout: booking.checkout,
+        action: booking.status === 'cancelled' ? 'unblock' : 'block'
+      })
+    }).catch(e => console.warn('[StayOps] CM availability push failed:', e.message));
   }
 }
 
@@ -1521,6 +1535,11 @@ export async function hydrateFromCloud() {
         cleaner_automation: cloudAppConfig.cleaner_automation || {},
         cleaner_learning: cloudAppConfig.cleaner_learning || {},
         clients: cloudAppConfig.clients || [],
+        channel_manager_provider: cloudAppConfig.channel_manager_provider || '',
+        channel_manager_connected: cloudAppConfig.channel_manager_connected || false,
+        channel_manager_tier: cloudAppConfig.channel_manager_tier || '',
+        channel_manager_last_sync: cloudAppConfig.channel_manager_last_sync || null,
+        channel_manager_sync_error: cloudAppConfig.channel_manager_sync_error || null,
       };
       console.log('[StayOps] Hydrated app config from cloud');
     }
