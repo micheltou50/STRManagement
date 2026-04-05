@@ -1266,7 +1266,7 @@ async function requestCMSetup() {
     window._appConfig.channel_manager_tier = 'managed';
     await saveAppConfigToCloud({ channel_manager_tier: 'managed' });
 
-    if (statusEl) { statusEl.style.color = 'var(--moss)'; statusEl.textContent = '✓ Request sent! We'll be in touch shortly.'; }
+    if (statusEl) { statusEl.style.color = 'var(--moss)'; statusEl.textContent = '✓ Request sent! We will be in touch shortly.'; }
     globalThis.showBanner('✓ Setup request sent', 'ok');
   } catch (e) {
     if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = '⚠ Failed to send request'; }
