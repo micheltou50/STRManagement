@@ -4406,4 +4406,5 @@ export {
   isOnboardingComplete,
   checkAutoSendReport,
   _calNavigate,
+  dismissChecklist,
 };
