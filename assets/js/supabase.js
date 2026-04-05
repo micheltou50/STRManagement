@@ -1509,6 +1509,9 @@ export async function hydrateFromCloud() {
         notification_config: cloudAppConfig.notification_config || {},
         recurring_templates: cloudAppConfig.recurring_templates || [],
         depreciation_assets: cloudAppConfig.depreciation_assets || [],
+        cleaner_automation: cloudAppConfig.cleaner_automation || {},
+        cleaner_learning: cloudAppConfig.cleaner_learning || {},
+        clients: cloudAppConfig.clients || [],
       };
       console.log('[StayOps] Hydrated app config from cloud');
     }

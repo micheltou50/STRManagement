@@ -174,7 +174,9 @@ function saveCleanerAutomationState(state) {
     lastCleanerId: state.lastCleanerId || null,
     freq: state.freq && typeof state.freq === 'object' ? state.freq : {}
   };
-  // TODO: migrate to Supabase app_config
+  if (typeof globalThis.saveAppConfigToCloud === 'function') {
+    globalThis.saveAppConfigToCloud({ cleaner_automation: window._appConfig.cleaner_automation }).catch(() => {});
+  }
 }
 
 function cleanerUsageKey(cleanerObj) {
@@ -206,7 +208,6 @@ function recordCleanerAssignmentUsage(cleanerObj) {
   st.lastCleanerId = cleanerObj.id !== undefined ? cleanerObj.id : st.lastCleanerId;
   st.freq[usageKey] = Number(st.freq[usageKey] || 0) + 1;
   saveCleanerAutomationState(st);
-  // TODO: migrate last-cleaner to Supabase app_config.ui_preferences
 }
 
 export function getPreferredCleaner() {
@@ -217,7 +218,6 @@ export function getPreferredCleaner() {
     const byLastId = all.find(c => String(c.id) === String(st.lastCleanerId));
     if (byLastId) return byLastId;
   }
-  // TODO: migrate last-cleaner fallback (previously stored in localStorage)
   const topKey = Object.entries(st.freq)
     .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))[0]?.[0];
   if (topKey) {
@@ -1058,7 +1058,9 @@ window.inviteCleaner = inviteCleaner;
 export function saveCleanerLearning(state) {
   window._appConfig = window._appConfig || {};
   window._appConfig.cleaner_learning = state || { lastCleanerId: null, frequency: {} };
-  // TODO: migrate to Supabase app_config
+  if (typeof globalThis.saveAppConfigToCloud === 'function') {
+    globalThis.saveAppConfigToCloud({ cleaner_learning: window._appConfig.cleaner_learning }).catch(() => {});
+  }
 }
 
 export function updateCleanerLearning(cleanerObj, assignmentSource) {
@@ -1079,7 +1081,6 @@ export function updateCleanerLearning(cleanerObj, assignmentSource) {
   if (shouldUpdateLastCleaner) learning.lastCleanerId = cleanerObj.id;
 
   saveCleanerLearning(learning);
-  // TODO: migrate last-cleaner to Supabase app_config.ui_preferences
 }
 export function autoFillCleanDate() {
   const bookingIdRaw = document.getElementById('clean-booking-select').value;
@@ -1097,7 +1098,6 @@ export function addClean() {
   const cleaner = selectEl ? selectEl.value.trim() : document.getElementById('clean-name').value.trim();
   const date=document.getElementById('clean-date').value;
   if (!bookingIdRaw||!cleaner||!date){globalThis.showBanner('⚠ Please fill all fields','warn'); releaseCleaningLock('addClean'); return;}
-  // TODO: migrate last-cleaner to Supabase app_config.ui_preferences
   const booking = bookings.find(b => String(b.id) === String(bookingIdRaw) || (b._cloudId && String(b._cloudId) === String(bookingIdRaw)));
   if (!booking) { globalThis.showBanner('⚠ Booking not found — it may have been deleted', 'warn'); releaseCleaningLock('addClean'); return; }
   const bookingId = booking.id;

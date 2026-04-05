@@ -1884,7 +1884,9 @@ function loadClients() {
 function saveClients(c) {
   window._appConfig = window._appConfig || {};
   window._appConfig.clients = Array.isArray(c) ? c : [];
-  // TODO: persist clients to Supabase app_config if needed
+  if (typeof saveAppConfigToCloud === 'function') {
+    saveAppConfigToCloud({ clients: window._appConfig.clients }).catch(() => {});
+  }
 }
 
 function renderClientsList() {

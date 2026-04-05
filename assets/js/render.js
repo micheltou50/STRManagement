@@ -2208,37 +2208,6 @@ async function ensureHostIdentityAndRestore() {
   if (isCleanerMode()) return;
   let host = getHostProfile();
 
-  // One-time migration: push inv-* localStorage to host_config in Supabase.
-  // Owner fields (owner_name, owner_email) are NOT used here.
-  // Host and owner are distinct identities in StayOps.
-  const migrationKey = 'gh-host-migrated-v2';
-  if (!localStorage.getItem(migrationKey) && typeof globalThis.saveHostConfigToSupabase === 'function') {
-    // TODO: legacy inv-* migration (previously property-scoped localStorage via lsKey)
-    const ls = k => localStorage.getItem(k) || '';
-    const invName = ls('gh-inv-name');
-    if (invName) {
-      const hostId = 'host-' + invName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) + '-' + Date.now().toString().slice(-6);
-      const migrated = {
-        hostId,
-        name:    invName,
-        company: ls('gh-inv-company'),
-        abn:     ls('gh-inv-abn'),
-        acn:     ls('gh-inv-acn'),
-        email:   ls('gh-inv-email'),
-        address: ls('gh-inv-address'),
-        createdAt: new Date().toISOString(),
-      };
-      saveHostProfile(migrated);
-      globalThis.saveHostConfigToSupabase(migrated).then(() => {
-        localStorage.setItem(migrationKey, '1');
-        console.log('[StayOps] Host identity migrated to Supabase');
-      }).catch(e => console.warn('[StayOps] Host migration failed', e));
-      host = migrated;
-    } else {
-      localStorage.setItem(migrationKey, '1');
-    }
-  }
-
   // Restore host profile from Supabase if localStorage is empty (private mode / new device).
   if (!host && typeof globalThis.loadHostConfigFromSupabase === 'function') {
     try {
