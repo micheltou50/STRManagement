@@ -67,6 +67,10 @@ import {
   isAdminSync, getNotificationConfig, isNotifEnabled
 } from './admin.js';
 import {
+  initMessaging, openChat, closeChat, sendMessage, sendAutoMessage,
+  getUnreadCount, renderChatBubble, uploadChatPhoto
+} from './messaging.js';
+import {
   showBanner, platformIcon, reloadInMemoryData, showSection, jumpToCleaningActionNeeded, jumpToScheduleClean, render, renderAll, renderDashboard, renderHeaderDateBadge,
   applyStayopsPostSwitchAction, openModal, closeModal, closeDetailModal, _checkModalsClosed, openQuickAddMenu, closeQuickAddMenu, runFullRefresh, ensureHostIdentityAndRestore, renderMaintenance,
   addMaintenance, setMaintInProgress, resolveIssue, deleteMaintenance, setInvView, renderInventory, addInventoryItem, updateThreshold, adjustStock, restockItem,
@@ -125,6 +129,7 @@ globalThis.getTotalDepreciationForFY = getTotalDepreciationForFY;
 globalThis.getAssetDepreciationForFY = getAssetDepreciationForFY;
 globalThis.getAssetSchedule = getAssetSchedule;
 globalThis.DEPRECIATION_PRESETS = DEPRECIATION_PRESETS;
+globalThis.sendAutoMessage = sendAutoMessage;
 
 // Called from index.html onclick/onchange handlers
 window.handleLoginSubmit        = handleLoginSubmit;
@@ -343,6 +348,11 @@ window.getAtoField              = getAtoField;
 window.getAtoFieldLabel         = getAtoFieldLabel;
 window.checkReceiptNudge        = checkReceiptNudge;
 window.dismissChecklist         = dismissChecklist;
+window.openChat                 = openChat;
+window.closeChat                = closeChat;
+window.sendMessage              = sendMessage;
+window.sendAutoMessage          = sendAutoMessage;
+window.uploadChatPhoto          = uploadChatPhoto;
 
 // Called from supabase.js typeof window.X guards (boot sequence)
 window.getAllProperties          = getAllProperties;
@@ -545,6 +555,7 @@ globalThis.handleAuthFailure = handleAuthFailure;
     if (!isPortfolioMode()) {
       renderAll();
     }
+    initMessaging().catch(e => console.warn('[StayOps] Messaging init failed:', e.message));
     applyStayopsPostSwitchAction();
     // Prompt if an owner report is due (non-blocking, runs after UI is visible)
     setTimeout(checkAutoSendReport, 1500);

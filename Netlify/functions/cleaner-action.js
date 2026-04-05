@@ -60,6 +60,7 @@ exports.handler = async (event) => {
     if (!Array.isArray(cleaners) || !cleaners.length) {
       return json(403, { error: 'Cleaner not found' });
     }
+    const cleanerUuid = cleaners[0].id;
 
     // 2. Build update payload
     let patch = {};
@@ -86,6 +87,33 @@ exports.handler = async (event) => {
       const errText = await updateRes.text();
       console.error('[cleaner-action] Update failed:', errText);
       return json(500, { error: 'Update failed' });
+    }
+
+    // Auto-message for the chat
+    try {
+      const cardTypes = { accept: 'clean_confirmed', decline: 'clean_declined', done: 'clean_complete' };
+      const cardTitles = { accept: 'Cleaner confirmed', decline: 'Cleaner declined', done: 'Clean complete' };
+      const cardType = cardTypes[action];
+      if (cardType && cleanerUuid) {
+        await fetch(
+          SUPABASE_URL + '/rest/v1/messages',
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              user_id: uid,
+              cleaner_id: cleanerUuid,
+              sender_type: 'system',
+              message_type: 'card',
+              card_type: cardType,
+              card_data: { title: cardTitles[action], timestamp: new Date().toISOString() },
+              created_at: new Date().toISOString(),
+            }),
+          }
+        );
+      }
+    } catch (msgErr) {
+      console.log('[StayOps] Auto-message insert failed (non-fatal):', msgErr.message);
     }
 
     return json(200, { ok: true, action });

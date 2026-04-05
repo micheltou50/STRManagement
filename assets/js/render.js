@@ -2985,6 +2985,7 @@ function getActiveCleaner() {
  * has no Supabase auth session (isolated localStorage).
  */
 async function hydrateCleanerFromFunction() {
+  window._cleanerMessages = window._cleanerMessages || [];
   const { id, uid } = getCleanerParams();
   if (!id || !uid) {
     console.log('[StayOps] hydrateCleanerFromFunction: missing id or uid');
@@ -3021,6 +3022,11 @@ async function hydrateCleanerFromFunction() {
     // Populate inventory
     if (Array.isArray(data.inventory)) {
       replaceArrayInPlace(inventory, data.inventory);
+    }
+
+    // Populate chat messages
+    if (Array.isArray(data.messages)) {
+      window._cleanerMessages = data.messages;
     }
 
     // Set property name
@@ -3183,12 +3189,13 @@ function cleanerSignOut() {
 let cleanerTab = 'cleans';
 function switchCleanerTab(tab) {
   cleanerTab = tab;
-  ['cleans','inventory'].forEach(t => {
+  ['cleans','inventory','chat'].forEach(t => {
     const tabBtn = document.getElementById('ctab-' + t);
     const viewEl = document.getElementById('cleaner-' + t + '-view');
     if (tabBtn) tabBtn.classList.toggle('active', t === tab);
     if (viewEl) viewEl.style.display = t === tab ? 'block' : 'none';
   });
+  if (tab === 'chat') renderCleanerChat();
 }
 
 // ── CLEANER CLEANS VIEW ───────────────────────────────────────────────────────
@@ -3412,12 +3419,108 @@ function cleanerAdjustStock(id, delta) {
   item.stock = Math.max(0, item.stock + delta);
   savePropertyData(); renderCleanerInventory();
 }
+// ── CLEANER CHAT VIEW ─────────────��──────────────────────────────────────────
+
+function renderCleanerChat() {
+  const container = document.getElementById('cleaner-chat-container');
+  if (!container) return;
+  const cleaner = getActiveCleaner();
+  const messages = window._cleanerMessages || [];
+  const cleanerId = cleaner ? String(cleaner.id) : '';
+
+  let html = '<div style="font-family:\'DM Serif Display\',serif;font-size:16px;color:var(--forest);margin-bottom:12px">Messages</div>';
+  html += '<div id="cleaner-chat-messages" style="flex:1;overflow-y:auto;max-height:55vh;padding:8px 0;display:flex;flex-direction:column;gap:6px">';
+
+  if (messages.length === 0) {
+    html += '<div style="text-align:center;color:#999;font-size:13px;padding:40px 20px">No messages yet. Send a message to your host below.</div>';
+  } else {
+    messages.forEach(msg => {
+      const isOutgoing = String(msg.sender_id || msg.senderId || '') === cleanerId ||
+                         msg.sender_role === 'cleaner';
+      const align = isOutgoing ? 'flex-end' : 'flex-start';
+      const bg = isOutgoing ? 'var(--forest, #1E3A2F)' : '#F0F0F0';
+      const color = isOutgoing ? '#fff' : '#1C1C1E';
+      const time = msg.created_at || msg.createdAt || '';
+      let timeStr = '';
+      if (time) {
+        try {
+          const d = new Date(time);
+          timeStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' +
+                    d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+        } catch(e) { timeStr = ''; }
+      }
+      const body = escHtml(msg.body || msg.text || msg.message || '');
+      html += '<div style="display:flex;justify-content:' + align + '">';
+      html += '<div style="max-width:80%;padding:10px 14px;border-radius:16px;background:' + bg + ';color:' + color + ';font-size:14px;line-height:1.4">';
+      html += body;
+      if (timeStr) html += '<div style="font-size:10px;opacity:0.6;margin-top:4px">' + escHtml(timeStr) + '</div>';
+      html += '</div></div>';
+    });
+  }
+  html += '</div>';
+
+  // Input bar
+  html += '<div style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #eee">';
+  html += '<input id="cleaner-chat-input" type="text" placeholder="Type a message..." style="flex:1;padding:10px 14px;border:1.5px solid #E5E5EA;border-radius:20px;font-family:\'DM Sans\',sans-serif;font-size:14px;outline:none" onkeydown="if(event.key===\'Enter\')window._sendCleanerChatMessage()">';
+  html += '<button onclick="window._sendCleanerChatMessage()" style="background:var(--forest,#1E3A2F);color:white;border:none;border-radius:50%;width:40px;height:40px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center">&#9654;</button>';
+  html += '</div>';
+
+  container.innerHTML = html;
+
+  // Scroll to bottom
+  const msgBox = document.getElementById('cleaner-chat-messages');
+  if (msgBox) msgBox.scrollTop = msgBox.scrollHeight;
+}
+
+// Send message from cleaner chat input
+window._sendCleanerChatMessage = async function() {
+  const input = document.getElementById('cleaner-chat-input');
+  if (!input) return;
+  const text = (input.value || '').trim();
+  if (!text) return;
+  input.value = '';
+
+  const cleaner = getActiveCleaner();
+  const { id, uid } = getCleanerParams();
+  if (!id || !uid) return;
+
+  // Optimistically add to local messages
+  const msg = {
+    body: text,
+    sender_role: 'cleaner',
+    sender_id: String(cleaner ? cleaner.id : id),
+    created_at: new Date().toISOString()
+  };
+  window._cleanerMessages = window._cleanerMessages || [];
+  window._cleanerMessages.push(msg);
+  renderCleanerChat();
+
+  // Send to backend
+  try {
+    const res = await fetch('/.netlify/functions/cleaner-message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cleanerId: id,
+        uid: uid,
+        message: text
+      })
+    });
+    if (!res.ok) {
+      console.warn('[StayOps] cleaner-message send failed:', res.status);
+    }
+  } catch(e) {
+    console.warn('[StayOps] cleaner-message send error:', e);
+  }
+};
+
 function renderCleanerView() {
   const cleaner = getActiveCleaner();
   const headerSub = document.querySelector('.cleaner-header .header-sub-name');
   if (headerSub && cleaner) headerSub.textContent = 'Hi, ' + cleaner.name.split(' ')[0] + ' 👋';
   renderCleanerCleans();
   renderCleanerInventory();
+  renderCleanerChat();
   updateCleanerNotifBtn();
 }
 

@@ -94,7 +94,24 @@ exports.handler = async (event) => {
     );
     const inventory = await invRes.json();
 
-    // 6. Build response
+    // 6. Get messages for this cleaner
+    const cleanerUuid = cleaner.id;
+    let messages = [];
+    if (cleanerUuid) {
+      const msgRes = await fetch(
+        SUPABASE_URL + '/rest/v1/messages?user_id=eq.' + enc(uid) +
+          '&cleaner_id=eq.' + enc(cleanerUuid) +
+          '&select=id,sender_type,message_type,body,card_type,card_data,attachment_url,read_at,created_at' +
+          '&order=created_at.asc&limit=100',
+        { headers }
+      );
+      const msgData = await msgRes.json();
+      if (Array.isArray(msgData)) {
+        messages = msgData;
+      }
+    }
+
+    // 7. Build response
     const permissions = typeof cleaner.permissions === 'string'
       ? JSON.parse(cleaner.permissions || '{}')
       : (cleaner.permissions || {});
@@ -146,6 +163,7 @@ exports.handler = async (event) => {
         suburb: property.suburb || '',
         state: property.state || '',
       },
+      messages: messages || [],
     });
 
   } catch (err) {

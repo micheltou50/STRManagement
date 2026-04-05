@@ -328,6 +328,7 @@
   <div class="cleaner-tab-bar">
     <button class="cleaner-tab active" id="ctab-cleans" onclick="switchCleanerTab('cleans')">🧹 My Cleans</button>
     <button class="cleaner-tab" id="ctab-inventory" onclick="switchCleanerTab('inventory')">📦 Inventory</button>
+    <button class="cleaner-tab" id="ctab-chat" onclick="switchCleanerTab('chat')">💬 Chat</button>
   </div>
   <!-- Content -->
   <div class="cleaner-content">
@@ -346,6 +347,9 @@
         <button onclick="cleanerAddInventoryItem()" style="background:var(--forest);color:white;border:none;border-radius:20px;padding:7px 14px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">+ Add Item</button>
       </div>
       <div id="cleaner-inventory-list"></div>
+    </div>
+    <div id="cleaner-chat-view" style="display:none">
+      <div id="cleaner-chat-container"></div>
     </div>
   </div>
 </div>
@@ -1907,6 +1911,13 @@
   <div id="cleaner-section-cleans"></div>
   <div id="cleaner-section-calendar" style="display:none"></div>
   <div id="cleaner-section-profile" style="display:none"></div>
+</div>
+
+<!-- ══ STAYOPS CHAT ══ -->
+<div id="stayops-chat-bubble"></div>
+<div id="stayops-chat-panel" style="display:none;position:fixed;bottom:0;left:0;right:0;top:0;z-index:9990">
+  <div id="stayops-chat-backdrop" onclick="closeChat()" style="position:absolute;inset:0;background:rgba(0,0,0,0.3)"></div>
+  <div id="stayops-chat-content" style="position:absolute;bottom:0;left:0;right:0;max-height:85vh;background:#fff;border-radius:20px 20px 0 0;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 -4px 20px rgba(0,0,0,0.15)"></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
