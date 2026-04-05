@@ -88,7 +88,13 @@
 
   <div style="text-align:center;margin-bottom:32px">
     <div style="font-family:'DM Serif Display',serif;font-size:38px;color:white;line-height:1">Stay<span style="color:var(--sage,#8FAF85);font-style:italic">Ops</span></div>
-    <div style="font-size:12px;color:rgba(255,255,255,0.45);letter-spacing:1.2px;text-transform:uppercase;margin-top:6px">Property Management</div>
+    <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-top:8px;max-width:320px;line-height:1.5">The all-in-one tool for short-term rental hosts. Manage bookings, cleaners, finances, and taxes — from one app.</div>
+    <div style="display:flex;justify-content:center;gap:16px;margin-top:14px;flex-wrap:wrap">
+      <div style="font-size:11px;color:rgba(255,255,255,0.4);display:flex;align-items:center;gap:4px">📅 Bookings</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.4);display:flex;align-items:center;gap:4px">🧹 Cleaning</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.4);display:flex;align-items:center;gap:4px">💰 Finance</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.4);display:flex;align-items:center;gap:4px">📊 Tax</div>
+    </div>
   </div>
 
   <div style="background:white;border-radius:20px;padding:28px 24px;width:100%;max-width:360px;box-shadow:0 8px 40px rgba(0,0,0,0.25);">
@@ -143,17 +149,16 @@
     </div>
     <div style="display:flex;gap:6px;margin-bottom:24px">
       <div class="onboard-step-dot active" id="onboard-dot-1"></div>
-      <div class="onboard-step-dot" id="onboard-dot-2"></div>
       <div class="onboard-step-dot" id="onboard-dot-3"></div>
     </div>
   </div>
 
   <div style="padding:0 24px 48px;flex:1">
 
-    <!-- STEP 1: Property Details -->
+    <!-- STEP 1: Property Details (minimal) -->
     <div id="onboard-step-1">
       <div style="font-family:'DM Serif Display',serif;font-size:28px;color:white;margin-bottom:8px">Your property</div>
-      <div style="font-size:14px;color:rgba(255,255,255,0.6);margin-bottom:28px">Tell us about the property you manage.</div>
+      <div style="font-size:14px;color:rgba(255,255,255,0.6);margin-bottom:28px">Just the basics — you can add more details later in settings.</div>
 
       <div style="background:white;border-radius:20px;padding:24px">
         <div style="margin-bottom:16px">
@@ -170,57 +175,27 @@
             <input id="ob-state" type="text" placeholder="e.g. NSW" maxlength="10" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-size:15px;outline:none" onfocus="this.style.borderColor='#1E3A2F'" onblur="this.style.borderColor='#E5E5EA'">
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:4px">
           <div>
             <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Bedrooms *</label>
             <input id="ob-beds" type="number" min="1" max="20" placeholder="4" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-size:15px;outline:none" onfocus="this.style.borderColor='#1E3A2F'" onblur="this.style.borderColor='#E5E5EA'">
-          </div>
-          <div>
-            <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Bathrooms *</label>
-            <input id="ob-baths" type="number" min="0" max="20" step="0.5" placeholder="2" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-size:15px;outline:none" onfocus="this.style.borderColor='#1E3A2F'" onblur="this.style.borderColor='#E5E5EA'">
           </div>
           <div>
             <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Max Guests *</label>
             <input id="ob-guests" type="number" min="1" max="99" placeholder="8" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-size:15px;outline:none" onfocus="this.style.borderColor='#1E3A2F'" onblur="this.style.borderColor='#E5E5EA'">
           </div>
         </div>
-        <div style="margin-bottom:4px">
-          <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Property Type</label>
-          <select id="ob-type" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-size:15px;outline:none;background:white">
-            <option value="house">House</option>
-            <option value="apartment">Apartment</option>
-            <option value="villa">Villa</option>
-            <option value="cabin">Cabin</option>
-            <option value="other">Other</option>
-          </select>
-        </div>
+        <!-- Hidden fields with defaults so the JS validation doesn't break -->
+        <input id="ob-baths" type="hidden" value="1">
+        <input id="ob-type" type="hidden" value="house">
         <div id="ob-step1-error" style="font-size:12px;color:#FF3B30;min-height:18px;margin-top:8px"></div>
       </div>
 
       <button onclick="onboardStep1Next()" style="width:100%;margin-top:16px;padding:16px;background:white;color:var(--forest,#1E3A2F);border:none;border-radius:16px;font-size:16px;font-weight:700;cursor:pointer">Continue →</button>
     </div>
 
-    <!-- STEP 2: Connect Email -->
-    <div id="onboard-step-2" style="display:none">
-      <div style="font-family:'DM Serif Display',serif;font-size:28px;color:white;margin-bottom:8px">Connect your email</div>
-      <div style="font-size:14px;color:rgba(255,255,255,0.6);margin-bottom:28px">StayOps reads your booking emails automatically so you never have to enter a booking manually.</div>
-
-      <div style="background:white;border-radius:20px;padding:24px;margin-bottom:12px">
-        <button onclick="onboardConnectGoogle()" id="ob-connect-google" style="width:100%;padding:16px;background:#fff;border:1.5px solid #E5E5EA;border-radius:14px;font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:12px">
-          <img src="https://www.google.com/favicon.ico" width="20" height="20" style="border-radius:4px">
-          Connect Gmail
-        </button>
-        <button onclick="onboardConnectMicrosoft()" id="ob-connect-microsoft" style="width:100%;padding:16px;background:#fff;border:1.5px solid #E5E5EA;border-radius:14px;font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px">
-          <img src="https://www.microsoft.com/favicon.ico" width="20" height="20" style="border-radius:4px">
-          Connect Outlook / Hotmail
-        </button>
-        <div id="ob-email-connected" style="display:none;margin-top:16px;padding:14px;background:#EDF7ED;border-radius:12px;font-size:14px;color:#1E3A2F;font-weight:500;text-align:center"></div>
-        <div id="ob-step2-error" style="font-size:12px;color:#FF3B30;min-height:18px;margin-top:8px"></div>
-      </div>
-
-      <button onclick="_obGoToStep(3)" style="width:100%;margin-bottom:8px;padding:16px;background:white;color:var(--forest,#1E3A2F);border:none;border-radius:16px;font-size:16px;font-weight:700;cursor:pointer" id="ob-step2-continue">Continue →</button>
-      <button onclick="_obGoToStep(3)" style="width:100%;padding:14px;background:transparent;color:rgba(255,255,255,0.5);border:none;font-size:14px;cursor:pointer">Skip for now</button>
-    </div>
+    <!-- STEP 2: removed (email connection now in Getting Started checklist) -->
+    <div id="onboard-step-2" style="display:none"></div>
 
     <!-- STEP 3: Platforms -->
     <div id="onboard-step-3" style="display:none">

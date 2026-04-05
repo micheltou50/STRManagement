@@ -3506,10 +3506,13 @@ function hideOnboarding() {
 function _obGoToStep(step) {
   [1, 2, 3].forEach(n => {
     const s = document.getElementById('onboard-step-' + n);
-    const d = document.getElementById('onboard-dot-' + n);
     if (s) s.style.display = n === step ? '' : 'none';
-    if (d) d.classList.toggle('active', n <= step);
   });
+  // Only 2 dots now (step 1 and step 3)
+  const d1 = document.getElementById('onboard-dot-1');
+  const d3 = document.getElementById('onboard-dot-3');
+  if (d1) d1.classList.toggle('active', true);
+  if (d3) d3.classList.toggle('active', step >= 3);
 }
 
 // Step 1 — Property details
@@ -3551,10 +3554,10 @@ function onboardStep1Next() {
     globalThis.savePropertyToCloud(getActivePropertyConfig()).catch(() => {});
   }
 
-  _obGoToStep(2);
+  _obGoToStep(3);  // Skip Step 2 (email connection now in Getting Started checklist)
 }
 
-// Step 2 — Connect email
+// Step 2 — Connect email (kept for OAuth callback compatibility)
 async function onboardConnectGoogle() {
   const user = typeof globalThis.getCurrentSupabaseUser === 'function' ? await globalThis.getCurrentSupabaseUser() : null;
   if (!user) { showBanner('⚠ Please sign in first', 'warn'); return; }
