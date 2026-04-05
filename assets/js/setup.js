@@ -382,7 +382,7 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
 
   // ── Platform chip toggles + dynamic listing URL fields ──
   const _platformDefs = {
-    airbnb:  { label:'Airbnb',      color:'#FF5A5F', placeholder:'https://www.airbnb.com/rooms/12345678',    hint:'Paste your listing URL to auto-fill property details.' },
+    airbnb:  { label:'Airbnb',      color:'#FF5A5F', placeholder:'https://www.airbnb.com/rooms/12345678',    hint:'Paste your Airbnb listing URL \u2014 we\'ll auto-fill name, beds, baths, and guests instantly.' },
     booking: { label:'Booking.com', color:'#003580', placeholder:'https://www.booking.com/hotel/au/your-property.html', hint:'Helps match bookings from Booking.com.' },
     stayz:   { label:'Stayz',       color:'#00A699', placeholder:'https://www.stayz.com.au/accommodation/...', hint:'Helps match bookings from Stayz.' },
     vrbo:    { label:'VRBO',        color:'#1B468E', placeholder:'https://www.vrbo.com/12345678',              hint:'Helps match bookings from VRBO.' },

@@ -186,8 +186,9 @@ function renderBookings(filter) {
     const _emptyLabels = { upcoming: 'Nothing upcoming', completed: 'No past bookings', cancelled: 'No cancelled bookings', all: 'No bookings found' };
     const _emptyHints = { upcoming: 'Past and cancelled bookings live in other tabs', completed: 'Completed stays will appear here', cancelled: 'Cancelled bookings will appear here', all: 'Add a booking with the + button above' };
     const _emptyTitle = hasAny ? (_emptyLabels[bookingFilter] || 'No bookings found') : 'No bookings yet';
-    const _emptyHint = hasAny ? (_emptyHints[bookingFilter] || 'Try switching tabs above') : 'Tap + Add Booking above to get started';
-    list.innerHTML = `<div class="card" style="text-align:center;padding:40px 24px 36px"><div style="font-size:36px;margin-bottom:14px;opacity:0.45">📅</div><div style="font-weight:700;font-size:15px;color:var(--forest);margin-bottom:6px">${_emptyTitle}</div><div style="font-size:12.5px;color:var(--text-soft);line-height:1.5">${_emptyHint}</div></div>`;
+    const _emptyHint = hasAny ? (_emptyHints[bookingFilter] || 'Try switching tabs above') : 'Add your first booking to get started';
+    const _emptyBtn = !hasAny ? '<div style="margin-top:14px"><button onclick="showAddBookingModal()" class="btn-primary" style="padding:10px 24px;font-size:14px">+ Add Booking</button></div>' : '';
+    list.innerHTML = `<div class="card" style="text-align:center;padding:40px 24px 36px"><div style="font-size:36px;margin-bottom:14px;opacity:0.45">📅</div><div style="font-weight:700;font-size:15px;color:var(--forest);margin-bottom:6px">${_emptyTitle}</div><div style="font-size:12.5px;color:var(--text-soft);line-height:1.5">${_emptyHint}</div>${_emptyBtn}</div>`;
     return;
   }
 

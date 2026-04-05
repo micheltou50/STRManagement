@@ -73,7 +73,8 @@ import {
   appModalCancel, attachButtonPress, animateList, closeActionSheet, attachLongPress, attachModalHandleDrag, isCleanerMode, getCleanerParams, hydrateCleanerFromFunction, _showCleanerLinkError,
   isCleanerAuthed, pinPress, pinDelete, cleanerRefresh, enableCleanerNotifications, cleanerSignOut, switchCleanerTab, switchCleanerCleanTab, renderCleanerView, cleanerAddInventoryItem,
   cleanerAdjustStock, finishAppInit, showOnboarding, hideOnboarding, _obGoToStep, onboardStep1Next, onboardConnectGoogle, onboardConnectMicrosoft, onboardEmailConnected, onboardStep2Skip,
-  onboardTogglePlatform, onboardFinish, isOnboardingComplete, checkAutoSendReport, _calNavigate
+  onboardTogglePlatform, onboardFinish, isOnboardingComplete, checkAutoSendReport, _calNavigate,
+  dismissChecklist
 } from './render.js';
 
 // ── GLOBAL SCOPE ASSIGNMENTS ───────────────────────────────────────────────────
@@ -335,6 +336,7 @@ window.mgmtToggleSelectAll      = mgmtToggleSelectAll;
 window.getAtoField              = getAtoField;
 window.getAtoFieldLabel         = getAtoFieldLabel;
 window.checkReceiptNudge        = checkReceiptNudge;
+window.dismissChecklist         = dismissChecklist;
 
 // Called from supabase.js typeof window.X guards (boot sequence)
 window.getAllProperties          = getAllProperties;

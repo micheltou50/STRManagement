@@ -286,7 +286,76 @@ function renderSettingsPlanUsageCard() {
 
 function renderOnboardingGuidance(usageSnapshot) {
   const el = document.getElementById('dashboard-product-guidance');
-  if (el) el.innerHTML = '';
+  if (!el) return;
+
+  // Determine completion state
+  const hasBookings = bookings && bookings.length > 0;
+  const hasEmail = !!(window._appConfig && (window._appConfig.gmail_email || window._appConfig.outlook_email));
+  const hasCleaners = !!(window._cleaners && window._cleaners.filter(c => c.name && c.name !== 'Unassigned').length > 0);
+  const hasPush = !!(window._appConfig && window._appConfig.push_subs && window._appConfig.push_subs.host);
+  const hasListingUrl = (() => {
+    try {
+      const cfg = typeof getActivePropertyConfig === 'function' ? getActivePropertyConfig() : null;
+      return !!(cfg && cfg.airbnbListingUrl);
+    } catch(e) { return false; }
+  })();
+
+  const items = [
+    { done: true,          label: 'Create your property',          icon: '\u{1F3E0}' },
+    { done: hasListingUrl, label: 'Add your listing URL',          icon: '\u{1F517}', action: 'reopenPropertySetup()',       actionLabel: 'Add URL' },
+    { done: hasBookings,   label: 'Add your first booking',        icon: '\u{1F4C5}', action: 'showSection(\'bookings\')',  actionLabel: 'Add booking' },
+    { done: hasEmail,      label: 'Connect email for auto-import', icon: '\u2709\uFE0F', action: 'openSettingsPanel(\'integrations\')', actionLabel: 'Connect' },
+    { done: hasCleaners,   label: 'Add a cleaner',                 icon: '\u{1F9F9}', action: 'showSection(\'cleaning\')', actionLabel: 'Add cleaner' },
+    { done: hasPush,       label: 'Enable notifications',          icon: '\u{1F514}', action: 'openSettingsPanel(\'notifications\')', actionLabel: 'Enable' },
+  ];
+
+  const completedCount = items.filter(i => i.done).length;
+  const allDone = completedCount === items.length;
+
+  // Hide if all complete or user has dismissed
+  if (allDone || localStorage.getItem('stayops-checklist-dismissed') === '1') {
+    el.style.display = 'none';
+    return;
+  }
+
+  el.style.display = '';
+  const pct = Math.round((completedCount / items.length) * 100);
+
+  el.innerHTML =
+    '<div class="card" style="margin-bottom:12px;padding:18px 16px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
+        '<div style="font-weight:700;font-size:15px;color:var(--forest)">Getting Started</div>' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-size:12px;color:var(--text-soft)">' + completedCount + '/' + items.length + '</span>' +
+          '<span onclick="dismissChecklist()" style="font-size:16px;color:var(--text-soft);cursor:pointer;padding:2px">\u2715</span>' +
+        '</div>' +
+      '</div>' +
+      '<div style="background:var(--warm);border-radius:4px;height:6px;margin-bottom:14px;overflow:hidden">' +
+        '<div style="background:var(--forest);height:100%;width:' + pct + '%;border-radius:4px;transition:width .3s"></div>' +
+      '</div>' +
+      items.map(function(item) {
+        var checkStyle = item.done
+          ? 'background:var(--forest);border-color:var(--forest);color:#fff'
+          : 'background:#fff;border-color:#D1D1D6;color:transparent';
+        return '<div style="display:flex;align-items:center;gap:12px;padding:8px 0;' + (item.done ? 'opacity:0.5' : '') + '">' +
+          '<div style="width:22px;height:22px;border-radius:50%;border:2px solid;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;' + checkStyle + '">' +
+            (item.done ? '\u2713' : '') +
+          '</div>' +
+          '<div style="flex:1;font-size:13px;' + (item.done ? 'text-decoration:line-through;color:var(--text-soft)' : 'color:var(--text);font-weight:500') + '">' +
+            item.icon + ' ' + item.label +
+          '</div>' +
+          (!item.done && item.action
+            ? '<div onclick="' + item.action + '" style="font-size:12px;color:var(--forest);font-weight:600;cursor:pointer;white-space:nowrap">' + item.actionLabel + ' \u2192</div>'
+            : '') +
+        '</div>';
+      }).join('') +
+    '</div>';
+}
+
+function dismissChecklist() {
+  localStorage.setItem('stayops-checklist-dismissed', '1');
+  var el = document.getElementById('dashboard-product-guidance');
+  if (el) el.style.display = 'none';
 }
 
 function renderPlanNudges(usageSnapshot, planState) {
@@ -1748,7 +1817,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
           <div style="flex:1"><div style="font-size:13px;font-weight:500">${escHtml(c.guestName||c.name||'Guest')}</div><div style="font-size:11px;color:var(--text-soft)">${escHtml(c.propertyName||'')}</div></div>
           <div style="text-align:right"><div style="font-size:12px;color:var(--moss);font-weight:500">${escHtml(c.cleaner||'Unassigned')}</div><span class="dt-badge ${c.cleanerConfirmed?'dt-badge-green':'dt-badge-amber'}" style="font-size:10px">${c.cleanerConfirmed?'Confirmed':'Pending'}</span></div>
         </div>`).join('')
-      : '<div style="text-align:center;padding:16px;color:var(--text-soft);font-size:13px">No cleans scheduled today</div>';
+      : '<div style="text-align:center;padding:16px;color:var(--text-soft);font-size:13px">No cleans scheduled today<br><span onclick="showSection(\'cleaning\')" style="color:var(--moss);cursor:pointer;font-weight:500;font-size:12px">Go to cleaning \u2192</span></div>';
 
     // Occupancy card
     const occCard = `<div class="card">
@@ -2057,7 +2126,7 @@ function buildPortfolioTodayDashboardMarkup() {
           <div style="flex:1"><div style="font-size:13px;font-weight:500">${escHtml(c.guestName||c.name||'Guest')}</div><div style="font-size:11px;color:var(--text-soft)">${escHtml(c.propertyName||'')}</div></div>
           <div style="text-align:right"><div style="font-size:12px;color:var(--moss);font-weight:500">${escHtml(c.cleaner||'Unassigned')}</div></div>
         </div>`).join('')
-      : '<div style="text-align:center;padding:16px;color:var(--text-soft);font-size:13px">No cleans today</div>';
+      : '<div style="text-align:center;padding:16px;color:var(--text-soft);font-size:13px">No cleans today<br><span onclick="showSection(\'cleaning\')" style="color:var(--moss);cursor:pointer;font-weight:500;font-size:12px">Go to cleaning \u2192</span></div>';
 
     // Per-property occupancy
     const propOccHtml = props.map((p, i) => {
@@ -3528,7 +3597,7 @@ function onboardTogglePlatform(platform) {
     _OB_PLATFORMS.add(platform);
   }
   // Update UI
-  ['airbnb', 'vrbo', 'direct'].forEach(p => {
+  ['airbnb', 'booking', 'stayz', 'vrbo', 'direct'].forEach(p => {
     const label = document.getElementById('ob-plat-' + p);
     const check = document.getElementById('ob-check-' + p);
     const active = _OB_PLATFORMS.has(p);
