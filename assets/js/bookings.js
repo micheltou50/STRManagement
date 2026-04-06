@@ -166,6 +166,12 @@ function renderBookings(filter) {
     return;
   }
   const list = document.getElementById('bookings-list');
+  // Fade-in animation on filter change
+  if (list && filter) {
+    list.style.transition = 'opacity 0.15s ease';
+    list.style.opacity = '0';
+    setTimeout(() => { list.style.opacity = '1'; }, 20);
+  }
   const notesView = document.getElementById('bookings-notes-view');
   if (notesView) notesView.style.display = bookingFilter === 'notes' ? '' : 'none';
   if (list) list.style.display = bookingFilter === 'notes' ? 'none' : '';

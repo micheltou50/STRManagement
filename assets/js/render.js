@@ -758,17 +758,40 @@ function navigateTodayToClean(cleanId) {
   }, 150);
 }
 
+// Slide transition helper for calendar/dashboard navigation
+function _dashSlideTransition(direction, updateFn) {
+  const mount = document.getElementById('dashboard-today-mount');
+  if (!mount) { updateFn(); globalThis.renderDashboard?.(); return; }
+  const outX = direction === 'next' ? '-40px' : direction === 'prev' ? '40px' : '0';
+  const inX = direction === 'next' ? '40px' : direction === 'prev' ? '-40px' : '0';
+  mount.style.transition = 'opacity 0.14s ease, transform 0.14s ease';
+  mount.style.opacity = '0';
+  mount.style.transform = 'translateX(' + outX + ')';
+  setTimeout(() => {
+    updateFn();
+    globalThis.renderDashboard?.();
+    mount.style.transition = 'none';
+    mount.style.transform = 'translateX(' + inX + ')';
+    mount.style.opacity = '0';
+    requestAnimationFrame(() => {
+      mount.style.transition = 'opacity 0.18s ease, transform 0.18s ease';
+      mount.style.opacity = '1';
+      mount.style.transform = 'translateX(0)';
+    });
+  }, 140);
+}
+
 globalThis._todayWeekNav = (delta) => {
-  if (!_todayWeekStart) _todayWeekStart = _mondayStart(new Date());
-  _todayWeekStart.setDate(_todayWeekStart.getDate() + delta * 7);
-  console.log('[StayOps] today week navigated', _todayWeekStart.toDateString());
-  globalThis.renderDashboard?.();
+  _dashSlideTransition(delta > 0 ? 'next' : 'prev', () => {
+    if (!_todayWeekStart) _todayWeekStart = _mondayStart(new Date());
+    _todayWeekStart.setDate(_todayWeekStart.getDate() + delta * 7);
+  });
 };
 
 globalThis._todayWeekReset = () => {
-  _todayWeekStart = _mondayStart(new Date());
-  console.log('[StayOps] today week reset to current');
-  globalThis.renderDashboard?.();
+  _dashSlideTransition('fade', () => {
+    _todayWeekStart = _mondayStart(new Date());
+  });
 };
 
 function _getTodayCalMonthStart() {
@@ -780,23 +803,24 @@ function _getTodayCalMonthStart() {
 }
 
 globalThis._todayCalNav = (delta) => {
-  const d = _getTodayCalMonthStart();
-  d.setMonth(d.getMonth() + delta);
-  console.log('[StayOps] today calendar month navigated', d.getFullYear(), d.getMonth());
-  globalThis.renderDashboard?.();
+  _dashSlideTransition(delta > 0 ? 'next' : 'prev', () => {
+    const d = _getTodayCalMonthStart();
+    d.setMonth(d.getMonth() + delta);
+  });
 };
 
 globalThis._stayopsSetTodayCalView = (v) => {
   if (v !== 'daily' && v !== 'weekly' && v !== 'monthly') return;
-  globalThis._stayopsTodayCalView = v;
-  console.log('[StayOps] today calendar view', v);
-  globalThis.renderDashboard?.();
+  _dashSlideTransition('fade', () => {
+    globalThis._stayopsTodayCalView = v;
+  });
 };
 
 globalThis._stayopsTodayDayNav = (delta) => {
-  globalThis._stayopsTodayDayOffset =
-    (globalThis._stayopsTodayDayOffset || 0) + delta;
-  globalThis.renderDashboard?.();
+  _dashSlideTransition(delta > 0 ? 'next' : 'prev', () => {
+    globalThis._stayopsTodayDayOffset =
+      (globalThis._stayopsTodayDayOffset || 0) + delta;
+  });
 };
 
 globalThis._stayopsTodayDayReset = () => {
