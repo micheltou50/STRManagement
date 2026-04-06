@@ -356,7 +356,22 @@ export async function sendPushToDevice(subscription, title, body, url, tag, opts
 globalThis.sendPushToDevice = sendPushToDevice;
 
 export function getHostSub() { return getPushSubs().host || null; }
-export function getCleanerSub(cleanerId) { return (getPushSubs().cleaners || {})[String(cleanerId)] || null; }
+export function getCleanerSub(cleanerId) {
+  const cleaners = getPushSubs().cleaners || {};
+  // Try exact match first (could be local_id or UUID depending on how cleaner subscribed)
+  if (cleaners[String(cleanerId)]) return cleaners[String(cleanerId)];
+  // Also check the cleaner's cloud ID — subscription may be stored under UUID while lookup uses local_id
+  const allCleaners = window._cleaners || [];
+  const cleaner = allCleaners.find(c =>
+    String(c.id) === String(cleanerId) || String(c._cloudId) === String(cleanerId)
+  );
+  if (cleaner) {
+    // Try both the local_id and cloud UUID
+    if (cleaner._cloudId && cleaners[String(cleaner._cloudId)]) return cleaners[String(cleaner._cloudId)];
+    if (cleaner.id && cleaners[String(cleaner.id)]) return cleaners[String(cleaner.id)];
+  }
+  return null;
+}
 
 export async function getFreshHostSub() {
   return getHostSub();
