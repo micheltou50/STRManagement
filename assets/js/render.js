@@ -810,10 +810,25 @@ globalThis._todayCalNav = (delta) => {
 };
 
 globalThis._stayopsSetTodayCalView = (v) => {
-  if (v !== 'daily' && v !== 'weekly' && v !== 'monthly') return;
+  if (v !== 'weekly' && v !== 'monthly') return;
   _dashSlideTransition('fade', () => {
+    globalThis._stayopsPrevCalView = v;
     globalThis._stayopsTodayCalView = v;
   });
+};
+
+// Open daily detail view when tapping a day on the weekly/monthly calendar
+globalThis._stayopsOpenDayView = (dayOffset) => {
+  globalThis._stayopsTodayDayOffset = dayOffset;
+  globalThis._stayopsTodayCalView = 'daily';
+  _dashSlideTransition('fade', () => {});
+};
+
+// Back from daily view to previous view
+globalThis._stayopsCloseDayView = () => {
+  globalThis._stayopsTodayCalView = globalThis._stayopsPrevCalView || 'weekly';
+  globalThis._stayopsTodayDayOffset = 0;
+  _dashSlideTransition('fade', () => {});
 };
 
 globalThis._stayopsTodayDayNav = (delta) => {
@@ -1412,6 +1427,7 @@ function buildStayopsUnifiedTodayCalendarHtml({
         : '';
 
     bodyHtml =
+      `<div onclick="_stayopsCloseDayView()" style="display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:600;color:var(--forest);cursor:pointer;margin-bottom:10px">‹ Back</div>` +
       `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">
         <button type="button" onclick="_stayopsTodayDayNav(-1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">‹</button>
         <div style="text-align:center;flex:1;min-width:0">
@@ -1540,8 +1556,9 @@ function buildStayopsUnifiedTodayCalendarHtml({
 
       const rowBg = isTodayRow ? 'background:var(--warm);' : '';
       const rowBorder = i < 6 ? 'border-bottom:0.5px solid rgba(0,0,0,0.06);' : '';
+      const dayClickOffset = Math.round((dayDate.getTime() - todayStart.getTime()) / 86400000);
       rows.push(
-        `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 8px;${rowBg}${rowBorder}">
+        `<div onclick="_stayopsOpenDayView(${dayClickOffset})" style="display:flex;gap:10px;align-items:flex-start;padding:10px 8px;cursor:pointer;${rowBg}${rowBorder}">
           <div style="width:52px;flex-shrink:0;text-align:center">
             <div style="font-size:11px;font-weight:600;color:${tertiary};text-transform:capitalize">${dname}</div>
             <div style="margin-top:4px"><span style="${leftNumStyle}">${dnum}</span></div>
@@ -1643,7 +1660,6 @@ function buildStayopsUnifiedTodayCalendarHtml({
   return (
     `<div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);padding:14px;margin-bottom:14px;box-sizing:border-box">` +
     `<div style="display:flex;background:var(--warm);border-radius:10px;padding:3px;margin-bottom:14px;gap:2px">` +
-    segBtn('daily', 'Daily') +
     segBtn('weekly', 'Weekly') +
     segBtn('monthly', 'Monthly') +
     `</div>` +
