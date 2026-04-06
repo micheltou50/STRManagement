@@ -8,6 +8,7 @@ import {
   escHtml,
   _normName,
   escapeJsSingleQuotedHtmlAttr,
+  fadeTransition,
 } from './utils.js';
 import { getAllProperties, getActivePropertyId, initPropertyUI, getCurrentPropertyName } from './config.js';
 import {
@@ -681,7 +682,7 @@ export function toggleCleanAction(index, cleanId, bookingId, status) {
     '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">' + buttons + '</div>' +
     (viewBookingBtn ? '<div style="display:flex;gap:8px;margin-top:6px">' + viewBookingBtn + '</div>' : '');
 
-  actionEl.style.display = 'block';
+  fadeTransition(actionEl, true);
   _expandedCleanIndex = index;
 }
 

@@ -20,7 +20,7 @@ import {
 } from './bank-import.js';
 import { findMatchesForTransaction, getReconciliationSummary, getAllTransactionsWithStatus } from './reconciliation.js';
 import { bookings, expenses, replaceArrayInPlace } from './state.js';
-import { escHtml, fmt, fyLabel, fyMonths, escapeJsSingleQuotedHtmlAttr } from './utils.js';
+import { escHtml, fmt, fyLabel, fyMonths, escapeJsSingleQuotedHtmlAttr, fadeTransition } from './utils.js';
 import { renderPortfolioFinance, isPortfolioMode } from './property.js';
 import {
   clearExpensePhoto,
@@ -809,7 +809,7 @@ function backToFinanceHub() {
   const finc = document.getElementById('finance-content');
   if (finc) finc.style.display = '';
   const hub = document.getElementById('finance-hub');
-  if (hub) hub.style.display = 'block';
+  if (hub) fadeTransition(hub, true);
   ['finance-expenses-view', 'finance-reports-view', 'finance-reconciliation-view', 'finance-recurring-view', 'finance-depreciation-view', 'finance-tax-export-view'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
@@ -892,7 +892,7 @@ function showFinanceSub(sub) {
   });
   if (sub === 'expenses') {
     const el = document.getElementById('finance-expenses-view');
-    if (el) el.style.display = 'block';
+    if (el) fadeTransition(el, true);
     renderExpenses();
     populateExpenseCatSelect();
   } else if (sub === 'reconciliation') {
@@ -905,7 +905,7 @@ function showFinanceSub(sub) {
     showTaxExportView();
   } else if (sub === 'reports') {
     const el = document.getElementById('finance-reports-view');
-    if (el) el.style.display = 'block';
+    if (el) fadeTransition(el, true);
     ensureFinanceReportsSegBound();
     financeReportsMainTab = 'payouts';
     financeReportsPeriodTab = 'monthly';
@@ -925,7 +925,7 @@ function showFinanceSub(sub) {
 
 function showRecurringView() {
   document.getElementById('finance-hub').style.display = 'none';
-  document.getElementById('finance-recurring-view').style.display = 'block';
+  fadeTransition(document.getElementById('finance-recurring-view'), true);
   if (typeof globalThis.renderRecurringPanel === 'function') globalThis.renderRecurringPanel();
   // Populate category dropdown
   const catSel = document.getElementById('rec-category');
@@ -941,7 +941,7 @@ function showRecurringView() {
 
 function showDepreciationView() {
   document.getElementById('finance-hub').style.display = 'none';
-  document.getElementById('finance-depreciation-view').style.display = 'block';
+  fadeTransition(document.getElementById('finance-depreciation-view'), true);
   if (typeof globalThis.renderDepreciationPanel === 'function') globalThis.renderDepreciationPanel();
   // Populate preset dropdown
   const presetSel = document.getElementById('dep-preset');
@@ -3319,7 +3319,7 @@ function _hostMgmtIncomeForFY(fy) {
 
 function showTaxExportView() {
   const el = document.getElementById('finance-tax-export-view');
-  if (el) el.style.display = 'block';
+  if (el) fadeTransition(el, true);
 
   const fy = _taxExportFY;
   const fyLbl = document.getElementById('tax-export-fy-label');
@@ -3726,7 +3726,7 @@ let _reconFilter = 'all';    // current pill filter
 
 function showReconciliationView() {
   const el = document.getElementById('finance-reconciliation-view');
-  if (el) el.style.display = 'block';
+  if (el) fadeTransition(el, true);
   renderReconciliationView();
 }
 

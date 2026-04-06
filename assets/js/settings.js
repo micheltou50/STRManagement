@@ -2,7 +2,7 @@
  * StayOps — settings UI and integrations (Pass 8).
  */
 import { getActivePropertyId, getActivePropertyConfig, getCurrentPropertyName, getAllProperties, getPropertyConfigGaps } from './config.js';
-import { escHtml } from './utils.js';
+import { escHtml, fadeTransition } from './utils.js';
 import {
   getCurrentSupabaseUser,
   saveAppConfigToCloud,
@@ -413,7 +413,7 @@ function openSettingsPanel(panelId, returnSection) {
   document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
   const panel = document.getElementById('settings-panel-' + panelId);
   if (!panel) return;
-  panel.style.display = 'block';
+  fadeTransition(panel, true);
   if (prevCat) panel.dataset.prevCat = prevCat;
   else delete panel.dataset.prevCat;
   if (prevPanel) panel.dataset.prevPanel = prevPanel;

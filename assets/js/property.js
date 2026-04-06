@@ -19,6 +19,7 @@ import {
   parseLocalDayStart,
   escapeJsSingleQuotedHtmlAttr,
   fyLabel,
+  fadeTransition,
 } from './utils.js';
 import { buildBookingListCardFromBooking } from './booking-list-card.js';
 
@@ -61,7 +62,7 @@ function togglePropertyDetail(cloudPid, cardIndex) {
     _expandedPortfolioCardIndex = null;
   } else {
     detail.innerHTML = buildPropertyDetailContent(cloudPid);
-    detail.style.display = 'block';
+    fadeTransition(detail, true);
     if (chevron) chevron.style.transform = 'rotate(180deg)';
     if (cardHead) cardHead.style.borderBottomRightRadius = '0';
     _expandedPortfolioCardIndex = cardIndex;

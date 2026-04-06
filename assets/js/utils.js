@@ -111,8 +111,51 @@ export function showBannerToast(msg, type) {
   const tone = styles[type] || styles.warn;
 
   banner.style.background = tone.bg;
+  banner.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+  banner.style.opacity = '0';
+  banner.style.transform = 'translateY(-8px)';
   banner.style.display = 'flex';
+  requestAnimationFrame(() => {
+    banner.style.opacity = '1';
+    banner.style.transform = 'translateY(0)';
+  });
   text.textContent = msg;
   clearTimeout(bannerTimer);
-  bannerTimer = setTimeout(() => { banner.style.display = 'none'; }, tone.ms);
+  bannerTimer = setTimeout(() => {
+    banner.style.opacity = '0';
+    banner.style.transform = 'translateY(-8px)';
+    setTimeout(() => { banner.style.display = 'none'; }, 250);
+  }, tone.ms);
+}
+
+/**
+ * Smooth show/hide for any element. Use instead of el.style.display = 'none'/'block'.
+ * @param {HTMLElement} el
+ * @param {boolean} show
+ * @param {string} [display='block'] — display value when showing
+ * @param {number} [ms=200] — animation duration
+ */
+export function fadeTransition(el, show, display, ms) {
+  if (!el) return;
+  const d = display || 'block';
+  const dur = ms || 200;
+  if (show) {
+    el.style.transition = 'opacity ' + dur + 'ms ease, transform ' + dur + 'ms ease';
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(6px)';
+    el.style.display = d;
+    requestAnimationFrame(() => {
+      el.style.opacity = '1';
+      el.style.transform = 'translateY(0)';
+    });
+  } else {
+    el.style.transition = 'opacity ' + (dur * 0.7) + 'ms ease';
+    el.style.opacity = '0';
+    setTimeout(() => {
+      el.style.display = 'none';
+      el.style.opacity = '';
+      el.style.transform = '';
+      el.style.transition = '';
+    }, dur * 0.7);
+  }
 }
