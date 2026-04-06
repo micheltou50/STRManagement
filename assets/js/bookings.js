@@ -550,9 +550,9 @@ function showDetail(id) {
         <div style="flex-shrink:0;padding-top:2px">${_bookingDetailCleanerBadge(cleanerState)}</div>
       </div>
       <div style="border-top:0.5px solid rgba(0,0,0,0.1)"></div>
-      <div class="toggle-wrap" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;margin:0;border:none">
-        <span style="font-size:13px;color:#1a1a1a">Cleaner confirmed</span>
-        <button type="button" class="toggle ${matchedClean?.cleanerConfirmed ?? b.cleanerConfirmed ? 'on' : ''}" onclick="toggleCleanerConfirmed('${b.id}')" aria-label="Toggle cleaner confirmed" style="flex-shrink:0"></button>
+      <div class="toggle-wrap" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;margin:0;border:none${isPast ? ';opacity:0.5' : ''}">
+        <span style="font-size:13px;color:#1a1a1a">Cleaner confirmed${isPast ? ' <span style="font-size:11px;color:var(--text-soft)">(locked)</span>' : ''}</span>
+        <button type="button" class="toggle ${matchedClean?.cleanerConfirmed ?? b.cleanerConfirmed ? 'on' : ''}" ${isPast ? 'disabled' : `onclick="toggleCleanerConfirmed('${b.id}')"`} aria-label="Toggle cleaner confirmed" style="flex-shrink:0${isPast ? ';pointer-events:none' : ''}"></button>
       </div>
       <div style="border-top:0.5px solid rgba(0,0,0,0.1)"></div>
       <div style="padding:14px">

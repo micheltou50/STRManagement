@@ -956,6 +956,16 @@ export function toggleCleanerConfirmed(id) {
     globalThis.showBanner('Cancelled booking — cleaner confirmation is disabled', 'warn');
     return;
   }
+  // Block changes on past bookings (checkout already passed)
+  if (b.checkout) {
+    const co = new Date(b.checkout);
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    if (co < today) {
+      globalThis.showBanner('Past booking — cleaning info is locked', 'warn');
+      return;
+    }
+  }
   const next = !b.cleanerConfirmed;
   const matchedClean = findMatchingCleanForBooking(b);
   b.cleanerConfirmed = next;
