@@ -140,6 +140,38 @@
   }
   .list-animate { animation: listSlideIn 0.28s cubic-bezier(0.32,0.72,0,1) both; }
 
+  /* Section fade transitions */
+  @keyframes sectionFadeIn {
+    from { opacity:0; transform:translateY(6px); }
+    to   { opacity:1; transform:translateY(0); }
+  }
+  .section-enter { animation: sectionFadeIn 0.22s ease-out both; }
+
+  /* Skeleton loading shimmer */
+  @keyframes shimmer {
+    0% { background-position:-400px 0; }
+    100% { background-position:400px 0; }
+  }
+  .skeleton { background:linear-gradient(90deg,#f0efec 0%,#e5e3df 50%,#f0efec 100%); background-size:800px 100%; animation:shimmer 1.6s infinite linear; border-radius:8px; }
+  .skeleton-text { height:14px; margin-bottom:8px; border-radius:4px; }
+  .skeleton-title { height:20px; width:60%; margin-bottom:10px; border-radius:4px; }
+  .skeleton-card { height:80px; margin-bottom:10px; }
+
+  /* Empty state float animation */
+  @keyframes emptyFloat {
+    0%,100% { transform:translateY(0); }
+    50% { transform:translateY(-6px); }
+  }
+  .empty-state-icon { animation:emptyFloat 3s ease-in-out infinite; display:inline-block; }
+
+  /* Number count-up highlight */
+  @keyframes numberPop {
+    0% { transform:scale(0.9); opacity:0.5; }
+    60% { transform:scale(1.03); }
+    100% { transform:scale(1); opacity:1; }
+  }
+  .number-animate { animation:numberPop 0.4s ease-out both; }
+
   /* Action sheet */
   .action-sheet-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:300; align-items:flex-end; justify-content:center; }
   .action-sheet-overlay.open { display:flex; }

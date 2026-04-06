@@ -492,7 +492,12 @@ function showSection(name) {
   document.querySelectorAll('[id^="section-"]').forEach(el => el.classList.add('section-hidden'));
   document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
   const sec = document.getElementById('section-' + name);
-  if (sec) sec.classList.remove('section-hidden');
+  if (sec) {
+    sec.classList.remove('section-hidden');
+    sec.classList.remove('section-enter');
+    void sec.offsetWidth; // force reflow to restart animation
+    sec.classList.add('section-enter');
+  }
   const nav = document.getElementById('nav-' + name);
   if (nav) nav.classList.add('active');
   // FAB only on Today tab
@@ -1841,11 +1846,12 @@ function buildSinglePropertyTodayDashboardMarkup() {
       <div style="height:8px;background:#e8e0d5;border-radius:4px;overflow:hidden"><div style="height:100%;background:var(--moss);border-radius:4px;width:${occupancyThisMonth}%"></div></div>
     </div>`;
 
+    setTimeout(animateNumbers, 100);
     return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:20px">
-      <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">${occupancyThisMonth}%</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Occupancy</div></div>
-      <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$${Math.round(revenueThisMonth).toLocaleString()}</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Revenue</div></div>
-      <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">${activeBookings.length}</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
-      <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$${Math.round(revenueNext30).toLocaleString()}</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${occupancyThisMonth}" data-num-suffix="%" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">0%</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Occupancy</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueThisMonth)}" data-num-prefix="$" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Revenue</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${activeBookings.length}" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueNext30)}" data-num-prefix="$" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr minmax(300px,380px);gap:20px">
       <div style="display:flex;flex-direction:column;gap:16px">
@@ -2155,11 +2161,12 @@ function buildPortfolioTodayDashboardMarkup() {
       return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:4px 0"><span style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:${col.dot}"></span>${escHtml(p.name||p.propertyId)}</span><span style="font-weight:500">${pOcc}%</span></div>`;
     }).join('');
 
+    setTimeout(animateNumbers, 100);
     return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:20px">
-      <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">${occupancyThisMonth}%</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Occupancy</div></div>
-      <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$${Math.round(revenueThisMonth).toLocaleString()}</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Revenue</div></div>
-      <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">${activeBookings.length}</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
-      <div class="card" style="text-align:center"><div style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$${Math.round(revenueNext30).toLocaleString()}</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${occupancyThisMonth}" data-num-suffix="%" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">0%</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Occupancy</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueThisMonth)}" data-num-prefix="$" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Revenue</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${activeBookings.length}" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueNext30)}" data-num-prefix="$" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr minmax(300px,380px);gap:20px">
       <div style="display:flex;flex-direction:column;gap:16px">
@@ -2779,9 +2786,32 @@ function attachButtonPress() {
     if (el.hasAttribute('data-no-press')) return;
     if (el.dataset.pressAttached) return;
     el.dataset.pressAttached = '1';
-    el.addEventListener('touchstart', () => { el.classList.add('btn-press'); }, { passive:true });
+    el.addEventListener('touchstart', () => { el.classList.add('btn-press'); if (navigator.vibrate) navigator.vibrate(8); }, { passive:true });
     el.addEventListener('touchend',   () => { setTimeout(() => el.classList.remove('btn-press'), 100); });
     el.addEventListener('touchcancel',() => { el.classList.remove('btn-press'); });
+  });
+}
+
+// ── NUMBER COUNT-UP ANIMATION ────────────────────────────────────────────────
+function animateNumbers() {
+  document.querySelectorAll('[data-animate-number]').forEach(el => {
+    const target = parseFloat(el.dataset.animateNumber);
+    if (isNaN(target)) return;
+    const prefix = el.dataset.numPrefix || '';
+    const suffix = el.dataset.numSuffix || '';
+    const duration = 500;
+    const start = performance.now();
+    const from = 0;
+    function tick(now) {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+      const current = Math.round(from + (target - from) * eased);
+      el.textContent = prefix + current.toLocaleString() + suffix;
+      if (progress < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+    el.classList.add('number-animate');
   });
 }
 
@@ -4489,6 +4519,7 @@ export {
   appModalCancel,
   attachButtonPress,
   animateList,
+  animateNumbers,
   closeActionSheet,
   attachLongPress,
   attachModalHandleDrag,
