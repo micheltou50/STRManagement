@@ -379,7 +379,10 @@ export async function extractExpenseFromReceipt() {
       }]
     });
     if (!response.ok) throw new Error(data.error?.message || 'API error');
-    const parsed = JSON.parse(data.content?.[0]?.text?.replace(/`/g,'').trim() || '{}');
+    const rawText = data.content?.[0]?.text || '{}';
+    // Strip markdown fences: ```json ... ``` or ``` ... ```
+    const cleaned = rawText.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
+    const parsed = JSON.parse(cleaned || '{}');
     if (parsed.merchant) document.getElementById('exp-merchant').value = parsed.merchant;
     if (parsed.description) document.getElementById('exp-description').value = parsed.description;
     if (parsed.amount) document.getElementById('exp-amount').value = parsed.amount;
@@ -474,7 +477,7 @@ export async function extractBookingFromScreenshot() {
       throw new Error('API error ' + response.status + ': ' + (data.error?.message || JSON.stringify(data)));
     }
     const text = data.content?.[0]?.text || '';
-    const clean = text.replace(/```json|```/g, '').trim();
+    const clean = text.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
     const parsed = JSON.parse(clean);
 
     globalThis.switchModalTab('manual', document.querySelectorAll('#modal .tab')[0]);
