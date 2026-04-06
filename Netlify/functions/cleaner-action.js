@@ -14,6 +14,9 @@
      SUPABASE_SERVICE_KEY
    ═══════════════════════════════════════════════════════════════════════════ */
 
+const { createClient } = require('@supabase/supabase-js');
+const { sendPushToHost } = require('./utils/push-helper');
+
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: corsHeaders(), body: '' };
@@ -114,6 +117,43 @@ exports.handler = async (event) => {
       }
     } catch (msgErr) {
       console.log('[StayOps] Auto-message insert failed (non-fatal):', msgErr.message);
+    }
+
+    // Push + email notification to host
+    try {
+      // Get property_id from the clean record
+      const cleanRes = await fetch(
+        SUPABASE_URL + '/rest/v1/cleans?user_id=eq.' + enc(uid) +
+          '&local_id=eq.' + enc(cleanId) + '&select=property_id,guest_name,clean_date',
+        { headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY } }
+      );
+      const cleanRows = await cleanRes.json();
+      const clean = Array.isArray(cleanRows) && cleanRows[0];
+      if (clean && clean.property_id) {
+        const cleanerName = cleaners[0].name || 'Cleaner';
+        const titles = {
+          accept: '✅ ' + cleanerName + ' confirmed',
+          decline: '❌ ' + cleanerName + ' declined',
+          done: '🏠 Clean complete',
+        };
+        const bodies = {
+          accept: 'Confirmed for ' + (clean.clean_date || 'upcoming clean'),
+          decline: 'Declined clean on ' + (clean.clean_date || 'upcoming') + ' — needs reassignment',
+          done: cleanerName + ' finished cleaning' + (clean.guest_name ? ' for ' + clean.guest_name : ''),
+        };
+        const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+        await sendPushToHost({
+          supabaseAdmin: sb,
+          propertyId: clean.property_id,
+          title: titles[action],
+          body: bodies[action],
+          url: '/cleaning',
+          type: action === 'accept' ? 'cleaner_confirmed' : action === 'decline' ? 'cleaner_declined' : 'clean_done',
+          referenceId: cleanId,
+        });
+      }
+    } catch (pushErr) {
+      console.log('[StayOps] cleaner-action push failed (non-fatal):', pushErr.message);
     }
 
     return json(200, { ok: true, action });

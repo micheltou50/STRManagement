@@ -171,18 +171,57 @@ async function sendPushToHost({
     await persistAppConfigAfterStalePushEndpoints(supabaseAdmin, uid, row, staleEndpoints);
   }
 
-  if (sent > 0) {
-    const { error: logErr } = await supabaseAdmin.from('notification_log').insert({
-      property_id: propertyId,
-      type,
-      reference_id: String(referenceId),
-      title,
-      body: body || '',
-      sent_at: new Date().toISOString(),
-    });
-    if (logErr) {
-      console.log('[StayOps] push-helper: notification_log insert failed', logErr.message);
+  // Log notification
+  const { error: logErr } = await supabaseAdmin.from('notification_log').insert({
+    property_id: propertyId,
+    type,
+    reference_id: String(referenceId),
+    title,
+    body: body || '',
+    sent_at: new Date().toISOString(),
+  });
+  if (logErr) {
+    console.log('[StayOps] push-helper: notification_log insert failed', logErr.message);
+  }
+
+  // Also send email to host (best-effort, non-blocking)
+  try {
+    const resendKey = process.env.RESEND_API_KEY;
+    if (resendKey) {
+      // Get host email from Supabase auth
+      const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(uid);
+      const hostEmail = authUser && authUser.user && authUser.user.email;
+      if (hostEmail) {
+        const from = process.env.RESEND_FROM || 'StayOps <noreply@strmanagement.netlify.app>';
+        const emailRes = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from,
+            to: hostEmail,
+            subject: title,
+            html: '<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:20px">' +
+              '<div style="background:#1E3A2F;color:#fff;padding:16px 20px;border-radius:12px 12px 0 0">' +
+                '<div style="font-size:18px;font-weight:700">StayOps</div>' +
+              '</div>' +
+              '<div style="background:#fff;border:1px solid #e5e5e5;border-top:none;padding:20px;border-radius:0 0 12px 12px">' +
+                '<div style="font-size:16px;font-weight:700;color:#1E3A2F;margin-bottom:8px">' + (title || '') + '</div>' +
+                '<div style="font-size:14px;color:#666;line-height:1.5">' + (body || '') + '</div>' +
+                '<div style="margin-top:16px"><a href="https://strmanagement.netlify.app" style="display:inline-block;background:#1E3A2F;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600">Open StayOps</a></div>' +
+              '</div>' +
+            '</div>',
+          }),
+        });
+        if (emailRes.ok) {
+          console.log('[StayOps] push-helper: email sent to', hostEmail);
+        } else {
+          const errBody = await emailRes.text().catch(() => '');
+          console.log('[StayOps] push-helper: email send failed', emailRes.status, errBody);
+        }
+      }
     }
+  } catch (emailErr) {
+    console.log('[StayOps] push-helper: email send error (non-fatal)', emailErr.message);
   }
 
   return { sent, removed: staleCount };
