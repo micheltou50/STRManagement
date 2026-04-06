@@ -557,6 +557,28 @@ globalThis.handleAuthFailure = handleAuthFailure;
     }
     initMessaging().catch(e => console.warn('[StayOps] Messaging init failed:', e.message));
     applyStayopsPostSwitchAction();
+    // Prompt to enable notifications if not enabled
+    setTimeout(() => {
+      if ('Notification' in window && Notification.permission === 'default') {
+        // Never asked — show a prompt banner
+        const existing = document.getElementById('notif-prompt-banner');
+        if (existing) existing.remove();
+        const banner = document.createElement('div');
+        banner.id = 'notif-prompt-banner';
+        banner.innerHTML =
+          '<div style="position:fixed;bottom:80px;left:16px;right:16px;z-index:998;background:#1E3A2F;color:#fff;border-radius:14px;padding:14px 16px;box-shadow:0 4px 20px rgba(0,0,0,0.2);display:flex;align-items:center;gap:12px">' +
+            '<div style="font-size:24px;flex-shrink:0">🔔</div>' +
+            '<div style="flex:1"><div style="font-weight:700;font-size:14px">Enable Notifications</div><div style="font-size:12px;opacity:0.7;margin-top:2px">Get alerts for bookings, cleans, and messages</div></div>' +
+            '<div onclick="enableNotificationsManually();document.getElementById(\'notif-prompt-banner\').remove()" style="background:#8FAF85;color:#fff;font-weight:700;font-size:12px;padding:8px 14px;border-radius:8px;cursor:pointer;white-space:nowrap">Enable</div>' +
+            '<div onclick="document.getElementById(\'notif-prompt-banner\').remove();localStorage.setItem(\'notif-prompt-dismissed\',Date.now())" style="font-size:18px;opacity:0.5;cursor:pointer;padding:4px">✕</div>' +
+          '</div>';
+        // Don't show if user dismissed in the last 24 hours
+        const lastDismissed = parseInt(localStorage.getItem('notif-prompt-dismissed') || '0');
+        if (Date.now() - lastDismissed > 24 * 60 * 60 * 1000) {
+          document.body.appendChild(banner);
+        }
+      }
+    }, 2000);
     // Prompt if an owner report is due (non-blocking, runs after UI is visible)
     setTimeout(checkAutoSendReport, 1500);
     // Auto-scan Gmail for new booking emails
