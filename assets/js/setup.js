@@ -394,7 +394,13 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
     const container = overlay.querySelector('#s-listing-urls');
     if (!container) return;
     const urlPlatforms = ['airbnb','booking','stayz','vrbo'].filter(p => _selectedPlatforms.has(p));
-    if (!urlPlatforms.length) { container.innerHTML = ''; return; }
+    const hasDirectOnly = _selectedPlatforms.has('direct') && !urlPlatforms.length;
+    if (!urlPlatforms.length) {
+      container.innerHTML = hasDirectOnly
+        ? '<div class="ss-hint" style="margin-top:8px;color:var(--text-soft)">Direct bookings don\'t need a listing URL — you\'ll add bookings manually or via email import.</div>'
+        : '';
+      return;
+    }
     container.innerHTML = '<div class="ss-label" style="margin-top:4px">Listing URLs <span class="ss-opt">(optional)</span></div>' +
       urlPlatforms.map(p => {
         const def = _platformDefs[p];
