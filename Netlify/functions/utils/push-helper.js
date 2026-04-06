@@ -186,37 +186,62 @@ async function sendPushToHost({
 
   // Also send email to host (best-effort, non-blocking)
   try {
+    const gmailUser = process.env.GMAIL_USER;
+    const gmailPass = process.env.GMAIL_APP_PASSWORD;
     const resendKey = process.env.RESEND_API_KEY;
-    if (resendKey) {
-      // Get host email from Supabase auth
+
+    if (gmailUser || resendKey) {
       const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(uid);
       const hostEmail = authUser && authUser.user && authUser.user.email;
       if (hostEmail) {
-        const from = process.env.RESEND_FROM || 'StayOps <noreply@strmanagement.netlify.app>';
-        const emailRes = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from,
-            to: hostEmail,
-            subject: title,
-            html: '<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:20px">' +
-              '<div style="background:#1E3A2F;color:#fff;padding:16px 20px;border-radius:12px 12px 0 0">' +
-                '<div style="font-size:18px;font-weight:700">StayOps</div>' +
-              '</div>' +
-              '<div style="background:#fff;border:1px solid #e5e5e5;border-top:none;padding:20px;border-radius:0 0 12px 12px">' +
-                '<div style="font-size:16px;font-weight:700;color:#1E3A2F;margin-bottom:8px">' + (title || '') + '</div>' +
-                '<div style="font-size:14px;color:#666;line-height:1.5">' + (body || '') + '</div>' +
-                '<div style="margin-top:16px"><a href="https://strmanagement.netlify.app" style="display:inline-block;background:#1E3A2F;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600">Open StayOps</a></div>' +
-              '</div>' +
-            '</div>',
-          }),
-        });
-        if (emailRes.ok) {
-          console.log('[StayOps] push-helper: email sent to', hostEmail);
-        } else {
-          const errBody = await emailRes.text().catch(() => '');
-          console.log('[StayOps] push-helper: email send failed', emailRes.status, errBody);
+        const emailHtml = '<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:20px">' +
+          '<div style="background:#1E3A2F;color:#fff;padding:16px 20px;border-radius:12px 12px 0 0">' +
+            '<div style="font-size:18px;font-weight:700">StayOps</div>' +
+          '</div>' +
+          '<div style="background:#fff;border:1px solid #e5e5e5;border-top:none;padding:20px;border-radius:0 0 12px 12px">' +
+            '<div style="font-size:16px;font-weight:700;color:#1E3A2F;margin-bottom:8px">' + (title || '') + '</div>' +
+            '<div style="font-size:14px;color:#666;line-height:1.5">' + (body || '') + '</div>' +
+            '<div style="margin-top:16px"><a href="https://strmanagement.netlify.app" style="display:inline-block;background:#1E3A2F;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600">Open StayOps</a></div>' +
+          '</div>' +
+        '</div>';
+
+        let emailSent = false;
+
+        // Primary: Gmail SMTP
+        if (gmailUser && gmailPass && !emailSent) {
+          try {
+            const nodemailer = require('nodemailer');
+            const transporter = nodemailer.createTransport({
+              host: 'smtp.gmail.com', port: 587, secure: false,
+              auth: { user: gmailUser, pass: gmailPass },
+            });
+            await transporter.sendMail({
+              from: process.env.GMAIL_FROM || ('StayOps <' + gmailUser + '>'),
+              to: hostEmail,
+              subject: title,
+              html: emailHtml,
+            });
+            emailSent = true;
+            console.log('[StayOps] push-helper: Gmail email sent to', hostEmail);
+          } catch (gmailErr) {
+            console.log('[StayOps] push-helper: Gmail email failed, trying Resend:', gmailErr.message);
+          }
+        }
+
+        // Fallback: Resend
+        if (resendKey && !emailSent) {
+          const from = process.env.RESEND_FROM || 'StayOps <noreply@strmanagement.netlify.app>';
+          const emailRes = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from, to: hostEmail, subject: title, html: emailHtml }),
+          });
+          if (emailRes.ok) {
+            console.log('[StayOps] push-helper: Resend email sent to', hostEmail);
+          } else {
+            const errBody = await emailRes.text().catch(() => '');
+            console.log('[StayOps] push-helper: Resend email failed', emailRes.status, errBody);
+          }
         }
       }
     }
