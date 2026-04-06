@@ -849,18 +849,30 @@ function computeDedupedTodayAlerts(isPortfolio) {
       return;
     }
 
-    // Only show "Clean not done" if clean date is today or overdue (past)
-    // A clean can't be done if it's in the future — it hasn't happened yet
-    if (days <= 0 && clean && !clean.done && hasCleaner) {
-      const label = days === 0 ? 'due today' : 'overdue';
-      pushAlert(
-        'a',
-        'Clean not done',
-        `${propName} · ${b.name} · ${label}`,
-        true,
-        clean.id,
-        b.id
+    // Only show "Clean not done" if:
+    // 1. Clean date is today or in the past (can't be done if it hasn't happened)
+    // 2. Max 3 days overdue — after that it was either done and not marked, or a newer guest has come through
+    // 3. No newer completed clean exists at the same property (meaning property has been cleaned since)
+    if (days <= 0 && days >= -3 && clean && !clean.done && hasCleaner) {
+      // Check if a newer clean at same property was already done — if so, skip this stale one
+      const propId = b._propertyId || clean._propertyId;
+      const newerCleanDone = propId && cleans.some(other =>
+        other.done &&
+        other !== clean &&
+        String(other._propertyId || '') === String(propId) &&
+        other.date && clean.date && other.date > clean.date
       );
+      if (!newerCleanDone) {
+        const label = days === 0 ? 'due today' : 'overdue';
+        pushAlert(
+          'a',
+          'Clean not done',
+          `${propName} · ${b.name} · ${label}`,
+          true,
+          clean.id,
+          b.id
+        );
+      }
     }
   });
 
