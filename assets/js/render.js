@@ -849,13 +849,14 @@ function computeDedupedTodayAlerts(isPortfolio) {
       return;
     }
 
-    // Only show "Clean not done" if guest arrives today or tomorrow — not days away
-    if (days <= 1 && clean && !clean.done && hasCleaner) {
-      const arrive = days <= 0 ? 'today' : 'tomorrow';
+    // Only show "Clean not done" if clean date is today or overdue (past)
+    // A clean can't be done if it's in the future — it hasn't happened yet
+    if (days <= 0 && clean && !clean.done && hasCleaner) {
+      const label = days === 0 ? 'due today' : 'overdue';
       pushAlert(
         'a',
         'Clean not done',
-        `${propName} · ${b.name} · arrives ${arrive}`,
+        `${propName} · ${b.name} · ${label}`,
         true,
         clean.id,
         b.id
