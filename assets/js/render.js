@@ -849,15 +849,14 @@ function computeDedupedTodayAlerts(isPortfolio) {
       return;
     }
 
-    if (days <= 6 && clean && !clean.done && hasCleaner) {
-      const urg = days <= 3;
-      const arrive =
-        days <= 0 ? 'today' : days === 1 ? 'in 1 day' : `in ${days} days`;
+    // Only show "Clean not done" if guest arrives today or tomorrow — not days away
+    if (days <= 1 && clean && !clean.done && hasCleaner) {
+      const arrive = days <= 0 ? 'today' : 'tomorrow';
       pushAlert(
         'a',
         'Clean not done',
         `${propName} · ${b.name} · arrives ${arrive}`,
-        urg,
+        true,
         clean.id,
         b.id
       );
