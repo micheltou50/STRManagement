@@ -785,6 +785,7 @@ function addCleaner() {
   populateCleanerSelect();
   populateContractorSelect();
   globalThis.showBanner('✓ ' + name + ' added', 'ok');
+  if (typeof globalThis.renderOnboardingGuidance === 'function') globalThis.renderOnboardingGuidance();
   // Go back to team list
   openSettingsPanel('team');
 }

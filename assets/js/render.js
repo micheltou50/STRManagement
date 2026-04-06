@@ -3771,6 +3771,7 @@ function onboardEmailConnected(provider, email) {
   // Save provider to localStorage for now
   localStorage.setItem('ob-email-provider', provider);
   localStorage.setItem('ob-email-address', email);
+  if (typeof globalThis.renderOnboardingGuidance === 'function') globalThis.renderOnboardingGuidance();
 }
 
 function onboardStep2Skip() {
@@ -4593,4 +4594,5 @@ export {
   checkAutoSendReport,
   _calNavigate,
   dismissChecklist,
+  renderOnboardingGuidance,
 };

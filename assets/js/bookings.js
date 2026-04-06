@@ -762,6 +762,7 @@ async function addBooking() {
   if (typeof globalThis.closeModal === 'function') globalThis.closeModal();
   if (typeof globalThis.render === 'function') globalThis.render();
   globalThis.showBanner('✅ Booking added', 'ok');
+  if (typeof globalThis.renderOnboardingGuidance === 'function') globalThis.renderOnboardingGuidance();
 }
 
 async function addNote() {

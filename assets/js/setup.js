@@ -359,6 +359,7 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
 
     // Reflect changes in the DOM immediately.
     if (typeof initPropertyUI === 'function') initPropertyUI();
+    if (typeof globalThis.renderOnboardingGuidance === 'function') globalThis.renderOnboardingGuidance();
 
     if (createMode) {
       // A new property should start with its own isolated app-state keys.

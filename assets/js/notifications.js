@@ -177,6 +177,7 @@ export async function enableNotificationsManually() {
     if (result) { result.style.color = 'var(--moss)'; result.textContent = '✓ Notifications enabled on this device!'; }
     if (btn) btn.textContent = '✓ Enabled';
     updateNotifStatus();
+    if (typeof globalThis.renderOnboardingGuidance === 'function') globalThis.renderOnboardingGuidance();
   } else {
     const perm = Notification.permission;
     if (result) {

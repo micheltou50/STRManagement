@@ -78,7 +78,7 @@ import {
   appModalCancel, attachButtonPress, animateList, closeActionSheet, attachLongPress, attachModalHandleDrag, isCleanerMode, getCleanerParams, hydrateCleanerFromFunction, _showCleanerLinkError,
   isCleanerAuthed, pinPress, pinDelete, cleanerRefresh, enableCleanerNotifications, cleanerSignOut, switchCleanerTab, switchCleanerCleanTab, renderCleanerView, cleanerAddInventoryItem,
   cleanerAdjustStock, finishAppInit, showOnboarding, hideOnboarding, _obGoToStep, onboardStep1Next, onboardConnectGoogle, onboardConnectMicrosoft, onboardEmailConnected, onboardStep2Skip,
-  onboardTogglePlatform, onboardFinish, isOnboardingComplete, checkAutoSendReport, _calNavigate,
+  onboardTogglePlatform, onboardFinish, isOnboardingComplete, checkAutoSendReport, _calNavigate, renderOnboardingGuidance,
   dismissChecklist
 } from './render.js';
 
@@ -101,6 +101,7 @@ globalThis.loadCleanerDashboard = loadCleanerDashboard;
 globalThis.processScanNeedsReview = processScanNeedsReview;
 globalThis.render = render;
 globalThis.renderAll = renderAll;
+globalThis.renderOnboardingGuidance = renderOnboardingGuidance;
 globalThis.showSection = showSection;
 globalThis.reloadInMemoryData = reloadInMemoryData;
 globalThis.populateContractorSelect = populateContractorSelect;

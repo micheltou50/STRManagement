@@ -420,6 +420,7 @@ export function savePropertyConfig(updates) {
   if (!window._stayOpsHydrating && typeof globalThis.saveHostConfigToCloud === 'function') {
     globalThis.saveHostConfigToCloud(merged);
   }
+  if (typeof globalThis.renderOnboardingGuidance === 'function') globalThis.renderOnboardingGuidance();
   return merged;
 }
 
