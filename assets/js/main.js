@@ -60,7 +60,7 @@ import {
 } from './settings.js';
 import {
   calPrev, calNext, openCalPreview, closeCalPreview, addNote, showDetail, showEditModal, saveEdit, editCalcNights, editCalcNet, filterBookings, addBooking,
-  deleteBooking, importAirbnbCSV, importCSV, switchModalTab, saveCleaningFee
+  deleteBooking, importAirbnbCSV, importCSV, switchModalTab, saveCleaningFee, renderBookings
 } from './bookings.js';
 import {
   renderAdmin, switchAdminTab, adminHandleToggle, adminToggleTemplate, adminSendTestEmail,
@@ -333,6 +333,7 @@ window.setMaintInProgress       = setMaintInProgress;
 window.showAppModal             = showAppModal;
 window.showDetail               = showDetail;
 window.showEditModal            = showEditModal;
+globalThis.renderBookings       = renderBookings;
 window.switchToPortfolioFromSheet = switchToPortfolioFromSheet;
 window.isPortfolioMode          = isPortfolioMode;
 window.enterPortfolioMode       = enterPortfolioMode;
