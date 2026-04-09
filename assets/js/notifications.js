@@ -696,7 +696,15 @@ export function openEmailTemplatePanel(type) {
   const title = isAssignment ? '📋 Assignment Email' : '⏰ Reminder Email';
   const desc  = isAssignment ? 'Sent when you assign a clean.' : 'Sent 24 hours before the clean.';
 
-  document.getElementById('email-template-content').innerHTML = `
+  let mount = document.getElementById('email-template-content');
+  if (!mount) {
+    mount = document.createElement('div');
+    mount.id = 'email-template-content';
+    const tab = document.getElementById('admin-tab-templates');
+    if (tab) tab.appendChild(mount);
+    else { console.warn('[StayOps] email-template-content mount not found'); return; }
+  }
+  mount.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:0">
 
       <!-- EDITOR PANE -->
