@@ -19,9 +19,20 @@ const { createClient } = require('@supabase/supabase-js');
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function tomorrowDateStr() {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10); // "YYYY-MM-DD"
+  // Must use Sydney timezone — this cron fires at 22:00 UTC = 08:00 AEST.
+  // Using UTC+1 would return "today" in Sydney terms, not "tomorrow".
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Australia/Sydney',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const y = Number(parts.find(p => p.type === 'year').value);
+  const m = Number(parts.find(p => p.type === 'month').value);
+  const d = Number(parts.find(p => p.type === 'day').value);
+  const tomorrow = new Date(Date.UTC(y, m - 1, d + 1));
+  return tomorrow.toISOString().slice(0, 10); // "YYYY-MM-DD"
 }
 
 function buildEmailHtml({ cleanerName, guestName, cleanDate, propertyName, cleanerLink, color }) {

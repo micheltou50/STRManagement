@@ -32,6 +32,31 @@ function buildNotificationEmailHtml(title, body) {
 
 async function sendEmailAlongside(recipientEmail, title, body) {
   if (!recipientEmail) return;
+  const subject = (title || 'StayOps Notification').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '').trim();
+  const html = buildNotificationEmailHtml(title, body);
+
+  // Primary: Gmail SMTP
+  const gmailUser = process.env.GMAIL_USER;
+  const gmailPass = process.env.GMAIL_APP_PASSWORD;
+  if (gmailUser && gmailPass) {
+    try {
+      const nodemailer = require('nodemailer');
+      const transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com', port: 587, secure: false,
+        auth: { user: gmailUser, pass: gmailPass },
+      });
+      await transporter.sendMail({
+        from: process.env.GMAIL_FROM || ('StayOps <' + gmailUser + '>'),
+        to: recipientEmail, subject, html,
+      });
+      console.log('[send-push] Gmail email sent to', recipientEmail);
+      return;
+    } catch (gmailErr) {
+      console.log('[send-push] Gmail failed, trying Resend:', gmailErr.message);
+    }
+  }
+
+  // Fallback: Resend
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) { console.log('[send-push] No RESEND_API_KEY — skipping email'); return; }
   const from = process.env.RESEND_FROM || 'StayOps <noreply@strmanagement.netlify.app>';
@@ -40,15 +65,16 @@ async function sendEmailAlongside(recipientEmail, title, body) {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from,
-        to: recipientEmail,
-        subject: (title || 'StayOps Notification').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '').trim(),
-        html: buildNotificationEmailHtml(title, body),
+        from, to: recipientEmail, subject, html,
         text: (title || '') + '\n\n' + (body || '') + '\n\n— StayOps',
       }),
     });
     const data = await res.json();
-    console.log('[send-push] Email sent to', recipientEmail, 'id:', data.id || 'n/a');
+    if (res.ok) {
+      console.log('[send-push] Resend email sent to', recipientEmail, 'id:', data.id || 'n/a');
+    } else {
+      console.log('[send-push] Resend email failed:', data.message || res.status);
+    }
   } catch (e) {
     console.error('[send-push] Email failed:', e.message);
   }

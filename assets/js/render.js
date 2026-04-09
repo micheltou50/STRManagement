@@ -894,28 +894,32 @@ function computeDedupedTodayAlerts(isPortfolio) {
     }
 
     // Only show "Clean not done" if:
-    // 1. Clean date is today or in the past (can't be done if it hasn't happened)
+    // 1. The CLEAN date (not check-in) is today or in the past — can't be done if it hasn't happened yet
     // 2. Max 3 days overdue — after that it was either done and not marked, or a newer guest has come through
     // 3. No newer completed clean exists at the same property (meaning property has been cleaned since)
-    if (days <= 0 && days >= -3 && clean && !clean.done && hasCleaner) {
-      // Check if a newer clean at same property was already done — if so, skip this stale one
-      const propId = b._propertyId || clean._propertyId;
-      const newerCleanDone = propId && cleans.some(other =>
-        other.done &&
-        other !== clean &&
-        String(other._propertyId || '') === String(propId) &&
-        other.date && clean.date && other.date > clean.date
-      );
-      if (!newerCleanDone) {
-        const label = days === 0 ? 'due today' : 'overdue';
-        pushAlert(
-          'a',
-          'Clean not done',
-          `${propName} · ${b.name} · ${label}`,
-          true,
-          clean.id,
-          b.id
+    if (clean && !clean.done && hasCleaner) {
+      const cleanDate = parseLocalDayStart(clean.date || '');
+      const cleanDays = Number.isNaN(cleanDate.getTime()) ? 99 : Math.ceil((cleanDate - todayStart) / 86400000);
+      if (cleanDays <= 0 && cleanDays >= -3) {
+        // Check if a newer clean at same property was already done — if so, skip this stale one
+        const propId = b._propertyId || clean._propertyId;
+        const newerCleanDone = propId && cleans.some(other =>
+          other.done &&
+          other !== clean &&
+          String(other._propertyId || '') === String(propId) &&
+          other.date && clean.date && other.date > clean.date
         );
+        if (!newerCleanDone) {
+          const label = cleanDays === 0 ? 'due today' : 'overdue';
+          pushAlert(
+            'a',
+            'Clean not done',
+            `${propName} · ${b.name} · ${label}`,
+            true,
+            clean.id,
+            b.id
+          );
+        }
       }
     }
   });
@@ -973,7 +977,7 @@ function computeDedupedTodayAlerts(isPortfolio) {
       );
     }
 
-    if (c.cleanerDeclined && c.date && inNextDays(c.date, 7)) {
+    if (c.cleanerDeclined && !c.done && c.date && inNextDays(c.date, 7)) {
       const guest = c.guestName || 'Guest';
       const urg = daysUntil(c.date) <= 3;
       pushAlert(
