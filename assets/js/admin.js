@@ -172,10 +172,10 @@ export function renderAdmin() {
       ${renderTemplatesTab()}
     </div>
     <div id="admin-tab-logs" class="admin-tab-content" style="display:${activeAdminTab === 'logs' ? 'block' : 'none'}">
-      <div style="text-align:center;padding:40px 16px;color:var(--text-soft);font-size:13px">Loading activity log...</div>
+      <div style="padding:16px"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>
     </div>
     <div id="admin-tab-devices" class="admin-tab-content" style="display:${activeAdminTab === 'devices' ? 'block' : 'none'}">
-      <div style="text-align:center;padding:40px 16px;color:var(--text-soft);font-size:13px">Loading devices...</div>
+      <div style="padding:16px"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>
     </div>
   `;
 
@@ -269,7 +269,7 @@ function renderTemplatesTab() {
             ${t.readonly
               ? '<button class="admin-btn-test" style="flex:1" onclick="event.stopPropagation()">ℹ️ Auto-generated (not editable)</button>'
               : `<button class="admin-btn-edit" onclick="event.stopPropagation(); openEmailTemplatePanel('${t.id}')">Edit Template</button>
-                 <button class="admin-btn-test" onclick="event.stopPropagation(); adminSendTestEmail('${t.id}')">Send Test</button>`
+                 <button class="admin-btn-test" onclick="event.stopPropagation(); globalThis.withButtonLoading(this, () => adminSendTestEmail('${t.id}'), 'Sending…')">Send Test</button>`
             }
           </div>
         </div>

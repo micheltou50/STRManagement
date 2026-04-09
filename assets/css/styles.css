@@ -133,6 +133,11 @@
   .btn-primary, .btn-secondary { transition: transform 0.1s, opacity 0.1s; }
   .btn-press { transform: scale(0.96) !important; opacity: 0.85 !important; }
 
+  /* Button loading state */
+  .btn-loading { pointer-events: none; opacity: 0.7; position: relative; }
+  .btn-loading .btn-loading-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: sp-spin-kf 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
+  .btn-secondary .btn-loading-spinner { border-color: rgba(0,0,0,0.15); border-top-color: var(--forest); }
+
   /* List item entrance animation */
   @keyframes listSlideIn {
     from { opacity:0; transform:translateY(10px); }

@@ -283,7 +283,7 @@ export async function quickAssignLastCleaner(bookingId) {
       globalThis.showBanner('Past/cancelled booking — cleaner assignment is disabled', 'warn');
       return;
     }
-    if (!window.confirm(`Assign ${preferred.name} to ${booking.name} (checkout ${fmt(booking.checkout)})?`)) return;
+    if (!(await globalThis.showAppModal({ title: 'Assign Cleaner', msg: `Assign ${preferred.name} to ${booking.name} (checkout ${fmt(booking.checkout)})?`, confirmText: 'Assign' }))) return;
     const matched = findMatchingCleanForBooking(booking, booking.checkout);
     const existingIdx = matched ? cleans.findIndex(c => c.id === matched.id) : -1;
     const prev = existingIdx >= 0 ? cleans[existingIdx] : null;
@@ -335,7 +335,7 @@ export async function quickAssignLastCleaner(bookingId) {
         if (notify.emailSent) {
           globalThis.showBanner('✉️ Email sent to ' + preferred.name, 'ok');
         } else {
-          if (window.confirm('Notify ' + preferred.name + ' via SMS?')) {
+          if (await globalThis.showAppModal({ title: 'Send SMS', msg: 'Notify ' + preferred.name + ' via SMS?', confirmText: 'Send' })) {
             newClean.notified = true;
             try {
               await saveCleanToCloud(newClean);
@@ -896,8 +896,8 @@ export function markCleanerConfirmed(id) {
   globalThis.renderBookings();
 }
 
-export function markCleanDeclined(id) {
-  if (!window.confirm('Mark this cleaner as unavailable? The clean will need reassigning.')) return;
+export async function markCleanDeclined(id) {
+  if (!(await globalThis.showAppModal({ title: 'Mark Unavailable', msg: 'Mark this cleaner as unavailable? The clean will need reassigning.', confirmText: 'Mark Unavailable' }))) return;
   const c = cleans.find(c => String(c.id) === String(id));
   if (!c) return;
   c.cleanerDeclined  = true;
@@ -941,8 +941,8 @@ export function populateCleanerSelect() {
     sel.innerHTML = '<option value="">No cleaners saved — add in Settings</option>';
   }
 }
-export function revealCleanerReassign(id) {
-  if (!confirm('This cleaner is already confirmed. Change the assignment?')) return;
+export async function revealCleanerReassign(id) {
+  if (!(await globalThis.showAppModal({ title: 'Change Assignment', msg: 'This cleaner is already confirmed. Change the assignment?', confirmText: 'Change' }))) return;
   const form = document.getElementById('detail-reassign-form');
   const btn  = document.getElementById('detail-change-cleaner-btn');
   if (form) form.style.display = '';
@@ -1009,8 +1009,8 @@ async function inviteCleaner(cleanerId) {
   if (!cleanerId) return;
   const cleaners = window._cleaners || [];
   const cleaner = cleaners.find(c => (c._cloudId || c.cloud_id) === cleanerId);
-  if (!cleaner) { alert('Cleaner not found'); return; }
-  if (!cleaner.email) { alert('Add an email address to this cleaner first'); return; }
+  if (!cleaner) { globalThis.showBanner('Cleaner not found', 'warn'); return; }
+  if (!cleaner.email) { globalThis.showBanner('Add an email address to this cleaner first', 'warn'); return; }
 
   const btn = document.getElementById('invite-btn-' + cleanerId);
   if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
@@ -1056,11 +1056,11 @@ async function inviteCleaner(cleanerId) {
         window._sb.from('cleaners').update({ invitation_status: 'invited' }).eq('id', cleanerId).then(() => {});
       }
     } else {
-      alert('Failed to send invite: ' + (result.error || 'Unknown error'));
+      globalThis.showBanner('Failed to send invite: ' + (result.error || 'Unknown error'), 'error');
       if (btn) { btn.disabled = false; btn.textContent = 'Invite to App'; }
     }
   } catch (e) {
-    alert('Failed to send invite: ' + e.message);
+    globalThis.showBanner('Failed to send invite: ' + e.message, 'error');
     if (btn) { btn.disabled = false; btn.textContent = 'Invite to App'; }
   }
 }

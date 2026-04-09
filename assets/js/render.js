@@ -4159,9 +4159,12 @@ function renderNewCleanerView(data) {
       const action = btn.getAttribute('data-action');
       const cleanId = btn.getAttribute('data-clean-id');
       if (!cleanId) return;
-      if (action === 'accept') await cleanerAcceptClean(cleanId);
-      else if (action === 'decline') await cleanerDeclineClean(cleanId);
-      else if (action === 'done') await cleanerMarkDone(cleanId);
+      const labels = { accept: 'Accepting…', decline: 'Declining…', done: 'Completing…' };
+      await globalThis.withButtonLoading(btn, async () => {
+        if (action === 'accept') await cleanerAcceptClean(cleanId);
+        else if (action === 'decline') await cleanerDeclineClean(cleanId);
+        else if (action === 'done') await cleanerMarkDone(cleanId);
+      }, labels[action] || 'Working…');
     }, true);
     container._cleanerDelegated = true;
   }
@@ -4174,7 +4177,7 @@ async function cleanerAcceptClean(cleanId) {
     .from('cleans')
     .update({ cleaner_confirmed: true, confirmed_at: new Date().toISOString() })
     .eq('id', cleanId);
-  if (error) { alert('Failed to accept: ' + error.message); return; }
+  if (error) { globalThis.showBanner('Failed to accept: ' + error.message, 'error'); return; }
   const data = typeof globalThis.loadCleanerDashboard === 'function'
     ? await globalThis.loadCleanerDashboard()
     : null;
@@ -4215,7 +4218,7 @@ async function cleanerDeclineClean(cleanId) {
     .from('cleans')
     .update({ cleaner_declined: true })
     .eq('id', cleanId);
-  if (error) { alert('Failed to decline: ' + error.message); return; }
+  if (error) { globalThis.showBanner('Failed to decline: ' + error.message, 'error'); return; }
   const data = typeof globalThis.loadCleanerDashboard === 'function'
     ? await globalThis.loadCleanerDashboard()
     : null;
@@ -4256,7 +4259,7 @@ async function cleanerMarkDone(cleanId) {
     .from('cleans')
     .update({ done: true, completed_at: new Date().toISOString() })
     .eq('id', cleanId);
-  if (error) { alert('Failed to mark done: ' + error.message); return; }
+  if (error) { globalThis.showBanner('Failed to mark done: ' + error.message, 'error'); return; }
   const data = typeof globalThis.loadCleanerDashboard === 'function'
     ? await globalThis.loadCleanerDashboard()
     : null;

@@ -310,8 +310,8 @@ export function showDepreciationDetail(id) {
   container.innerHTML = html;
 }
 
-export function deleteDepreciationAssetUI(id) {
-  if (!confirm('Delete this asset?')) return;
+export async function deleteDepreciationAssetUI(id) {
+  if (!(await globalThis.showAppModal({ title: 'Delete Asset', msg: 'Delete this asset? This cannot be undone.', confirmText: 'Delete', confirmColor: 'var(--red)' }))) return;
   deleteDepreciationAsset(id);
   renderDepreciationPanel();
   if (typeof globalThis.showBanner === 'function') {

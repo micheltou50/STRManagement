@@ -159,3 +159,26 @@ export function fadeTransition(el, show, display, ms) {
     }, dur * 0.7);
   }
 }
+
+/**
+ * Wrap an async operation with button loading state.
+ * Disables the button, shows a spinner, restores on completion.
+ * @param {HTMLElement} btn — the button element
+ * @param {Function} asyncFn — async function to execute
+ * @param {string} [loadingText] — optional text to show while loading
+ */
+export async function withButtonLoading(btn, asyncFn, loadingText) {
+  if (!btn || btn.classList.contains('btn-loading')) return;
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.classList.add('btn-loading');
+  btn.innerHTML = '<span class="btn-loading-spinner"></span>' + (loadingText || 'Working…');
+  try {
+    return await asyncFn();
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('btn-loading');
+    btn.innerHTML = originalHtml;
+  }
+}
+globalThis.withButtonLoading = withButtonLoading;
