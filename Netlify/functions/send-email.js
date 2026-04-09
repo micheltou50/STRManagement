@@ -28,6 +28,7 @@ exports.handler = async (event) => {
   }
 
   // ── Primary: Gmail SMTP via Nodemailer ──
+  const gmailDiag = {};
   const gmailUser = process.env.GMAIL_USER;
   const gmailPass = process.env.GMAIL_APP_PASSWORD;
 
@@ -62,8 +63,11 @@ exports.handler = async (event) => {
       };
     } catch (err) {
       console.error('[send-email] Gmail SMTP failed:', err.message);
-      // Fall through to Resend if Gmail fails
+      // Fall through to Resend if Gmail fails — include error for diagnostics
+      gmailDiag.error = err.message;
     }
+  } else {
+    gmailDiag.error = !gmailUser ? 'GMAIL_USER not set' : 'GMAIL_APP_PASSWORD not set';
   }
 
   // ── Fallback: Resend API ──
@@ -94,14 +98,14 @@ exports.handler = async (event) => {
       console.error('[send-email] Resend error:', data);
       return {
         statusCode: response.status,
-        body: JSON.stringify({ error: data.message || 'Resend API error', detail: data })
+        body: JSON.stringify({ error: data.message || 'Resend API error', detail: data, gmailError: gmailDiag.error || null })
       };
     }
 
     console.log('[send-email] Resend sent:', data.id, 'to:', to);
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true, id: data.id, provider: 'resend' })
+      body: JSON.stringify({ success: true, id: data.id, provider: 'resend', gmailError: gmailDiag.error || null })
     };
   } catch (err) {
     console.error('[send-email] Resend error:', err.message);
