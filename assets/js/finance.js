@@ -229,7 +229,12 @@ async function bankImportApplyMatchPreviews(rows, userId) {
         r._bankMatchLocked = true;
         const ex = top.expense;
         if (ex.property_id) r.propertyId = String(ex.property_id);
-        if (ex.category != null && String(ex.category).trim()) r.category = String(ex.category);
+        if (ex.category != null && String(ex.category).trim()) {
+          // Normalize to snake_case to match dropdown values (e.g., "Cleaning & Garden" → "cleaning")
+          const rawCat = String(ex.category).trim().toLowerCase().replace(/[&]/g, '').replace(/\s+/g, '_');
+          const matchedCat = BANK_IMPORT_EXPENSE_CATS.find(c => c === rawCat || rawCat.startsWith(c));
+          r.category = matchedCat || String(ex.category);
+        }
         r.uiConfirmed = true;
       } else if (top && top.score >= 50 && top.score < 80) {
         r._bankMatchPreview = { level: 'medium', expense: top.expense };
@@ -250,11 +255,13 @@ function bankImportMatchStripHtml(row) {
   );
   const d = bankImportFmtDayMon(ex.date);
   const amt = '$' + Number(ex.amount || 0).toFixed(2);
+  const idx = _bankImportRows.indexOf(row);
+  const dismissBtn = idx >= 0 ? `<button onclick="event.stopPropagation();globalThis.bankImportDismissMatch(${idx})" style="flex-shrink:0;border:none;background:none;font-size:14px;cursor:pointer;color:inherit;opacity:0.6;padding:0 2px" title="Dismiss match">✕</button>` : '';
   if (pr.level === 'high') {
-    return `<div style="font-size:12px;font-weight:600;color:#14532d;background:#dcfce7;padding:8px 10px;border-radius:8px;margin-bottom:10px">Matches: ${label} on ${escHtml(d)} · ${escHtml(amt)}</div>`;
+    return `<div style="font-size:12px;font-weight:600;color:#14532d;background:#dcfce7;padding:8px 10px;border-radius:8px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center"><span>Matches: ${label} on ${escHtml(d)} · ${escHtml(amt)}</span>${dismissBtn}</div>`;
   }
   if (pr.level === 'medium') {
-    return `<div style="font-size:12px;font-weight:600;color:#92400e;background:#fef3c7;padding:8px 10px;border-radius:8px;margin-bottom:10px">Possible match: ${label} · ${escHtml(amt)}</div>`;
+    return `<div style="font-size:12px;font-weight:600;color:#92400e;background:#fef3c7;padding:8px 10px;border-radius:8px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center"><span>Possible match: ${label} · ${escHtml(amt)}</span>${dismissBtn}</div>`;
   }
   return '';
 }
@@ -731,6 +738,17 @@ async function bankImportUndoSkip(i) {
   globalThis.showBanner('Row restored — ready to import', 'ok');
 }
 globalThis.bankImportUndoSkip = bankImportUndoSkip;
+
+function bankImportDismissMatch(i) {
+  const row = _bankImportRows[i];
+  if (!row) return;
+  row._bankMatchPreview = null;
+  row._bankMatchLocked = false;
+  row.uiConfirmed = false;
+  renderBankImportReview();
+  globalThis.showBanner('Match dismissed — assign property and category manually', 'ok');
+}
+globalThis.bankImportDismissMatch = bankImportDismissMatch;
 
 function bankImportConfirmAllSuggested() {
   _bankImportRows.forEach((row) => {
