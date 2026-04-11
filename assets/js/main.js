@@ -465,9 +465,7 @@ globalThis.handleAuthFailure = handleAuthFailure;
       initPropertyUI();
       attachButtonPress();
       attachModalHandleDrag();
-      document.getElementById('modal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
-      document.getElementById('detail-modal').addEventListener('click', function(e) { if (e.target === this) closeDetailModal(); });
-      document.getElementById('notify-modal').addEventListener('click', function(e) { if (e.target === this) closeNotifyModal(); });
+      // Modal backdrop listeners are registered once in initRenderEngine() — not duplicated here.
       const { uid } = getCleanerParams();
       if (!uid) {
         _showCleanerLinkError('Invalid cleaner link — ask the owner to re-send your link from Settings.');

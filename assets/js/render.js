@@ -2770,14 +2770,27 @@ if (isCleanerMode()) {
 // Safety net: re-render calendar after 100ms in case layout wasn't settled
 setTimeout(renderCalendar, 100);
 
-// Auto-refresh when user returns to app — throttled to once per 5 minutes
+// Auto-refresh when user returns to app — single handler for both owner and cleaner modes
 let _lastVisibilitySync = 0;
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && hasValidPropertyConfig()) {
+  if (document.visibilityState !== 'visible') return;
+
+  // Cleaner mode: refresh from Netlify function
+  if (isCleanerMode()) {
+    if (typeof hydrateCleanerFromFunction === 'function') {
+      hydrateCleanerFromFunction().then(ok => {
+        if (ok && typeof renderCleanerView === 'function') renderCleanerView();
+      }).catch(() => {});
+    }
+    setTimeout(_flushPendingUiRefresh, 120);
+    return;
+  }
+
+  // Owner mode: throttled Supabase re-hydrate (once per 5 min)
+  if (hasValidPropertyConfig()) {
     const now = Date.now();
     if (now - _lastVisibilitySync > 5 * 60 * 1000) {
       _lastVisibilitySync = now;
-      // Supabase is now the source — trigger a silent re-hydrate instead
       if (typeof globalThis.hydrateFromCloud === 'function') globalThis.hydrateFromCloud().then(() => {
         if (typeof reloadInMemoryData === 'function') reloadInMemoryData();
         if (typeof renderAll === 'function') renderAll();
@@ -2796,18 +2809,9 @@ window.addEventListener('pageshow', (e) => {
   setTimeout(_flushPendingUiRefresh, 120);
 });
 
-// Auto-refresh cleaner app when it comes back into focus or on interval
-if (isCleanerMode()) {
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) {
-      // Refresh from Netlify function for cleaner mode
-      hydrateCleanerFromFunction().then(ok => {
-        if (ok && typeof renderCleanerView === 'function') renderCleanerView();
-      }).catch(() => {});
-      setTimeout(_flushPendingUiRefresh, 120);
-    }
-  });
-} else {
+// Cleaner visibility listener merged into main handler above.
+// Owner app — poll Supabase every 60 seconds to catch cleaner updates.
+if (!isCleanerMode()) {
   // Owner app — poll Supabase every 60 seconds to catch cleaner updates.
   setInterval(() => {
     if (!document.hidden && hasValidPropertyConfig()) {
@@ -3636,9 +3640,13 @@ async function finishAppInit() {
   initSettingsSwipeBack();
   attachButtonPress();
   attachModalHandleDrag();
-  document.getElementById('modal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
-  document.getElementById('detail-modal').addEventListener('click', function(e) { if (e.target === this) closeDetailModal(); });
-  document.getElementById('notify-modal').addEventListener('click', function(e) { if (e.target === this) closeNotifyModal(); });
+  // Modal backdrop click — use onclick (not addEventListener) to prevent duplicate registration
+  const _modal = document.getElementById('modal');
+  const _detailModal = document.getElementById('detail-modal');
+  const _notifyModal = document.getElementById('notify-modal');
+  if (_modal) _modal.onclick = function(e) { if (e.target === this) closeModal(); };
+  if (_detailModal) _detailModal.onclick = function(e) { if (e.target === this) closeDetailModal(); };
+  if (_notifyModal) _notifyModal.onclick = function(e) { if (e.target === this) closeNotifyModal(); };
   if (isCleanerMode()) {
     const { uid } = getCleanerParams();
     if (!uid) {
