@@ -1374,7 +1374,8 @@ let revMonth = new Date().getMonth();
 function revPrev() { revMonth--; if(revMonth<0){revMonth=11;revYear--;} renderRevenue(); }
 function revNext() { revMonth++; if(revMonth>11){revMonth=0;revYear++;} renderRevenue(); }
 
-function _fmtAud(n) { return n.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function _fmtAud(n) { return Math.abs(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function _fmtPayout(n) { return n < 0 ? '− $' + _fmtAud(n) : '$' + _fmtAud(n); }
 
 function renderRevenue() {
   const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -1401,7 +1402,7 @@ function renderRevenue() {
 
   // ── Header cards ──
   document.getElementById('total-revenue').textContent = '$' + _fmtAud(totalHost);
-  document.getElementById('total-net').textContent = '$' + _fmtAud(finalPayout);
+  document.getElementById('total-net').textContent = _fmtPayout(finalPayout);
   document.getElementById('revenue-sub').textContent = monthBookings.length + ' booking' + (monthBookings.length!==1?'s':'');
 
   // ── Expense detail rows (for expandable section) ──
@@ -1419,26 +1420,27 @@ function renderRevenue() {
   if (isDeduct && totalExpenses > 0) {
     // Model A: expenses deducted before payout
     summaryHtml += `
-    <div class="finance-row" style="cursor:pointer" onclick="document.getElementById('rev-expense-detail').style.display=document.getElementById('rev-expense-detail').style.display==='none'?'block':'none'">
-      <span class="finance-label">Expenses (${monthExpenses.length}) <span style="font-size:10px;color:var(--text-soft)">▾</span></span>
+    <div class="finance-row" style="cursor:pointer;border-radius:6px;margin:0 -4px;padding:10px 4px;transition:background 0.15s" onclick="var d=document.getElementById('rev-expense-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.exp-chevron').textContent=open?'▾':'▴'" onmouseover="this.style.background='var(--mist)'" onmouseout="this.style.background=''">
+      <span class="finance-label" style="display:flex;align-items:center;gap:4px">Expenses (${monthExpenses.length}) <span class="exp-chevron" style="font-size:9px;color:var(--text-soft);transition:transform 0.2s">▾</span></span>
       <span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalExpenses)}</span>
     </div>
-    <div id="rev-expense-detail" style="display:none;padding:8px 12px;margin:-2px 0 4px;background:var(--mist);border-radius:8px">${expDetailHtml}</div>`;
+    <div id="rev-expense-detail" style="display:none;padding:10px 14px;margin:2px 0 6px;background:var(--mist);border-radius:10px">${expDetailHtml}</div>`;
   }
 
   const payoutColor = finalPayout >= 0 ? '#1D9E75' : '#E24B4A';
   summaryHtml += `
-    <div class="finance-row finance-total"><span class="finance-label">Owner payout</span><span class="finance-val" style="color:${payoutColor}">$${_fmtAud(finalPayout)}</span></div>
+    <div class="finance-row finance-total" style="border-top:1.5px solid var(--stone);padding-top:12px;margin-top:4px"><span class="finance-label" style="font-size:14px">Owner payout</span><span class="finance-val" style="color:${payoutColor};font-size:14px">${_fmtPayout(finalPayout)}</span></div>
   </div>`;
 
   if (!isDeduct && totalExpenses > 0) {
     // Model B: expenses shown separately below
     summaryHtml += `
-    <div style="margin-top:16px">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:8px;cursor:pointer" onclick="document.getElementById('rev-expense-detail').style.display=document.getElementById('rev-expense-detail').style.display==='none'?'block':'none'">
-        EXPENSES (${monthExpenses.length}) · $${_fmtAud(totalExpenses)} <span style="font-size:10px">▾</span>
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--warm)">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="var d=document.getElementById('rev-expense-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.exp-chevron').textContent=open?'▾':'▴'">
+        <span>EXPENSES (${monthExpenses.length}) <span class="exp-chevron" style="font-size:9px;transition:transform 0.2s">▾</span></span>
+        <span style="font-size:13px;font-weight:600;color:#E24B4A;letter-spacing:0;text-transform:none">$${_fmtAud(totalExpenses)}</span>
       </div>
-      <div id="rev-expense-detail" style="display:none;padding:8px 12px;background:var(--mist);border-radius:8px">${expDetailHtml}</div>
+      <div id="rev-expense-detail" style="display:none;padding:10px 14px;background:var(--mist);border-radius:10px">${expDetailHtml}</div>
     </div>`;
   }
 
