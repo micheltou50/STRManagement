@@ -1491,7 +1491,11 @@ function renderRevenue() {
   document.getElementById('revenue-sub').textContent = monthBookings.length + ' booking' + (monthBookings.length!==1?'s':'');
 
   // ── Expense detail row builder ──
-  const _expRow = (e) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:0.5px solid rgba(0,0,0,0.05)"><div style="min-width:0"><div style="color:var(--text);font-weight:500">${escHtml(e.category||'Uncategorised')}</div><div style="color:var(--text-soft);font-size:11px;margin-top:1px">${escHtml(e.description||'')}${e.date ? ' · ' + fmt(e.date) : ''}</div></div><div style="flex-shrink:0;color:#E24B4A;font-weight:500;margin-left:12px">$${_fmtAud(Math.abs(Number(e.amount||0)))}</div></div>`;
+  const _expRow = (e) => {
+    const verified = !!(e.reconciled || e.bank_transaction_id);
+    const badge = verified ? '<span style="font-size:10px;color:#1D9E75;margin-left:4px">✓ Bank</span>' : '';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:0.5px solid rgba(0,0,0,0.05)"><div style="min-width:0"><div style="color:var(--text);font-weight:500">${escHtml(e.category||'Uncategorised')}${badge}</div><div style="color:var(--text-soft);font-size:11px;margin-top:1px">${escHtml(e.description||'')}${e.date ? ' · ' + fmt(e.date) : ''}</div></div><div style="flex-shrink:0;color:#E24B4A;font-weight:500;margin-left:12px">$${_fmtAud(Math.abs(Number(e.amount||0)))}</div></div>`;
+  };
   const opDetailHtml = operationalExpenses.length ? [...operationalExpenses].sort((a,b) => new Date(a.date) - new Date(b.date)).map(_expRow).join('') : '<div style="color:var(--text-soft);font-size:12px;padding:8px 0">No operational expenses this month.</div>';
   const ownerDetailHtml = ownerPaidExpenses.length ? [...ownerPaidExpenses].sort((a,b) => new Date(a.date) - new Date(b.date)).map(_expRow).join('') : '';
 
@@ -2503,17 +2507,23 @@ function renderExpenses() {
       + '<div style="color:#C7C7CC;font-size:20px;font-weight:300">\u203A</div></div>'
     : '';
 
+  const svgBank = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M12 3l9 7H3l9-7z"/><path d="M5 10v8"/><path d="M10 10v8"/><path d="M14 10v8"/><path d="M19 10v8"/></svg>';
+
   const expRow = (e) => {
     const isRefund = Number(e.amount) < 0;
     const amtColor = isRefund ? '#1D9E75' : '#E24B4A';
     const prefix = isRefund ? '+' : '−';
     const catCol = getCategoryColor(e.category);
     const hasRec = expenseHasReceiptAttached(e);
+    const isBankVerified = !!(e.reconciled || e.bank_transaction_id);
     const descPart = (e.description || '').trim();
     const line2 = `${descPart ? `${escHtml(descPart)} · ` : ''}${fmt(e.date)}`;
     const recBlock = hasRec
-      ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#185FA5;font-family:'DM Sans',sans-serif">${svgClip}Receipt attached</span>`
+      ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#185FA5;font-family:'DM Sans',sans-serif">${svgClip}Receipt</span>`
       : `<span style="font-size:11px;color:#A32D2D;font-family:'DM Sans',sans-serif">No receipt</span>`;
+    const bankBlock = isBankVerified
+      ? `<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;color:#1D9E75;font-family:'DM Sans',sans-serif">${svgBank} Bank verified</span>`
+      : '';
     return `<div class="expense-item" data-expense-id="${e.id}" onclick="openExpenseView('${e.id}')"
       style="background:#fff;border-radius:10px;padding:12px 14px;display:flex;gap:12px;align-items:flex-start;cursor:pointer;border:0.5px solid rgba(0,0,0,0.06);
       box-shadow:0 1px 2px rgba(0,0,0,0.02);border-left:3px solid ${catCol};border-top-left-radius:0;border-bottom-left-radius:0;
@@ -2524,6 +2534,7 @@ function renderExpenses() {
         <div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap">
           <span style="font-size:11px;font-weight:600;color:${catCol}">${escHtml(e.category || '')}</span>
           ${recBlock}
+          ${bankBlock}
         </div>
       </div>
       <div style="font-size:15px;font-weight:500;color:${amtColor};flex-shrink:0;font-family:'DM Sans',sans-serif">${prefix}$${Math.abs(Number(e.amount)).toFixed(2)}</div>
