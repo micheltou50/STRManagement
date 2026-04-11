@@ -3055,6 +3055,7 @@ async function saveExpenseEdit() {
   }
 
   globalThis.savePropertyData();
+  if (typeof saveExpenseToCloud === 'function') saveExpenseToCloud(e).catch(err => console.warn('[StayOps] saveExpenseToCloud failed:', err));
   closeExpenseEdit();
   renderExpenses();
   globalThis.showBanner('✓ Expense updated', 'ok');
