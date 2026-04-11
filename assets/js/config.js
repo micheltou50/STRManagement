@@ -81,6 +81,7 @@ export const DEFAULT_PROPERTY_CONFIG = {
     maxBackups:            30,
     autoSyncIntervalMs:    30000,
     cleanerSyncIntervalMs: 60000,
+    expense_payout_mode:   'deduct', // 'deduct' = deduct from owner payout | 'separate' = show separately
   },
 };
 

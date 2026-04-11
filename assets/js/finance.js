@@ -1374,6 +1374,8 @@ let revMonth = new Date().getMonth();
 function revPrev() { revMonth--; if(revMonth<0){revMonth=11;revYear--;} renderRevenue(); }
 function revNext() { revMonth++; if(revMonth>11){revMonth=0;revYear++;} renderRevenue(); }
 
+function _fmtAud(n) { return n.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
 function renderRevenue() {
   const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   document.getElementById('rev-month-title').textContent = months[revMonth] + ' ' + revYear;
@@ -1385,18 +1387,64 @@ function renderRevenue() {
   const totalHost = monthBookings.reduce((s,b)=>s+Number(b.hostPayout||0),0);
   const totalCleaning = monthBookings.reduce((s,b)=>s+Number(b.cleaningFee||0),0);
   const totalMgmt = monthBookings.reduce((s,b)=>s+Number(b.mgmtFee||0),0);
-  // Net = (hostPayout - cleaningFee) * mgmtFee% — but mgmtFee is already the dollar amount
   const totalNet = monthBookings.reduce((s,b)=>s+Number(b.netPayout||0),0);
-  document.getElementById('total-revenue').textContent = '$' + totalHost.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
-  document.getElementById('total-net').textContent = '$' + totalNet.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  // ── Expenses for this month ──
+  const monthExpenses = _financeScopedExpenses().filter(e => {
+    const d = new Date(e.date);
+    return d.getMonth() === revMonth && d.getFullYear() === revYear;
+  });
+  const totalExpenses = monthExpenses.reduce((s,e) => s + Math.abs(Number(e.amount || 0)), 0);
+  const expenseMode = getExpensePayoutMode();
+  const isDeduct = expenseMode === 'deduct';
+  const finalPayout = isDeduct ? totalNet - totalExpenses : totalNet;
+
+  // ── Header cards ──
+  document.getElementById('total-revenue').textContent = '$' + _fmtAud(totalHost);
+  document.getElementById('total-net').textContent = '$' + _fmtAud(finalPayout);
   document.getElementById('revenue-sub').textContent = monthBookings.length + ' booking' + (monthBookings.length!==1?'s':'');
-  document.getElementById('finance-summary-content').innerHTML = `
-    <div class="finance-summary">
-      <div class="finance-row"><span class="finance-label">Gross revenue</span><span class="finance-val" style="color:#1a1a1a;font-weight:500">$${totalHost.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
-      <div class="finance-row"><span class="finance-label">Cleaning fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${totalCleaning.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
-      <div class="finance-row"><span class="finance-label">Management fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${totalMgmt.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
-      <div class="finance-row finance-total"><span class="finance-label">Owner payout</span><span class="finance-val" style="color:#1D9E75">$${totalNet.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
+
+  // ── Expense detail rows (for expandable section) ──
+  const expDetailHtml = monthExpenses.length ? monthExpenses
+    .sort((a,b) => new Date(a.date) - new Date(b.date))
+    .map(e => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:0.5px solid rgba(0,0,0,0.05)"><div style="min-width:0"><div style="color:var(--text);font-weight:500">${escHtml(e.category||'Uncategorised')}</div><div style="color:var(--text-soft);font-size:11px;margin-top:1px">${escHtml(e.description||'')}${e.date ? ' · ' + fmt(e.date) : ''}</div></div><div style="flex-shrink:0;color:#E24B4A;font-weight:500;margin-left:12px">$${_fmtAud(Math.abs(Number(e.amount||0)))}</div></div>`)
+    .join('') : '<div style="color:var(--text-soft);font-size:12px;padding:8px 0">No expenses this month.</div>';
+
+  // ── Summary section ──
+  let summaryHtml = `<div class="finance-summary">
+    <div class="finance-row"><span class="finance-label">Gross revenue</span><span class="finance-val" style="color:#1a1a1a;font-weight:500">$${_fmtAud(totalHost)}</span></div>
+    <div class="finance-row"><span class="finance-label">Cleaning fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalCleaning)}</span></div>
+    <div class="finance-row"><span class="finance-label">Management fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalMgmt)}</span></div>`;
+
+  if (isDeduct && totalExpenses > 0) {
+    // Model A: expenses deducted before payout
+    summaryHtml += `
+    <div class="finance-row" style="cursor:pointer" onclick="document.getElementById('rev-expense-detail').style.display=document.getElementById('rev-expense-detail').style.display==='none'?'block':'none'">
+      <span class="finance-label">Expenses (${monthExpenses.length}) <span style="font-size:10px;color:var(--text-soft)">▾</span></span>
+      <span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalExpenses)}</span>
+    </div>
+    <div id="rev-expense-detail" style="display:none;padding:8px 12px;margin:-2px 0 4px;background:var(--mist);border-radius:8px">${expDetailHtml}</div>`;
+  }
+
+  const payoutColor = finalPayout >= 0 ? '#1D9E75' : '#E24B4A';
+  summaryHtml += `
+    <div class="finance-row finance-total"><span class="finance-label">Owner payout</span><span class="finance-val" style="color:${payoutColor}">$${_fmtAud(finalPayout)}</span></div>
+  </div>`;
+
+  if (!isDeduct && totalExpenses > 0) {
+    // Model B: expenses shown separately below
+    summaryHtml += `
+    <div style="margin-top:16px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:8px;cursor:pointer" onclick="document.getElementById('rev-expense-detail').style.display=document.getElementById('rev-expense-detail').style.display==='none'?'block':'none'">
+        EXPENSES (${monthExpenses.length}) · $${_fmtAud(totalExpenses)} <span style="font-size:10px">▾</span>
+      </div>
+      <div id="rev-expense-detail" style="display:none;padding:8px 12px;background:var(--mist);border-radius:8px">${expDetailHtml}</div>
     </div>`;
+  }
+
+  document.getElementById('finance-summary-content').innerHTML = summaryHtml;
+
+  // ── Per-booking breakdown ──
   document.getElementById('revenue-breakdown').innerHTML = monthBookings.length ? [...monthBookings].sort((a,b)=>new Date(a.checkin)-new Date(b.checkin)).map(b=>`
     <div class="fin-rev-row">
       <div style="min-width:0"><div style="font-weight:500;font-size:14px;color:#1a1a1a">${escHtml(b.name||'')}</div><div style="font-size:11px;color:var(--text-soft);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n</div></div>
@@ -2874,6 +2922,7 @@ function populateMgmtFeePanel() {
     : '';
   const el = document.getElementById("settings-mgmt-fee-rate");
   if (el) el.value = rate !== null ? rate : "";
+  _renderExpensePayoutModeUI(getExpensePayoutMode());
 }
 
 async function saveMgmtFeeRate() {
@@ -2889,6 +2938,31 @@ async function saveMgmtFeeRate() {
   const confirm = document.getElementById("mgmt-fee-confirm");
   if (confirm) { confirm.style.display = "block"; setTimeout(() => { confirm.style.display = "none"; }, 2000); }
   globalThis.showBanner("✓ Management fee rate saved", "ok");
+}
+
+function getExpensePayoutMode() {
+  const cfg = getActivePropertyConfig();
+  return (cfg.settings && cfg.settings.expense_payout_mode) || 'deduct';
+}
+
+function setExpensePayoutMode(mode) {
+  if (mode !== 'deduct' && mode !== 'separate') return;
+  const cfg = getActivePropertyConfig();
+  savePropertyConfig({ settings: { ...(cfg.settings || {}), expense_payout_mode: mode } });
+  _renderExpensePayoutModeUI(mode);
+  globalThis.showBanner(mode === 'deduct' ? '✓ Expenses will be deducted from owner payout' : '✓ Expenses will be shown separately', 'ok');
+}
+globalThis.setExpensePayoutMode = setExpensePayoutMode;
+
+function _renderExpensePayoutModeUI(mode) {
+  const deductRadio   = document.getElementById('expense-mode-deduct');
+  const separateRadio = document.getElementById('expense-mode-separate');
+  const deductLabel   = document.getElementById('expense-mode-deduct-label');
+  const separateLabel = document.getElementById('expense-mode-separate-label');
+  if (deductRadio)   deductRadio.checked   = mode === 'deduct';
+  if (separateRadio) separateRadio.checked  = mode === 'separate';
+  if (deductLabel)   deductLabel.style.borderColor   = mode === 'deduct'   ? 'var(--forest)' : 'var(--stone)';
+  if (separateLabel) separateLabel.style.borderColor  = mode === 'separate' ? 'var(--forest)' : 'var(--stone)';
 }
 
 function _setVal(id, val) {

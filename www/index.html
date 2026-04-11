@@ -290,6 +290,7 @@
   <div class="cleaner-tab-bar">
     <button class="cleaner-tab active" id="ctab-cleans" onclick="switchCleanerTab('cleans')">🧹 My Cleans</button>
     <button class="cleaner-tab" id="ctab-inventory" onclick="switchCleanerTab('inventory')">📦 Inventory</button>
+    <button class="cleaner-tab" id="ctab-chat" onclick="switchCleanerTab('chat')">💬 Chat</button>
   </div>
   <!-- Content -->
   <div class="cleaner-content">
@@ -308,6 +309,9 @@
         <button onclick="cleanerAddInventoryItem()" style="background:var(--forest);color:white;border:none;border-radius:20px;padding:7px 14px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">+ Add Item</button>
       </div>
       <div id="cleaner-inventory-list"></div>
+    </div>
+    <div id="cleaner-chat-view" style="display:none">
+      <div id="cleaner-chat-container"></div>
     </div>
   </div>
 </div>
@@ -356,7 +360,7 @@
     <div id="back-to-portfolio-link" style="display:none;padding:0 0 8px">
       <span style="font-size:13px;font-weight:600;color:var(--forest);cursor:pointer" onclick="switchToPortfolioFromSheet()">← All properties</span>
     </div>
-    <div id="dashboard-product-guidance" style="display:none"></div>
+    <div id="dashboard-product-guidance"></div>
     <div id="dashboard-plan-nudges" style="display:none"></div>
     <!-- Today (single-property): status, needs attention, unified calendar (Daily/Weekly/Monthly), stats — injected by render.js -->
     <div id="dashboard-today-mount" style="background:#f5f5f3;margin-left:-16px;margin-right:-16px;padding:16px;padding-bottom:12px;min-height:80px"></div>
@@ -650,11 +654,11 @@
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
               <div style="text-align:center;padding:14px 10px;background:#fff;border-radius:12px;border:0.5px solid rgba(0,0,0,0.08)">
                 <div id="total-revenue" style="font-size:22px;font-weight:500;color:#1a1a1a;font-family:'DM Sans',sans-serif">$0</div>
-                <div style="font-size:11px;color:var(--text-soft);margin-top:6px">Host payout</div>
+                <div style="font-size:11px;color:var(--text-soft);margin-top:6px">Gross revenue</div>
               </div>
               <div style="text-align:center;padding:14px 10px;background:#fff;border-radius:12px;border:0.5px solid rgba(0,0,0,0.08)">
                 <div id="total-net" style="font-size:22px;font-weight:500;color:#1D9E75;font-family:'DM Sans',sans-serif">$0</div>
-                <div style="font-size:11px;color:var(--text-soft);margin-top:6px">Net payout</div>
+                <div style="font-size:11px;color:var(--text-soft);margin-top:6px">Owner payout</div>
               </div>
             </div>
             <div style="font-size:12px;color:var(--text-soft);text-align:center;margin-bottom:12px" id="revenue-sub">0 bookings</div>
@@ -1110,6 +1114,21 @@
         </div>
         <button class="btn-primary" onclick="saveMgmtFeeRate()" style="width:100%;margin-top:12px">Save</button>
         <div id="mgmt-fee-confirm" style="display:none;margin-top:8px;font-size:12px;color:var(--forest);text-align:center">✓ Saved</div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-title">📊 Expenses in Owner Reports</div>
+        <div style="font-size:12px;color:var(--text-soft);margin-bottom:14px;line-height:1.5">Choose how property expenses appear in the owner payout report.</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border-radius:var(--radius-sm);border:1.5px solid var(--stone);cursor:pointer;transition:border-color 0.15s" id="expense-mode-deduct-label" onclick="setExpensePayoutMode('deduct')">
+            <input type="radio" name="expense-payout-mode" id="expense-mode-deduct" value="deduct" style="margin-top:2px;accent-color:var(--forest)">
+            <div><div style="font-size:13px;font-weight:600;color:var(--text)">Deduct from owner payout</div><div style="font-size:11px;color:var(--text-soft);margin-top:2px;line-height:1.4">Manager pays expenses and sends owner the remainder. Expenses are subtracted from the payout total.</div></div>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border-radius:var(--radius-sm);border:1.5px solid var(--stone);cursor:pointer;transition:border-color 0.15s" id="expense-mode-separate-label" onclick="setExpensePayoutMode('separate')">
+            <input type="radio" name="expense-payout-mode" id="expense-mode-separate" value="separate" style="margin-top:2px;accent-color:var(--forest)">
+            <div><div style="font-size:13px;font-weight:600;color:var(--text)">Show separately</div><div style="font-size:11px;color:var(--text-soft);margin-top:2px;line-height:1.4">Owner pays expenses directly. Expenses are listed for reference but not deducted from the payout.</div></div>
+          </label>
+        </div>
       </div>
     </div>
 
@@ -1574,14 +1593,14 @@
       <input type="number" id="b-nights" placeholder="Auto-calculated" readonly style="background:var(--warm)">
       <!-- Financials -->
       <div class="form-row">
-        <div class="field"><label>Host Payout ($)</label><input type="number" id="b-hostpayout" placeholder="0" oninput="calcNet()"></div>
+        <div class="field"><label>Gross Revenue ($)</label><input type="number" id="b-hostpayout" placeholder="0" oninput="calcNet()"></div>
         <div class="field"><label>Cleaning Fee ($)</label><input type="number" id="b-cleaningfee" placeholder="0" oninput="calcNet()"></div>
       </div>
       <div class="form-row">
         <div class="field"><label>Mgmt Fee (%)</label><input type="number" id="b-mgmtfee" placeholder="e.g. 10" min="0" max="100" step="0.1" oninput="calcNet()"></div>
         <div class="field"><label>Mgmt Payout</label><input type="text" id="b-mgmtpayout" placeholder="Calc by sheet" style="background:var(--warm);color:var(--text-soft);font-style:italic" readonly></div>
       </div>
-      <label>Net Payout ($)</label>
+      <label>Owner Payout ($)</label>
       <input type="text" id="b-netpayout" placeholder="Calculated by sheet" style="background:var(--warm);color:var(--text-soft);font-style:italic" readonly>
       <label>Status</label>
       <select id="b-status">
@@ -1627,7 +1646,7 @@
       <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px">Import from spreadsheet (legacy)</div>
       <div style="background:var(--mist);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--text-soft)">
         Columns must be in this order:<br><br>
-        <strong>Check In · Nights · Check Out · Guest Name · Guests · Host Payout · Cleaning Fee · Mgmt Fee · Mgmt Payout · Net Payout · Cleaner Confirmed</strong>
+        <strong>Check In · Nights · Check Out · Guest Name · Guests · Gross Revenue · Cleaning Fee · Mgmt Fee · Mgmt Payout · Owner Payout · Cleaner Confirmed</strong>
       </div>
       <div class="import-area" onclick="document.getElementById('csv-file').click()">
         <div class="import-icon">📂</div>
@@ -1647,6 +1666,13 @@
     <div id="detail-content"></div>
     <button class="btn-secondary" onclick="closeDetailModal()">Close</button>
   </div>
+</div>
+
+<!-- ══ STAYOPS CHAT ══ -->
+<div id="stayops-chat-bubble"></div>
+<div id="stayops-chat-panel" style="display:none;position:fixed;bottom:0;left:0;right:0;top:0;z-index:9990">
+  <div id="stayops-chat-backdrop" onclick="closeChat()" style="position:absolute;inset:0;background:rgba(0,0,0,0.3)"></div>
+  <div id="stayops-chat-content" style="position:absolute;bottom:0;left:0;right:0;max-height:85vh;background:#fff;border-radius:20px 20px 0 0;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 -4px 20px rgba(0,0,0,0.15)"></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
