@@ -2893,7 +2893,7 @@ function clearEditExpensePhoto() {
   editingExpensePhotoBase64 = null;
   document.getElementById('ee-photo-preview').style.display = 'none';
   document.getElementById('ee-file-input').value = '';
-  const e = expenses.find(e => e.id === editingExpenseId);
+  const e = expenses.find(x => String(x.id) === String(editingExpenseId) || String(x._cloudId) === String(editingExpenseId));
   document.getElementById('ee-receipt-label').textContent = e && e.driveLink ? 'Upload a replacement receipt' : 'Upload receipt photo';
 }
 function openExpenseView(id) {
@@ -3013,7 +3013,7 @@ function closeExpenseEdit() {
   editingExpensePhotoBase64 = null;
 }
 async function saveExpenseEdit() {
-  const e = expenses.find(e => e.id === editingExpenseId);
+  const e = expenses.find(x => String(x.id) === String(editingExpenseId) || String(x._cloudId) === String(editingExpenseId));
   if (!e) return;
   e.merchant = document.getElementById('ee-merchant').value.trim();
   e.description = document.getElementById('ee-description').value.trim();
