@@ -154,6 +154,7 @@ let _bankImportBackupHtml = null;
 let _bankImportViewMode = 'single';
 let _bankImportRows = [];
 let _bankImportFilename = '';
+let _bankImportCreatedExpenseIds = [];
 
 function bankImportGetContainer() {
   if (_bankImportViewMode === 'portfolio') {
@@ -736,6 +737,7 @@ async function bankImportRunImport() {
   let imported = 0;
   let matchedCount = 0;
   let createdCount = 0;
+  _bankImportCreatedExpenseIds = [];
   const duplicates = _bankImportRows.filter((r) => r.isDuplicate).length;
 
   try {
@@ -745,7 +747,10 @@ async function bankImportRunImport() {
       try {
         const row = await confirmTransaction(r, userId, r.propertyId, r.category);
         if (row && row.action === 'matched') matchedCount++;
-        else if (row && row.action === 'created') createdCount++;
+        else if (row && row.action === 'created') {
+          createdCount++;
+          if (row.expense && row.expense.id) _bankImportCreatedExpenseIds.push({ id: row.expense.id, description: r.description, amount: r.amount, date: r.date });
+        }
         imported++;
         const local = {
           id: Date.now() + n,
@@ -790,10 +795,50 @@ async function bankImportRunImport() {
         ' skipped',
       'ok'
     );
+
+    // Show receipt prompt for newly created expenses
+    if (_bankImportCreatedExpenseIds.length) {
+      setTimeout(() => _showBankImportReceiptPrompt(), 600);
+    }
   } finally {
     exitBankImportReview();
   }
 }
+function _showBankImportReceiptPrompt() {
+  const items = _bankImportCreatedExpenseIds;
+  if (!items.length) return;
+  const fmtAmt = (n) => '$' + Math.abs(Number(n || 0)).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const list = items.map((e, i) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;${i < items.length - 1 ? 'border-bottom:0.5px solid rgba(0,0,0,0.06)' : ''}">
+      <div style="min-width:0;flex:1">
+        <div style="font-size:13px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml((e.description || '').slice(0, 40))}</div>
+        <div style="font-size:11px;color:var(--text-soft);margin-top:2px">${e.date ? fmt(e.date) : ''} · ${fmtAmt(e.amount)}</div>
+      </div>
+      <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow='';openExpenseEdit('${e.id}')" style="flex-shrink:0;margin-left:10px;padding:6px 12px;border-radius:8px;border:1.5px solid var(--forest);background:white;color:var(--forest);font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Add Receipt</button>
+    </div>`).join('');
+
+  let overlay = document.getElementById('bank-receipt-prompt-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'bank-receipt-prompt-overlay';
+    document.body.appendChild(overlay);
+  }
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.4);display:flex;align-items:flex-end;justify-content:center';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:16px 16px 0 0;width:100%;max-width:500px;max-height:70vh;overflow-y:auto;padding:20px 16px env(safe-area-inset-bottom,0);animation:settingsPanelIn 0.28s cubic-bezier(0.32,0.72,0,1)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--forest)">Add Receipts</div>
+          <div style="font-size:12px;color:var(--text-soft);margin-top:2px">${items.length} expense${items.length !== 1 ? 's' : ''} created — attach receipts now or later</div>
+        </div>
+        <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow=''" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--mist);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-soft)">×</button>
+      </div>
+      ${list}
+      <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow=''" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--mist);color:var(--text-soft);font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Skip for Now</button>
+    </div>`;
+  document.body.style.overflow = 'hidden';
+}
+
 // ── FINANCE HUB NAVIGATION ───────────────────────────────────────────────────
 
 /** Call when leaving the Finance tab (except when opening Settings from Finance). */
