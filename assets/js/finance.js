@@ -2326,21 +2326,15 @@ function syncExpensePillStyles() {
 }
 
 function bindExpenseFilterUi() {
-  if (globalThis._expFilterUiBound) return;
-  globalThis._expFilterUiBound = true;
-  document.getElementById('expense-search')?.addEventListener('input', () => renderExpenses());
-  document.getElementById('exp-pill-cat')?.addEventListener('click', (ev) => {
-    ev.stopPropagation();
-    openExpFilterDropdown('cat');
-  });
-  document.getElementById('exp-pill-receipt')?.addEventListener('click', (ev) => {
-    ev.stopPropagation();
-    openExpFilterDropdown('receipt');
-  });
-  document.getElementById('exp-pill-date')?.addEventListener('click', (ev) => {
-    ev.stopPropagation();
-    openExpFilterDropdown('date');
-  });
+  // Use onclick assignment instead of addEventListener to avoid stale/duplicate bindings
+  const search = document.getElementById('expense-search');
+  if (search && !search._expBound) { search.addEventListener('input', () => renderExpenses()); search._expBound = true; }
+  const pillCat = document.getElementById('exp-pill-cat');
+  if (pillCat) pillCat.onclick = (ev) => { ev.stopPropagation(); openExpFilterDropdown('cat'); };
+  const pillRec = document.getElementById('exp-pill-receipt');
+  if (pillRec) pillRec.onclick = (ev) => { ev.stopPropagation(); openExpFilterDropdown('receipt'); };
+  const pillDate = document.getElementById('exp-pill-date');
+  if (pillDate) pillDate.onclick = (ev) => { ev.stopPropagation(); openExpFilterDropdown('date'); };
   document.getElementById('expense-filter-from')?.addEventListener('change', () => {
     renderExpenses();
   });
