@@ -2897,7 +2897,7 @@ function clearEditExpensePhoto() {
   document.getElementById('ee-receipt-label').textContent = e && e.driveLink ? 'Upload a replacement receipt' : 'Upload receipt photo';
 }
 function openExpenseView(id) {
-  const e = expenses.find(x => x.id === id);
+  const e = expenses.find(x => String(x.id) === String(id) || String(x._cloudId) === String(id));
   if (!e) return;
   const isRefund   = Number(e.amount) < 0;
   const amtColor   = isRefund ? '#27AE60' : '#C0392B';
@@ -2978,7 +2978,7 @@ function openExpenseView(id) {
 }
 
 function openExpenseEdit(id) {
-  const e = expenses.find(e => e.id === id);
+  const e = expenses.find(x => String(x.id) === String(id) || String(x._cloudId) === String(id));
   if (!e) return;
   editingExpenseId = id;
   editingExpensePhotoBase64 = null;
