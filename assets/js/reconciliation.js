@@ -53,7 +53,7 @@ function scoreExpenseToTransaction(expenseDate, expenseAmount, txnDate, txnAmoun
     return { score: 80, matchReason: 'Date within 1 day, exact amount' };
   }
   if (days >= 2 && days <= 3 && exactAmt) {
-    return { score: 60, matchReason: 'Date within 2-3 days, exact amount' };
+    return { score: 85, matchReason: 'Date within 2-3 days, exact amount' };
   }
   if (days === 0 && !exactAmt) {
     return { score: 50, matchReason: 'Exact date, amount within $0.50' };
