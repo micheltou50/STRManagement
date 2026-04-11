@@ -863,9 +863,12 @@ export async function saveExpenseToCloud(expense) {
         .upsert(payload, { onConflict: 'local_id,user_id' })
         .select().single();
       if (data) expense._cloudId = data.id;
+      return data;
     }
+    return expense;
   } catch (e) {
     console.warn('[StayOps] saveExpenseToCloud failed', e);
+    return null;
   }
 }
 

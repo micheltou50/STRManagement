@@ -2693,8 +2693,13 @@ function addExpense(opts = {}) {
   try { globalThis.savePropertyData(); } catch(storageErr) {
     globalThis.showBanner('⚠ Storage full — expense saved without photo', 'warn');
   }
-  // Sync to Supabase (non-blocking)
-  if (typeof saveExpenseToCloud === 'function') saveExpenseToCloud(exp).catch(e => console.warn("[StayOps] silent error:", e));
+  // Sync to Supabase (non-blocking), then auto-link to bank transaction if pending
+  if (typeof saveExpenseToCloud === 'function') {
+    saveExpenseToCloud(exp).then(saved => {
+      const cloudId = saved && (saved.id || saved._cloudId);
+      if (cloudId && typeof _autoLinkPendingReconTxn === 'function') _autoLinkPendingReconTxn(cloudId);
+    }).catch(e => console.warn("[StayOps] silent error:", e));
+  }
 
   // Try to upload photo to Drive and push to sheet
   const expWithPhoto = Object.assign({}, exp, { photo: photoForUpload, _mediaType: mediaTypeForUpload });
@@ -4253,7 +4258,11 @@ async function reconLinkToExpense(txnId, expenseId) {
 globalThis.reconLinkToExpense = reconLinkToExpense;
 
 /** Pre-fill the expense form from an unaccounted transaction, then navigate to expenses. */
+let _pendingReconTxnId = null;
+
 function reconCreateExpense(txnId, date, amount, description) {
+  _pendingReconTxnId = txnId; // Store txnId to auto-link after expense is saved
+
   // Navigate to the expenses sub-view
   showFinanceSub('expenses');
 
@@ -4273,6 +4282,21 @@ function reconCreateExpense(txnId, date, amount, description) {
     if (descEl)   descEl.value   = description;
   }, 100);
 }
+
+/** Called after addExpense() saves — auto-links to pending bank transaction if any */
+async function _autoLinkPendingReconTxn(expenseId) {
+  const txnId = _pendingReconTxnId;
+  _pendingReconTxnId = null;
+  if (!txnId || !expenseId || !window._sb) return;
+  try {
+    await window._sb.from('bank_transactions').update({ expense_id: expenseId }).eq('id', txnId);
+    await window._sb.from('expenses').update({ reconciled: true, bank_transaction_id: txnId, payment_status: 'paid' }).eq('id', expenseId);
+    globalThis.showBanner('✓ Expense created & linked to bank transaction', 'ok');
+  } catch (e) {
+    console.warn('[StayOps] Auto-link recon failed:', e);
+  }
+}
+globalThis._autoLinkPendingReconTxn = _autoLinkPendingReconTxn;
 
 export {
   backToFinanceHub,
