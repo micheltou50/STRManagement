@@ -1402,7 +1402,8 @@ function renderRevenue() {
 
   // ── Header cards ──
   document.getElementById('total-revenue').textContent = '$' + _fmtAud(totalHost);
-  document.getElementById('total-net').textContent = _fmtPayout(finalPayout);
+  const netEl = document.getElementById('total-net');
+  if (netEl) { netEl.textContent = _fmtPayout(finalPayout); netEl.style.color = finalPayout >= 0 ? '#1D9E75' : '#E24B4A'; }
   document.getElementById('revenue-sub').textContent = monthBookings.length + ' booking' + (monthBookings.length!==1?'s':'');
 
   // ── Expense detail rows (for expandable section) ──
