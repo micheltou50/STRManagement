@@ -413,7 +413,7 @@ function canBankImportRow(r) {
   if (r.skip && r.reason === 'personal') return false;
   if (r.userMarkedSkip) return false;
   if (r.userMarkedPersonal) return false;
-  if (!r.uiConfirmed) return false;
+  if (r.isDuplicate) return false;
   const pid = String(r.propertyId || '').trim();
   const cat = String(r.category || '').trim();
   if (!pid || !cat) return false;
@@ -496,8 +496,7 @@ function renderBankImportReview() {
           <strong>${ready}</strong> ready to import · <strong>${skipped}</strong> skipped · <strong>${dups}</strong> duplicates
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:8px">
-          <button type="button" onclick="globalThis.bankImportConfirmAllSuggested()" style="font-size:12px;padding:8px 12px;border-radius:8px;border:1px solid var(--forest);background:var(--mist);color:var(--forest);font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Confirm All Suggested</button>
-          <button type="button" id="bank-import-run-btn" onclick="globalThis.bankImportRunImport()" ${importBlocked ? 'disabled' : ''} style="font-size:12px;padding:8px 14px;border-radius:8px;border:none;background:${importBlocked ? 'var(--stone)' : 'var(--forest)'};color:${importBlocked ? 'var(--text-soft)' : 'white'};font-weight:600;cursor:${importBlocked ? 'not-allowed' : 'pointer'};font-family:'DM Sans',sans-serif">Import All Confirmed</button>
+          <button type="button" id="bank-import-run-btn" onclick="globalThis.bankImportRunImport()" style="font-size:12px;padding:8px 14px;border-radius:8px;border:none;background:var(--forest);color:white;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Import All</button>
         </div>
       </div>
     </div>`;
