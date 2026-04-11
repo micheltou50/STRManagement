@@ -605,8 +605,9 @@ async function bankImportOnFileSelected(ev) {
   reader.onload = async (e) => {
     const fileText = e.target && e.target.result ? String(e.target.result) : '';
     const parsed = await parseCSV(fileText);
+    console.log('[StayOps] Bank CSV parsed:', parsed.length, 'rows from', fileText.length, 'chars');
     if (!parsed.length) {
-      globalThis.showBanner('No expense transactions found in this file', 'warn');
+      globalThis.showBanner('No expense transactions found — check the file format (CSV or tab-delimited)', 'warn');
       _bankImportViewMode =
         typeof isPortfolioMode === 'function' && isPortfolioMode() ? 'portfolio' : 'single';
       return;
@@ -643,8 +644,9 @@ async function bankImportOnFileSelected(ev) {
 
       renderBankImportReview();
     } catch (err) {
-      console.log('[StayOps] Bank import failed:', err && err.message ? err.message : err);
-      globalThis.showBanner('Could not analyse this file — try again', 'warn');
+      const msg = err && err.message ? err.message : String(err);
+      console.error('[StayOps] Bank import failed:', msg, err);
+      globalThis.showBanner('Import error: ' + msg.slice(0, 80), 'warn');
       bankImportRestoreBackup();
     }
   };
