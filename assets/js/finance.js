@@ -155,6 +155,7 @@ let _bankImportViewMode = 'single';
 let _bankImportRows = [];
 let _bankImportFilename = '';
 let _bankImportCreatedExpenseIds = [];
+let _bankImportJustImported = false;
 
 function bankImportGetContainer() {
   if (_bankImportViewMode === 'portfolio') {
@@ -819,9 +820,13 @@ async function bankImportRunImport() {
       'ok'
     );
 
-    // Show receipt prompt for newly created expenses
+    // Show receipt prompt for newly created expenses, then go to Transaction Map
+    _bankImportJustImported = true;
     if (_bankImportCreatedExpenseIds.length) {
       setTimeout(() => _showBankImportReceiptPrompt(), 600);
+    } else {
+      // No new expenses — go straight to Transaction Map
+      setTimeout(() => showReconciliationView(), 600);
     }
   } finally {
     exitBankImportReview();
@@ -857,7 +862,7 @@ function _showBankImportReceiptPrompt() {
         <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow=''" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--mist);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-soft)">×</button>
       </div>
       ${list}
-      <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow=''" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--mist);color:var(--text-soft);font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Skip for Now</button>
+      <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow='';if(typeof showReconciliationView==='function')showReconciliationView()" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--forest);color:white;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">View Transaction Map →</button>
     </div>`;
   document.body.style.overflow = 'hidden';
 }
@@ -4002,15 +4007,15 @@ async function renderReconciliationView() {
   summaryBar.innerHTML = `
     <div style="display:flex;gap:8px;padding:0 16px;margin:0 auto 12px;max-width:560px;flex-wrap:wrap">
       <div style="flex:1;min-width:100px;background:#E8F5E9;border-radius:8px;padding:8px 12px;text-align:center">
-        <div style="font-size:18px;font-weight:600;color:#2E7D32">$${fmt(totals.matched)}</div>
+        <div style="font-size:18px;font-weight:600;color:#2E7D32">$${_fmtAud(totals.matched)}</div>
         <div style="font-size:11px;color:#388E3C">Matched</div>
       </div>
       <div style="flex:1;min-width:100px;background:#FFF3E0;border-radius:8px;padding:8px 12px;text-align:center">
-        <div style="font-size:18px;font-weight:600;color:#E65100">$${fmt(totals.unaccounted)}</div>
+        <div style="font-size:18px;font-weight:600;color:#E65100">$${_fmtAud(totals.unaccounted)}</div>
         <div style="font-size:11px;color:#F57C00">Unaccounted</div>
       </div>
       <div style="flex:1;min-width:100px;background:#F3E5F5;border-radius:8px;padding:8px 12px;text-align:center">
-        <div style="font-size:18px;font-weight:600;color:#7B1FA2">$${fmt(totals.personal)}</div>
+        <div style="font-size:18px;font-weight:600;color:#7B1FA2">$${_fmtAud(totals.personal)}</div>
         <div style="font-size:11px;color:#9C27B0">Personal</div>
       </div>
     </div>`;
@@ -4059,9 +4064,9 @@ function renderReconciliationList(container) {
   }
 
   container.innerHTML = filtered.map(t => {
-    const dateStr = t.date || '';
+    const dateStr = t.date ? fmt(t.date) : '';
     const desc    = escHtml(t.description || 'No description');
-    const amt     = fmt(Math.abs(t.amount));
+    const amt     = _fmtAud(Math.abs(t.amount));
 
     let badge = '';
     let rightInfo = '';
@@ -4079,7 +4084,11 @@ function renderReconciliationList(container) {
     } else {
       badge = `<span style="display:inline-block;font-size:11px;background:#FFF3E0;color:#E65100;border-radius:4px;padding:2px 8px;margin-bottom:4px">Unaccounted</span>`;
       const safeDesc = escapeJsSingleQuotedHtmlAttr(t.description || '');
-      rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badge}<button onclick="reconCreateExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(dateStr)}','${amt}','${safeDesc}')" style="font-size:11px;color:#185FA5;background:none;border:1px solid #185FA5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">Create Expense</button></div>`;
+      const rawAmt = Math.abs(t.amount).toFixed(2);
+      const rawDate = t.date || '';
+      rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badge}
+        <button onclick="reconMatchExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}')" style="font-size:11px;color:#1D9E75;background:none;border:1px solid #1D9E75;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">Match Expense</button>
+        <button onclick="reconCreateExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}','${safeDesc}')" style="font-size:11px;color:#185FA5;background:none;border:1px solid #185FA5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">Create New</button></div>`;
     }
 
     return `<div style="background:#fff;border-radius:10px;padding:12px 14px;margin-bottom:8px;border:0.5px solid rgba(0,0,0,0.06);display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
@@ -4092,6 +4101,92 @@ function renderReconciliationList(container) {
     </div>`;
   }).join('');
 }
+
+/** Show nearby expenses to match an unaccounted transaction to */
+async function reconMatchExpense(txnId, date, amount) {
+  const amt = Number(amount);
+  const txnDate = new Date(date + 'T00:00:00');
+  if (Number.isNaN(txnDate.getTime())) { globalThis.showBanner('Invalid date', 'warn'); return; }
+
+  // Find unreconciled expenses within ±7 days and ±50% amount
+  const nearby = (Array.isArray(expenses) ? expenses : []).filter(e => {
+    if (e.reconciled || e.bank_transaction_id) return false;
+    const eDate = new Date((e.date || '') + 'T00:00:00');
+    if (Number.isNaN(eDate.getTime())) return false;
+    const dayDiff = Math.abs((eDate - txnDate) / 86400000);
+    if (dayDiff > 7) return false;
+    const eAmt = Math.abs(Number(e.amount || 0));
+    if (eAmt === 0) return false;
+    const amtDiff = Math.abs(eAmt - amt);
+    if (amtDiff > amt * 0.5 && amtDiff > 5) return false;
+    return true;
+  }).sort((a, b) => {
+    // Sort by: exact amount first, then by date proximity
+    const aDiff = Math.abs(Math.abs(Number(a.amount)) - amt);
+    const bDiff = Math.abs(Math.abs(Number(b.amount)) - amt);
+    if (aDiff < 1 && bDiff >= 1) return -1;
+    if (bDiff < 1 && aDiff >= 1) return 1;
+    const aDate = Math.abs(new Date((a.date || '') + 'T00:00:00') - txnDate);
+    const bDate = Math.abs(new Date((b.date || '') + 'T00:00:00') - txnDate);
+    return aDate - bDate;
+  }).slice(0, 8);
+
+  if (!nearby.length) {
+    globalThis.showBanner('No similar expenses found within 7 days — try Create New instead', 'warn');
+    return;
+  }
+
+  const list = nearby.map(e => {
+    const eAmt = Math.abs(Number(e.amount || 0));
+    const exactAmt = Math.abs(eAmt - amt) < 0.02;
+    const amtBadge = exactAmt ? '<span style="color:#1D9E75;font-weight:600;font-size:10px;margin-left:4px">exact match</span>' : '';
+    const eid = escapeJsSingleQuotedHtmlAttr(String(e._cloudId || e.id));
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:0.5px solid rgba(0,0,0,0.06);cursor:pointer" onclick="reconLinkToExpense('${escapeJsSingleQuotedHtmlAttr(txnId)}','${eid}')">
+      <div style="min-width:0;flex:1">
+        <div style="font-size:13px;font-weight:500;color:var(--text)">${escHtml(e.merchant || e.description || 'Expense')}${amtBadge}</div>
+        <div style="font-size:11px;color:var(--text-soft);margin-top:2px">${fmt(e.date)} · $${_fmtAud(eAmt)} · ${escHtml(e.category || '')}</div>
+      </div>
+      <div style="flex-shrink:0;margin-left:8px;color:var(--moss);font-size:12px;font-weight:600">Link →</div>
+    </div>`;
+  }).join('');
+
+  let overlay = document.getElementById('recon-match-overlay');
+  if (!overlay) { overlay = document.createElement('div'); overlay.id = 'recon-match-overlay'; document.body.appendChild(overlay); }
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.4);display:flex;align-items:flex-end;justify-content:center';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:16px 16px 0 0;width:100%;max-width:500px;max-height:70vh;overflow-y:auto;padding:20px 16px 24px;animation:settingsPanelIn 0.28s cubic-bezier(0.32,0.72,0,1)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--forest)">Match to Expense</div>
+          <div style="font-size:12px;color:var(--text-soft);margin-top:2px">Transaction: $${_fmtAud(amt)} on ${fmt(date)}</div>
+        </div>
+        <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--mist);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-soft)">×</button>
+      </div>
+      <div style="font-size:12px;color:var(--text-soft);margin-bottom:10px">${nearby.length} similar expense${nearby.length !== 1 ? 's' : ''} found — tap to link</div>
+      ${list}
+      <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--mist);color:var(--text-soft);font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Cancel</button>
+    </div>`;
+  document.body.style.overflow = 'hidden';
+}
+globalThis.reconMatchExpense = reconMatchExpense;
+
+/** Link a bank transaction to an existing expense */
+async function reconLinkToExpense(txnId, expenseId) {
+  const sb = window._sb;
+  if (!sb) return;
+  try {
+    await sb.from('bank_transactions').update({ expense_id: expenseId }).eq('id', txnId);
+    await sb.from('expenses').update({ reconciled: true, bank_transaction_id: txnId, payment_status: 'paid' }).eq('id', expenseId);
+    const overlay = document.getElementById('recon-match-overlay');
+    if (overlay) { overlay.style.display = 'none'; }
+    document.body.style.overflow = '';
+    globalThis.showBanner('✓ Transaction linked to expense', 'ok');
+    renderReconciliationView();
+  } catch (err) {
+    globalThis.showBanner('Failed to link: ' + (err.message || err), 'error');
+  }
+}
+globalThis.reconLinkToExpense = reconLinkToExpense;
 
 /** Pre-fill the expense form from an unaccounted transaction, then navigate to expenses. */
 function reconCreateExpense(txnId, date, amount, description) {
