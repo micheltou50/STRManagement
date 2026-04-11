@@ -47,6 +47,13 @@ const FINANCE_CATEGORY_COLOR_MAP = {
   'Professional Services': '#378ADD',
   'Maintenance & Repairs': '#993C1D',
   Renovation: '#D85A30',
+  Mortgage: '#7B1FA2',
+  'Council Rates': '#C17F3E',
+  Strata: '#5D4E37',
+  Advertising: '#0277BD',
+  Linen: '#00897B',
+  Gardening: '#2E7D32',
+  'Pest Control': '#E65100',
   Other: '#888780',
 };
 const FINANCE_CATEGORY_COLOR_FALLBACK = [
@@ -231,7 +238,7 @@ async function bankImportApplyMatchPreviews(rows, userId) {
         if (ex.property_id) r.propertyId = String(ex.property_id);
         if (ex.category != null && String(ex.category).trim()) {
           // Normalize display-name categories to snake_case dropdown values
-          const catMap = { 'cleaning & garden': 'cleaning', 'maintenance & repairs': 'maintenance', 'supplies & consumables': 'supplies', 'utilities & rates': 'utilities', 'furnishings & equipment': 'furniture', 'professional services': 'accounting', 'renovation': 'maintenance' };
+          const catMap = { 'cleaning & garden': 'cleaning', 'maintenance & repairs': 'maintenance', 'supplies & consumables': 'supplies', 'utilities & rates': 'utilities', 'furnishings & equipment': 'furniture', 'professional services': 'accounting', 'renovation': 'maintenance', 'council rates': 'council_rates', 'pest control': 'pest_control' };
           const lower = String(ex.category).trim().toLowerCase();
           r.category = catMap[lower] || BANK_IMPORT_EXPENSE_CATS.find(c => c === lower) || String(ex.category);
         }
@@ -3053,6 +3060,8 @@ async function saveExpenseEdit() {
 const DEFAULT_EXPENSE_CATS = [
   'Cleaning & Garden','Maintenance & Repairs','Supplies & Consumables',
   'Utilities & Rates','Insurance','Furnishings & Equipment',
+  'Mortgage','Council Rates','Strata',
+  'Advertising','Linen','Gardening','Pest Control',
   'Renovation','Professional Services','Other'
 ];
 function getExpenseCats() {
