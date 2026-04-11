@@ -541,7 +541,7 @@ function renderBankImportReview() {
           <div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:flex-start">
             <div style="flex:1;min-width:140px">
               <div style="font-size:13px;font-weight:600;color:var(--text)">${bankImportFmtDayMon(row.date)}</div>
-              <div style="font-size:12px;color:var(--text-soft);margin-top:4px;word-break:break-word">${escHtml(bankImportTruncate(row.description, 40))}</div>
+              <div style="font-size:13px;color:var(--text);margin-top:4px;word-break:break-word;line-height:1.4">${escHtml(row.description || '')}</div>
               <div style="font-size:16px;font-weight:700;margin-top:8px;font-family:'DM Serif Display',serif">${amountStr}</div>
             </div>
             <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:8px">
@@ -631,7 +631,7 @@ async function bankImportOnFileSelected(ev) {
       const fromPortfolio = _bankImportViewMode === 'portfolio';
       _bankImportRows = rows.map((r) => ({
         ...r,
-        propertyId: fromPortfolio ? (r.propertyId || '') : (r.propertyId || activePid || ''),
+        propertyId: fromPortfolio ? (r.propertyId || '') : (activePid || r.propertyId || ''),
         category: r.category || '',
         uiConfirmed: false,
         userMarkedSkip: false,
