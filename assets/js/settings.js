@@ -31,7 +31,8 @@ function renderConnectionSummary() {
   if (!wrap) return;
 
   const gmailEmail = (window._appConfig && window._appConfig.gmail_email) || '';
-  const gmailConnected = !!gmailEmail;
+  const gmailTokenExpired = !!(window._appConfig && window._appConfig._gmailTokenExpired);
+  const gmailConnected = !!gmailEmail && !gmailTokenExpired;
 
   const outlookEmail = (window._appConfig && window._appConfig.outlook_email) || '';
   const outlookConnected = !!outlookEmail;
@@ -44,12 +45,17 @@ function renderConnectionSummary() {
 
     <div style="padding:12px;background:var(--mist);border-radius:10px;margin-top:8px">
       <div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:6px">📧 Gmail — Booking Import</div>
-      ${gmailConnected ? `
+      ${gmailTokenExpired && gmailEmail ? `
+        <div style="font-size:12px;color:var(--red);margin-bottom:8px">⚠ Disconnected — token expired for ${escHtml(gmailEmail)}</div>
+        <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.4">Your Gmail access has expired. Reconnect to resume automatic booking imports.</div>
+        <button onclick="connectGmail()"
+          style="width:100%;background:var(--forest);color:white;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">🔄 Reconnect Gmail</button>
+      ` : gmailConnected ? `
         <div style="font-size:12px;color:var(--moss);margin-bottom:8px">✓ Connected: ${escHtml(gmailEmail)}</div>
         <div style="display:flex;gap:6px">
           <button onclick="scanGmailBookings()" id="gmail-scan-btn"
             style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">📥 Scan for Bookings</button>
-          <button onclick="connectGmail()" 
+          <button onclick="connectGmail()"
             style="background:var(--warm);color:var(--forest);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">Reconnect</button>
         </div>
         <div id="gmail-scan-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;line-height:1.5"></div>
@@ -107,7 +113,14 @@ async function maybeAutoScanGmail() {
 
     const _pid = (window._cloudPropertyIds && window._cloudPropertyIds[getActivePropertyId()]) || '';
     const res = await fetch('/.netlify/functions/gmail-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
-    if (!res.ok) return;
+    if (!res.ok) {
+      if (res.status === 401) {
+        globalThis.showBanner('⚠ Gmail disconnected — reconnect in Settings → Integrations', 'warn');
+        window._appConfig = window._appConfig || {};
+        window._appConfig._gmailTokenExpired = true;
+      }
+      return;
+    }
     const data = await res.json();
 
     const totalChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0);
@@ -148,6 +161,11 @@ async function scanGmailBookings() {
     const data = await res.json();
 
     if (!res.ok) {
+      if (res.status === 401) {
+        window._appConfig = window._appConfig || {};
+        window._appConfig._gmailTokenExpired = true;
+        renderConnectionSummary();
+      }
       if (statusEl) {
         statusEl.style.background = '#FEF2F2';
         statusEl.style.color = 'var(--red)';
