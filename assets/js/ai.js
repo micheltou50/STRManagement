@@ -108,7 +108,7 @@ export function loadAIIgnoreList() {
 export function saveAIIgnoreList(list) {
   window._appConfig = window._appConfig || {};
   window._appConfig.ai_ignore = Array.isArray(list) ? list : [];
-  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ ai_ignore: window._appConfig.ai_ignore }).catch(() => {});
+  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ ai_ignore: window._appConfig.ai_ignore }).catch(e => console.warn("[StayOps] silent error:", e));
 }
 export function addAIIgnoreItem(type, key, label, reason) {
   const list = loadAIIgnoreList();

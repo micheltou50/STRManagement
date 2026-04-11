@@ -631,7 +631,7 @@ function saveSMSTemplate() {
   window._appConfig = window._appConfig || {};
   window._appConfig.sms_template = val.value;
   if (typeof saveAppConfigToCloud === 'function') {
-    saveAppConfigToCloud({ sms_template: val.value }).catch(() => {});
+    saveAppConfigToCloud({ sms_template: val.value }).catch(e => console.warn("[StayOps] silent error:", e));
   }
   globalThis.showBanner('✓ SMS template saved', 'ok');
 }
@@ -654,7 +654,7 @@ function saveApiKey() {
   setTimeout(() => el.style.display = 'none', 2000);
   globalThis.showBanner('✓ Settings saved: API key', 'ok');
   if (typeof saveAppConfigToCloud === 'function') {
-    saveAppConfigToCloud({ anthropic_api_key: key }).catch(() => {});
+    saveAppConfigToCloud({ anthropic_api_key: key }).catch(e => console.warn("[StayOps] silent error:", e));
   }
 }
 function getApiKey() {
@@ -729,7 +729,7 @@ async function saveHostProfilePanel() {
     address: profile.address || '',
   };
   if (typeof saveAppConfigToCloud === 'function') {
-    saveAppConfigToCloud({ invoice_details: window._appConfig.invoice_details }).catch(() => {});
+    saveAppConfigToCloud({ invoice_details: window._appConfig.invoice_details }).catch(e => console.warn("[StayOps] silent error:", e));
   }
 
   saveHostProfile(profile);
@@ -1005,7 +1005,7 @@ function toggleAutoAssignCleaner() {
   window._appConfig = window._appConfig || {};
   window._appConfig.auto_assign_cleaner = newVal;
   if (typeof saveAppConfigToCloud === 'function') {
-    saveAppConfigToCloud({ auto_assign_cleaner: newVal }).catch(() => {});
+    saveAppConfigToCloud({ auto_assign_cleaner: newVal }).catch(e => console.warn("[StayOps] silent error:", e));
   }
   _renderAutoAssignToggle();
   globalThis.showBanner(newVal ? '✓ Auto-assign enabled' : '✓ Auto-assign disabled', 'ok');
@@ -1425,7 +1425,7 @@ async function maybeAutoSyncCM() {
     saveAppConfigToCloud({
       channel_manager_last_sync: window._appConfig.channel_manager_last_sync,
       channel_manager_sync_error: null,
-    }).catch(() => {});
+    }).catch(e => console.warn("[StayOps] silent error:", e));
 
     const totalChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0);
     if (totalChanges > 0) {

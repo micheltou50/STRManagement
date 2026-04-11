@@ -230,10 +230,10 @@ async function bankImportApplyMatchPreviews(rows, userId) {
         const ex = top.expense;
         if (ex.property_id) r.propertyId = String(ex.property_id);
         if (ex.category != null && String(ex.category).trim()) {
-          // Normalize to snake_case to match dropdown values (e.g., "Cleaning & Garden" → "cleaning")
-          const rawCat = String(ex.category).trim().toLowerCase().replace(/[&]/g, '').replace(/\s+/g, '_');
-          const matchedCat = BANK_IMPORT_EXPENSE_CATS.find(c => c === rawCat || rawCat.startsWith(c));
-          r.category = matchedCat || String(ex.category);
+          // Normalize display-name categories to snake_case dropdown values
+          const catMap = { 'cleaning & garden': 'cleaning', 'maintenance & repairs': 'maintenance', 'supplies & consumables': 'supplies', 'utilities & rates': 'utilities', 'furnishings & equipment': 'furniture', 'professional services': 'accounting', 'renovation': 'maintenance' };
+          const lower = String(ex.category).trim().toLowerCase();
+          r.category = catMap[lower] || BANK_IMPORT_EXPENSE_CATS.find(c => c === lower) || String(ex.category);
         }
         r.uiConfirmed = true;
       } else if (top && top.score >= 50 && top.score < 80) {
@@ -731,7 +731,7 @@ async function bankImportUndoSkip(i) {
     if (pattern) {
       window._sb.from('vendor_mappings').update({ is_personal: false }).eq('user_id', userId).eq('vendor_pattern', pattern).then(() => {
         console.log('[StayOps] vendor_mapping is_personal cleared for', pattern);
-      }).catch(() => {});
+      }).catch(e => console.warn("[StayOps] silent error:", e));
     }
   }
   renderBankImportReview();
@@ -2019,7 +2019,7 @@ function updateExpenseCat(index, newName) {
     cats[index] = newName.trim();
     window._appConfig = window._appConfig || {};
     window._appConfig.expense_cats = cats;
-    if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ expense_cats: cats }).catch(() => {});
+    if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ expense_cats: cats }).catch(e => console.warn("[StayOps] silent error:", e));
     populateExpenseCatSelect();
   }
 }
@@ -2031,7 +2031,7 @@ function addExpenseCat() {
   cats.push(val);
   window._appConfig = window._appConfig || {};
   window._appConfig.expense_cats = cats;
-  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ expense_cats: cats }).catch(() => {});
+  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ expense_cats: cats }).catch(e => console.warn("[StayOps] silent error:", e));
   document.getElementById('new-expense-cat').value = '';
   renderExpenseCatSettings();
   populateExpenseCatSelect();
@@ -2045,7 +2045,7 @@ async function deleteExpenseCat(index) {
   cats.splice(index, 1);
   window._appConfig = window._appConfig || {};
   window._appConfig.expense_cats = cats;
-  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ expense_cats: cats }).catch(() => {});
+  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ expense_cats: cats }).catch(e => console.warn("[StayOps] silent error:", e));
   renderExpenseCatSettings();
   populateExpenseCatSelect();
 }
@@ -2055,7 +2055,7 @@ async function resetExpenseCats() {
   if (!_okReset) return;
   window._appConfig = window._appConfig || {};
   delete window._appConfig.expense_cats;
-  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ expense_cats: null }).catch(() => {});
+  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ expense_cats: null }).catch(e => console.warn("[StayOps] silent error:", e));
   renderExpenseCatSettings();
   populateExpenseCatSelect();
   globalThis.showBanner('✓ Categories reset', 'ok');
@@ -2067,7 +2067,7 @@ function saveBankDetails() {
     const val = document.getElementById('inv-bank-'+k)?.value?.trim();
     if (val !== undefined) window._appConfig.bank_details[k] = val;
   });
-  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ bank_details: window._appConfig.bank_details }).catch(() => {});
+  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ bank_details: window._appConfig.bank_details }).catch(e => console.warn("[StayOps] silent error:", e));
   const el = document.getElementById('inv-bank-confirm');
   el.style.display='block'; setTimeout(()=>el.style.display='none',2000);
   globalThis.showBanner('✓ Settings saved: bank details', 'ok');
@@ -2081,7 +2081,7 @@ function saveClients(c) {
   window._appConfig = window._appConfig || {};
   window._appConfig.clients = Array.isArray(c) ? c : [];
   if (typeof saveAppConfigToCloud === 'function') {
-    saveAppConfigToCloud({ clients: window._appConfig.clients }).catch(() => {});
+    saveAppConfigToCloud({ clients: window._appConfig.clients }).catch(e => console.warn("[StayOps] silent error:", e));
   }
 }
 
@@ -2132,7 +2132,7 @@ function saveInvoiceDetails() {
     const val = document.getElementById('inv-'+k)?.value?.trim();
     if (val !== undefined) window._appConfig.invoice_details[k] = val;
   });
-  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ invoice_details: window._appConfig.invoice_details }).catch(() => {});
+  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ invoice_details: window._appConfig.invoice_details }).catch(e => console.warn("[StayOps] silent error:", e));
   const el = document.getElementById('inv-save-confirm');
   el.style.display = 'block';
   setTimeout(() => el.style.display = 'none', 2000);
@@ -2687,7 +2687,7 @@ function addExpense(opts = {}) {
     globalThis.showBanner('⚠ Storage full — expense saved without photo', 'warn');
   }
   // Sync to Supabase (non-blocking)
-  if (typeof saveExpenseToCloud === 'function') saveExpenseToCloud(exp).catch(() => {});
+  if (typeof saveExpenseToCloud === 'function') saveExpenseToCloud(exp).catch(e => console.warn("[StayOps] silent error:", e));
 
   // Try to upload photo to Drive and push to sheet
   const expWithPhoto = Object.assign({}, exp, { photo: photoForUpload, _mediaType: mediaTypeForUpload });
@@ -2734,7 +2734,7 @@ async function saveExpenseToDriveAndSheet(exp) {
             saved.driveLink = driveLink;
             globalThis.savePropertyData();
             renderExpenses();
-            if (typeof saveExpenseToCloud === 'function') saveExpenseToCloud(saved).catch(() => {});
+            if (typeof saveExpenseToCloud === 'function') saveExpenseToCloud(saved).catch(e => console.warn("[StayOps] silent error:", e));
           }
           globalThis.showBanner('✓ Receipt uploaded', 'ok');
         } else {
@@ -2857,7 +2857,7 @@ async function deleteExpense(id) {
   renderExpenses();
   globalThis.showBanner('✓ Expense deleted', 'ok');
   // Sync deletion to Supabase (non-blocking)
-  if (exp && typeof deleteExpenseFromCloud === 'function') deleteExpenseFromCloud(exp).catch(() => {});
+  if (exp && typeof deleteExpenseFromCloud === 'function') deleteExpenseFromCloud(exp).catch(e => console.warn("[StayOps] silent error:", e));
 }
 // ── EXPENSE EDIT ─────────────────────────────────────────────────────────────
 let editingExpenseId = null;
@@ -3083,7 +3083,7 @@ async function saveMgmtFeeRate() {
   window._appConfig = window._appConfig || {};
   window._appConfig.mgmt_fee_rate = rate;
   if (typeof saveAppConfigToCloud === 'function') {
-    saveAppConfigToCloud({ mgmt_fee_rate: rate }).catch(() => {});
+    saveAppConfigToCloud({ mgmt_fee_rate: rate }).catch(e => console.warn("[StayOps] silent error:", e));
   }
   const confirm = document.getElementById("mgmt-fee-confirm");
   if (confirm) { confirm.style.display = "block"; setTimeout(() => { confirm.style.display = "none"; }, 2000); }

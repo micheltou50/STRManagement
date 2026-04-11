@@ -34,7 +34,7 @@ function saveRecurringTemplates(templates) {
   window._appConfig = window._appConfig || {};
   window._appConfig.recurring_templates = templates;
   if (typeof globalThis.saveAppConfigToCloud === 'function') {
-    globalThis.saveAppConfigToCloud({ recurring_templates: templates }).catch(() => {});
+    globalThis.saveAppConfigToCloud({ recurring_templates: templates }).catch(e => console.warn("[StayOps] silent error:", e));
   }
 }
 
@@ -95,7 +95,7 @@ export async function processRecurringTemplates() {
       };
       expenses.push(newExp);
       if (typeof globalThis.saveExpenseToCloud === 'function') {
-        globalThis.saveExpenseToCloud(newExp).catch(() => {});
+        globalThis.saveExpenseToCloud(newExp).catch(e => console.warn("[StayOps] silent error:", e));
       }
       generated++;
 

@@ -2482,7 +2482,7 @@ async function deleteMaintenance(id) {
   replaceArrayInPlace(maintenance, maintenance.filter(m => m.id !== id));
   savePropertyData();
   renderMaintenance();
-  if (removed && typeof globalThis.deleteMaintenanceFromCloud === 'function') globalThis.deleteMaintenanceFromCloud(removed).catch(() => {});
+  if (removed && typeof globalThis.deleteMaintenanceFromCloud === 'function') globalThis.deleteMaintenanceFromCloud(removed).catch(e => console.warn("[StayOps] silent error:", e));
 }
 
 // ── INVENTORY ─────────────────────────────────────────────────────────────
@@ -2630,8 +2630,8 @@ async function deleteInventoryItemFromEdit() {
 
 function savePropertyData() {
   // Sync to Supabase (non-blocking)
-  if (typeof globalThis.saveInventoryToCloud === 'function') globalThis.saveInventoryToCloud(inventory).catch(() => {});
-  if (typeof globalThis.saveMaintenanceToCloud === 'function') globalThis.saveMaintenanceToCloud(maintenance).catch(() => {});
+  if (typeof globalThis.saveInventoryToCloud === 'function') globalThis.saveInventoryToCloud(inventory).catch(e => console.warn("[StayOps] silent error:", e));
+  if (typeof globalThis.saveMaintenanceToCloud === 'function') globalThis.saveMaintenanceToCloud(maintenance).catch(e => console.warn("[StayOps] silent error:", e));
 }
 
 // ── CUSTOM MODALS (replace blocked confirm/prompt) ───────────────────────────
@@ -2786,7 +2786,7 @@ document.addEventListener('visibilitychange', () => {
     if (typeof hydrateCleanerFromFunction === 'function') {
       hydrateCleanerFromFunction().then(ok => {
         if (ok && typeof renderCleanerView === 'function') renderCleanerView();
-      }).catch(() => {});
+      }).catch(e => console.warn("[StayOps] silent error:", e));
     }
     setTimeout(_flushPendingUiRefresh, 120);
     return;
@@ -3753,7 +3753,7 @@ function onboardStep1Next() {
 
   // Sync property to Supabase
   if (!window._stayOpsHydrating && typeof globalThis.savePropertyToCloud === 'function') {
-    globalThis.savePropertyToCloud(getActivePropertyConfig()).catch(() => {});
+    globalThis.savePropertyToCloud(getActivePropertyConfig()).catch(e => console.warn("[StayOps] silent error:", e));
   }
 
   _obGoToStep(3);  // Skip Step 2 (email connection now in Getting Started checklist)

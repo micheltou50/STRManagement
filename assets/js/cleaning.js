@@ -176,7 +176,7 @@ function saveCleanerAutomationState(state) {
     freq: state.freq && typeof state.freq === 'object' ? state.freq : {}
   };
   if (typeof globalThis.saveAppConfigToCloud === 'function') {
-    globalThis.saveAppConfigToCloud({ cleaner_automation: window._appConfig.cleaner_automation }).catch(() => {});
+    globalThis.saveAppConfigToCloud({ cleaner_automation: window._appConfig.cleaner_automation }).catch(e => console.warn("[StayOps] silent error:", e));
   }
 }
 
@@ -324,7 +324,7 @@ export async function quickAssignLastCleaner(bookingId) {
     } catch (e) {
       console.error('[StayOps] Cloud save failed:', e);
     }
-    if (typeof saveBookingToCloud === 'function') saveBookingToCloud(booking).catch(() => {});
+    if (typeof saveBookingToCloud === 'function') saveBookingToCloud(booking).catch(e => console.warn("[StayOps] silent error:", e));
     globalThis.showBanner('✓ Assigned to ' + preferred.name + ' — awaiting cleaner response', 'ok');
     globalThis.renderBookings();
     globalThis.renderNotes();
@@ -346,7 +346,7 @@ export async function quickAssignLastCleaner(bookingId) {
           }
         }
       })
-      .catch(() => {});
+      .catch(e => console.warn("[StayOps] silent error:", e));
   } finally {
     releaseCleaningLock(lockKey);
   }
@@ -890,7 +890,7 @@ export function markCleanerConfirmed(id) {
   if (b) b.cleanerConfirmed = true;
   normalizeBookingCleanState();
   if (typeof saveCleanToCloud === 'function') saveCleanToCloud(c).catch(e => console.error('[StayOps] Cloud save failed:', e));
-  if (b && typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(() => {});
+  if (b && typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(e => console.warn("[StayOps] silent error:", e));
   globalThis.showBanner('✅ Cleaner confirmed', 'ok');
   renderCleaning();
   globalThis.renderBookings();
@@ -906,7 +906,7 @@ export async function markCleanDeclined(id) {
   if (b) b.cleanerConfirmed = false;
   normalizeBookingCleanState();
   if (typeof saveCleanToCloud === 'function') saveCleanToCloud(c).catch(e => console.error('[StayOps] Cloud save failed:', e));
-  if (b && typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(() => {});
+  if (b && typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(e => console.warn("[StayOps] silent error:", e));
   globalThis.showBanner('Clean marked as declined — reassign when ready', 'warn');
   renderCleaning();
   globalThis.renderBookings();
@@ -980,7 +980,7 @@ export function toggleCleanerConfirmed(id) {
   }
   // Fix: also persist the booking's cleaner_confirmed to Supabase so both
   // tables stay in sync (previously only the clean record was saved).
-  if (typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(() => {});
+  if (typeof saveBookingToCloud === 'function') saveBookingToCloud(b).catch(e => console.warn("[StayOps] silent error:", e));
   globalThis.showDetail(id);
   globalThis.renderBookings();
   renderCleaning();
@@ -1061,7 +1061,7 @@ export function saveCleanerLearning(state) {
   window._appConfig = window._appConfig || {};
   window._appConfig.cleaner_learning = state || { lastCleanerId: null, frequency: {} };
   if (typeof globalThis.saveAppConfigToCloud === 'function') {
-    globalThis.saveAppConfigToCloud({ cleaner_learning: window._appConfig.cleaner_learning }).catch(() => {});
+    globalThis.saveAppConfigToCloud({ cleaner_learning: window._appConfig.cleaner_learning }).catch(e => console.warn("[StayOps] silent error:", e));
   }
 }
 
@@ -1142,7 +1142,7 @@ export function addClean() {
         globalThis.renderBookings();
       }
     })
-    .catch(() => {})
+    .catch(e => console.warn("[StayOps] silent error:", e))
     .finally(() => releaseCleaningLock('addClean'));
   populateSelects();
 }
@@ -1197,7 +1197,7 @@ export async function cleanerAccept(cleanId) {
     }
     // Try direct Supabase first (works in Safari), fall back to Netlify function (home screen PWA)
     if (typeof saveCleansToCloud === 'function' && window._supabaseUser) {
-      saveCleansToCloud(cleans).catch(() => {});
+      saveCleansToCloud(cleans).catch(e => console.warn("[StayOps] silent error:", e));
     } else {
       postCleanerAction(cleanId, 'accept');
     }
@@ -1251,7 +1251,7 @@ export async function cleanerDecline(cleanId) {
       console.error('[StayOps] Cloud save failed:', e);
     }
     if (typeof saveCleansToCloud === 'function' && window._supabaseUser) {
-      saveCleansToCloud(cleans).catch(() => {});
+      saveCleansToCloud(cleans).catch(e => console.warn("[StayOps] silent error:", e));
     } else {
       postCleanerAction(cleanId, 'decline');
     }
@@ -1299,7 +1299,7 @@ export async function cleanerMarkDone(cleanId) {
       console.error('[StayOps] Cloud save failed:', e);
     }
     if (typeof saveCleansToCloud === 'function' && window._supabaseUser) {
-      saveCleansToCloud(cleans).catch(() => {});
+      saveCleansToCloud(cleans).catch(e => console.warn("[StayOps] silent error:", e));
     } else {
       postCleanerAction(cleanId, 'done');
     }
@@ -1466,7 +1466,7 @@ export async function assignCleanerToBooking(bookingIdParam) {
         date: date,
         guest: booking.guestName || booking.guest_name || 'Guest',
         type: 'Checkout clean'
-      }).catch(() => {});
+      }).catch(e => console.warn("[StayOps] silent error:", e));
     }
   } catch (e) {
     console.warn('[StayOps] assignCleanerToBooking save failed', e);

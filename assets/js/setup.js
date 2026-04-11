@@ -44,11 +44,11 @@ export function showSetupIfNeeded() {
  * Pre-fills all fields from the current config. Does not block the app.
  */
 export function reopenPropertySetup() {
-  _setupShowOverlay(true, false).catch(() => {});
+  _setupShowOverlay(true, false).catch(e => console.warn("[StayOps] silent error:", e));
 }
 
 export function openAddPropertySetup() {
-  _setupShowOverlay(true, true).catch(() => {});
+  _setupShowOverlay(true, true).catch(e => console.warn("[StayOps] silent error:", e));
 }
 
 

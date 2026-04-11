@@ -155,7 +155,7 @@ export function savePushSubsLocal(subs) {
   window._appConfig = window._appConfig || {};
   window._appConfig.push_subs = subs && typeof subs === 'object' ? subs : { cleaners: {} };
   if (typeof saveAppConfigToCloud === 'function') {
-    saveAppConfigToCloud({ push_subs: subs }).catch(() => {});
+    saveAppConfigToCloud({ push_subs: subs }).catch(e => console.warn("[StayOps] silent error:", e));
   }
 }
 
@@ -209,7 +209,7 @@ export async function resetPushOnly() {
     window._appConfig = window._appConfig || {};
     window._appConfig.push_subs = { cleaners: {} };
     if (typeof saveAppConfigToCloud === 'function') {
-      saveAppConfigToCloud({ push_subs: window._appConfig.push_subs }).catch(() => {});
+      saveAppConfigToCloud({ push_subs: window._appConfig.push_subs }).catch(e => console.warn("[StayOps] silent error:", e));
     }
     console.log('[Push] Reset Push Only complete');
     if (result) {
@@ -667,7 +667,7 @@ export function saveEmailTemplate(type) {
     : {};
   window._appConfig.email_templates[type] = tpl;
   if (typeof saveAppConfigToCloud === 'function') {
-    saveAppConfigToCloud({ email_templates: window._appConfig.email_templates }).catch(() => {});
+    saveAppConfigToCloud({ email_templates: window._appConfig.email_templates }).catch(e => console.warn("[StayOps] silent error:", e));
   }
   const conf = document.getElementById('etpl-save-confirm');
   if (conf) { conf.style.display = 'block'; setTimeout(() => conf.style.display = 'none', 2000); }

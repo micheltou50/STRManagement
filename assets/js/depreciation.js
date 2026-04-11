@@ -32,7 +32,7 @@ function saveDepreciationAssets(assets) {
   window._appConfig = window._appConfig || {};
   window._appConfig.depreciation_assets = assets;
   if (typeof globalThis.saveAppConfigToCloud === 'function') {
-    globalThis.saveAppConfigToCloud({ depreciation_assets: assets }).catch(() => {});
+    globalThis.saveAppConfigToCloud({ depreciation_assets: assets }).catch(e => console.warn("[StayOps] silent error:", e));
   }
 }
 
