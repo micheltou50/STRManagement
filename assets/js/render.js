@@ -584,13 +584,11 @@ function renderAll() {
   if (expDate && !expDate.value) expDate.value = new Date().toISOString().split('T')[0];
   const maintDate = document.getElementById('maint-date');
   if (maintDate && !maintDate.value) maintDate.value = new Date().toISOString().split('T')[0];
-  // Also render whatever section is active
+  // Also render whatever section is active — but skip finance/settings to avoid resetting scroll, filters, and forms
   const section = currentSection || 'today';
   if (section === 'cleaning')   { renderCleaning(); populateCleanerSelect(); }
-  if (section === 'finance')    renderFinance();
   if (section === 'notes')      renderNotes();
   if (section === 'property')   renderProperty();
-  if (section === 'settings')   { renderSettings(); renderConnectionSummary(); }
   setTimeout(() => { attachButtonPress(); attachLongPress(); }, 50);
 }
 
