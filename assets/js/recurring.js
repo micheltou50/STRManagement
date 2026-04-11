@@ -183,7 +183,7 @@ export function renderRecurringPanel() {
 
 export function toggleRecurringEnabled(id) {
   const templates = getRecurringTemplates();
-  const t = templates.find(t => t.id === id);
+  const t = templates.find(t => String(t.id) === String(id));
   if (!t) return;
   updateRecurringTemplate(id, { enabled: !t.enabled });
   renderRecurringPanel();

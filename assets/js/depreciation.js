@@ -265,7 +265,7 @@ export function renderDepreciationPanel() {
 
 export function showDepreciationDetail(id) {
   const assets = getDepreciationAssets();
-  const asset = assets.find(a => a.id === id);
+  const asset = assets.find(a => String(a.id) === String(id));
   if (!asset) return;
 
   const schedule = getAssetSchedule(asset);

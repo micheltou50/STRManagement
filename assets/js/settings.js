@@ -1072,7 +1072,7 @@ function saveCleanerPinById(id) {
   const val = input.value.trim();
   if (!val || !/^\d{4}$/.test(val)) { globalThis.showBanner('⚠ Please enter exactly 4 digits', 'warn'); return; }
   const list = loadCleaners();
-  const c = list.find(x => x.id === id);
+  const c = list.find(x => String(x.id) === String(id));
   if (!c) return;
   c.pin = val; input.value = '';
   saveCleaners(list);
@@ -1081,7 +1081,7 @@ function saveCleanerPinById(id) {
 }
 async function clearCleanerPinById(id) {
   const list = loadCleaners();
-  const c = list.find(x => x.id === id);
+  const c = list.find(x => String(x.id) === String(id));
   if (!c) return;
   const ok = await globalThis.showAppModal({ title: 'Clear PIN', msg: `Remove PIN for ${c.name}?`, confirmText: 'Clear', confirmColor: 'var(--red)' });
   if (!ok) return;
@@ -1093,7 +1093,7 @@ async function clearCleanerPinById(id) {
 }
 function saveCleanerPerm(id, key, val) {
   const list = loadCleaners();
-  const c = list.find(x => x.id === id);
+  const c = list.find(x => String(x.id) === String(id));
   if (!c) return;
   if (!c.permissions) c.permissions = {};
   c.permissions[key] = val;
@@ -1101,7 +1101,7 @@ function saveCleanerPerm(id, key, val) {
 }
 function copyCleanerLinkById(id) {
   const list = loadCleaners();
-  const c = list.find(x => x.id === id);
+  const c = list.find(x => String(x.id) === String(id));
   if (!c) return;
   if (!c.pin) { globalThis.showBanner('⚠ Set a PIN for ' + c.name + ' first', 'warn'); return; }
   const url = cleanerLinkForId(c);

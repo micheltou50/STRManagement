@@ -2430,12 +2430,12 @@ function addMaintenance() {
 }
 
 function setMaintInProgress(id) {
-  const m = maintenance.find(m => m.id === id);
+  const m = maintenance.find(m => String(m.id) === String(id));
   if (m) { m.status = 'inprogress'; savePropertyData(); renderMaintenance(); }
 }
 
 async function resolveIssue(id) {
-  const m = maintenance.find(m => m.id === id);
+  const m = maintenance.find(m => String(m.id) === String(id));
   if (!m) return;
   const costStr = await showAppModal({
     title: '✓ Mark Resolved',
@@ -2478,7 +2478,7 @@ async function resolveIssue(id) {
 async function deleteMaintenance(id) {
   const _okIssue = await showAppModal({ title: 'Delete Issue', msg: 'Delete this maintenance issue?', confirmText: 'Delete', confirmColor: 'var(--red)' });
   if (!_okIssue) return;
-  const removed = maintenance.find(m => m.id === id);
+  const removed = maintenance.find(m => String(m.id) === String(id));
   replaceArrayInPlace(maintenance, maintenance.filter(m => m.id !== id));
   savePropertyData();
   renderMaintenance();
@@ -2554,7 +2554,7 @@ function addInventoryItem() {
 }
 
 function updateThreshold(id, val) {
-  const item = inventory.find(i => i.id === id);
+  const item = inventory.find(i => String(i.id) === String(id));
   if (item) { item.threshold = parseInt(val) || 0; savePropertyData(); renderInventory(); }
 }
 
@@ -2951,7 +2951,7 @@ function attachLongPress() {
       startX = t.clientX; startY = t.clientY;
       clearLP();
       longPressTimer = setTimeout(() => {
-        const eItem = expenses.find(x => x.id === id);
+        const eItem = expenses.find(x => String(x.id) === String(id));
         if (!eItem) return;
         showActionSheet(eItem.merchant, [
           { label: '✏️ Edit Expense',  fn: `() => openExpenseEdit(${id})` },

@@ -1147,7 +1147,7 @@ export function addClean() {
   populateSelects();
 }
 export function toggleClean(id) {
-  const c=cleans.find(c=>c.id===id);
+  const c=cleans.find(c=>String(c.id)===String(id));
   if (c){
     c.done=!c.done;
     if (typeof saveCleanToCloud === 'function') {
