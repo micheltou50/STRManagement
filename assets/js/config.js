@@ -82,6 +82,7 @@ export const DEFAULT_PROPERTY_CONFIG = {
     autoSyncIntervalMs:    30000,
     cleanerSyncIntervalMs: 60000,
     expense_payout_mode:   'deduct', // 'deduct' = deduct from owner payout | 'separate' = show separately
+    owner_paid_categories: ['mortgage', 'insurance', 'council_rates', 'strata'], // categories NOT deducted from payout
   },
 };
 

@@ -1422,6 +1422,40 @@ function revNext() { revMonth++; if(revMonth>11){revMonth=0;revYear++;} renderRe
 function _fmtAud(n) { return Math.abs(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function _fmtPayout(n) { return n < 0 ? '− $' + _fmtAud(n) : '$' + _fmtAud(n); }
 
+/** Normalize display category names to snake_case keys for matching against owner_paid_categories */
+const _categoryKeyMap = {
+  'cleaning & garden': 'cleaning', 'cleaning': 'cleaning', 'gardening': 'gardening',
+  'maintenance & repairs': 'maintenance', 'maintenance': 'maintenance', 'renovation': 'maintenance',
+  'supplies & consumables': 'supplies', 'supplies': 'supplies',
+  'utilities & rates': 'utilities', 'utilities': 'utilities',
+  'insurance': 'insurance',
+  'furnishings & equipment': 'furniture', 'furniture': 'furniture',
+  'professional services': 'accounting', 'accounting': 'accounting',
+  'council rates': 'council_rates', 'council_rates': 'council_rates',
+  'strata': 'strata', 'strata/body corp': 'strata',
+  'mortgage': 'mortgage',
+  'advertising': 'advertising',
+  'linen': 'linen',
+  'pest control': 'pest_control', 'pest_control': 'pest_control',
+  'other': 'other',
+};
+function _normCategoryKey(cat) {
+  if (!cat) return 'other';
+  const lower = String(cat).trim().toLowerCase();
+  return _categoryKeyMap[lower] || lower.replace(/\s+/g, '_');
+}
+
+function _getOwnerPaidCategories() {
+  const cfg = getActivePropertyConfig();
+  return (cfg.settings && cfg.settings.owner_paid_categories) || ['mortgage', 'insurance', 'council_rates', 'strata'];
+}
+
+function _isOwnerPaidExpense(expense) {
+  const ownerPaid = _getOwnerPaidCategories();
+  const key = _normCategoryKey(expense.category);
+  return ownerPaid.includes(key);
+}
+
 function renderRevenue() {
   const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   document.getElementById('rev-month-title').textContent = months[revMonth] + ' ' + revYear;
@@ -1435,15 +1469,18 @@ function renderRevenue() {
   const totalMgmt = monthBookings.reduce((s,b)=>s+Number(b.mgmtFee||0),0);
   const totalNet = monthBookings.reduce((s,b)=>s+Number(b.netPayout||0),0);
 
-  // ── Expenses for this month ──
+  // ── Expenses for this month — split into operational vs owner-paid ──
   const monthExpenses = _financeScopedExpenses().filter(e => {
     const d = new Date(e.date);
     return d.getMonth() === revMonth && d.getFullYear() === revYear;
   });
-  const totalExpenses = monthExpenses.reduce((s,e) => s + Math.abs(Number(e.amount || 0)), 0);
+  const operationalExpenses = monthExpenses.filter(e => !_isOwnerPaidExpense(e));
+  const ownerPaidExpenses = monthExpenses.filter(e => _isOwnerPaidExpense(e));
+  const totalOperational = operationalExpenses.reduce((s,e) => s + Math.abs(Number(e.amount || 0)), 0);
+  const totalOwnerPaid = ownerPaidExpenses.reduce((s,e) => s + Math.abs(Number(e.amount || 0)), 0);
   const expenseMode = getExpensePayoutMode();
   const isDeduct = expenseMode === 'deduct';
-  const finalPayout = isDeduct ? totalNet - totalExpenses : totalNet;
+  const finalPayout = isDeduct ? totalNet - totalOperational : totalNet;
 
   // ── Header cards ──
   document.getElementById('total-revenue').textContent = '$' + _fmtAud(totalHost);
@@ -1451,11 +1488,10 @@ function renderRevenue() {
   if (netEl) { netEl.textContent = _fmtPayout(finalPayout); netEl.style.color = finalPayout >= 0 ? '#1D9E75' : '#E24B4A'; }
   document.getElementById('revenue-sub').textContent = monthBookings.length + ' booking' + (monthBookings.length!==1?'s':'');
 
-  // ── Expense detail rows (for expandable section) ──
-  const expDetailHtml = monthExpenses.length ? monthExpenses
-    .sort((a,b) => new Date(a.date) - new Date(b.date))
-    .map(e => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:0.5px solid rgba(0,0,0,0.05)"><div style="min-width:0"><div style="color:var(--text);font-weight:500">${escHtml(e.category||'Uncategorised')}</div><div style="color:var(--text-soft);font-size:11px;margin-top:1px">${escHtml(e.description||'')}${e.date ? ' · ' + fmt(e.date) : ''}</div></div><div style="flex-shrink:0;color:#E24B4A;font-weight:500;margin-left:12px">$${_fmtAud(Math.abs(Number(e.amount||0)))}</div></div>`)
-    .join('') : '<div style="color:var(--text-soft);font-size:12px;padding:8px 0">No expenses this month.</div>';
+  // ── Expense detail row builder ──
+  const _expRow = (e) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:0.5px solid rgba(0,0,0,0.05)"><div style="min-width:0"><div style="color:var(--text);font-weight:500">${escHtml(e.category||'Uncategorised')}</div><div style="color:var(--text-soft);font-size:11px;margin-top:1px">${escHtml(e.description||'')}${e.date ? ' · ' + fmt(e.date) : ''}</div></div><div style="flex-shrink:0;color:#E24B4A;font-weight:500;margin-left:12px">$${_fmtAud(Math.abs(Number(e.amount||0)))}</div></div>`;
+  const opDetailHtml = operationalExpenses.length ? [...operationalExpenses].sort((a,b) => new Date(a.date) - new Date(b.date)).map(_expRow).join('') : '<div style="color:var(--text-soft);font-size:12px;padding:8px 0">No operational expenses this month.</div>';
+  const ownerDetailHtml = ownerPaidExpenses.length ? [...ownerPaidExpenses].sort((a,b) => new Date(a.date) - new Date(b.date)).map(_expRow).join('') : '';
 
   // ── Summary section ──
   let summaryHtml = `<div class="finance-summary">
@@ -1463,14 +1499,14 @@ function renderRevenue() {
     <div class="finance-row"><span class="finance-label">Cleaning fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalCleaning)}</span></div>
     <div class="finance-row"><span class="finance-label">Management fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalMgmt)}</span></div>`;
 
-  if (isDeduct && totalExpenses > 0) {
-    // Model A: expenses deducted before payout
+  if (isDeduct && totalOperational > 0) {
+    // Model A: operational expenses deducted before payout
     summaryHtml += `
     <div class="finance-row" style="cursor:pointer;border-radius:6px;margin:0 -4px;padding:10px 4px;transition:background 0.15s" onclick="var d=document.getElementById('rev-expense-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.exp-chevron').textContent=open?'▾':'▴'" onmouseover="this.style.background='var(--mist)'" onmouseout="this.style.background=''">
-      <span class="finance-label" style="display:flex;align-items:center;gap:4px">Expenses (${monthExpenses.length}) <span class="exp-chevron" style="font-size:9px;color:var(--text-soft);transition:transform 0.2s">▾</span></span>
-      <span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalExpenses)}</span>
+      <span class="finance-label" style="display:flex;align-items:center;gap:4px">Expenses (${operationalExpenses.length}) <span class="exp-chevron" style="font-size:9px;color:var(--text-soft);transition:transform 0.2s">▾</span></span>
+      <span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalOperational)}</span>
     </div>
-    <div id="rev-expense-detail" style="display:none;padding:10px 14px;margin:2px 0 6px;background:var(--mist);border-radius:10px">${expDetailHtml}</div>`;
+    <div id="rev-expense-detail" style="display:none;padding:10px 14px;margin:2px 0 6px;background:var(--mist);border-radius:10px">${opDetailHtml}</div>`;
   }
 
   const payoutColor = finalPayout >= 0 ? '#1D9E75' : '#E24B4A';
@@ -1478,15 +1514,29 @@ function renderRevenue() {
     <div class="finance-row finance-total" style="border-top:1.5px solid var(--stone);padding-top:12px;margin-top:4px"><span class="finance-label" style="font-size:14px">Owner payout</span><span class="finance-val" style="color:${payoutColor};font-size:14px">${_fmtPayout(finalPayout)}</span></div>
   </div>`;
 
-  if (!isDeduct && totalExpenses > 0) {
-    // Model B: expenses shown separately below
+  // Owner-paid costs section (shown in both modes when they exist)
+  if (ownerPaidExpenses.length > 0) {
     summaryHtml += `
     <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--warm)">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="var d=document.getElementById('rev-expense-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.exp-chevron').textContent=open?'▾':'▴'">
-        <span>EXPENSES (${monthExpenses.length}) <span class="exp-chevron" style="font-size:9px;transition:transform 0.2s">▾</span></span>
-        <span style="font-size:13px;font-weight:600;color:#E24B4A;letter-spacing:0;text-transform:none">$${_fmtAud(totalExpenses)}</span>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="var d=document.getElementById('rev-owner-cost-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.oc-chevron').textContent=open?'▾':'▴'">
+        <span>OWNER COSTS (${ownerPaidExpenses.length}) <span class="oc-chevron" style="font-size:9px;transition:transform 0.2s">▾</span></span>
+        <span style="font-size:13px;font-weight:600;color:var(--text-soft);letter-spacing:0;text-transform:none">$${_fmtAud(totalOwnerPaid)}</span>
       </div>
-      <div id="rev-expense-detail" style="display:none;padding:10px 14px;background:var(--mist);border-radius:10px">${expDetailHtml}</div>
+      <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.4">Not deducted from payout — paid by owner directly</div>
+      <div id="rev-owner-cost-detail" style="display:none;padding:10px 14px;background:var(--mist);border-radius:10px">${ownerDetailHtml}</div>
+    </div>`;
+  }
+
+  if (!isDeduct && monthExpenses.length > 0) {
+    // Model B: ALL expenses shown separately below (not just owner-paid)
+    const allDetailHtml = [...monthExpenses].sort((a,b) => new Date(a.date) - new Date(b.date)).map(_expRow).join('');
+    summaryHtml += `
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--warm)">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="var d=document.getElementById('rev-all-expense-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.exp-chevron').textContent=open?'▾':'▴'">
+        <span>ALL EXPENSES (${monthExpenses.length}) <span class="exp-chevron" style="font-size:9px;transition:transform 0.2s">▾</span></span>
+        <span style="font-size:13px;font-weight:600;color:#E24B4A;letter-spacing:0;text-transform:none">$${_fmtAud(totalOperational + totalOwnerPaid)}</span>
+      </div>
+      <div id="rev-all-expense-detail" style="display:none;padding:10px 14px;background:var(--mist);border-radius:10px">${allDetailHtml}</div>
     </div>`;
   }
 
@@ -2971,6 +3021,7 @@ function populateMgmtFeePanel() {
   const el = document.getElementById("settings-mgmt-fee-rate");
   if (el) el.value = rate !== null ? rate : "";
   _renderExpensePayoutModeUI(getExpensePayoutMode());
+  _renderExpenseCatToggles();
 }
 
 async function saveMgmtFeeRate() {
@@ -3012,6 +3063,40 @@ function _renderExpensePayoutModeUI(mode) {
   if (deductLabel)   deductLabel.style.borderColor   = mode === 'deduct'   ? 'var(--forest)' : 'var(--stone)';
   if (separateLabel) separateLabel.style.borderColor  = mode === 'separate' ? 'var(--forest)' : 'var(--stone)';
 }
+
+function _renderExpenseCatToggles() {
+  const container = document.getElementById('expense-cat-toggles');
+  if (!container) return;
+  const ownerPaid = _getOwnerPaidCategories();
+  const cats = BANK_IMPORT_EXPENSE_CATS.filter(c => c !== 'other');
+  container.innerHTML = cats.map(cat => {
+    const isOwner = ownerPaid.includes(cat);
+    const label = bankImportFormatCategoryLabel(cat);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)">
+      <span style="font-size:13px;font-weight:500;color:var(--text)">${escHtml(label)}</span>
+      <div style="display:flex;gap:0;border-radius:6px;overflow:hidden;border:1px solid var(--stone)">
+        <button onclick="toggleExpenseCatMode('${cat}','deduct')" id="ecat-${cat}-deduct" style="padding:5px 10px;font-size:11px;font-weight:600;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background 0.15s;background:${!isOwner ? 'var(--forest)' : 'white'};color:${!isOwner ? 'white' : 'var(--text-soft)'}">Deduct</button>
+        <button onclick="toggleExpenseCatMode('${cat}','owner')" id="ecat-${cat}-owner" style="padding:5px 10px;font-size:11px;font-weight:600;border:none;border-left:1px solid var(--stone);cursor:pointer;font-family:'DM Sans',sans-serif;transition:background 0.15s;background:${isOwner ? '#E24B4A' : 'white'};color:${isOwner ? 'white' : 'var(--text-soft)'}">Owner pays</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleExpenseCatMode(cat, mode) {
+  const cfg = getActivePropertyConfig();
+  const current = (cfg.settings && cfg.settings.owner_paid_categories) || ['mortgage', 'insurance', 'council_rates', 'strata'];
+  let updated;
+  if (mode === 'owner') {
+    updated = current.includes(cat) ? current : [...current, cat];
+  } else {
+    updated = current.filter(c => c !== cat);
+  }
+  savePropertyConfig({ settings: { ...(cfg.settings || {}), owner_paid_categories: updated } });
+  _renderExpenseCatToggles();
+  const label = bankImportFormatCategoryLabel(cat);
+  globalThis.showBanner(mode === 'owner' ? label + ' → owner pays directly' : label + ' → deducted from payout', 'ok');
+}
+globalThis.toggleExpenseCatMode = toggleExpenseCatMode;
 
 function _setVal(id, val) {
   const el = document.getElementById(id);
