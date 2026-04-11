@@ -2682,22 +2682,28 @@ let _modalResolve = null;
 function showAppModal({ title, msg, confirmText='Confirm', confirmColor='var(--forest)', cancelText='Cancel', hasInput=false, inputPlaceholder='', inputDefault='', inputType='number' }) {
   return new Promise(resolve => {
     _modalResolve = resolve;
-    document.getElementById('app-modal-title').textContent = title;
-    document.getElementById('app-modal-msg').textContent = msg;
+    const titleEl = document.getElementById('app-modal-title');
+    const msgEl = document.getElementById('app-modal-msg');
     const inp = document.getElementById('app-modal-input');
-    if (hasInput) {
-      inp.style.display = 'block';
-      inp.type = inputType;
-      inp.placeholder = inputPlaceholder;
-      inp.value = inputDefault;
-      setTimeout(() => inp.focus(), 100);
-    } else {
-      inp.style.display = 'none';
-    }
-    document.getElementById('app-modal-confirm').textContent = confirmText;
-    document.getElementById('app-modal-confirm').style.background = confirmColor;
-    document.getElementById('app-modal-cancel').textContent = cancelText;
+    const confirmEl = document.getElementById('app-modal-confirm');
+    const cancelEl = document.getElementById('app-modal-cancel');
     const overlay = document.getElementById('app-modal-overlay');
+    if (!overlay) { resolve(null); return; }
+    if (titleEl) titleEl.textContent = title;
+    if (msgEl) msgEl.textContent = msg;
+    if (inp) {
+      if (hasInput) {
+        inp.style.display = 'block';
+        inp.type = inputType;
+        inp.placeholder = inputPlaceholder;
+        inp.value = inputDefault;
+        setTimeout(() => inp.focus(), 100);
+      } else {
+        inp.style.display = 'none';
+      }
+    }
+    if (confirmEl) { confirmEl.textContent = confirmText; confirmEl.style.background = confirmColor; }
+    if (cancelEl) cancelEl.textContent = cancelText;
     overlay.style.display = 'flex';
     overlay.style.opacity = '0';
     requestAnimationFrame(() => requestAnimationFrame(() => { overlay.style.opacity = '1'; }));
@@ -2812,16 +2818,15 @@ window.addEventListener('pageshow', (e) => {
 // Cleaner visibility listener merged into main handler above.
 // Owner app — poll Supabase every 60 seconds to catch cleaner updates.
 if (!isCleanerMode()) {
-  // Owner app — poll Supabase every 60 seconds to catch cleaner updates.
-  setInterval(() => {
+  globalThis._ownerPollInterval = setInterval(() => {
     if (!document.hidden && hasValidPropertyConfig()) {
       if (typeof globalThis.loadCleansFromCloud === 'function') {
         globalThis.loadCleansFromCloud().then(cloudCleans => {
           if (Array.isArray(cloudCleans) && cloudCleans.length) {
-            replaceArrayInPlace(cleans, cloudCleans);  // keep in-memory in sync so renderAll() uses fresh data
+            replaceArrayInPlace(cleans, cloudCleans);
             if (typeof renderAll === 'function') renderAll();
           }
-        }).catch(() => {});
+        }).catch(e => console.warn('[StayOps] Poll sync error:', e));
       }
     }
   }, 60000);

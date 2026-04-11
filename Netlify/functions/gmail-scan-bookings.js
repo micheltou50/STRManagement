@@ -140,6 +140,7 @@ exports.handler = async (event) => {
         'https://www.googleapis.com/gmail/v1/users/me/messages?q=' + encodeURIComponent(q) + '&maxResults=50',
         { headers: { Authorization: 'Bearer ' + accessToken } }
       );
+      if (!searchRes.ok) { console.log('[gmail-scan] Search failed:', searchRes.status); continue; }
       const searchData = await searchRes.json();
       if (searchData.messages) {
         searchData.messages.forEach(m => allMessageIds.add(m.id));
