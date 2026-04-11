@@ -505,9 +505,9 @@ function renderBankImportReview() {
   const cards = _bankImportRows
     .map((row, i) => {
       const isPersonal = !!(row.skip && row.reason === 'personal');
+      const dup = !!row.isDuplicate;
       const matchLocked = !!(row._bankMatchLocked && !dup && !isPersonal);
       const greyed = isPersonal || row.userMarkedSkip;
-      const dup = !!row.isDuplicate;
       const hasValidProp =
         String(row.propertyId || '').trim() && String(row.propertyId || '').trim() !== '__skip__';
       const hasValidCat = String(row.category || '').trim();
