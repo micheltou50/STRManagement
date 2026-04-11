@@ -423,8 +423,9 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
         const hint = container.querySelector('#s-hint-airbnb');
         if (hint) hint.innerHTML = '<span style="color:var(--forest)">⏳ Fetching listing details…</span>';
         try {
-          const res = await fetch('/.netlify/functions/fetch-listing', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+          const _af = typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch;
+          const res = await _af('/.netlify/functions/fetch-listing', {
+            method: 'POST',
             body: JSON.stringify({ url }),
           });
           const data = await res.json();

@@ -2,9 +2,11 @@
 // Fetches an Airbnb listing page, extracts property details, and returns them
 // for auto-filling the property setup form.
 
+const { verifyAuth } = require('./utils/auth');
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
@@ -130,6 +132,9 @@ exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return respond(405, { error: 'Method not allowed' });
   }
+
+  const authUser = await verifyAuth(event);
+  if (authUser.error) return authUser.error;
 
   // Parse request body
   let body;

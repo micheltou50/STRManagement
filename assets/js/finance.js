@@ -3219,9 +3219,9 @@ async function sendOwnerReport() {
 
     // 3. Send via Netlify function (Resend API) with PDF attachment
     const html = bodyIntro.replace(/\n/g, '<br>');
-    const res = await fetch('/.netlify/functions/send-email', {
+    const _af = typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch;
+    const res = await _af('/.netlify/functions/send-email', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         to: ownerEmail, subject, html,
         attachments: [{ filename: fileName, content: pdfB64 }]

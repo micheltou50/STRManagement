@@ -1027,18 +1027,9 @@ async function inviteCleaner(cleanerId) {
   `;
 
   try {
-    let authToken = '';
-    if (window._sb) {
-      const { data } = await window._sb.auth.getSession();
-      authToken = data?.session?.access_token || '';
-    }
-
-    const res = await fetch('/.netlify/functions/send-email', {
+    const _af = typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch;
+    const res = await _af('/.netlify/functions/send-email', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(authToken ? { 'Authorization': 'Bearer ' + authToken } : {})
-      },
       body: JSON.stringify({
         to: cleaner.email,
         subject: 'You\'re invited to StayOps',
@@ -1216,9 +1207,8 @@ export async function cleanerAccept(cleanId) {
     try {
       const { uid } = (typeof globalThis.getCleanerParams === 'function') ? globalThis.getCleanerParams() : {};
       if (uid) {
-        fetch('/.netlify/functions/send-push', {
+        (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             user_id: uid,
             title: '✅ Clean Confirmed',
@@ -1272,9 +1262,8 @@ export async function cleanerDecline(cleanId) {
     try {
       const { uid } = (typeof globalThis.getCleanerParams === 'function') ? globalThis.getCleanerParams() : {};
       if (uid) {
-        fetch('/.netlify/functions/send-push', {
+        (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             user_id: uid,
             title: '❌ Clean Declined',
@@ -1321,9 +1310,8 @@ export async function cleanerMarkDone(cleanId) {
     try {
       const { uid } = (typeof globalThis.getCleanerParams === 'function') ? globalThis.getCleanerParams() : {};
       if (uid) {
-        fetch('/.netlify/functions/send-push', {
+        (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             user_id: uid,
             title: '🏡 Clean Complete!',

@@ -8,9 +8,9 @@ export class DataAdapter {
 
 export class SupabaseAdapter extends DataAdapter {
   async sendEmail(to, subject, html, text) {
-    const res = await fetch('/.netlify/functions/send-email', {
+    const _af = typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch;
+    const res = await _af('/.netlify/functions/send-email', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ to, subject, html, text })
     });
 

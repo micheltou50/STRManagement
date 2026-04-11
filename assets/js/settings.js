@@ -1251,9 +1251,8 @@ async function requestCMSetup() {
     const hostEmail = user.email || (hostProfile && hostProfile.email) || 'unknown';
 
     // Send push notification to admin
-    const res = await fetch('/.netlify/functions/send-push', {
+    const res = await globalThis.authFetch('/.netlify/functions/send-push', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         uid: user.id,
         title: '🛎️ Channel Manager Setup Request',

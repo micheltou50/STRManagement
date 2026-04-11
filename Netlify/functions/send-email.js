@@ -5,11 +5,18 @@
 // Resend:     set RESEND_API_KEY (+ RESEND_FROM) — requires verified domain for non-self emails.
 
 const nodemailer = require('nodemailer');
+const { verifyAuth } = require('./utils/auth');
 
 exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 200, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, Authorization' }, body: '' };
+  }
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
+
+  const authUser = await verifyAuth(event);
+  if (authUser.error) return authUser.error;
 
   let payload;
   try {

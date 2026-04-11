@@ -94,9 +94,11 @@ async function resolveUserEmail(sb, userId) {
   return null;
 }
 
+const { verifyAuth } = require('./utils/auth');
+
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 200, headers: CORS, body: '' };
+    return { statusCode: 200, headers: { ...CORS, 'Access-Control-Allow-Headers': 'Content-Type, Authorization' }, body: '' };
   }
   if (event.httpMethod !== 'POST') {
     return {
@@ -105,6 +107,9 @@ exports.handler = async (event) => {
       body: JSON.stringify({ ok: false, error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' })
     };
   }
+
+  const authUser = await verifyAuth(event);
+  if (authUser.error) return authUser.error;
 
   try {
     let payload;

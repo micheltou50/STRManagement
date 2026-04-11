@@ -4189,9 +4189,8 @@ async function cleanerAcceptClean(cleanId) {
       const cleanerName = data.cleanerRecord?.name || 'Cleaner';
       const uid = cleanData?.user_id || getCleanerParams().uid;
       if (uid) {
-        await fetch('/.netlify/functions/send-push', {
+        await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             user_id: uid,
             title: '✅ Clean Confirmed',
@@ -4230,9 +4229,8 @@ async function cleanerDeclineClean(cleanId) {
       const cleanerName = data.cleanerRecord?.name || 'Cleaner';
       const uid = cleanData?.user_id || getCleanerParams().uid;
       if (uid) {
-        await fetch('/.netlify/functions/send-push', {
+        await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             user_id: uid,
             title: '❌ Clean Declined',
@@ -4271,9 +4269,8 @@ async function cleanerMarkDone(cleanId) {
       const cleanerName = data.cleanerRecord?.name || 'Cleaner';
       const uid = cleanData?.user_id || getCleanerParams().uid;
       if (uid) {
-        await fetch('/.netlify/functions/send-push', {
+        await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             user_id: uid,
             title: '🏡 Clean Complete!',

@@ -198,6 +198,26 @@ export async function getCurrentSupabaseUser() {
   return null;
 }
 
+/** Get auth headers with JWT for authenticated Netlify function calls. */
+export async function getAuthHeaders() {
+  if (!window._sb) return { 'Content-Type': 'application/json' };
+  try {
+    const { data } = await window._sb.auth.getSession();
+    const token = data && data.session && data.session.access_token;
+    if (token) return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token };
+  } catch (_) { /* fallback to no auth */ }
+  return { 'Content-Type': 'application/json' };
+}
+globalThis.getAuthHeaders = getAuthHeaders;
+
+/** Authenticated fetch — wraps fetch() and adds JWT Authorization header for Netlify function calls. */
+export async function authFetch(url, opts) {
+  const headers = await getAuthHeaders();
+  const merged = { ...opts, headers: { ...headers, ...((opts && opts.headers) || {}) } };
+  return fetch(url, merged);
+}
+globalThis.authFetch = authFetch;
+
 
 // ── PROPERTIES ────────────────────────────────────────────────────────────────
 
@@ -1684,9 +1704,10 @@ export async function loadHostConfigFromSupabase() {
 const DB = {
   async sendEmail(to, subject, html, text) {
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch('/.netlify/functions/send-email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ to, subject, html, text }),
       });
       return await res.json();

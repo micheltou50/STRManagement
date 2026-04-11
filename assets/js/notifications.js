@@ -327,9 +327,9 @@ export async function sendPushToDevice(subscription, title, body, url, tag, opts
     console.log('[Push] before sending push endpoint:', subscription && subscription.endpoint ? subscription.endpoint : null);
     console.log('[Push] before sending push subscription (safe stringify):', safePushStringify(subscription || null));
     console.log('Sending push "' + title + '" to endpoint:', subscription.endpoint.substring(0, 50) + '...');
-    const res = await fetch(getPushFunctionUrl(), {
+    const _af = typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch;
+    const res = await _af(getPushFunctionUrl(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subscription, title, body, url, tag, ...extra })
     });
     console.log('[Push] send push HTTP status:', res.status);

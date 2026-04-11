@@ -476,9 +476,8 @@ async function renderDevicesTab() {
     // Check Resend API status
     let resendStatus = 'Unknown';
     try {
-      const res = await fetch('/.netlify/functions/send-push', {
+      const res = await globalThis.authFetch('/.netlify/functions/send-push', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: '__ping', subscription: { endpoint: 'https://test', keys: { p256dh: 'x', auth: 'x' } } }),
       });
       resendStatus = res.status === 500 ? 'VAPID misconfigured' : 'Reachable';
