@@ -47,7 +47,7 @@ export function addDepreciationAsset(asset) {
 
 export function updateDepreciationAsset(id, updates) {
   const assets = getDepreciationAssets().slice();
-  const idx = assets.findIndex(a => a.id === id);
+  const idx = assets.findIndex(a => String(a.id) === String(id));
   if (idx === -1) return null;
   assets[idx] = { ...assets[idx], ...updates };
   saveDepreciationAssets(assets);

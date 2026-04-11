@@ -2741,7 +2741,7 @@ async function saveExpenseToDriveAndSheet(exp) {
         const url = await uploadReceiptToStorage(file, exp.id);
         if (url) {
           driveLink = url;
-          const saved = expenses.find(e => e.id === exp.id);
+          const saved = expenses.find(e => String(e.id) === String(exp.id));
           if (saved) {
             saved.driveLink = driveLink;
             globalThis.savePropertyData();
@@ -4215,7 +4215,7 @@ async function reconLinkToExpense(txnId, expenseId) {
     globalThis.showBanner('✓ Transaction linked to expense', 'ok');
 
     // Update in-memory and re-render list without full re-fetch (preserves scroll)
-    const txn = _reconTxns.find(t => t.id === txnId);
+    const txn = _reconTxns.find(t => String(t.id) === String(txnId));
     if (txn) {
       txn.status = 'matched';
       txn.expense_id = expenseId;

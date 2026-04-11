@@ -285,7 +285,7 @@ export async function quickAssignLastCleaner(bookingId) {
     }
     if (!(await globalThis.showAppModal({ title: 'Assign Cleaner', msg: `Assign ${preferred.name} to ${booking.name} (checkout ${fmt(booking.checkout)})?`, confirmText: 'Assign' }))) return;
     const matched = findMatchingCleanForBooking(booking, booking.checkout);
-    const existingIdx = matched ? cleans.findIndex(c => c.id === matched.id) : -1;
+    const existingIdx = matched ? cleans.findIndex(c => String(c.id) === String(matched.id)) : -1;
     const prev = existingIdx >= 0 ? cleans[existingIdx] : null;
     const sameAssignment = !!(prev && String(prev.cleanerId) === String(preferred.id) && String(prev.date || '').slice(0, 10) === String(booking.checkout || '').slice(0, 10));
     if (sameAssignment) {
@@ -1359,7 +1359,7 @@ export async function assignCleanerToBooking(bookingIdParam) {
     String(c.bookingId) === String(booking.id) ||
     (booking._cloudId && String(c.bookingId) === String(booking._cloudId))
   );
-  const existingIdx = matched ? cleans.findIndex(c => c.id === matched.id) : existingByBookingIdx;
+  const existingIdx = matched ? cleans.findIndex(c => String(c.id) === String(matched.id)) : existingByBookingIdx;
   const prev = existingIdx >= 0 ? cleans[existingIdx] : null;
   const bookingIdForClean = prev ? prev.bookingId : (booking._cloudId || booking.id);
 

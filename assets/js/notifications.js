@@ -506,7 +506,7 @@ export function sendSMS() {
   const smsUrl = `sms:${notifyPhone}?&body=${encodeURIComponent(msg)}`;
   window.location.href = smsUrl;
   if (currentNotifyCleanId) {
-    const c = cleans.find(c => c.id === currentNotifyCleanId);
+    const c = cleans.find(c => String(c.id) === String(currentNotifyCleanId));
     if (c) { c.notified = true; c.cleanerConfirmed = false; }
   }
   closeNotifyModal();

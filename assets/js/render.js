@@ -2608,7 +2608,7 @@ function closeInvEdit() {
   editingInvId = null;
 }
 function saveInvEdit() {
-  const i = inventory.find(i => i.id === editingInvId);
+  const i = inventory.find(i => String(i.id) === String(editingInvId));
   if (!i) return;
   i.name = document.getElementById('ie-name').value.trim() || i.name;
   i.threshold = parseInt(document.getElementById('ie-threshold').value) || 0;

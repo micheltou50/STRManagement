@@ -773,7 +773,7 @@ async function addNote() {
     globalThis.showBanner('⚠ Please select a booking and add a note', 'warn');
     return;
   }
-  const booking = bookings.find(b => b.id === bookingId);
+  const booking = bookings.find(b => String(b.id) === String(bookingId) || String(b._cloudId) === String(bookingId));
   if (!booking) {
     globalThis.showBanner('⚠ Booking not found — it may have been deleted', 'warn');
     return;

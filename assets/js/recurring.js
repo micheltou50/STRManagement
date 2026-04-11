@@ -51,7 +51,7 @@ export function addRecurringTemplate(template) {
 
 export function updateRecurringTemplate(id, updates) {
   const templates = getRecurringTemplates().slice();
-  const idx = templates.findIndex(t => t.id === id);
+  const idx = templates.findIndex(t => String(t.id) === String(id));
   if (idx === -1) return null;
   templates[idx] = { ...templates[idx], ...updates };
   saveRecurringTemplates(templates);
