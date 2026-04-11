@@ -2824,7 +2824,9 @@ if (!isCleanerMode()) {
         globalThis.loadCleansFromCloud().then(cloudCleans => {
           if (Array.isArray(cloudCleans) && cloudCleans.length) {
             replaceArrayInPlace(cleans, cloudCleans);
-            if (typeof renderAll === 'function') renderAll();
+            // Only re-render dashboard and cleaning — NOT finance/settings (would reset scroll and forms)
+            renderDashboard();
+            if (currentSection === 'cleaning') { renderCleaning(); populateCleanerSelect(); }
           }
         }).catch(e => console.warn('[StayOps] Poll sync error:', e));
       }
