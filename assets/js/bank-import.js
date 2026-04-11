@@ -30,7 +30,19 @@ const ALLOWED_AI_CATEGORIES = [
 
 const SUMMARY_REGEX = /^(total|subtotal|opening|closing|balance brought|brought forward|statement period|page \d)/i;
 
-function parseCSVLine(line) {
+function _detectDelimiter(lines) {
+  // Check first few non-empty lines for tab vs comma dominance
+  const sample = lines.filter(l => l.trim()).slice(0, 5);
+  let tabs = 0, commas = 0;
+  for (const line of sample) {
+    tabs += (line.match(/\t/g) || []).length;
+    commas += (line.match(/,/g) || []).length;
+  }
+  return tabs > commas ? '\t' : ',';
+}
+
+function parseCSVLine(line, delimiter) {
+  const delim = delimiter || ',';
   const result = [];
   let cur = '';
   let inQuotes = false;
@@ -38,7 +50,7 @@ function parseCSVLine(line) {
     const c = line[i];
     if (c === '"') {
       inQuotes = !inQuotes;
-    } else if (c === ',' && !inQuotes) {
+    } else if (c === delim && !inQuotes) {
       result.push(cur.trim());
       cur = '';
     } else {
@@ -324,11 +336,12 @@ export async function parseCSV(fileText) {
   const lines = String(fileText || '')
     .split(/\r?\n/)
     .map((l) => l.trimEnd());
+  const delimiter = _detectDelimiter(lines);
   const rows = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim()) continue;
-    rows.push({ cells: parseCSVLine(line), rawLine: line });
+    rows.push({ cells: parseCSVLine(line, delimiter), rawLine: line });
   }
   if (!rows.length) {
     console.log('[StayOps] Parsed 0 transactions from CSV');
