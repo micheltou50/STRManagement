@@ -560,8 +560,8 @@ function renderBankImportReview() {
                 <span>${confLabel}</span>
               </div>
               <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
-                <button type="button" onclick="globalThis.bankImportSkipRow(${i})" ${isPersonal ? 'disabled' : ''} style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--stone);background:white;cursor:pointer;font-family:'DM Sans',sans-serif">Skip</button>
-                <button type="button" onclick="globalThis.bankImportPersonalRow(${i})" ${isPersonal ? 'disabled' : ''} style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--red);color:var(--red);background:#fff5f5;cursor:pointer;font-family:'DM Sans',sans-serif">Personal</button>
+                ${isPersonal || row.userMarkedSkip ? `<button type="button" onclick="globalThis.bankImportUndoSkip(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--moss);color:var(--moss);background:#f0faf4;cursor:pointer;font-family:'DM Sans',sans-serif">Undo</button>` : `<button type="button" onclick="globalThis.bankImportSkipRow(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--stone);background:white;cursor:pointer;font-family:'DM Sans',sans-serif">Skip</button>
+                <button type="button" onclick="globalThis.bankImportPersonalRow(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--red);color:var(--red);background:#fff5f5;cursor:pointer;font-family:'DM Sans',sans-serif">Personal</button>`}
               </div>
             </div>
           </div>
@@ -709,6 +709,28 @@ async function bankImportPersonalRow(i) {
   }
   renderBankImportReview();
 }
+
+async function bankImportUndoSkip(i) {
+  const row = _bankImportRows[i];
+  if (!row) return;
+  row.userMarkedPersonal = false;
+  row.userMarkedSkip = false;
+  row.skip = false;
+  row.reason = null;
+  // Remove the is_personal flag from vendor_mappings so it won't auto-skip next time
+  const userId = window._supabaseUser && window._supabaseUser.id;
+  if (userId && window._sb) {
+    const pattern = row.vendorPattern || row.vendor || '';
+    if (pattern) {
+      window._sb.from('vendor_mappings').update({ is_personal: false }).eq('user_id', userId).eq('vendor_pattern', pattern).then(() => {
+        console.log('[StayOps] vendor_mapping is_personal cleared for', pattern);
+      }).catch(() => {});
+    }
+  }
+  renderBankImportReview();
+  globalThis.showBanner('Row restored — ready to import', 'ok');
+}
+globalThis.bankImportUndoSkip = bankImportUndoSkip;
 
 function bankImportConfirmAllSuggested() {
   _bankImportRows.forEach((row) => {
