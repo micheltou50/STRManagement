@@ -120,7 +120,7 @@ async function supabaseSignOut() {
 
 export async function detectUserRole() {
   if (!window._sb) return null;
-  const { data: { user } } = await window._sb.auth.getUser();
+  const user = await getCurrentSupabaseUser();
   if (!user) return null;
 
   const { data: roles } = await window._sb
@@ -135,7 +135,7 @@ export async function detectUserRole() {
 
 export async function loadCleanerDashboard() {
   if (!window._sb) return null;
-  const { data: { user } } = await window._sb.auth.getUser();
+  const user = await getCurrentSupabaseUser();
   if (!user) return null;
 
   const { data: cleanerRecord } = await window._sb
