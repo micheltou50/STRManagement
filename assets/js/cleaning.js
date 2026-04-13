@@ -1110,12 +1110,14 @@ export function addClean() {
   // Upsert: reuse existing clean record for this booking if one exists
   const existingIdx = cleans.findIndex(c => String(c.bookingId) === String(booking.id) || (booking._cloudId && String(c.bookingId) === String(booking._cloudId)));
   const prev = existingIdx >= 0 ? cleans[existingIdx] : null;
+  const defaultCost = prev && prev.cost != null ? prev.cost : (Number(booking.cleaningFee) || null);
   const newClean = {
     id: prev ? prev.id : Date.now(),
     _cloudId: prev ? prev._cloudId : undefined,
     bookingId, guestName: booking.name, cleaner, cleanerId,
     checkin: booking.checkin, date,
     done: false, notified: false, cleanerConfirmed: false, cleanerDeclined: false,
+    cost: defaultCost,
     assignedAt: (prev && prev.cleanerId && String(prev.cleanerId) === String(cleanerId)) ? (prev.assignedAt || new Date().toISOString()) : new Date().toISOString()
   };
   if (existingIdx >= 0) cleans[existingIdx] = newClean;

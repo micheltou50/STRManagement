@@ -6,7 +6,7 @@ import {
 } from './config.js';
 import {
   getSupabaseSession, getCurrentSupabaseUser, seedLocalConfigFromCloud, hydrateFromCloud, savePropertyToCloud, saveHostConfigToCloud,
-  loadCleansFromCloud, saveCleansToCloud, saveInventoryToCloud, saveMaintenanceToCloud, deleteMaintenanceFromCloud,
+  loadCleansFromCloud, saveCleanToCloud, saveCleansToCloud, saveInventoryToCloud, saveMaintenanceToCloud, deleteMaintenanceFromCloud,
   saveBookingToCloud, saveBookingsToCloud, deleteBookingFromCloud, saveHostConfigToSupabase, loadHostConfigFromSupabase, saveAppConfigToCloud, saveExpenseToCloud,
   showLoadingScreen, hideLoadingScreen, setLoadingStatus, showLoginScreen, handleAuthFailure, showAppChrome,
   handleLoginSubmit, handleSignUpSubmit, handleMagicLinkSubmit, toggleSignUp, hostSignOut,
@@ -60,7 +60,7 @@ import {
 } from './settings.js';
 import {
   calPrev, calNext, openCalPreview, closeCalPreview, addNote, showDetail, showEditModal, saveEdit, editCalcNights, editCalcNet, filterBookings, addBooking,
-  deleteBooking, importAirbnbCSV, importCSV, switchModalTab, saveCleaningFee, renderBookings
+  deleteBooking, importAirbnbCSV, importCSV, switchModalTab, saveCleaningFee, saveCleanCost, renderBookings
 } from './bookings.js';
 import {
   renderAdmin, switchAdminTab, adminHandleToggle, adminToggleTemplate, adminSendTestEmail,
@@ -111,6 +111,7 @@ globalThis.loadCleaners = loadCleaners;
 globalThis.saveBookingToCloud = saveBookingToCloud;
 globalThis.saveBookingsToCloud = saveBookingsToCloud;
 globalThis.deleteBookingFromCloud = deleteBookingFromCloud;
+globalThis.saveCleanToCloud = saveCleanToCloud;
 globalThis.saveCleansToCloud = saveCleansToCloud;
 globalThis.getCurrentSupabaseUser = getCurrentSupabaseUser;
 globalThis.getFreshHostSub = getFreshHostSub;
@@ -316,6 +317,7 @@ window.saveCleanerContact       = saveCleanerContact;
 window.saveCleanerPerm          = saveCleanerPerm;
 window.saveCleanerPinById       = saveCleanerPinById;
 window.saveCleaningFee          = saveCleaningFee;
+window.saveCleanCost            = saveCleanCost;
 window.editCalcNights           = editCalcNights;
 window.editCalcNet              = editCalcNet;
 window.saveEdit                 = saveEdit;

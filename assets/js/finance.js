@@ -19,7 +19,7 @@ import {
   logImportSession,
 } from './bank-import.js';
 import { findMatchesForTransaction, getReconciliationSummary, getAllTransactionsWithStatus } from './reconciliation.js';
-import { bookings, expenses, replaceArrayInPlace } from './state.js';
+import { bookings, cleans, expenses, replaceArrayInPlace } from './state.js';
 import { escHtml, fmt, fyLabel, fyMonths, escapeJsSingleQuotedHtmlAttr, fadeTransition } from './utils.js';
 import { renderPortfolioFinance, isPortfolioMode } from './property.js';
 import {
@@ -1529,9 +1529,14 @@ function renderRevenue() {
   const ownerPaidExpenses = monthExpenses.filter(e => _isOwnerPaidExpense(e));
   const totalOperational = operationalExpenses.reduce((s,e) => s + Math.abs(Number(e.amount || 0)), 0);
   const totalOwnerPaid = ownerPaidExpenses.reduce((s,e) => s + Math.abs(Number(e.amount || 0)), 0);
+  // ── Cleaning costs from clean records (linked to bookings) ──
+  const monthBookingIds = new Set(monthBookings.map(b => String(b.id)).concat(monthBookings.filter(b => b._cloudId).map(b => String(b._cloudId))));
+  const monthCleanCosts = cleans.filter(c => c.cost != null && c.cost > 0 && monthBookingIds.has(String(c.bookingId)));
+  const totalCleanCost = monthCleanCosts.reduce((s, c) => s + Number(c.cost || 0), 0);
+
   const expenseMode = getExpensePayoutMode();
   const isDeduct = expenseMode === 'deduct';
-  const totalNetBeforeExpenses = totalHost - totalMgmt;
+  const totalNetBeforeExpenses = totalHost - totalMgmt - totalCleanCost;
   const finalPayout = isDeduct ? totalNetBeforeExpenses - totalOperational : totalNetBeforeExpenses;
 
   // ── Header cards ──
@@ -1550,9 +1555,24 @@ function renderRevenue() {
   const ownerDetailHtml = ownerPaidExpenses.length ? [...ownerPaidExpenses].sort((a,b) => new Date(a.date) - new Date(b.date)).map(_expRow).join('') : '';
 
   // ── Summary section ──
+  // ── Clean cost detail row builder ──
+  const _cleanCostRow = (c) => {
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:0.5px solid rgba(0,0,0,0.05)"><div style="min-width:0"><div style="color:var(--text);font-weight:500">${escHtml(c.cleaner || 'Cleaner')}</div><div style="color:var(--text-soft);font-size:11px;margin-top:1px">${escHtml(c.guestName || '')}${c.date ? ' · ' + fmt(c.date) : ''}</div></div><div style="flex-shrink:0;color:#E24B4A;font-weight:500;margin-left:12px">$${_fmtAud(Number(c.cost||0))}</div></div>`;
+  };
+  const cleanCostDetailHtml = monthCleanCosts.length ? [...monthCleanCosts].sort((a,b) => new Date(a.date) - new Date(b.date)).map(_cleanCostRow).join('') : '';
+
   let summaryHtml = `<div class="finance-summary">
     <div class="finance-row"><span class="finance-label">Gross revenue</span><span class="finance-val" style="color:#1a1a1a;font-weight:500">$${_fmtAud(totalHost)}</span></div>
     <div class="finance-row"><span class="finance-label">Management fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalMgmt)}</span></div>`;
+
+  if (totalCleanCost > 0) {
+    summaryHtml += `
+    <div class="finance-row" style="cursor:pointer;border-radius:6px;margin:0 -4px;padding:10px 4px;transition:background 0.15s" onclick="var d=document.getElementById('rev-clean-cost-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.cc-chevron').textContent=open?'▾':'▴'" onmouseover="this.style.background='var(--mist)'" onmouseout="this.style.background=''">
+      <span class="finance-label" style="display:flex;align-items:center;gap:4px">Cleaning costs (${monthCleanCosts.length}) <span class="cc-chevron" style="font-size:9px;color:var(--text-soft);transition:transform 0.2s">▾</span></span>
+      <span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalCleanCost)}</span>
+    </div>
+    <div id="rev-clean-cost-detail" style="display:none;padding:10px 14px;margin:2px 0 6px;background:var(--mist);border-radius:10px">${cleanCostDetailHtml}</div>`;
+  }
 
   if (isDeduct && totalOperational > 0) {
     // Model A: operational expenses deducted before payout

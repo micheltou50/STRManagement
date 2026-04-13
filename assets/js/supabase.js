@@ -659,7 +659,8 @@ export async function loadCleansFromCloud() {
       reminderSent:     c.reminder_sent || false,
       assignedAt:       c.assigned_at  || null,
       confirmedAt:      c.confirmed_at || null,
-      notes:            c.notes        || ''
+      notes:            c.notes        || '',
+      cost:             c.cost != null ? Number(c.cost) : null
     }));
   } catch (e) {
     console.warn('[StayOps] loadCleansFromCloud failed', e);
@@ -692,6 +693,7 @@ export async function saveCleanToCloud(clean) {
       assigned_at:      clean.assignedAt  || null,
       confirmed_at:     clean.confirmedAt || null,
       notes:            clean.notes       || '',
+      cost:             clean.cost != null ? Number(clean.cost) : null,
       updated_at:       new Date().toISOString()
     };
     if (clean._cloudId) {

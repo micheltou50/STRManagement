@@ -559,19 +559,23 @@ function showDetail(id) {
       </div>
     </div>
 
-    ${isPast
-      ? `<div style="font-size:12px;font-weight:500;color:#999;margin:0 0 6px 2px">Cleaning cost</div>
+    ${matchedClean
+      ? (() => {
+        const cleanCost = matchedClean.cost != null ? Number(matchedClean.cost) : Number(b.cleaningFee || 0);
+        const cleanIdEsc = escapeJsSingleQuotedHtmlAttr(String(matchedClean._cloudId || matchedClean.id));
+        return `<div style="font-size:12px;font-weight:500;color:#999;margin:0 0 6px 2px">Cleaning cost</div>
       <div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden;padding:14px">
       <div id="clean-cost-view" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-        <span style="font-size:20px;font-weight:500;color:#1a1a1a">$${Number(b.cleaningFee || 0).toLocaleString()}</span>
+        <span style="font-size:20px;font-weight:500;color:#1a1a1a">${cleanCost ? '$' + cleanCost.toLocaleString() : 'Not set'}</span>
         <button type="button" onclick="document.getElementById('clean-cost-view').style.display='none';document.getElementById('clean-cost-edit').style.display=''" style="background:none;border:0.5px solid rgba(0,0,0,0.1);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:500;color:#666;cursor:pointer;font-family:inherit;touch-action:manipulation">Edit</button>
       </div>
       <div id="clean-cost-edit" style="display:none;margin-top:12px">
         <div style="display:flex;gap:8px;align-items:center">
-          <input type="number" id="actual-clean-fee" value="${Number(b.cleaningFee || 0)}" placeholder="0" style="flex:1;padding:10px 12px;border:0.5px solid rgba(0,0,0,0.1);border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box">
-          <button type="button" onclick="saveCleaningFee('${b._cloudId || b.id}')" style="background:#2D5A3D;color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;font-family:inherit;touch-action:manipulation">Save</button>
+          <input type="number" id="actual-clean-fee" value="${cleanCost || ''}" placeholder="0" style="flex:1;padding:10px 12px;border:0.5px solid rgba(0,0,0,0.1);border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box">
+          <button type="button" onclick="saveCleanCost('${cleanIdEsc}','${safeIdEsc}')" style="background:#2D5A3D;color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;font-family:inherit;touch-action:manipulation">Save</button>
         </div>
-      </div>
+      </div>`;
+      })()
     </div>`
       : ''}
     ${bn.length
@@ -1211,6 +1215,24 @@ async function saveCleaningFee(bookingId) {
   if (typeof showDetail === 'function') showDetail(bookingId);
 }
 
+async function saveCleanCost(cleanId, bookingId) {
+  const c = cleans.find(cl => String(cl.id) === String(cleanId) || (cl._cloudId && String(cl._cloudId) === String(cleanId)));
+  const input = document.getElementById('actual-clean-fee');
+  if (!c || !input) return;
+  c.cost = Number(input.value) || 0;
+  if (typeof globalThis.saveCleanToCloud === 'function') {
+    try {
+      await globalThis.saveCleanToCloud(c);
+    } catch (e) {
+      console.error('[StayOps] Cloud save failed:', e);
+      globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+      return;
+    }
+  }
+  globalThis.showBanner('Cleaning cost saved', 'ok');
+  if (typeof showDetail === 'function') showDetail(bookingId);
+}
+
 /** Aliases for clarity (same as showEditModal / saveEdit). */
 const editBooking = showEditModal;
 const saveBookingEdit = saveEdit;
@@ -1244,4 +1266,5 @@ export {
   parseCSVLine,
   getBookingIdentityKey,
   saveCleaningFee,
+  saveCleanCost,
 };

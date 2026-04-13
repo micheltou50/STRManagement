@@ -251,6 +251,7 @@ import {
   importCSV,
   switchModalTab,
   saveCleaningFee,
+  saveCleanCost,
 } from './bookings.js';
 
 
