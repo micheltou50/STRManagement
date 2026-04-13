@@ -1148,15 +1148,36 @@ export function addClean() {
     .finally(() => releaseCleaningLock('addClean'));
   populateSelects();
 }
-export function toggleClean(id) {
+export async function toggleClean(id) {
   const c=cleans.find(c=>String(c.id)===String(id));
-  if (c){
-    c.done=!c.done;
-    if (typeof saveCleanToCloud === 'function') {
-      saveCleanToCloud(c).catch(e => console.error('[StayOps] Cloud save failed:', e));
+  if (!c) return;
+
+  if (!c.done) {
+    // Marking as done — prompt for actual cleaning cost
+    const booking = bookings.find(b => String(b.id) === String(c.bookingId) || (b._cloudId && String(b._cloudId) === String(c.bookingId)));
+    const defaultCost = c.cost != null ? c.cost : Number(booking?.cleaningFee || 0);
+    const result = await globalThis.showAppModal({
+      title: 'Cleaning cost',
+      msg: `How much did ${c.cleaner || 'the cleaner'} charge for ${c.guestName || 'this clean'}?`,
+      hasInput: true,
+      inputType: 'number',
+      inputPlaceholder: '0',
+      inputDefault: String(defaultCost || ''),
+      confirmText: 'Save',
+      cancelText: 'Skip',
+    });
+    c.done = true;
+    if (result !== null && result !== false && result !== '') {
+      c.cost = Number(result) || 0;
     }
-    renderCleaning(); globalThis.renderDashboard();
+  } else {
+    c.done = false;
   }
+
+  if (typeof saveCleanToCloud === 'function') {
+    saveCleanToCloud(c).catch(e => console.error('[StayOps] Cloud save failed:', e));
+  }
+  renderCleaning(); globalThis.renderDashboard();
 }
 export async function postCleanerAction(cleanId, action) {
   const { id: cleanerId, uid } = globalThis.getCleanerParams();
