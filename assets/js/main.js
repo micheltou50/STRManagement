@@ -330,6 +330,7 @@ window.requestCMSetup           = requestCMSetup;
 window.disconnectCM             = disconnectCM;
 window.saveCMMapping            = saveCMMapping;
 window.selectMerchantSuggest    = selectMerchantSuggest;
+window.hideMerchantSuggest      = hideMerchantSuggest;
 window.sendCleanerReminder      = sendCleanerReminder;
 window.setMaintInProgress       = setMaintInProgress;
 window.showAppModal             = showAppModal;

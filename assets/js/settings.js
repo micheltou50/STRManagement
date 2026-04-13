@@ -136,8 +136,8 @@ async function maybeAutoScanGmail() {
     }
     await globalThis.processScanNeedsReview(data);
   } catch (e) {
-    // Silent — auto-scan errors must never surface to the user
-    console.warn('[gmail-auto-scan] background scan error:', e.message);
+    // Silent — auto-scan errors must never surface to the user or Sentry
+    console.log('[gmail-auto-scan] background scan skipped:', e.message);
   }
 }
 
@@ -247,7 +247,7 @@ async function maybeAutoScanOutlook() {
     }
     await globalThis.processScanNeedsReview(data);
   } catch (e) {
-    console.warn('[outlook-auto-scan] background scan error:', e.message);
+    console.log('[outlook-auto-scan] background scan skipped:', e.message);
   }
 }
 
