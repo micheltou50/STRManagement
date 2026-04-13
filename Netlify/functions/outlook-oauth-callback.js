@@ -10,6 +10,7 @@
 //   SUPABASE_SERVICE_KEY
 
 const { createClient } = require('@supabase/supabase-js');
+const { captureError, flush } = require('./utils/sentry');
 
 exports.handler = async (event) => {
   const code   = event.queryStringParameters?.code;
@@ -94,6 +95,8 @@ exports.handler = async (event) => {
     };
   } catch (err) {
     console.error('[outlook-oauth-callback] Error:', err.message);
+    captureError(err, { tags: { function: 'outlook-oauth-callback' } });
+    await flush();
     return {
       statusCode: 302,
       headers: { Location: appUrl + '?oauth_error=' + encodeURIComponent(err.message) },

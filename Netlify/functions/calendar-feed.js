@@ -8,6 +8,8 @@
      SUPABASE_SERVICE_KEY      — from Supabase dashboard → Settings → API
    ═══════════════════════════════════════════════════════════════════════════ */
 
+const { captureError, flush } = require('./utils/sentry');
+
 exports.handler = async (event) => {
   // ── Auth ────────────────────────────────────────────────────────────────
   const uid = (event.queryStringParameters || {}).uid;
@@ -82,6 +84,8 @@ exports.handler = async (event) => {
 
   } catch (err) {
     console.error('[calendar-feed] Error:', err);
+    captureError(err, { tags: { function: 'calendar-feed' } });
+    await flush();
     return { statusCode: 500, body: 'Internal error.' };
   }
 };

@@ -7,6 +7,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const { createClient } = require('@supabase/supabase-js');
+const { captureError, flush } = require('./utils/sentry');
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -120,6 +121,8 @@ exports.handler = async (event) => {
 
   } catch (err) {
     console.error('[StayOps] cm-test-connection: unexpected error', err.message);
+    captureError(err, { tags: { function: 'cm-test-connection' } });
+    await flush();
     return json(200, { connected: false, error: err.message || 'Connection test failed' });
   }
 };

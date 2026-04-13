@@ -24,6 +24,19 @@ function findMatchingCleanForBookingCard(booking) {
   return null;
 }
 
+export function normalizePlatformLabel(platformRaw) {
+  const p = String(platformRaw || '').trim().toLowerCase();
+  if (p === 'airbnb') return 'Airbnb';
+  if (p === 'vrbo') return 'Vrbo';
+  if (p === 'booking.com' || p.includes('booking')) return 'Booking.com';
+  if (p === 'direct') return 'Direct';
+  if (p === 'agoda') return 'Agoda';
+  if (p === 'expedia') return 'Expedia';
+  if (p.includes('tripadvisor') || p.includes('trip advisor')) return 'TripAdvisor';
+  if (!p) return 'Other';
+  return platformRaw.charAt(0).toUpperCase() + platformRaw.slice(1);
+}
+
 function getBookingListPlatformPillMeta(platformRaw) {
   const raw = String(platformRaw || '').trim();
   const p = raw.toLowerCase();
@@ -42,7 +55,7 @@ function getBookingListPlatformPillMeta(platformRaw) {
     color = '#5F5E5A';
     bg = '#F1EFE8';
   }
-  const label = raw || 'Other';
+  const label = normalizePlatformLabel(raw);
   return { label, color, bg };
 }
 

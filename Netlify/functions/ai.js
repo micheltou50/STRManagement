@@ -2,6 +2,8 @@
 // Proxies Claude API calls server-side so the API key never touches the browser.
 // Set ANTHROPIC_API_KEY in your Netlify site's environment variables.
 
+const { captureError, flush } = require('./utils/sentry');
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type',
@@ -77,6 +79,8 @@ exports.handler = async (event) => {
     };
   } catch (err) {
     console.error('[ai] Anthropic API error:', err);
+    captureError(err, { tags: { function: 'ai' } });
+    await flush();
     return {
       statusCode: 500,
       headers: CORS,

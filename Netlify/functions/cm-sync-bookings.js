@@ -11,6 +11,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const { createClient } = require('@supabase/supabase-js');
+const { captureError, flush } = require('./utils/sentry');
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -92,6 +93,8 @@ exports.handler = async (event) => {
 
   } catch (err) {
     console.error('[StayOps] cm-sync-bookings: unexpected error', err.message);
+    captureError(err, { tags: { function: 'cm-sync-bookings' } });
+    await flush();
     return json(500, { error: err.message || 'Sync failed' });
   }
 };

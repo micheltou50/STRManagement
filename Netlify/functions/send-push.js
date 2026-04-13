@@ -1,4 +1,5 @@
 const webpush = require('web-push');
+const { captureError, flush } = require('./utils/sentry');
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -267,6 +268,8 @@ exports.handler = async (event) => {
       }
     } catch (_) { /* ignore JSON parse error on push error body */ }
     console.error('[send-push] Push failed status=' + status + ' reason=' + apnsReason + ' msg=' + (err.message || ''));
+    captureError(err, { tags: { function: 'send-push' } });
+    await flush();
     return {
       statusCode: status,
       headers: CORS,

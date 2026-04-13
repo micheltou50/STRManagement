@@ -18,6 +18,7 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const { sendPushToHost, hasRecentNotification } = require('./utils/push-helper');
+const { captureError, flush } = require('./utils/sentry');
 
 const SYDNEY_TZ = 'Australia/Sydney';
 const UNASSIGNED_WINDOW_HRS = 48;
@@ -371,6 +372,8 @@ exports.handler = async (event) => {
   } catch (e) {
     const message = e && e.message ? e.message : String(e);
     console.error('[StayOps] daily-notifications: fatal', message);
+    captureError(e, { tags: { function: 'daily-notifications' } });
+    await flush();
     return json(500, { success: false, error: message });
   }
 

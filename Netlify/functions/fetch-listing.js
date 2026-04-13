@@ -3,6 +3,7 @@
 // for auto-filling the property setup form.
 
 const { verifyAuth } = require('./utils/auth');
+const { captureError, flush } = require('./utils/sentry');
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -180,6 +181,8 @@ exports.handler = async (event) => {
     html = await response.text();
   } catch (e) {
     console.error('[StayOps] fetch-listing: fetch error', e.message);
+    captureError(e, { tags: { function: 'fetch-listing' } });
+    await flush();
     return respond(200, {
       error: e.name === 'TimeoutError' ? 'Request timed out' : 'Could not fetch listing',
       listingId,

@@ -520,6 +520,7 @@ body {
   .section-cta { width: 100%; }
   .stat-val { font-size: 21px; }
   .nav-btn { font-size: 10.5px; }
+  .dashboard-stat-grid { grid-template-columns: 1fr 1fr !important; }
 }
 
 /* Ensure hidden sections stay hidden even when combined with layout classes */
@@ -2574,3 +2575,20 @@ label {
 .admin-log-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
 .admin-log-text { flex: 1; line-height: 1.5; }
 .admin-log-time { color: var(--text-soft); font-size: 10px; white-space: nowrap; }
+
+/* ── Mobile nav: fixed bottom bar ──────────────────────────────────────────── */
+@media (max-width: 1023px) {
+  .nav {
+    position: fixed !important;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-width: 430px;
+    margin: 0 auto;
+  }
+}
+
+/* ── Dashboard whitespace fix ──────────────────────────────────────────────── */
+#dashboard-today-mount {
+  min-height: 0 !important;
+}

@@ -20,6 +20,8 @@
      SUPABASE_URL, SUPABASE_SERVICE_KEY, ANTHROPIC_API_KEY
    ═══════════════════════════════════════════════════════════════════════════ */
 
+const { captureError, flush } = require('./utils/sentry');
+
 exports.handler = async (event) => {
   const uid = (event.queryStringParameters || {}).uid;
   if (!uid) return json(400, { error: 'Missing uid' });
@@ -348,6 +350,39 @@ exports.handler = async (event) => {
           continue;
         }
 
+        // ── Modification notice (alteration accepted, but no details) ──
+        if (emailType === 'modification_notice') {
+          const modMatch = findExistingBooking(existingBookings, confCode, parsed.guestName, null);
+          if (modMatch) {
+            await fetch(
+              SUPABASE_URL + '/rest/v1/bookings?id=eq.' + enc(modMatch.id),
+              { method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=minimal' }, body: JSON.stringify({ updated_at: new Date().toISOString() }) }
+            );
+            const modPropName = (propMap.find(p => p.id === modMatch.property_id) || {}).name || propertyName;
+            needsReview.push({
+              guest: parsed.guestName || modMatch.guest_name || 'Guest',
+              checkin: modMatch.checkin,
+              checkout: modMatch.checkout,
+              platform: modMatch.platform || '',
+              gmail_message_id: msgId,
+              assigned_property: modPropName,
+              reason: 'Booking was modified on the platform — check itinerary for updated details',
+            });
+            results.updated++;
+            results.details.push({ msgId, status: 'modification_notice', guest: parsed.guestName || modMatch.guest_name });
+          } else {
+            needsReview.push({
+              guest: parsed.guestName || 'Guest',
+              platform: parsed.platform || detectPlatform(emailFrom),
+              gmail_message_id: msgId,
+              reason: 'Modification detected but could not match to an existing booking',
+            });
+            results.details.push({ msgId, status: 'modification_notice_unmatched', guest: parsed.guestName });
+          }
+          newlySkipped.push(msgId);
+          continue;
+        }
+
         // ── New booking ─────────────────────────────────────────────
         if (!parsed.checkin || !parsed.checkout) {
           results.skipped++;
@@ -417,12 +452,23 @@ exports.handler = async (event) => {
 
   } catch (err) {
     console.error('[outlook-scan] Error:', err);
+    captureError(err, { tags: { function: 'outlook-scan-bookings' } });
+    await flush();
     return json(500, { error: 'Scan failed: ' + (err.message || 'unknown error') });
   }
 };
 
 
 // ── HELPERS ──────────────────────────────────────────────────────────────────
+
+function detectPlatform(from) {
+  const f = (from || '').toLowerCase();
+  if (f.includes('@airbnb')) return 'Airbnb';
+  if (f.includes('@vrbo') || f.includes('@homeaway')) return 'VRBO';
+  if (f.includes('@booking.com')) return 'Booking.com';
+  if (f.includes('@stayz')) return 'Stayz';
+  return 'Direct';
+}
 
 function enc(s)  { return encodeURIComponent(s); }
 function json(status, body) {
@@ -607,12 +653,13 @@ async function parseBookingEmail(apiKey, subject, from, body, singlePropertyName
     'Classify the email type:\n' +
     '- "new_booking" — a new guest reservation at the host\'s property\n' +
     '- "cancellation" — a guest booking has been cancelled\n' +
-    '- "modification" — an existing guest booking\'s dates, guests, or payout have changed\n' +
+    '- "modification" — an existing guest booking\'s dates, guests, or payout have changed AND the email includes the updated details\n' +
+    '- "modification_notice" — the email confirms a reservation was modified/altered/updated, but does NOT include the updated booking details (dates, payout, etc.). Typical examples: "Reservation updated", "Your reservation with X has been updated", alteration accepted notices that just link to the itinerary.\n' +
     '- "not_a_booking" — marketing, review, payout receipt, personal travel booking, message from guest, or anything else\n\n' +
     'If not_a_booking, return: {"not_a_booking": true}\n\n' +
     'Otherwise return:\n' +
     '{\n' +
-    '  "emailType": "new_booking" or "cancellation" or "modification",\n' +
+    '  "emailType": "new_booking" or "cancellation" or "modification" or "modification_notice",\n' +
     '  "guestName": "Full name of the guest staying at the property",\n' +
     '  "checkin": "YYYY-MM-DD" (null if not found),\n' +
     '  "checkout": "YYYY-MM-DD" (null if not found),\n' +

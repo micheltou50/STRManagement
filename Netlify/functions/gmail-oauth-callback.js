@@ -11,6 +11,8 @@
      SUPABASE_SERVICE_KEY
    ═══════════════════════════════════════════════════════════════════════════ */
 
+const { captureError, flush } = require('./utils/sentry');
+
 exports.handler = async (event) => {
   const params = event.queryStringParameters || {};
   const code = params.code;
@@ -110,6 +112,8 @@ exports.handler = async (event) => {
 
   } catch (err) {
     console.error('[gmail-oauth-callback] Error:', err);
+    captureError(err, { tags: { function: 'gmail-oauth-callback' } });
+    await flush();
     return redirect(SITE_URL + '/?oauth_error=internal_error');
   }
 };

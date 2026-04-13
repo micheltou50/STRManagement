@@ -1,5 +1,7 @@
 // Proxies Anthropic /v1/messages for browser clients (CORS). Set ANTHROPIC_API_KEY in Netlify.
 
+const { captureError, flush } = require('./utils/sentry');
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type',
@@ -73,6 +75,8 @@ exports.handler = async (event) => {
     };
   } catch (e) {
     console.error('[StayOps] ai-proxy:', e && e.message ? e.message : e);
+    captureError(e, { tags: { function: 'ai-proxy' } });
+    await flush();
     return {
       statusCode: 502,
       headers: { ...CORS, 'Content-Type': 'application/json' },

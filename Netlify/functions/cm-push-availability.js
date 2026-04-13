@@ -8,6 +8,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const { createClient } = require('@supabase/supabase-js');
+const { captureError, flush } = require('./utils/sentry');
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -158,6 +159,8 @@ exports.handler = async (event) => {
 
   } catch (err) {
     console.error('[StayOps] cm-push-availability: unexpected error', err.message);
+    captureError(err, { tags: { function: 'cm-push-availability' } });
+    await flush();
     return json(500, { error: err.message || 'Availability push failed' });
   }
 };

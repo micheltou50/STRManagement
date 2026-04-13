@@ -16,6 +16,7 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const { sendPushToHost } = require('./utils/push-helper');
+const { captureError, flush } = require('./utils/sentry');
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
@@ -127,6 +128,8 @@ exports.handler = async (event) => {
 
   } catch (err) {
     console.error('[cleaner-message] Error:', err);
+    captureError(err, { tags: { function: 'cleaner-message' } });
+    await flush();
     return json(500, { error: 'Internal error' });
   }
 };

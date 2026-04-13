@@ -5,6 +5,7 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const { sendPushToHost, hasRecentNotification } = require('./utils/push-helper');
+const { captureError, flush } = require('./utils/sentry');
 
 const SYDNEY_TZ = 'Australia/Sydney';
 
@@ -277,6 +278,8 @@ exports.handler = async (event) => {
   } catch (e) {
     const message = e && e.message ? e.message : String(e);
     console.log('[StayOps] monthly-revenue-summary: fatal', message);
+    captureError(e, { tags: { function: 'monthly-revenue-summary' } });
+    await flush();
     return json(500, { success: false, error: message });
   }
 };

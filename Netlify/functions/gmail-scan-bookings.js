@@ -17,6 +17,7 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const { sendPushToHost, hasRecentNotification } = require('./utils/push-helper');
+const { captureError, captureMessage, flush } = require('./utils/sentry');
 
 exports.handler = async (event) => {
   const uid = (event.queryStringParameters || {}).uid;
@@ -79,6 +80,8 @@ exports.handler = async (event) => {
     const tokenData = await tokenRes.json();
     if (!tokenRes.ok || !tokenData.access_token) {
       console.error('[gmail-scan] Token refresh failed:', tokenData);
+      captureMessage('Gmail token expired — user needs to reconnect', 'warning', { user_id: uid, tags: { function: 'gmail-scan-bookings' } });
+      await flush();
       return json(401, { error: 'Gmail token expired — reconnect Gmail in Settings' });
     }
     const accessToken = tokenData.access_token;
@@ -135,16 +138,31 @@ exports.handler = async (event) => {
     ];
 
     const allMessageIds = new Set();
+    let gmailAuthFailed = false;
     for (const q of searchQueries) {
       const searchRes = await fetch(
         'https://www.googleapis.com/gmail/v1/users/me/messages?q=' + encodeURIComponent(q) + '&maxResults=50',
         { headers: { Authorization: 'Bearer ' + accessToken } }
       );
-      if (!searchRes.ok) { console.log('[gmail-scan] Search failed:', searchRes.status); continue; }
+      if (!searchRes.ok) {
+        console.log('[gmail-scan] Search failed:', searchRes.status);
+        if (searchRes.status === 403 || searchRes.status === 401) {
+          gmailAuthFailed = true;
+        }
+        continue;
+      }
       const searchData = await searchRes.json();
       if (searchData.messages) {
         searchData.messages.forEach(m => allMessageIds.add(m.id));
       }
+    }
+
+    // If every search query got a 403/401, the token's scopes are insufficient
+    if (gmailAuthFailed && !allMessageIds.size) {
+      console.error('[gmail-scan] Gmail API returned 403/401 — token scopes insufficient or API not enabled');
+      captureMessage('Gmail API 403 — user needs to reconnect', 'warning', { user_id: uid, tags: { function: 'gmail-scan-bookings' } });
+      await flush();
+      return json(401, { error: 'Gmail permissions expired — please disconnect and reconnect Gmail in Settings' });
     }
 
     if (!allMessageIds.size) {
@@ -210,6 +228,15 @@ exports.handler = async (event) => {
           continue;
         }
 
+        // ── Pre-filter: skip emails that don't look like bookings ──
+        // Avoids burning Claude API credits on marketing, payout, or promo emails
+        if (!looksLikeBookingEmail(emailSubject, emailFrom, emailBody)) {
+          results.skipped++;
+          newlySkipped.push(msgId);
+          results.details.push({ msgId, status: 'skipped', reason: 'No booking keywords — skipped without AI parse' });
+          continue;
+        }
+
         const parsed = await parseBookingEmail(
           ANTHROPIC_KEY, emailSubject, emailFrom, emailBody,
           isSingleProperty ? propMap[0].name : null,
@@ -231,7 +258,7 @@ exports.handler = async (event) => {
 
         const rawEmailType = String(parsed.email_type || parsed.emailType || '').toLowerCase();
         if (
-          (parsed.skipped === true && rawEmailType !== 'cancellation') ||
+          (parsed.skipped === true && rawEmailType !== 'cancellation' && rawEmailType !== 'modification_notice') ||
           rawEmailType === 'enquiry' ||
           rawEmailType === 'other' ||
           rawEmailType === 'payout_notification'
@@ -330,6 +357,50 @@ exports.handler = async (event) => {
             newlySkipped.push(msgId);
             results.details.push({ msgId, status: 'skipped', reason: 'Cancellation but no matching booking found' });
           }
+          continue;
+        }
+
+        // ── Modification notice (alteration accepted, but no details) ──
+        if (emailType === 'modification_notice') {
+          const modMatch = findExistingBooking(existingBookings, confCode, parsed.guestName, null);
+          if (modMatch) {
+            // Mark the email as processed
+            await fetch(
+              SUPABASE_URL + '/rest/v1/bookings?id=eq.' + enc(modMatch.id),
+              {
+                method: 'PATCH',
+                headers: { ...sbHeaders, Prefer: 'return=minimal' },
+                body: JSON.stringify({ updated_at: new Date().toISOString() }),
+              }
+            );
+            const modPropName = (propMap.find(p => p.id === modMatch.property_id) || {}).name || propertyName;
+            await notifyBookingOwnerPush(supabaseAdmin, {
+              notifyType: 'modification_notice',
+              propertyId: modMatch.property_id || propertyId,
+              bookingRow: modMatch,
+              fallbackPropertyName: modPropName,
+            });
+            needsReview.push({
+              guest: parsed.guestName || modMatch.guest_name || 'Guest',
+              checkin: modMatch.checkin,
+              checkout: modMatch.checkout,
+              platform: modMatch.platform || '',
+              gmail_message_id: msgId,
+              assigned_property: modPropName,
+              reason: 'Booking was modified on the platform — check itinerary for updated details',
+            });
+            results.updated++;
+            results.details.push({ msgId, status: 'modification_notice', guest: parsed.guestName || modMatch.guest_name });
+          } else {
+            needsReview.push({
+              guest: parsed.guestName || 'Guest',
+              platform: parsed.platform || detectPlatform(emailFrom),
+              gmail_message_id: msgId,
+              reason: 'Modification detected but could not match to an existing booking',
+            });
+            results.details.push({ msgId, status: 'modification_notice_unmatched', guest: parsed.guestName });
+          }
+          newlySkipped.push(msgId);
           continue;
         }
 
@@ -472,12 +543,44 @@ exports.handler = async (event) => {
 
   } catch (err) {
     console.error('[gmail-scan] Error:', err);
+    captureError(err, { tags: { function: 'gmail-scan-bookings' }, user_id: uid });
+    await flush();
     return json(500, { error: 'Scan failed: ' + (err.message || 'unknown error') });
   }
 };
 
 
 // ── HELPERS ──────────────────────────────────────────────────────────────────
+
+/** Quick local check — does the email look like a booking confirmation/cancellation/modification?
+ *  Avoids sending marketing, payout, or promo emails to Claude. */
+function looksLikeBookingEmail(subject, from, body) {
+  const subLo = (subject || '').toLowerCase();
+  const fromLo = (from || '').toLowerCase();
+  // Only scan the first 3 000 chars of the body for speed
+  const bodyLo = (body || '').toLowerCase().slice(0, 3000);
+
+  const bookingPlatforms = ['airbnb.com', 'booking.com', 'vrbo.com', 'stayz.com', 'expedia.com'];
+  const isFromPlatform = bookingPlatforms.some(p => fromLo.includes(p));
+
+  // Allow the test address through unconditionally
+  if (fromLo.includes('mtoubia96@gmail.com')) return true;
+
+  // If the sender isn't a known booking platform, definitely not a booking email
+  if (!isFromPlatform) return false;
+
+  const keywords = [
+    'reservation', 'booking', 'confirmed', 'confirmation',
+    'cancelled', 'canceled', 'cancellation',
+    'check-in', 'checkin', 'check in',
+    'checkout', 'check-out', 'check out',
+    'arrival', 'guest', 'nights', 'payout',
+    'alteration', 'modified', 'modification',
+    'itinerary',
+  ];
+
+  return keywords.some(kw => subLo.includes(kw) || bodyLo.includes(kw));
+}
 
 function enc(s) { return encodeURIComponent(s); }
 function json(status, body) {
@@ -543,6 +646,9 @@ async function notifyBookingOwnerPush(supabaseAdmin, { notifyType, propertyId, b
     } else if (notifyType === 'booking_modified') {
       title = '📝 Booking Updated — ' + propertyName;
       body = g + ' · ' + ci + ' to ' + co + ' · $' + priceStr;
+    } else if (notifyType === 'modification_notice') {
+      title = '📝 Booking Modified — ' + propertyName;
+      body = g + ' — check itinerary for updated details';
     } else {
       return;
     }
@@ -774,12 +880,14 @@ async function parseBookingEmail(apiKey, subject, from, body, singlePropertyName
     'Classify each email as exactly one of:\n' +
     '- "enquiry" — a booking request or inquiry that is NOT yet confirmed (e.g. pending, awaiting host response, pre-approval, inquiry thread).\n' +
     '- "confirmation" — the reservation is confirmed for the host (new booking OR a confirmed change to dates/guests/payout for an existing reservation).\n' +
+    '- "modification_notice" — the email confirms a reservation was modified/altered/updated, but does NOT include the updated booking details (dates, payout, etc.). Typical examples: "Reservation updated", "Your reservation with X has been updated", alteration accepted notices that just link to the itinerary without showing the new details.\n' +
     '- "cancellation" — the guest booking has been cancelled; include whatever identifiers you can for matching (guest name, confirmation code, dates).\n' +
     '- "payout_notification" — payout on the way, payout sent, remittance, or earnings notices without a full reservation confirmation.\n' +
     '- "other" — marketing, review requests, guest chat messages, unrelated content, or anything that does not fit above.\n\n' +
-    'For any email where email_type is NOT "confirmation", return ONLY a minimal object with no booking fields, e.g.:\n' +
+    'For any email where email_type is NOT "confirmation" and NOT "modification_notice", return ONLY a minimal object with no booking fields, e.g.:\n' +
     '{"email_type":"enquiry","skipped":true}\n' +
     'Use skipped: true for enquiry, payout_notification, and other.\n\n' +
+    'For email_type "modification_notice", return JSON with "email_type":"modification_notice", "skipped": false, plus guestName, confirmationCode, and listingTitle when present (for matching the existing booking). Extract the confirmation code from URLs if it appears there (e.g. /reservations/details/XXXX or /reservation/alteration/XXXX).\n\n' +
     'For email_type "cancellation", return JSON with "email_type":"cancellation", "skipped": false, plus guestName, confirmationCode, and checkin/checkout when present (for matching an existing booking). Do not include full booking extraction for non-confirmation types except cancellation as above.\n\n' +
     'If the email is not a host booking-related message at all, return: {"not_a_booking": true}\n\n' +
     'For email_type "confirmation" ONLY, return valid JSON with no other text:\n' +

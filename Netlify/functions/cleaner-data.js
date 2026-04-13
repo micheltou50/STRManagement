@@ -12,6 +12,8 @@
      SUPABASE_SERVICE_KEY
    ═══════════════════════════════════════════════════════════════════════════ */
 
+const { captureError, flush } = require('./utils/sentry');
+
 exports.handler = async (event) => {
   const params = event.queryStringParameters || {};
   const uid = params.uid;
@@ -168,6 +170,8 @@ exports.handler = async (event) => {
 
   } catch (err) {
     console.error('[cleaner-data] Error:', err);
+    captureError(err, { tags: { function: 'cleaner-data' } });
+    await flush();
     return json(500, { error: 'Internal error' });
   }
 };

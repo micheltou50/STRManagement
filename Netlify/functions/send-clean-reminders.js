@@ -15,6 +15,7 @@
 //   SUPABASE_SERVICE_KEY — Supabase service role key (NOT anon key — needs write access)
 
 const { createClient } = require('@supabase/supabase-js');
+const { captureError, flush } = require('./utils/sentry');
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -131,6 +132,7 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: 'RESEND_API_KEY not set' };
   }
 
+  try {
   const sb       = createClient(supabaseUrl, supabaseServiceKey);
   const tomorrow = tomorrowDateStr();
   console.log(`[send-clean-reminders] Running for tomorrow: ${tomorrow}`);
@@ -260,4 +262,10 @@ exports.handler = async (event) => {
   const summary = `Done. Sent: ${sent}, skipped (no email): ${skipped}`;
   console.log(`[send-clean-reminders] ${summary}`);
   return { statusCode: 200, body: summary };
+  } catch (err) {
+    console.error('[send-clean-reminders] Fatal error:', err);
+    captureError(err, { tags: { function: 'send-clean-reminders' } });
+    await flush();
+    return { statusCode: 500, body: 'Internal error' };
+  }
 };

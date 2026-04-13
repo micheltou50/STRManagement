@@ -1,5 +1,6 @@
 const { createClient } = require('@supabase/supabase-js');
 const { sendPushToHost } = require('./utils/push-helper.js');
+const { captureError, flush } = require('./utils/sentry');
 
 const ALLOWED_CATEGORIES = new Set([
   'cleaning',
@@ -220,6 +221,8 @@ exports.handler = async (event) => {
     return json(200, summary);
   } catch (err) {
     console.error('[StayOps] gmail-scan-expenses fatal error:', err);
+    captureError(err, { tags: { function: 'gmail-scan-expenses' } });
+    await flush();
     return json(500, {
       success: false,
       processed: summary.processed,

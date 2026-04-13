@@ -78,6 +78,10 @@ import {
   applyPortfolioModeAfterHostHydrate,
 } from './property.js';
 import {
+  buildBookingListCardFromBooking,
+  normalizePlatformLabel,
+} from './booking-list-card.js';
+import {
   analyseExpenses,
   renderAIIgnoreList,
   promptIgnore,
@@ -670,7 +674,7 @@ function _todayPlatformPill(platformRaw) {
     color = '#5F5E5A';
     bg = '#F1EFE8';
   }
-  const label = raw || 'Other';
+  const label = normalizePlatformLabel(raw);
   return { label, color, bg };
 }
 
@@ -1772,7 +1776,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
     primary,
   });
 
-  const statsHtml = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
+  const statsHtml = `<div class="dashboard-stat-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
     <div style="background:white;border-radius:10px;border:0.5px solid rgba(0,0,0,0.1);padding:12px 10px;text-align:center">
       <div style="font-size:18px;font-weight:500;color:${primary}">${occupancyThisMonth}%</div>
       <div style="font-size:11px;color:${tertiary};margin-top:3px">Occupancy</div>
@@ -1854,7 +1858,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
     };
     const tblRows = upcoming.map(b => {
       const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
-      return `<tr onclick="showDetail('${bid}')" style="cursor:pointer"><td><strong>${escHtml(b.name)}</strong></td><td>${fmtSh(b.checkin)}</td><td>${fmtSh(b.checkout)}</td><td>$${Number(b.hostPayout||0).toLocaleString()}</td><td><span class="dt-platform ${platformCls(b.platform)}">${escHtml(b.platform||'Direct')}</span></td><td>${statusBdg(b)}</td></tr>`;
+      return `<tr onclick="showDetail('${bid}')" style="cursor:pointer"><td><strong>${escHtml(b.name)}</strong></td><td>${fmtSh(b.checkin)}</td><td>${fmtSh(b.checkout)}</td><td>$${Number(b.hostPayout||0).toLocaleString()}</td><td><span class="dt-platform ${platformCls(b.platform)}">${escHtml(normalizePlatformLabel(b.platform))}</span></td><td>${statusBdg(b)}</td></tr>`;
     }).join('');
 
     const upcomingTable = `<div class="card" style="padding:0;overflow:hidden">
@@ -1912,10 +1916,29 @@ function buildSinglePropertyTodayDashboardMarkup() {
     </div>`;
   }
 
+  // Mobile: Upcoming bookings as cards
+  const upcomingMobile = [...activeBookings]
+    .filter(b => b.status !== 'cancelled' && parseLocalDayStart(b.checkout) >= todayStart)
+    .sort((a, b) => parseLocalDayStart(a.checkin) - parseLocalDayStart(b.checkin))
+    .slice(0, 5);
+
+  let upcomingCardsHtml = '';
+  if (upcomingMobile.length) {
+    upcomingCardsHtml =
+      `<div style="margin-top:14px">` +
+      `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">` +
+      `<span style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:${tertiary}">Upcoming Bookings</span>` +
+      `<span onclick="showSection('bookings')" style="font-size:12px;color:var(--moss);cursor:pointer;font-weight:500">View all &rarr;</span>` +
+      `</div>` +
+      upcomingMobile.map(b => buildBookingListCardFromBooking(b)).join('') +
+      `</div>`;
+  }
+
   return (
     statusHtml +
     needsHtml +
     unifiedCalHtml +
+    upcomingCardsHtml +
     statsHtml +
     quickHtml
   );
@@ -2167,7 +2190,7 @@ function buildPortfolioTodayDashboardMarkup() {
     };
     const tblRows = upcoming.map(b => {
       const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
-      return `<tr onclick="showDetail('${bid}')" style="cursor:pointer"><td><strong>${escHtml(b.name)}</strong></td><td style="font-size:12px;color:var(--text-soft)">${escHtml(propNameFor(b))}</td><td>${fmtSh(b.checkin)}</td><td>${fmtSh(b.checkout)}</td><td>$${Number(b.hostPayout||0).toLocaleString()}</td><td><span class="dt-platform ${platformCls(b.platform)}">${escHtml(b.platform||'Direct')}</span></td><td>${statusBdg(b)}</td></tr>`;
+      return `<tr onclick="showDetail('${bid}')" style="cursor:pointer"><td><strong>${escHtml(b.name)}</strong></td><td style="font-size:12px;color:var(--text-soft)">${escHtml(propNameFor(b))}</td><td>${fmtSh(b.checkin)}</td><td>${fmtSh(b.checkout)}</td><td>$${Number(b.hostPayout||0).toLocaleString()}</td><td><span class="dt-platform ${platformCls(b.platform)}">${escHtml(normalizePlatformLabel(b.platform))}</span></td><td>${statusBdg(b)}</td></tr>`;
     }).join('');
 
     const upcomingTable = `<div class="card" style="padding:0;overflow:hidden">

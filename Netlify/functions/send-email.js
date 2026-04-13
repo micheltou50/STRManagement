@@ -6,6 +6,7 @@
 
 const nodemailer = require('nodemailer');
 const { verifyAuth } = require('./utils/auth');
+const { captureError, flush } = require('./utils/sentry');
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
@@ -116,6 +117,8 @@ exports.handler = async (event) => {
     };
   } catch (err) {
     console.error('[send-email] Resend error:', err.message);
+    captureError(err, { tags: { function: 'send-email' } });
+    await flush();
     return {
       statusCode: 500,
       body: JSON.stringify({ error: err.message })

@@ -8,7 +8,7 @@ import {
   fmt,
   escapeJsSingleQuotedHtmlAttr,
 } from './utils.js';
-import { buildBookingListCardFromBooking } from './booking-list-card.js';
+import { buildBookingListCardFromBooking, normalizePlatformLabel } from './booking-list-card.js';
 import {
   bookingFilter,
   setBookingFilter,
@@ -135,7 +135,7 @@ function openCalPreview(bookingId) {
     <div class="cp-meta-row">
       <span class="cp-chip">👥 ${escHtml(String(b.guests))} guests</span>
       <span class="cp-chip">🌙 ${escHtml(String(b.nights))} night${b.nights !== 1 ? 's' : ''}</span>
-      ${b.platform ? `<span class="cp-chip">${b.platform === 'Airbnb' ? '🏠' : b.platform === 'VRBO' ? '🏡' : '📋'} ${escHtml(b.platform)}</span>` : ''}
+      ${b.platform ? `<span class="cp-chip">${b.platform === 'Airbnb' ? '🏠' : b.platform === 'VRBO' ? '🏡' : '📋'} ${escHtml(normalizePlatformLabel(b.platform))}</span>` : ''}
     </div>
     ${payout ? `<div class="cp-payout">$${payout.toLocaleString()}</div><div class="cp-payout-label">Gross revenue</div>` : ''}
     <div class="cp-actions">
@@ -229,7 +229,7 @@ function renderBookings(filter) {
         <td>${fmtShort(b.checkout)}</td>
         <td>${b.nights || ''}</td>
         <td>$${Number(b.hostPayout||0).toLocaleString()}</td>
-        <td><span class="dt-platform ${platformClass(b.platform)}">${escHtml(b.platform||'Direct')}</span></td>
+        <td><span class="dt-platform ${platformClass(b.platform)}">${escHtml(normalizePlatformLabel(b.platform))}</span></td>
         <td>${cleanerForBooking(b)}</td>
         <td>${statusBadge(b)}</td>
       </tr>`;
