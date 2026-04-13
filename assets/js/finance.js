@@ -1518,9 +1518,7 @@ function renderRevenue() {
     return b.status !== 'cancelled' && d.getMonth()===revMonth && d.getFullYear()===revYear;
   });
   const totalHost = monthBookings.reduce((s,b)=>s+Number(b.hostPayout||0),0);
-  const totalCleaning = monthBookings.reduce((s,b)=>s+Number(b.cleaningFee||0),0);
   const totalMgmt = monthBookings.reduce((s,b)=>s+Number(b.mgmtFee||0),0);
-  const totalNet = monthBookings.reduce((s,b)=>s+Number(b.netPayout||0),0);
 
   // ── Expenses for this month — split into operational vs owner-paid ──
   const monthExpenses = _financeScopedExpenses().filter(e => {
@@ -1533,7 +1531,8 @@ function renderRevenue() {
   const totalOwnerPaid = ownerPaidExpenses.reduce((s,e) => s + Math.abs(Number(e.amount || 0)), 0);
   const expenseMode = getExpensePayoutMode();
   const isDeduct = expenseMode === 'deduct';
-  const finalPayout = isDeduct ? totalNet - totalOperational : totalNet;
+  const totalNetBeforeExpenses = totalHost - totalMgmt;
+  const finalPayout = isDeduct ? totalNetBeforeExpenses - totalOperational : totalNetBeforeExpenses;
 
   // ── Header cards ──
   document.getElementById('total-revenue').textContent = '$' + _fmtAud(totalHost);
@@ -1553,7 +1552,6 @@ function renderRevenue() {
   // ── Summary section ──
   let summaryHtml = `<div class="finance-summary">
     <div class="finance-row"><span class="finance-label">Gross revenue</span><span class="finance-val" style="color:#1a1a1a;font-weight:500">$${_fmtAud(totalHost)}</span></div>
-    <div class="finance-row"><span class="finance-label">Cleaning fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalCleaning)}</span></div>
     <div class="finance-row"><span class="finance-label">Management fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalMgmt)}</span></div>`;
 
   if (isDeduct && totalOperational > 0) {
