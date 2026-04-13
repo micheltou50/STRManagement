@@ -296,7 +296,7 @@ function renderNotes() {
 
 function _bookingDetailPlatformPill(platform) {
   if (!platform) return '';
-  const p = String(platform);
+  const p = normalizePlatformLabel(platform);
   const base =
     'font-size:11px;font-weight:500;padding:1px 7px;border-radius:4px;display:inline-block';
   if (p === 'Airbnb') {
@@ -337,9 +337,7 @@ function _bookingDetailCleanerBadge(state) {
 
 function _bookingDetailPlatformPlain(platform) {
   if (!platform) return '—';
-  const p = String(platform);
-  if (p === 'Airbnb' || p === 'VRBO' || p === 'Direct') return p;
-  return escHtml(p);
+  return escHtml(normalizePlatformLabel(platform));
 }
 
 function _restoreDetailModalDefaultCloseBtn() {

@@ -326,7 +326,7 @@ exports.handler = async (event) => {
         .eq('done', true)
         .gte('completed_at', threeDaysAgo);
 
-      if (dcErr) throw dcErr;
+      if (dcErr) throw new Error('daily_costs query failed: ' + (dcErr.message || JSON.stringify(dcErr)));
       results.review_cost = 0;
 
       for (const c of doneCleans || []) {

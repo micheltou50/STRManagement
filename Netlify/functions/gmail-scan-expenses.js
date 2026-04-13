@@ -40,7 +40,7 @@ exports.handler = async (event) => {
       .from('app_config')
       .select('user_id,gmail_email,gmail_token,gmail_refresh_token')
       .or('gmail_token.not.is.null,gmail_refresh_token.not.is.null');
-    if (cfgErr) throw cfgErr;
+    if (cfgErr) throw new Error('app_config query failed: ' + (cfgErr.message || JSON.stringify(cfgErr)));
 
     const users = Array.isArray(appConfigs) ? appConfigs : [];
     for (const cfg of users) {
@@ -107,7 +107,7 @@ exports.handler = async (event) => {
                 .select('id')
                 .eq('gmail_message_id', messageId)
                 .limit(1);
-              if (logCheckErr) throw logCheckErr;
+              if (logCheckErr) throw new Error('expense_email_log check failed: ' + (logCheckErr.message || JSON.stringify(logCheckErr)));
               if (Array.isArray(existingLog) && existingLog.length) {
                 summary.skipped++;
                 continue;
@@ -139,7 +139,7 @@ exports.handler = async (event) => {
                 .eq('name', propertyName)
                 .eq('user_id', userId)
                 .maybeSingle();
-              if (propertyErr) throw propertyErr;
+              if (propertyErr) throw new Error('property lookup failed: ' + (propertyErr.message || JSON.stringify(propertyErr)));
               if (!property || !property.id) {
                 console.warn('[StayOps] Property not found for label', propertyName, 'user', userId);
                 summary.skipped++;
@@ -165,7 +165,7 @@ exports.handler = async (event) => {
                 .insert(expensePayload)
                 .select('id')
                 .single();
-              if (insertErr) throw insertErr;
+              if (insertErr) throw new Error('expense insert failed: ' + (insertErr.message || JSON.stringify(insertErr)));
 
               const { error: logInsertErr } = await supabaseAdmin
                 .from('expense_email_log')
@@ -177,7 +177,7 @@ exports.handler = async (event) => {
                   vendor: parsed.vendor,
                   amount: Number(parsed.amount),
                 });
-              if (logInsertErr) throw logInsertErr;
+              if (logInsertErr) throw new Error('expense_email_log insert failed: ' + (logInsertErr.message || JSON.stringify(logInsertErr)));
 
               try {
                 await sendPushToHost({

@@ -147,7 +147,7 @@ exports.handler = async (event) => {
       .select('id, name, user_id')
       .order('created_at', { ascending: true });
 
-    if (pErr) throw pErr;
+    if (pErr) throw new Error('properties query failed: ' + (pErr.message || JSON.stringify(pErr)));
 
     const props = Array.isArray(allProps) ? allProps : [];
     const byUser = new Map();
