@@ -237,6 +237,8 @@ exports.handler = async (event) => {
           continue;
         }
 
+        console.log('[gmail-scan] SENDING TO CLAUDE:', { msgId, subject: emailSubject, from: emailFrom, bodyLen: emailBody.length });
+
         const parsed = await parseBookingEmail(
           ANTHROPIC_KEY, emailSubject, emailFrom, emailBody,
           isSingleProperty ? propMap[0].name : null,
