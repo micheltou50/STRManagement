@@ -130,7 +130,7 @@ exports.handler = async (event) => {
     const afterStr = afterDate.toISOString().split('T')[0].replace(/-/g, '/');
 
     // Only search from known booking platforms + user's own email (for testing)
-    const senders = 'from:(airbnb.com OR vrbo.com OR booking.com OR stayz.com OR expedia.com OR mtoubia96@gmail.com)';
+    const senders = 'from:(airbnb.com OR vrbo.com OR homeaway.com OR messages.homeaway.com OR booking.com OR stayz.com OR expedia.com OR mtoubia96@gmail.com)';
     const searchQueries = [
       senders + ' subject:(reservation OR booking OR confirmed OR cancelled OR canceled OR modified OR updated OR alteration OR request OR arrival) after:' + afterStr,
       // Catch all emails from the test address regardless of subject
@@ -569,7 +569,7 @@ function looksLikeBookingEmail(subject, from, body) {
   // Only scan the first 3 000 chars of the body for speed
   const bodyLo = (body || '').toLowerCase().slice(0, 3000);
 
-  const bookingPlatforms = ['airbnb.com', 'booking.com', 'vrbo.com', 'stayz.com', 'expedia.com'];
+  const bookingPlatforms = ['airbnb.com', 'booking.com', 'vrbo.com', 'homeaway.com', 'stayz.com', 'expedia.com'];
   const isFromPlatform = bookingPlatforms.some(p => fromLo.includes(p));
 
   // Allow the test address through unconditionally
