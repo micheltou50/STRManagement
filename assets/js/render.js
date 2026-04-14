@@ -1642,10 +1642,17 @@ function buildStayopsUnifiedTodayCalendarHtml({
       </div>`;
     }
 
-    // Build Airbnb-style booking bars overlaid on the grid
+    // Build platform-colored booking bars overlaid on the grid
     const gridStartMs = gridStart.getTime();
     const dayMs = 86400000;
     const colW = 100 / 7; // percentage width per column
+    const _calPlatformColors = (platform) => {
+      const p = String(platform || '').toLowerCase();
+      if (p.includes('airbnb')) return { bg: '#FFF0F0', border: '#FFDADA', initBg: '#FFD5D5', text: '#E04E52' };
+      if (p.includes('vrbo') || p.includes('homeaway')) return { bg: '#EEF0FF', border: '#D5D8F0', initBg: '#D5D8F0', text: '#3B5998' };
+      if (p.includes('booking')) return { bg: '#E8F0FF', border: '#C8D8F0', initBg: '#C8D8F0', text: '#1A3B6E' };
+      return { bg: '#E8F5E9', border: '#C8E6C9', initBg: '#C8E6C9', text: '#2D5A3D' };
+    };
     const bookingOverlays = activeBookings
       .filter(b => b.checkin && b.checkout && b.status !== 'cancelled')
       .map(b => {
@@ -1661,6 +1668,7 @@ function buildStayopsUnifiedTodayCalendarHtml({
         const initial = (b.name || 'G').charAt(0).toUpperCase();
         const guestLabel = escHtml((b.name || 'Guest').split(' ')[0]);
         const nights = Math.max(1, endIdx - startIdx);
+        const pc = _calPlatformColors(b.platform);
         const bars = [];
         let idx = startIdx;
         while (idx < endIdx) {
@@ -1675,10 +1683,12 @@ function buildStayopsUnifiedTodayCalendarHtml({
           const isEnd = (idx + span) >= endIdx;
           const rLeft = isStart ? '12px' : '0';
           const rRight = isEnd ? '12px' : '0';
+          const borderL = isStart ? '1px solid ' + pc.border : 'none';
+          const borderR = isEnd ? '1px solid ' + pc.border : 'none';
           bars.push(
-            `<div onclick="showDetail('${bidEsc}')" style="position:absolute;top:${top}px;left:${left}%;width:${width}%;height:${barH}px;background:#1a1a1a;border-radius:${rLeft} ${rRight} ${rRight} ${rLeft};display:flex;align-items:center;gap:4px;padding:0 6px;cursor:pointer;z-index:2;box-sizing:border-box;overflow:hidden">` +
-            (isStart ? `<span style="width:16px;height:16px;border-radius:50%;background:#444;color:#fff;font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0">${initial}</span>` : '') +
-            (isStart ? `<span style="font-size:10px;font-weight:500;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${guestLabel}${nights > 1 ? ' +' + nights : ''}</span>` : '') +
+            `<div onclick="showDetail('${bidEsc}')" style="position:absolute;top:${top}px;left:${left}%;width:${width}%;height:${barH}px;background:${pc.bg};border-top:1px solid ${pc.border};border-bottom:1px solid ${pc.border};border-left:${borderL};border-right:${borderR};border-radius:${rLeft} ${rRight} ${rRight} ${rLeft};display:flex;align-items:center;gap:4px;padding:0 6px;cursor:pointer;z-index:2;box-sizing:border-box;overflow:hidden">` +
+            (isStart ? `<span style="width:16px;height:16px;border-radius:50%;background:${pc.initBg};color:${pc.text};font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0">${initial}</span>` : '') +
+            (isStart ? `<span style="font-size:10px;font-weight:600;color:${pc.text};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${guestLabel}${nights > 1 ? ' +' + nights : ''}</span>` : '') +
             `</div>`
           );
           idx += span;
