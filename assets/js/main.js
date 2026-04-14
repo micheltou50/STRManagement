@@ -300,6 +300,7 @@ window.jumpToCleaningActionNeeded = jumpToCleaningActionNeeded;
 window.toggleCleanAction          = toggleCleanAction;
 window.markCleanDeclined        = markCleanDeclined;
 window.markCleanerConfirmed     = markCleanerConfirmed;
+window.renderCleaning           = renderCleaning;
 window.openCalPreview           = openCalPreview;
 window.openCleanerProfile       = openCleanerProfile;
 window.openExpenseView          = openExpenseView;
