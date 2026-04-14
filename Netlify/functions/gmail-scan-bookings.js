@@ -243,7 +243,7 @@ exports.handler = async (event) => {
           isSingleProperty ? null : propertyListStr
         );
         if (!parsed) {
-          // Claude returned no content or parse failed — skip permanently to avoid repeated API calls
+          // Claude returned empty content (genuinely not parseable) — skip permanently
           results.skipped++;
           newlySkipped.push(msgId);
           results.details.push({ msgId, status: 'skipped', reason: 'No booking data returned — skipped' });
@@ -942,6 +942,12 @@ async function parseBookingEmail(apiKey, subject, from, body, singlePropertyName
         messages: [{ role: 'user', content: prompt }],
       }),
     });
+
+    if (!res.ok) {
+      const errBody = await res.text();
+      console.error('[gmail-scan] Claude API error:', res.status, errBody);
+      throw new Error('Claude API ' + res.status + ': ' + errBody.slice(0, 200));
+    }
 
     const data = await res.json();
     if (!data.content || !data.content[0] || !data.content[0].text) {
