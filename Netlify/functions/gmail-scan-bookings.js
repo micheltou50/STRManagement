@@ -243,9 +243,10 @@ exports.handler = async (event) => {
           isSingleProperty ? null : propertyListStr
         );
         if (!parsed) {
-          // Transient failure (Claude API/network error) — do NOT permanently skip; retry next scan
-          results.errors++;
-          results.details.push({ msgId, status: 'skipped', reason: 'Parse failed — will retry next scan' });
+          // Claude returned no content or parse failed — skip permanently to avoid repeated API calls
+          results.skipped++;
+          newlySkipped.push(msgId);
+          results.details.push({ msgId, status: 'skipped', reason: 'No booking data returned — skipped' });
           continue;
         }
         if (parsed.not_a_booking) {
@@ -569,12 +570,23 @@ function looksLikeBookingEmail(subject, from, body) {
   // If the sender isn't a known booking platform, definitely not a booking email
   if (!isFromPlatform) return false;
 
+  // Exclude known non-booking emails before checking keywords
+  const skipSubjects = [
+    'payout', 'earnings', 'tax', 'review', 'rate your',
+    'how was', 'feedback', 'newsletter', 'tips for',
+    'marketing', 'promote', 'superhost', 'performance',
+    'monthly summary', 'annual summary', 'year in review',
+    'account update', 'password', 'verify your', 'security',
+    'invite', 'referral', 'coupon', 'discount',
+  ];
+  if (skipSubjects.some(s => subLo.includes(s))) return false;
+
   const keywords = [
     'reservation', 'booking', 'confirmed', 'confirmation',
     'cancelled', 'canceled', 'cancellation',
     'check-in', 'checkin', 'check in',
     'checkout', 'check-out', 'check out',
-    'arrival', 'guest', 'nights', 'payout',
+    'arrival', 'guest', 'nights',
     'alteration', 'modified', 'modification',
     'itinerary',
   ];
