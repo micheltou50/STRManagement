@@ -38,8 +38,8 @@ exports.handler = async (event) => {
   try {
     const { data: appConfigs, error: cfgErr } = await supabaseAdmin
       .from('app_config')
-      .select('user_id,gmail_email,gmail_token,gmail_refresh_token')
-      .or('gmail_token.not.is.null,gmail_refresh_token.not.is.null');
+      .select('user_id,gmail_email,gmail_refresh_token')
+      .not('gmail_refresh_token', 'is', null);
     if (cfgErr) throw new Error('app_config query failed: ' + (cfgErr.message || JSON.stringify(cfgErr)));
 
     const users = Array.isArray(appConfigs) ? appConfigs : [];
@@ -49,7 +49,6 @@ exports.handler = async (event) => {
         if (!userId) continue;
 
         const accessToken = await getGmailAccessToken({
-          gmailToken: cfg.gmail_token,
           gmailRefreshToken: cfg.gmail_refresh_token,
           googleClientId: GOOGLE_CLIENT_ID,
           googleClientSecret: GOOGLE_CLIENT_SECRET,
@@ -232,14 +231,8 @@ exports.handler = async (event) => {
   }
 };
 
-async function getGmailAccessToken({ gmailToken, gmailRefreshToken, googleClientId, googleClientSecret }) {
-  let refreshToken = gmailRefreshToken || null;
-  if (!refreshToken && gmailToken) {
-    try {
-      const tokenObj = typeof gmailToken === 'string' ? JSON.parse(gmailToken) : gmailToken;
-      refreshToken = tokenObj && (tokenObj.refresh_token || tokenObj.refreshToken || tokenObj.refreshTokenValue) || null;
-    } catch (_) { /* ignore malformed token JSON */ }
-  }
+async function getGmailAccessToken({ gmailRefreshToken, googleClientId, googleClientSecret }) {
+  const refreshToken = gmailRefreshToken || null;
   if (!refreshToken) return null;
 
   // Keep this refresh pattern aligned with gmail-scan-bookings.js.
