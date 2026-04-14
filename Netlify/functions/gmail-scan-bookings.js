@@ -451,11 +451,19 @@ exports.handler = async (event) => {
               .eq('id', match.id)
               .maybeSingle();
             if (!modFetchErr && modRow) {
+              // Build list of what changed
+              const changes = [];
+              if (parsed.checkin && parsed.checkin !== match.checkin) changes.push('dates: ' + match.checkin + ' → ' + parsed.checkin);
+              else if (parsed.checkout && parsed.checkout !== match.checkout) changes.push('dates: to ' + match.checkout + ' → ' + parsed.checkout);
+              if (parsed.hostPayout != null && Number(parsed.hostPayout) !== Number(match.host_payout || 0)) {
+                changes.push('payout: $' + Number(match.host_payout || 0).toFixed(2) + ' → $' + Number(parsed.hostPayout).toFixed(2));
+              }
               await notifyBookingOwnerPush(supabaseAdmin, {
                 notifyType: 'booking_modified',
                 propertyId: match.property_id,
                 bookingRow: modRow,
                 fallbackPropertyName: modPropName,
+                changes,
               });
             }
           }
@@ -617,7 +625,7 @@ async function fetchBookingRowByGmailMessageId(supabaseAdmin, uid, msgId) {
 /**
  * Owner push via shared push-helper (notification_log + multi-device subscriptions).
  */
-async function notifyBookingOwnerPush(supabaseAdmin, { notifyType, propertyId, bookingRow, fallbackPropertyName }) {
+async function notifyBookingOwnerPush(supabaseAdmin, { notifyType, propertyId, bookingRow, fallbackPropertyName, changes }) {
   try {
     if (!bookingRow || !bookingRow.id || !propertyId) return;
     const recent = await hasRecentNotification({
@@ -657,7 +665,8 @@ async function notifyBookingOwnerPush(supabaseAdmin, { notifyType, propertyId, b
       body = g + ' · ' + ci + ' to ' + co;
     } else if (notifyType === 'booking_modified') {
       title = '📝 Booking Updated — ' + propertyName;
-      body = g + ' · ' + ci + ' to ' + co + ' · $' + priceStr;
+      const changeStr = Array.isArray(changes) && changes.length ? ' · ' + changes.join(' · ') : '';
+      body = g + changeStr;
     } else if (notifyType === 'modification_notice') {
       title = '📝 Booking Modified — ' + propertyName;
       body = g + ' — check itinerary for updated details';
