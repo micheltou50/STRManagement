@@ -1621,6 +1621,10 @@ function buildStayopsUnifiedTodayCalendarHtml({
         return !Number.isNaN(ci.getTime()) && !Number.isNaN(co.getTime()) && d >= ci && d < co;
       });
 
+    const cellH = 52;
+    const barH = 22;
+    const barTop = 26;
+    const gridGap = 2;
     let calCells = '';
     for (let c = 0; c < 42; c++) {
       const cellDate = new Date(gridStart);
@@ -1629,22 +1633,58 @@ function buildStayopsUnifiedTodayCalendarHtml({
       const dayNum = cellDate.getDate();
       const ymdStr = _ymd(cellDate);
       const isTodayCell = ymdStr === _ymd(todayStart);
-      const booked = inMonth && isBookedOnCalDate(ymdStr);
-      const bk = inMonth ? firstBookingOnDate(ymdStr) : null;
-      const bidEsc = bk ? escapeJsSingleQuotedHtmlAttr(String(bk._cloudId || bk.id)) : '';
-      const onclk = booked && bk ? `onclick="showDetail('${bidEsc}')"` : '';
       const numColor = inMonth ? primary : tertiary;
       const numStyle = isTodayCell
-        ? `width:28px;height:28px;border-radius:50%;background:#2D5A3D;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600`
-        : `font-size:12px;color:${numColor};font-weight:500;opacity:${inMonth ? 1 : 0.45}`;
-      const dotHtml = booked
-        ? `<div style="width:4px;height:4px;border-radius:50%;background:#1D9E75;margin-top:2px"></div>`
-        : '<div style="height:6px"></div>';
-      calCells += `<div ${onclk} style="text-align:center;padding:6px 2px;min-height:44px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;cursor:${booked ? 'pointer' : 'default'};touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,0,0,0.06)">
+        ? `width:24px;height:24px;border-radius:50%;background:#2D5A3D;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:600`
+        : `font-size:11px;color:${numColor};font-weight:500;opacity:${inMonth ? 1 : 0.45}`;
+      calCells += `<div style="text-align:center;padding:4px 2px 0;height:${cellH}px;box-sizing:border-box">
         <span style="${numStyle}">${dayNum}</span>
-        ${dotHtml}
       </div>`;
     }
+
+    // Build Airbnb-style booking bars overlaid on the grid
+    const gridStartMs = gridStart.getTime();
+    const dayMs = 86400000;
+    const colW = 100 / 7; // percentage width per column
+    const bookingOverlays = activeBookings
+      .filter(b => b.checkin && b.checkout && b.status !== 'cancelled')
+      .map(b => {
+        const ci = parseLocalDayStart(b.checkin);
+        const co = parseLocalDayStart(b.checkout);
+        if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) return '';
+        let startIdx = Math.round((ci.getTime() - gridStartMs) / dayMs);
+        let endIdx = Math.round((co.getTime() - gridStartMs) / dayMs);
+        if (endIdx <= 0 || startIdx >= 42) return '';
+        startIdx = Math.max(0, startIdx);
+        endIdx = Math.min(42, endIdx);
+        const bidEsc = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
+        const initial = (b.name || 'G').charAt(0).toUpperCase();
+        const guestLabel = escHtml((b.name || 'Guest').split(' ')[0]);
+        const nights = Math.max(1, endIdx - startIdx);
+        const bars = [];
+        let idx = startIdx;
+        while (idx < endIdx) {
+          const row = Math.floor(idx / 7);
+          const colStart = idx % 7;
+          const colEnd = Math.min(7, colStart + (endIdx - idx));
+          const span = colEnd - colStart;
+          const left = colStart * colW;
+          const width = span * colW;
+          const top = row * (cellH + gridGap) + barTop;
+          const isStart = idx === startIdx;
+          const isEnd = (idx + span) >= endIdx;
+          const rLeft = isStart ? '12px' : '0';
+          const rRight = isEnd ? '12px' : '0';
+          bars.push(
+            `<div onclick="showDetail('${bidEsc}')" style="position:absolute;top:${top}px;left:${left}%;width:${width}%;height:${barH}px;background:#1a1a1a;border-radius:${rLeft} ${rRight} ${rRight} ${rLeft};display:flex;align-items:center;gap:4px;padding:0 6px;cursor:pointer;z-index:2;box-sizing:border-box;overflow:hidden">` +
+            (isStart ? `<span style="width:16px;height:16px;border-radius:50%;background:#444;color:#fff;font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0">${initial}</span>` : '') +
+            (isStart ? `<span style="font-size:10px;font-weight:500;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${guestLabel}${nights > 1 ? ' +' + nights : ''}</span>` : '') +
+            `</div>`
+          );
+          idx += span;
+        }
+        return bars.join('');
+      }).join('');
 
     const monthStartR = new Date(calYear, calMonth, 1);
     const monthEndR = new Date(calYear, calMonth + 1, 1);
@@ -1659,9 +1699,8 @@ function buildStayopsUnifiedTodayCalendarHtml({
       </div>
       <div style="border-radius:10px;overflow:hidden;padding-bottom:8px">
         <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px">${calHeader}</div>
-        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">${calCells}</div>
-      </div>` +
-      bookingBarsBlock(monthStartR, monthEndR);
+        <div style="position:relative;display:grid;grid-template-columns:repeat(7,1fr);gap:${gridGap}px">${calCells}${bookingOverlays}</div>
+      </div>`;
   }
 
   return (
