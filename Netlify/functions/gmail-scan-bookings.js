@@ -19,6 +19,17 @@ const { createClient } = require('@supabase/supabase-js');
 const { sendPushToHost, hasRecentNotification } = require('./utils/push-helper');
 const { captureError, captureMessage, flush } = require('./utils/sentry');
 
+/** Safely parse a fetch response as JSON. Throws a readable error if the response is HTML or not valid JSON. */
+async function safeJson(res, label) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    const preview = text.slice(0, 120).replace(/\n/g, ' ');
+    throw new Error((label || 'API') + ' returned non-JSON (HTTP ' + res.status + '): ' + preview);
+  }
+}
+
 exports.handler = async (event) => {
   const uid = (event.queryStringParameters || {}).uid;
   if (!uid) return json(400, { error: 'Missing uid' });
@@ -48,7 +59,7 @@ exports.handler = async (event) => {
         '&select=gmail_refresh_token,gmail_email,gmail_last_scan,gmail_skipped_ids&limit=1',
       { headers: sbHeaders }
     );
-    const cfgRows = await cfgRes.json();
+    const cfgRows = await safeJson(cfgRes, 'Supabase app_config');
     console.log('[gmail-scan] uid:', uid);
     console.log('[gmail-scan] cfgRes status:', cfgRes.status);
     console.log('[gmail-scan] cfgRows:', JSON.stringify(cfgRows));
@@ -77,7 +88,7 @@ exports.handler = async (event) => {
         grant_type: 'refresh_token',
       }).toString(),
     });
-    const tokenData = await tokenRes.json();
+    const tokenData = await safeJson(tokenRes, 'Google OAuth');
     if (!tokenRes.ok || !tokenData.access_token) {
       console.error('[gmail-scan] Token refresh failed:', tokenData);
       captureMessage('Gmail token expired — user needs to reconnect', 'warning', { user_id: uid, tags: { function: 'gmail-scan-bookings' } });
@@ -93,7 +104,7 @@ exports.handler = async (event) => {
         '&select=id,name,address,suburb,state,mgmt_fee_rate,airbnb_listing_id,airbnb_listing_title&order=created_at.asc',
       { headers: sbHeaders }
     );
-    const allProps = await propRes.json();
+    const allProps = await safeJson(propRes, 'Supabase properties');
     if (!Array.isArray(allProps) || !allProps.length) {
       return json(400, { error: 'No properties found — add a property first' });
     }
@@ -151,7 +162,7 @@ exports.handler = async (event) => {
         }
         continue;
       }
-      const searchData = await searchRes.json();
+      const searchData = await safeJson(searchRes, 'Gmail search');
       if (searchData.messages) {
         searchData.messages.forEach(m => allMessageIds.add(m.id));
       }
@@ -176,7 +187,7 @@ exports.handler = async (event) => {
         '&select=gmail_message_id&gmail_message_id=not.is.null',
       { headers: sbHeaders }
     );
-    const existingRows = await existingRes.json();
+    const existingRows = await safeJson(existingRes, 'Supabase bookings');
     const processedIds = new Set(
       (Array.isArray(existingRows) ? existingRows : [])
         .map(r => r.gmail_message_id).filter(Boolean)
@@ -197,7 +208,7 @@ exports.handler = async (event) => {
         '&select=id,local_id,confirmation_code,guest_name,checkin,checkout,status,property_id,host_payout,cleaning_fee,platform',
       { headers: sbHeaders }
     );
-    const existingBookings = await allBookingsRes.json();
+    const existingBookings = await safeJson(allBookingsRes, 'Supabase bookings list');
 
     // ── 7. Fetch email bodies and parse with Claude ────────────────────
     const results = { imported: 0, updated: 0, cancelled: 0, skipped: 0, errors: 0, details: [] };
@@ -211,7 +222,7 @@ exports.handler = async (event) => {
           'https://www.googleapis.com/gmail/v1/users/me/messages/' + msgId + '?format=full',
           { headers: { Authorization: 'Bearer ' + accessToken } }
         );
-        const msg = await msgRes.json();
+        const msg = await safeJson(msgRes, 'Gmail message');
         if (!msg.payload) {
           results.skipped++;
           newlySkipped.push(msgId);
@@ -964,7 +975,7 @@ async function parseBookingEmail(apiKey, subject, from, body, singlePropertyName
       throw new Error('Claude API ' + res.status + ': ' + errBody.slice(0, 200));
     }
 
-    const data = await res.json();
+    const data = await safeJson(res, 'Claude API');
     if (!data.content || !data.content[0] || !data.content[0].text) {
       console.warn('[gmail-scan] Claude returned no content');
       return null;
