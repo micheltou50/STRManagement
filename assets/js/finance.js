@@ -20,7 +20,7 @@ import {
 } from './bank-import.js';
 import { findMatchesForTransaction, getReconciliationSummary, getAllTransactionsWithStatus } from './reconciliation.js';
 import { bookings, cleans, expenses, replaceArrayInPlace } from './state.js';
-import { escHtml, fmt, fyLabel, fyMonths, escapeJsSingleQuotedHtmlAttr, fadeTransition } from './utils.js';
+import { escHtml, fmt, fmt2, fyLabel, fyMonths, escapeJsSingleQuotedHtmlAttr, fadeTransition } from './utils.js';
 import { renderPortfolioFinance, isPortfolioMode } from './property.js';
 import {
   clearExpensePhoto,
@@ -29,7 +29,7 @@ import {
 } from './ai.js';
 import { uploadReceiptToStorage, saveExpenseToCloud, deleteExpenseFromCloud, getCurrentSupabaseUser } from './supabase.js';
 
-let financeTab = 'expenses';
+let _financeTab = 'expenses';
 /** Keeps Finance hub vs sub-screens across renderFinance() / sync refresh. */
 let financeSubView = 'hub';
 let financeReportsMainTab = 'payouts';
@@ -468,7 +468,7 @@ function renderBankImportReview() {
   const container = bankImportGetContainer();
   if (!container) return;
   const { ready, skipped, dups, autoPersonal, total } = bankImportSummaryCounts();
-  const importBlocked = ready < 1 || bankImportHasConfirmedWithoutProperty();
+  const _importBlocked = ready < 1 || bankImportHasConfirmedWithoutProperty();
   const props = getAllProperties() || [];
   const propOptions =
     '<option value="">— Select property —</option>' +
@@ -913,7 +913,7 @@ function backToFinanceHub() {
     if (el) el.style.display = 'none';
   });
   renderFinanceHubCounts();
-  financeTab = null;
+  _financeTab = null;
 }
 
 function renderFinanceHubCounts() {
@@ -981,7 +981,7 @@ function showFinanceSub(sub) {
   else if (sub === 'recurring') financeSubView = 'recurring';
   else if (sub === 'depreciation') financeSubView = 'depreciation';
   else if (sub === 'tax-export') financeSubView = 'tax-export';
-  financeTab = sub;
+  _financeTab = sub;
   const hub = document.getElementById('finance-hub');
   if (hub) hub.style.display = 'none';
   ['finance-expenses-view', 'finance-reports-view', 'finance-reconciliation-view', 'finance-recurring-view', 'finance-depreciation-view', 'finance-tax-export-view'].forEach(id => {
@@ -1114,7 +1114,7 @@ function switchFinanceReportsPeriod(sub) {
 }
 
 /** @deprecated Legacy tabs — maps to Payouts / Management segmented UI */
-function switchReportsSubTab(sub, btn) {
+function switchReportsSubTab(sub, _btn) {
   ensureFinanceReportsSegBound();
   if (sub === 'reports') {
     switchFinanceReportsMain('payouts');
@@ -1139,8 +1139,8 @@ function openFinancePanelFromHub(panelId) {
  * switchFinanceTab — backward-compat shim.
  * Maps old tab names to the new hub navigation.
  */
-function switchFinanceTab(tab, btn) {
-  financeTab = tab;
+function switchFinanceTab(tab, _btn) {
+  _financeTab = tab;
   if (tab === 'expenses') { showFinanceSub('expenses'); return; }
   if (tab === 'reports')  { showFinanceSub('reports');  return; }
   // payouts and mgmt are now sub-tabs inside Reports
@@ -1153,20 +1153,20 @@ function switchFinanceTab(tab, btn) {
   backToFinanceHub();
 }
 
-function switchPayoutsSubTab(sub, btn) {
+function switchPayoutsSubTab(sub, _btn) {
   ensureFinanceReportsSegBound();
   switchFinanceReportsMain('payouts');
   switchFinanceReportsPeriod(sub);
 }
 
-function switchMgmtSubTab(sub, btn) {
+function switchMgmtSubTab(sub, _btn) {
   ensureFinanceReportsSegBound();
   switchFinanceReportsMain('mgmt');
   switchFinanceReportsPeriod(sub);
 }
 
 // switchReportSubTab removed — Reports tab is now a single FY view with send buttons
-function switchReportSubTab(sub, btn) {
+function switchReportSubTab(_sub, _btn) {
   renderReport(); // always render the FY report
 }
 
@@ -1207,7 +1207,7 @@ function _restoreFinanceExpensesView() {
     const el = document.getElementById(id);
     if (el) el.style.display = id === 'finance-expenses-view' ? 'block' : 'none';
   });
-  financeTab = 'expenses';
+  _financeTab = 'expenses';
   renderExpenses();
   populateExpenseCatSelect();
 }
@@ -1223,7 +1223,7 @@ function _restoreFinanceReportsView() {
   const rv = document.getElementById('finance-reports-view');
   if (ex) ex.style.display = 'none';
   if (rv) rv.style.display = 'block';
-  financeTab = 'reports';
+  _financeTab = 'reports';
   ensureFinanceReportsSegBound();
   syncFinanceReportsMainUI();
   syncFinanceReportsPeriodUI();
@@ -1346,8 +1346,7 @@ function renderReport() {
   const fyTotalExp = allExp.reduce((s,e)=>s+Number(e.amount||0),0);
   const fyNetIncome = fyTotalNet - fyTotalExp;
 
-  const fmt2 = n => '$' + Number(n).toLocaleString('en-AU', {minimumFractionDigits:0, maximumFractionDigits:0});
-  const fmtPct = n => n ? (n*100).toFixed(0)+'%' : '—';
+  const _fmtPct = n => n ? (n*100).toFixed(0)+'%' : '—';
   const fmtDec = n => n ? '$'+n.toFixed(0) : '—';
 
   const html = `
@@ -2708,7 +2707,7 @@ function addExpense(opts = {}) {
     driveLink: null
   };
   expenses.push(exp);
-  try { globalThis.savePropertyData(); } catch(storageErr) {
+  try { globalThis.savePropertyData(); } catch(_storageErr) {
     globalThis.showBanner('⚠ Storage full — expense saved without photo', 'warn');
   }
   // Sync to Supabase (non-blocking), then auto-link to bank transaction if pending
@@ -2748,7 +2747,7 @@ function addExpense(opts = {}) {
 
 async function saveExpenseToDriveAndSheet(exp) {
   // ── Upload receipt to Supabase Storage ──────────────────────────────────────
-  let driveLink = null;
+  let driveLink;
   if (exp.photo) {
     try {
       globalThis.showBanner('⟳ Uploading receipt...', 'info');
@@ -2800,7 +2799,7 @@ async function receiptImageToPDF(exp) {
   }
 
   // Render the image onto a canvas (A4 proportions: 794×1123)
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve, _reject) => {
     const pageW = 794, pageH = 1123;
     const canvas = document.createElement('canvas');
     canvas.width = pageW; canvas.height = pageH;
@@ -2848,9 +2847,9 @@ async function receiptImageToPDF(exp) {
       parts.push(enc.encode(obj5footer));
 
       // Calculate xref offsets
-      let offset = 0;
+      let _offset = 0;
       const offsets = [];
-      const preXref = parts.slice(0, -1); // everything before xref
+      const _preXref = parts.slice(0, -1); // everything before xref
       let runningOffset = header.length;
       offsets.push(runningOffset); runningOffset += obj1.length;
       offsets.push(runningOffset); runningOffset += obj2.length;
@@ -3317,7 +3316,7 @@ function _buildReportDoc(fy) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const FOREST = [30, 58, 47];
-  const SAGE   = [143, 175, 133];
+  const _SAGE   = [143, 175, 133];
   const SOFT   = [120, 120, 120];
   const fw = 190; // usable width
   let y = 15;
@@ -3338,7 +3337,6 @@ function _buildReportDoc(fy) {
   const months = fyMonths(fy);
   const propertyBookings = _financeScopedBookings();
   const propertyExpenses = _financeScopedExpenses();
-  const fmt2 = n => '$' + Number(n).toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0});
   function mdata(yr, mo) {
     const bs = propertyBookings.filter(b => b.status !== 'cancelled' && (function(){ const d=new Date(b.checkin); return d.getFullYear()===yr&&d.getMonth()===mo; })());
     const avail = new Date(yr,mo+1,0).getDate();
@@ -3712,10 +3710,10 @@ function exportTaxPDF() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const FOREST = [30, 58, 47];
-  const SAGE   = [143, 175, 133];
+  const _SAGE   = [143, 175, 133];
   const SOFT   = [120, 120, 120];
-  const fw = 190; // usable width
-  let y = 15;
+  const _fw = 190; // usable width
+  let y;
 
   // ── 1. Header ──
   doc.setFillColor(...FOREST);
@@ -3735,7 +3733,6 @@ function exportTaxPDF() {
   // ── 2. Rental Income ──
   const months = fyMonths(fy);
   const propertyBookings = _financeScopedBookings();
-  const fmt2 = n => '$' + Number(n).toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   const platforms = ['Airbnb', 'VRBO', 'Direct'];
   const platRevs = {};
   let fyTotalRev = 0;
@@ -4119,8 +4116,8 @@ function renderReconciliationList(container) {
     const desc    = escHtml(t.description || 'No description');
     const amt     = _fmtAud(Math.abs(t.amount));
 
-    let badge = '';
-    let rightInfo = '';
+    let badge;
+    let rightInfo;
 
     if (t.status === 'matched') {
       const merchant = escHtml(t.expenseMerchant || 'Linked expense');

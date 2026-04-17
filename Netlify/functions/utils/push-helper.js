@@ -5,7 +5,7 @@
 
 const webpush = require('web-push');
 
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:micheltou50@gmail.com';
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:noreply@strmanagement.netlify.app';
 
 let _vapidConfigured = false;
 

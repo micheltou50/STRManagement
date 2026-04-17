@@ -2,6 +2,8 @@
    PROPERTY CONFIG — Glenhaven Property Manager (Product Version)
    ═══════════════════════════════════════════════════════════════════════════ */
 
+import { makeUuid } from './utils.js';
+
 const PROPERTY_CONFIG_KEY = 'gh-property-config'; // legacy single-property key
 const PROPERTIES_KEY = 'gh-properties';
 const ACTIVE_PROPERTY_ID_KEY = 'gh-active-property-id';
@@ -19,9 +21,6 @@ const ACTIVE_PROPERTY_ID_KEY = 'gh-active-property-id';
  * @param {string} key  Short key name without prefix, e.g. 'bookings'.
  * @returns {string}
  */
-export function lsKey(key) {
-  throw new Error('lsKey is removed — use Supabase');
-}
 
 // ── DEFAULTS ───────────────────────────────────────────────────────────────────
 export const DEFAULT_PROPERTY_CONFIG = {
@@ -153,7 +152,7 @@ const _SCOPED_KEY_PREFIXES = [
 
 
 // ── MULTI-PROPERTY HELPERS ────────────────────────────────────────────────────
-function _normalisePropertyId(raw, fallbackName) {
+function _normalizePropertyId(raw, fallbackName) {
   const base = String(raw || fallbackName || 'property')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -178,7 +177,7 @@ export function getAllProperties() {
       .filter(p => p.name || p.propertyId !== 'property')
       .map(p => {
         const merged = _deepMerge(_cloneDefaults(), p || {});
-        merged.propertyId = merged.propertyId || merged.id || _normalisePropertyId('', merged.name);
+        merged.propertyId = merged.propertyId || merged.id || _normalizePropertyId('', merged.name);
         merged.id = merged.propertyId;
         return merged;
       });
@@ -194,7 +193,7 @@ export function saveAllProperties(list) {
       .filter(Boolean)
       .map((p, i) => {
         const merged = _deepMerge(_cloneDefaults(), p || {});
-        merged.propertyId = merged.propertyId || merged.id || _normalisePropertyId('', merged.name || ('property-' + (i + 1)));
+        merged.propertyId = merged.propertyId || merged.id || _normalizePropertyId('', merged.name || ('property-' + (i + 1)));
         merged.id = merged.propertyId;
         return merged;
       });
@@ -263,18 +262,7 @@ export function addPropertyConfig(property) {
   const list = getAllProperties();
   const next = _deepMerge(_cloneDefaults(), property || {});
 
-  const makeUuid = () => {
-    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-      return window.crypto.randomUUID();
-    }
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-      const r = Math.random() * 16 | 0;
-      const v = c === 'x' ? r : ((r & 0x3) | 0x8);
-      return v.toString(16);
-    });
-  };
-
-  next.propertyId = _normalisePropertyId(next.propertyId || next.id, next.name);
+  next.propertyId = _normalizePropertyId(next.propertyId || next.id, next.name);
   next.id = next.propertyId;
   next.supabaseId = next.supabaseId || makeUuid();
   next.updated_at = next.updated_at || new Date().toISOString();
@@ -286,31 +274,6 @@ export function addPropertyConfig(property) {
   return next;
 }
 
-function updatePropertyConfig(id, patch) {
-  const list = getAllProperties();
-  const idx = list.findIndex(p => p.propertyId === id || p.id === id);
-  if (idx === -1) return null;
-  const merged = _deepMerge(list[idx], patch || {});
-  merged.propertyId = list[idx].propertyId;
-  merged.id = merged.propertyId;
-  list[idx] = merged;
-  saveAllProperties(list);
-  if (getActivePropertyId() === id) _syncLegacyMirrorsFromActive();
-  return merged;
-}
-
-function removePropertyConfig(id) {
-  const list = getAllProperties();
-  if (list.length <= 1) return false;
-  const next = list.filter(p => p.propertyId !== id);
-  if (next.length === list.length) return false;
-  saveAllProperties(next);
-  if (getActivePropertyId() === id) {
-    localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, next[0].propertyId);
-    _syncLegacyMirrorsFromActive();
-  }
-  return true;
-}
 
 function migrateLegacySinglePropertyConfig() {
   const existing = getAllProperties();
@@ -326,7 +289,7 @@ function migrateLegacySinglePropertyConfig() {
   try {
     const raw = localStorage.getItem(PROPERTY_CONFIG_KEY);
     if (raw) source = JSON.parse(raw);
-  } catch (e) { /* ignore malformed localStorage JSON */ }
+  } catch (_e) { /* ignore malformed localStorage JSON */ }
 
   if (!source) {
     // Legacy fallback from older keys
@@ -344,7 +307,7 @@ function migrateLegacySinglePropertyConfig() {
   if (!source) return;
 
   const merged = _deepMerge(_cloneDefaults(), source);
-  merged.propertyId = _normalisePropertyId(merged.propertyId || merged.id, merged.name);
+  merged.propertyId = _normalizePropertyId(merged.propertyId || merged.id, merged.name);
   merged.id = merged.propertyId;
   saveAllProperties([merged]);
   localStorage.setItem(ACTIVE_PROPERTY_ID_KEY, merged.propertyId);
@@ -370,23 +333,12 @@ export function savePropertyConfig(updates) {
   const active = getActivePropertyConfig();
   const activeId = getActivePropertyId();
 
-  const makeUuid = () => {
-    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-      return window.crypto.randomUUID();
-    }
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-      const r = Math.random() * 16 | 0;
-      const v = c === 'x' ? r : ((r & 0x3) | 0x8);
-      return v.toString(16);
-    });
-  };
-
   const ts = (updates && updates.updated_at) || new Date().toISOString();
 
   // First save path on fresh setup where no property exists yet.
   if (!activeId || !getPropertyById(activeId)) {
     const first = _deepMerge(active, updates || {});
-    first.propertyId = _normalisePropertyId(first.propertyId, first.name);
+    first.propertyId = _normalizePropertyId(first.propertyId, first.name);
     first.id = first.propertyId;
     first.supabaseId = first.supabaseId || makeUuid();
     first.updated_at = ts;
@@ -451,7 +403,7 @@ export function getCurrentHostEmail() {
   try {
     const profile = JSON.parse(localStorage.getItem('gh-host-profile') || 'null');
     if (profile && profile.email) return profile.email;
-  } catch (e) { /* ignore malformed profile JSON */ }
+  } catch (_e) { /* ignore malformed profile JSON */ }
   return localStorage.getItem('gh-inv-email') || '';
 }
 
@@ -494,10 +446,7 @@ export function getPropertyConfigGaps() {
 // ── MIGRATION ──────────────────────────────────────────────────────────────────
 export function migrateConfigFromLegacySettings() {
   const MIGRATION_FLAG = 'gh-config-migrated-v1';
-  if (localStorage.getItem(MIGRATION_FLAG)) {
-    migrateLegacySinglePropertyConfig();
-    return;
-  }
+  if (localStorage.getItem(MIGRATION_FLAG)) return;
 
   migrateLegacySinglePropertyConfig();
 
@@ -575,7 +524,7 @@ function _syncLegacyMirrorsFromActive() {
   if (cfg.owner && cfg.owner.name) localStorage.setItem('gh-inv-name', cfg.owner.name);
 
   // Keep single-property shadow for backward-compatible reads.
-  try { localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(cfg)); } catch (e) { /* ignore storage quota errors */ }
+  try { localStorage.setItem(PROPERTY_CONFIG_KEY, JSON.stringify(cfg)); } catch (_e) { /* ignore storage quota errors */ }
 }
 
 

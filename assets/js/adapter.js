@@ -14,7 +14,7 @@ export class SupabaseAdapter extends DataAdapter {
       body: JSON.stringify({ to, subject, html, text })
     });
 
-    let data = null;
+    let data;
     try { data = await res.json(); } catch (_) { data = null; }
 
     if (!res.ok) {

@@ -489,7 +489,7 @@ export async function pickContact() {
       notifyPhone = contacts[0].tel[0].replace(/\s/g, '');
       document.getElementById('notify-number-display').textContent = '📱 ' + notifyPhone;
     }
-  } catch(e) {
+  } catch(_e) {
     const num = await showAppModal({ title: '📱 Enter Number', msg: 'Could not open contacts. Enter mobile number:', confirmText: 'Save', hasInput: true, inputPlaceholder: '0400 000 000', inputType: 'tel' });
     if (num) { notifyPhone = num.trim(); document.getElementById('notify-number-display').textContent = '📱 ' + notifyPhone; }
   }
@@ -774,7 +774,7 @@ export function openEmailTemplatePanel(type) {
   setTimeout(() => updateEmailPreview(type), 50);
 }
 
-export function updateEmailPreview(type) {
+export function updateEmailPreview(_type) {
   const subject  = document.getElementById('etpl-subject')?.value || '';
   const body     = document.getElementById('etpl-body')?.value    || '';
   const color    = document.getElementById('etpl-color')?.value   || '#1E3A2F';

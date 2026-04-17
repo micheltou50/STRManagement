@@ -7,7 +7,6 @@ import {
   setActivePropertyId,
   getActivePropertyConfig,
   getCurrentPropertyName,
-  savePropertyConfig,
   initPropertyUI,
 } from './config.js';
 import { hydrateFromCloud } from './supabase.js';
@@ -349,7 +348,7 @@ function switchActiveProperty(id) {
     portfolioMode = false;
     console.log('[StayOps] switchPropertyFromSheet: calling reloadInMemoryData');
     globalThis.reloadInMemoryData?.();
-    globalThis._normalizeBookingCleanState?.();
+    globalThis.normalizeBookingCleanState?.();
     initPropertyUI();
     console.log('[StayOps] switchPropertyFromSheet: calling renderAll/showSection');
     globalThis.renderAll?.();
@@ -375,7 +374,7 @@ function switchActiveProperty(id) {
   // 1) Synchronous: localStorage + in-memory + full UI update immediately (do not wait on cloud).
   console.log('[StayOps] switchPropertyFromSheet: calling reloadInMemoryData');
   globalThis.reloadInMemoryData?.();
-  globalThis._normalizeBookingCleanState?.();
+  globalThis.normalizeBookingCleanState?.();
   initPropertyUI();
 
   console.log('[StayOps] switchPropertyFromSheet: calling renderAll/showSection');
@@ -408,7 +407,7 @@ function switchActiveProperty(id) {
       }
 
       globalThis.reloadInMemoryData?.();
-      globalThis._normalizeBookingCleanState?.();
+      globalThis.normalizeBookingCleanState?.();
       initPropertyUI();
       globalThis.renderAll?.();
     } catch (e) {
@@ -496,16 +495,21 @@ function openPropertySwitcherSheet() {
       const cloudPid = (window._cloudPropertyIds && window._cloudPropertyIds[p.propertyId]) || p.supabaseId || '';
       const now = new Date();
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const todayStr = now.toISOString().split('T')[0];
+      const todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
       const allBookings = typeof bookings !== 'undefined' ? bookings : [];
       const propBookings = allBookings.filter(b => b.status !== 'cancelled' && b._propertyId === cloudPid);
       const upcomingCount = propBookings.filter(b => new Date(b.checkout) >= now).length;
 
       const currentGuest = propBookings.find(b => new Date(b.checkin) <= todayStart && new Date(b.checkout) > todayStart);
       const checkoutToday = propBookings.find(b => b.checkout && b.checkout.slice(0, 10) === todayStr);
+      const checkinToday = propBookings.find(b => b.checkin && b.checkin.slice(0, 10) === todayStr);
 
       let statusLabel; let statusBg; let statusColour;
-      if (checkoutToday) {
+      if (checkoutToday && checkinToday) {
+        statusLabel = 'Turnover'; statusBg = '#FAEEDA'; statusColour = '#854F0B';
+      } else if (checkinToday) {
+        statusLabel = 'Check-in today'; statusBg = '#EAF3DE'; statusColour = '#3B6D11';
+      } else if (checkoutToday) {
         statusLabel = 'Out today'; statusBg = '#FAEEDA'; statusColour = '#854F0B';
       } else if (currentGuest) {
         statusLabel = 'Occupied'; statusBg = '#EAF3DE'; statusColour = '#3B6D11';
@@ -648,7 +652,7 @@ function showPropertySub(f) {
  * filterProperty — kept for backward-compat with any external deep-links.
  * Internal callers now use showPropertySub() directly.
  */
-function filterProperty(f, btn) {
+function filterProperty(f, _btn) {
   showPropertySub(f);
 }
 
@@ -687,8 +691,15 @@ function renderPortfolioPropertyTab() {
     const checkoutToday = propBookings.find(b =>
       b.checkout && b.checkout.slice(0, 10) === todayStr
     );
+    const checkinToday = propBookings.find(b =>
+      b.checkin && b.checkin.slice(0, 10) === todayStr
+    );
     let statusLabel, statusBg, statusColour;
-    if (checkoutToday) {
+    if (checkoutToday && checkinToday) {
+      statusLabel = 'Turnover'; statusBg = '#FAEEDA'; statusColour = '#854F0B';
+    } else if (checkinToday) {
+      statusLabel = 'Check-in today'; statusBg = '#EAF3DE'; statusColour = '#3B6D11';
+    } else if (checkoutToday) {
       statusLabel = 'Out today'; statusBg = '#FAEEDA'; statusColour = '#854F0B';
     } else if (currentGuest) {
       statusLabel = 'Occupied'; statusBg = '#EAF3DE'; statusColour = '#3B6D11';
@@ -896,7 +907,7 @@ async function loadPortfolioData() {
       })));
     }
 
-    globalThis._normalizeBookingCleanState?.();
+    globalThis.normalizeBookingCleanState?.();
   } catch (e) {
     console.warn('[StayOps] loadPortfolioData failed', e);
     throw e;

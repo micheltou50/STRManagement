@@ -349,10 +349,10 @@ function part2Html() {
     const ds = `${y}-${pad2(m + 1)}-${pad2(d)}`;
     const dayData = _spState.daysMap[ds];
     const numStyle = 'font-size:11px;color:var(--text-soft)';
-    let sub = '';
+    let sub;
     let cellBg = 'transparent';
     let cellBorder = '0.5px solid rgba(0,0,0,0.06)';
-    let subColor = '#1a1a1a';
+    let _subColor = '#1a1a1a';
     if (dayData) {
       const rt = dayData.rateType || 'base';
       if (rt === 'booked') {
@@ -585,7 +585,7 @@ function bindRows(root) {
   });
 }
 
-function bindNdForm(root, pid) {
+function bindNdForm(root, _pid) {
   const sel = root.querySelector('#sp-nd-cond');
   const lbl = root.querySelector('#sp-nd-days-lbl');
   if (!sel || !lbl) return;
@@ -654,7 +654,7 @@ async function runGenerate(root) {
     let parsed;
     try {
       parsed = parseAiJson(text);
-    } catch (parseErr) {
+    } catch (_parseErr) {
       throw new Error('Could not parse AI response as JSON');
     }
     const daysArr = Array.isArray(parsed.days) ? parsed.days : [];

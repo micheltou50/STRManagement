@@ -10,10 +10,6 @@ export function replaceArrayInPlace(target, items) {
   items.forEach((x) => target.push(x));
 }
 
-export async function refreshArraysFromCloud() {
-  console.log('[StayOps] refreshArraysFromCloud called — arrays are populated by hydrateFromCloud');
-}
-
 export let bookings = [];
 export let cleans = [];
 export let notes = [];

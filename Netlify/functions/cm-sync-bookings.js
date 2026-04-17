@@ -38,7 +38,7 @@ exports.handler = async (event) => {
   let body;
   try {
     body = JSON.parse(event.body || '{}');
-  } catch (e) {
+  } catch (_e) {
     body = {};
   }
 

@@ -159,7 +159,7 @@ exports.handler = async (event) => {
     }
 
     webpush.setVapidDetails(
-      process.env.VAPID_SUBJECT || 'mailto:micheltou50@gmail.com',
+      process.env.VAPID_SUBJECT || 'mailto:noreply@strmanagement.netlify.app',
       process.env.VAPID_PUBLIC_KEY,
       process.env.VAPID_PRIVATE_KEY
     );

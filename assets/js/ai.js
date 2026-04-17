@@ -2,7 +2,7 @@
  * AI features: smart pricing, expense analysis, ignore list, receipt OCR, booking screenshot import.
  */
 import { AIService } from './ai-logic.js';
-import { bookings, expenses } from './state.js';
+import { expenses } from './state.js';
 import { calcNights } from './utils.js';
 import { getCurrentPropertyName } from './config.js';
 import { saveAppConfigToCloud } from './supabase.js';

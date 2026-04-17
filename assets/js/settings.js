@@ -8,7 +8,6 @@ import {
   saveAppConfigToCloud,
   saveCleanersToCloud,
   saveHostConfigToSupabase,
-  savePropertyToCloud,
 } from './supabase.js';
 import { updateNotifStatus, cleanerLinkForId } from './notifications.js';
 import { renderPropertySwitcher, populateOwnerReportPanel } from './property.js';
@@ -210,7 +209,7 @@ async function scanGmailBookings() {
 
     await globalThis.processScanNeedsReview(data);
 
-  } catch (e) {
+  } catch (_e) {
     if (statusEl) {
       statusEl.style.background = '#FEF2F2';
       statusEl.style.color = 'var(--red)';
@@ -314,7 +313,7 @@ async function scanOutlookBookings() {
 
     await globalThis.processScanNeedsReview(data);
 
-  } catch (e) {
+  } catch (_e) {
     if (statusEl) {
       statusEl.style.background = '#FEF2F2';
       statusEl.style.color = 'var(--red)';
@@ -333,7 +332,7 @@ async function populateCalendarFeedPanel() {
   if (confirmEl) confirmEl.style.display = 'none';
   let user = window._supabaseUser;
   if (!user && typeof getCurrentSupabaseUser === 'function') {
-    try { user = await getCurrentSupabaseUser(); } catch (e) { user = null; }
+    try { user = await getCurrentSupabaseUser(); } catch (_e) { user = null; }
   }
   if (input) {
     input.value = user && user.id ? CALENDAR_FEED_PUBLIC_URL + '?user_id=' + encodeURIComponent(user.id) : '';
@@ -358,7 +357,7 @@ function copyCalendarFeedUrl() {
   };
   navigator.clipboard.writeText(url).then(done).catch(() => {
     input.select();
-    try { document.execCommand('copy'); } catch (e) { /* deprecated API, ignore failures */ }
+    try { document.execCommand('copy'); } catch (_e) { /* deprecated API, ignore failures */ }
     done();
   });
 }
@@ -619,7 +618,7 @@ function renderSettings() {
   // Header property name + chevron
   const headerName = document.getElementById('header-property-name');
   if (headerName) headerName.textContent = getCurrentPropertyName();
-  const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
+  const _props = typeof getAllProperties === 'function' ? getAllProperties() : [];
   // Always show chevron — even with 1 property, tap opens sheet with Add Property
   const chevron = document.getElementById('prop-switcher-chevron');
   if (chevron) chevron.style.display = '';
@@ -627,9 +626,6 @@ function renderSettings() {
   if (chevronHeader) chevronHeader.style.display = '';
   setTimeout(updateNotifStatus, 100);
 }
-function chooseGoogleAccount() {}
-
-function syncToSheet() {}
 function clearCacheAndResync() {
   globalThis.showAppModal({
     title: '🗑 Clear booking cache?',
@@ -654,7 +650,7 @@ function saveSMSTemplate() {
   globalThis.showBanner('✓ SMS template saved', 'ok');
 }
 function saveGeminiKey() {
-  const key = document.getElementById('settings-gemini-key').value.trim();
+  const key = (document.getElementById('settings-gemini-key')?.value || '').trim();
   if (!key) { globalThis.showBanner('⚠ Could not save: Gemini key is empty', 'warn'); return; }
   localStorage.setItem('gh-gemini-key', key);
   const el = document.getElementById('gemini-key-confirm');
@@ -687,7 +683,7 @@ function getHostProfile() {
     if (!p || typeof p !== 'object') return null;
     if (!p.hostId) return null;
     return p;
-  } catch (e) {
+  } catch (_e) {
     return null;
   }
 }
@@ -703,7 +699,7 @@ async function manageHostIdentity() {
 
 function populateHostProfilePanel() {
   const existing = getHostProfile() || {};
-  const cfg = getActivePropertyConfig();
+  const _cfg = getActivePropertyConfig();
   // Pre-populate: existing host profile > active property config > legacy inv-* keys
   const _inv = _getInvoiceIdentity();
   const _v = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
@@ -813,10 +809,6 @@ function deleteCleaner(id) {
   populateCleanerSelect();
   populateContractorSelect();
 }
-function renderCleanersList() {
-  // Legacy — now handled by renderTeamList
-  renderTeamList();
-}
 function renderTeamList() {
   const el = document.getElementById('team-list-container');
   if (!el) return;
@@ -851,7 +843,7 @@ function openCleanerProfile(id) {
     { key: 'payout',     label: 'Cleaning fee / payout' },
   ];
   const perm = c.permissions || {};
-  let inviteHtml = '';
+  let inviteHtml;
   if (!c.email) {
     inviteHtml = '<div style="font-size:12px;color:#999;font-style:italic">Add an email address to invite this cleaner to the app</div>';
   } else if (c.auth_user_id || c.invitation_status === 'active') {
@@ -927,7 +919,7 @@ function renderStorageViewer() {
     const val = localStorage.getItem(k);
     let items = [];
     let count = 0;
-    try { items = JSON.parse(val || '[]'); count = Array.isArray(items) ? items.length : 0; } catch(e) { /* ignore malformed localStorage JSON */ }
+    try { items = JSON.parse(val || '[]'); count = Array.isArray(items) ? items.length : 0; } catch(_e) { /* ignore malformed localStorage JSON */ }
     const label = k.endsWith('bookings') ? '🏠 Bookings' : k.endsWith('cleans') ? '🧹 Cleans' : '💰 Expenses';
     return `
     <div style="padding:12px 0;border-bottom:1px solid var(--warm)">
@@ -995,7 +987,7 @@ function initSettingsSwipeBack() {
 
   document.addEventListener('touchmove', e => {
     if (!swipeActive) return;
-    const dx = e.touches[0].clientX - swipeStartX;
+    const _dx = e.touches[0].clientX - swipeStartX;
     const dy = Math.abs(e.touches[0].clientY - swipeStartY);
     if (dy > 40) { swipeActive = false; document.getElementById('swipe-back-hint').classList.remove('visible'); }
   }, { passive:true });
@@ -1138,7 +1130,7 @@ function _renderCMCard() {
     const syncError = window._appConfig.channel_manager_sync_error || '';
     let lastSyncFormatted = '';
     if (lastSync) {
-      try { lastSyncFormatted = new Date(lastSync).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }); } catch(e) { lastSyncFormatted = lastSync; }
+      try { lastSyncFormatted = new Date(lastSync).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }); } catch(_e) { lastSyncFormatted = lastSync; }
     }
     return `<div style="background:var(--mist);padding:14px 16px;border-radius:10px;margin-top:8px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -1269,7 +1261,7 @@ async function requestCMSetup() {
     const hostEmail = user.email || (hostProfile && hostProfile.email) || 'unknown';
 
     // Send push notification to admin
-    const res = await globalThis.authFetch('/.netlify/functions/send-push', {
+    const _res = await globalThis.authFetch('/.netlify/functions/send-push', {
       method: 'POST',
       body: JSON.stringify({
         uid: user.id,
@@ -1338,7 +1330,7 @@ async function loadCMMapping() {
   const user = await getCurrentSupabaseUser();
   if (!user) return;
   const listEl = document.getElementById('cm-mapping-list');
-  const statusEl = document.getElementById('cm-mapping-status');
+  const _statusEl = document.getElementById('cm-mapping-status');
   if (!listEl) return;
   listEl.innerHTML = '<div style="font-size:12px;color:var(--text-soft)">Loading properties…</div>';
 
@@ -1486,8 +1478,6 @@ export {
   closeSettingsPanel,
   closeSettingsCat,
   renderSettings,
-  chooseGoogleAccount,
-  syncToSheet,
   clearCacheAndResync,
   saveSMSTemplate,
   saveGeminiKey,
@@ -1504,7 +1494,6 @@ export {
   saveCleaners,
   addCleaner,
   deleteCleaner,
-  renderCleanersList,
   renderTeamList,
   openCleanerProfile,
   saveCleanerContact,

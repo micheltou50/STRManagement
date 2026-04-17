@@ -74,7 +74,6 @@ function _setupShowOverlay(editMode, createMode) {
         if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
         document.body.style.overflow = '';
         // Clean up the global submit handler.
-        delete window._setupSubmit;
         resolve();
       }, 280);
     });
@@ -107,7 +106,7 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
   const onboardingMode = !editMode && !createMode;
   const cfg   = createMode ? _setupBlankConfig() : getActivePropertyConfig();
   const stats = cfg.property    || {};
-  const integ = cfg.integrations || {};
+  const _integ = cfg.integrations || {};
   const owner = cfg.owner        || {};
   const price = cfg.pricing      || {};
   const branding = cfg.branding  || {};
@@ -442,7 +441,7 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
           airbnbInput.dataset.listingId = data.listingId || '';
           airbnbInput.dataset.listingTitle = data.title || '';
           if (hint) hint.innerHTML = '<span style="color:var(--moss)">✓ Details loaded from Airbnb</span>';
-        } catch (e) {
+        } catch (_e) {
           if (hint) hint.innerHTML = '<span style="color:var(--red)">⚠ Could not fetch — enter details manually.</span>';
         }
       };
@@ -491,7 +490,7 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
 function _setupValidate(overlay) {
   const v  = id => (overlay.querySelector('#' + id) || {}).value || '';
   const errors = [];
-  const onboardingMode = overlay && overlay.dataset && overlay.dataset.onboardingMode === '1';
+  const _onboardingMode = overlay && overlay.dataset && overlay.dataset.onboardingMode === '1';
 
   const name      = v('s-name').trim();
   const suburb    = v('s-suburb').trim();

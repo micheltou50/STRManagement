@@ -2,7 +2,7 @@
    STAYOPS — Recurring Expense Templates
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { getActivePropertyConfig, getActivePropertyId } from './config.js';
+import { getActivePropertyId } from './config.js';
 import { expenses } from './state.js';
 
 // ── HELPERS ──────────────────────────────────────────────────────────────────

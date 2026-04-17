@@ -11,6 +11,11 @@ const CORS = {
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 const DEFAULT_MAX_TOKENS = 1000;
 
+const ALLOWED_MODELS = [
+  'claude-haiku-4-5-20251001',
+  'claude-sonnet-4-20250514',
+];
+
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers: CORS, body: '' };
@@ -51,6 +56,10 @@ exports.handler = async (event) => {
       ? body.max_tokens
       : DEFAULT_MAX_TOKENS;
   const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : DEFAULT_MODEL;
+
+  if (model && !ALLOWED_MODELS.includes(model)) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'Model not allowed' }) };
+  }
 
   const payload = { model, max_tokens, messages };
   if (system != null && system !== '') payload.system = system;

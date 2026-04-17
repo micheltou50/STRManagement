@@ -368,6 +368,16 @@
     <button id="header-refresh-btn" class="header-refresh-btn" onclick="runFullRefresh()">↻ Refresh</button>
     <div class="today-badge" id="todayBadge"></div>
   </div>
+  <div id="role-switcher-container" style="display:none;padding-top:10px;margin-top:10px;border-top:1px solid rgba(255,255,255,0.1);width:100%">
+    <div style="display:flex;gap:8px">
+      <button id="role-pill-host" onclick="switchToHostMode()" style="display:flex;align-items:center;gap:6px;background:#8FAF85;color:#1E3A2F;border:none;border-radius:20px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;padding:7px 14px;cursor:pointer">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>Host
+      </button>
+      <button id="role-pill-cleaner" onclick="switchToCleanerMode()" style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.12);color:rgba(255,255,255,0.8);border:none;border-radius:20px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;padding:7px 14px;cursor:pointer">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><path d="M9 5a2 2 0 012-2h2a2 2 0 012 2a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>Cleaner
+      </button>
+    </div>
+  </div>
 </div>
 
 <div class="nav">
@@ -1938,6 +1948,20 @@
     </div>
   </div>
 
+</div>
+
+<!-- Cancelled Booking Prompt -->
+<div id="cancel-prompt-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9998;align-items:center;justify-content:center;padding:20px;opacity:0;transition:opacity 0.25s ease">
+  <div style="background:white;border-radius:16px;max-width:380px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.2)">
+    <div style="padding:20px 20px 0;display:flex;align-items:center;gap:10px">
+      <div style="width:32px;height:32px;border-radius:50%;background:#FCEBEB;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">❌</div>
+      <div style="font-weight:700;font-size:16px;color:#1a1a1a">Cancelled Bookings</div>
+    </div>
+    <div id="cancel-prompt-cards" style="padding:16px 20px"></div>
+    <div style="padding:0 20px 20px">
+      <button onclick="dismissCancelPrompt()" style="width:100%;padding:12px;background:#1E3A2F;color:white;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Got it</button>
+    </div>
+  </div>
 </div>
 
 <!-- Property Switcher Sheet — direct child of body, NOT inside app-modal-overlay -->

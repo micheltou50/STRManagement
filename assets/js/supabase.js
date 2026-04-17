@@ -138,11 +138,28 @@ export async function loadCleanerDashboard() {
   const user = await getCurrentSupabaseUser();
   if (!user) return null;
 
-  const { data: cleanerRecord } = await window._sb
+  // Primary lookup: by auth_user_id
+  let { data: cleanerRecord } = await window._sb
     .from('cleaners')
     .select('id, name, email, phone')
     .eq('auth_user_id', user.id)
     .single();
+
+  // Fallback: match by email (for hosts who are also cleaners but haven't linked auth_user_id)
+  if (!cleanerRecord && user.email) {
+    const { data: byEmail } = await window._sb
+      .from('cleaners')
+      .select('id, name, email, phone')
+      .eq('email', user.email)
+      .limit(1);
+    if (byEmail && byEmail.length) {
+      cleanerRecord = byEmail[0];
+      // Backfill auth_user_id so future lookups work natively
+      window._sb.from('cleaners').update({ auth_user_id: user.id, updated_at: new Date().toISOString() }).eq('id', cleanerRecord.id).then(() => {
+        console.log('[StayOps] Linked cleaner record to auth user via email match');
+      }).catch(() => {});
+    }
+  }
 
   if (!cleanerRecord) return null;
 
@@ -152,7 +169,26 @@ export async function loadCleanerDashboard() {
     .eq('cleaner_uuid', cleanerRecord.id)
     .order('clean_date', { ascending: true });
 
-  return { cleanerRecord, myCleans: myCleans || [] };
+  // Check which linked bookings are cancelled
+  const cleans = myCleans || [];
+  const bookingIds = [...new Set(cleans.map(c => c.booking_id).filter(Boolean))];
+  if (bookingIds.length) {
+    const { data: cancelledBookings } = await window._sb
+      .from('bookings')
+      .select('id, status')
+      .in('id', bookingIds)
+      .eq('status', 'cancelled');
+    if (cancelledBookings && cancelledBookings.length) {
+      const cancelledSet = new Set(cancelledBookings.map(b => b.id));
+      cleans.forEach(c => {
+        if (c.booking_id && cancelledSet.has(c.booking_id)) {
+          c._bookingCancelled = true;
+        }
+      });
+    }
+  }
+
+  return { cleanerRecord, myCleans: cleans };
 }
 
 export async function getSupabaseSession() {
@@ -249,6 +285,61 @@ async function loadPropertyFromCloud() {
   }
 }
 
+function _toLocalPatch(row, existing) {
+  existing = existing || {};
+  const exBrand = existing.branding || {};
+  const exProp  = existing.property || {};
+  const exOwner = existing.owner || {};
+  const exInteg = existing.integrations || {};
+  const exPrice = existing.pricing || {};
+  const suburb  = row.suburb || existing.suburb || '';
+  const state   = row.state || existing.state || '';
+  return {
+    supabaseId: row.id,
+    name: row.name || existing.name || '',
+    address: row.address || existing.address || '',
+    suburb, state,
+    region: row.region || existing.region || '',
+    country: row.country || existing.country || 'Australia',
+    platforms:          Array.isArray(row.platforms) ? row.platforms : (existing.platforms || []),
+    airbnbListingId:    row.airbnb_listing_id    || existing.airbnbListingId    || '',
+    airbnbListingUrl:   row.airbnb_listing_url   || existing.airbnbListingUrl   || '',
+    airbnbListingTitle: row.airbnb_listing_title || existing.airbnbListingTitle || '',
+    bookingComUrl:      row.booking_com_url      || existing.bookingComUrl      || '',
+    stayzUrl:           row.stayz_url            || existing.stayzUrl           || '',
+    vrboUrl:            row.vrbo_url             || existing.vrboUrl            || '',
+    branding: {
+      subtitle: [suburb, state].filter(Boolean).join(' · '),
+      tagline: row.tagline || exBrand.tagline || [suburb, state].filter(Boolean).join(', ')
+    },
+    property: {
+      bedrooms:  row.bedrooms   != null ? row.bedrooms   : (exProp.bedrooms  || 0),
+      bathrooms: row.bathrooms  != null ? row.bathrooms  : (exProp.bathrooms || 0),
+      maxGuests: row.max_guests != null ? row.max_guests : (exProp.maxGuests || 0),
+      type:      row.property_type || exProp.type || 'house'
+    },
+    owner: {
+      name:  row.owner_name  || exOwner.name  || '',
+      email: row.owner_email || exOwner.email || '',
+      phone: row.owner_phone || exOwner.phone || '',
+      reportEmailSubject: row.report_email_subject != null ? row.report_email_subject : (exOwner.reportEmailSubject || ''),
+      reportEmailBody:    row.report_email_body    != null ? row.report_email_body    : (exOwner.reportEmailBody || ''),
+      autoSendReport:     row.auto_send_report     != null ? row.auto_send_report     : !!exOwner.autoSendReport,
+      reportFrequency:    row.report_frequency || exOwner.reportFrequency || 'monthly',
+      lastReportSentAt:   row.last_report_sent_at || exOwner.lastReportSentAt || null
+    },
+    integrations: {
+      sheetCsvUrl:    row.sheets_url || exInteg.sheetCsvUrl || '',
+      syncUrl:        row.script_url || exInteg.syncUrl || '',
+      vapidPublicKey: row.vapid_public_key || exInteg.vapidPublicKey || ''
+    },
+    pricing: {
+      baseRate: row.base_rate != null ? row.base_rate : (exPrice.baseRate || 0)
+    },
+    updated_at: row.updated_at || existing.updated_at || new Date().toISOString()
+  };
+}
+
 /**
  * seedLocalConfigFromCloud — pre-flight helper.
  * If the user has a property in Supabase, seeds it into localStorage
@@ -294,61 +385,6 @@ export async function seedLocalConfigFromCloud() {
       .replace(/^-|-$/g, '')
       .slice(0, 40);
 
-    const toLocalPatch = (row, existing) => {
-      existing = existing || {};
-      const exBrand = existing.branding || {};
-      const exProp  = existing.property || {};
-      const exOwner = existing.owner || {};
-      const exInteg = existing.integrations || {};
-      const exPrice = existing.pricing || {};
-      const suburb  = row.suburb || existing.suburb || '';
-      const state   = row.state || existing.state || '';
-      return {
-        supabaseId: row.id,
-        name: row.name || existing.name || '',
-        address: row.address || existing.address || '',
-        suburb, state,
-        region: row.region || existing.region || '',
-        country: row.country || existing.country || 'Australia',
-        platforms:          Array.isArray(row.platforms) ? row.platforms : (existing.platforms || []),
-        airbnbListingId:    row.airbnb_listing_id    || existing.airbnbListingId    || '',
-        airbnbListingUrl:   row.airbnb_listing_url   || existing.airbnbListingUrl   || '',
-        airbnbListingTitle: row.airbnb_listing_title || existing.airbnbListingTitle || '',
-        bookingComUrl:      row.booking_com_url      || existing.bookingComUrl      || '',
-        stayzUrl:           row.stayz_url            || existing.stayzUrl           || '',
-        vrboUrl:            row.vrbo_url             || existing.vrboUrl            || '',
-        branding: {
-          subtitle: [suburb, state].filter(Boolean).join(' · '),
-          tagline: row.tagline || exBrand.tagline || [suburb, state].filter(Boolean).join(', ')
-        },
-        property: {
-          bedrooms:  row.bedrooms   != null ? row.bedrooms   : (exProp.bedrooms  || 0),
-          bathrooms: row.bathrooms  != null ? row.bathrooms  : (exProp.bathrooms || 0),
-          maxGuests: row.max_guests != null ? row.max_guests : (exProp.maxGuests || 0),
-          type:      row.property_type || exProp.type || 'house'
-        },
-        owner: {
-          name:  row.owner_name  || exOwner.name  || '',
-          email: row.owner_email || exOwner.email || '',
-          phone: row.owner_phone || exOwner.phone || '',
-          reportEmailSubject: row.report_email_subject != null ? row.report_email_subject : (exOwner.reportEmailSubject || ''),
-          reportEmailBody:    row.report_email_body    != null ? row.report_email_body    : (exOwner.reportEmailBody || ''),
-          autoSendReport:     row.auto_send_report     != null ? row.auto_send_report     : !!exOwner.autoSendReport,
-          reportFrequency:    row.report_frequency || exOwner.reportFrequency || 'monthly',
-          lastReportSentAt:   row.last_report_sent_at || exOwner.lastReportSentAt || null
-        },
-        integrations: {
-          sheetCsvUrl:    row.sheets_url || exInteg.sheetCsvUrl || '',
-          syncUrl:        row.script_url || exInteg.syncUrl || '',
-          vapidPublicKey: row.vapid_public_key || exInteg.vapidPublicKey || ''
-        },
-        pricing: {
-          baseRate: row.base_rate != null ? row.base_rate : (exPrice.baseRate || 0)
-        },
-        updated_at: row.updated_at || existing.updated_at || new Date().toISOString()
-      };
-    };
-
     localStorage.setItem('gh-setup-complete', '1');
     window._stayOpsHydrating = true;
     window._cloudPropertyIds = window._cloudPropertyIds || {};
@@ -372,14 +408,14 @@ export async function seedLocalConfigFromCloud() {
           const cloudTs = row.updated_at   ? new Date(row.updated_at).getTime()   : 0;
           setActivePropertyId(match.propertyId);
           if (cloudTs >= localTs) {
-            savePropertyConfig(toLocalPatch(row, match));
+            savePropertyConfig(_toLocalPatch(row, match));
           } else {
             savePropertyConfig({ supabaseId: row.id, updated_at: match.updated_at || row.updated_at || new Date().toISOString() });
           }
           window._cloudPropertyIds[match.propertyId] = row.id;
           if (!preferredActiveId) preferredActiveId = match.propertyId;
         } else {
-          const created = addPropertyConfig(toLocalPatch(row, {}));
+          const created = addPropertyConfig(_toLocalPatch(row, {}));
           if (created && created.propertyId) {
             window._cloudPropertyIds[created.propertyId] = row.id;
             if (!preferredActiveId) preferredActiveId = created.propertyId;
@@ -660,7 +696,8 @@ export async function loadCleansFromCloud() {
       assignedAt:       c.assigned_at  || null,
       confirmedAt:      c.confirmed_at || null,
       notes:            c.notes        || '',
-      cost:             c.cost != null ? Number(c.cost) : null
+      cost:             c.cost != null ? Number(c.cost) : null,
+      cleanerCancelNotified: c.cleaner_cancel_notified || false,
     }));
   } catch (e) {
     console.warn('[StayOps] loadCleansFromCloud failed', e);
@@ -694,6 +731,7 @@ export async function saveCleanToCloud(clean) {
       confirmed_at:     clean.confirmedAt || null,
       notes:            clean.notes       || '',
       cost:             clean.cost != null ? Number(clean.cost) : null,
+      cleaner_cancel_notified: clean.cleanerCancelNotified || false,
       updated_at:       new Date().toISOString()
     };
     if (clean._cloudId) {
@@ -734,6 +772,7 @@ export async function saveCleansToCloud(cleansList) {
 
 // Keep old name working for backward compat
 export async function saveCleaningJobToCloud(job) { return saveCleanToCloud(job); }
+// eslint-disable-next-line no-unused-vars
 async function loadCleaningJobsFromCloud() { return loadCleansFromCloud(); }
 
 
@@ -830,7 +869,7 @@ async function loadExpensesFromCloud() {
       receiptNum:  e.receipt_num  || '',
       receiptType: e.receipt_type || '',
       driveLink:   e.drive_link   || '',
-      photo:       null
+      photo:       e.receipt_photo || null
     }));
   } catch (e) {
     console.warn('[StayOps] loadExpensesFromCloud failed', e);
@@ -855,6 +894,7 @@ export async function saveExpenseToCloud(expense) {
       receipt_num:  expense.receiptNum  || '',
       receipt_type: expense.receiptType || '',
       drive_link:   expense.driveLink   || '',
+      receipt_photo: expense.photo || expense.receipt_photo || null,
       updated_at:   new Date().toISOString()
     };
     if (expense._cloudId) {
@@ -874,10 +914,6 @@ export async function saveExpenseToCloud(expense) {
   }
 }
 
-async function saveExpensesToCloud(expensesList) {
-  if (!Array.isArray(expensesList)) return;
-  for (const e of expensesList) await saveExpenseToCloud(e);
-}
 
 export async function deleteExpenseFromCloud(expense) {
   try {
@@ -968,22 +1004,6 @@ async function saveInventoryItemToCloud(item) {
 export async function saveInventoryToCloud(inventoryList) {
   if (!Array.isArray(inventoryList)) return;
   for (const i of inventoryList) await saveInventoryItemToCloud(i);
-}
-
-async function deleteInventoryItemFromCloud(item) {
-  try {
-    const user = await getCurrentSupabaseUser();
-    if (!user || !item) return;
-    if (item._cloudId) {
-      await window._sb.from('inventory').delete().eq('id', item._cloudId);
-    } else {
-      await window._sb.from('inventory').delete()
-        .eq('user_id', user.id)
-        .eq('local_id', String(item.id));
-    }
-  } catch (e) {
-    console.warn('[StayOps] deleteInventoryItemFromCloud failed', e);
-  }
 }
 
 
@@ -1121,6 +1141,7 @@ async function loadBookingsFromCloud() {
       source:           b.source        || 'sheet',
       phone:            b.phone         || '',
       email:            b.email         || '',
+      updatedAt:        b.updated_at    || '',
     }));
   } catch (e) {
     console.warn('[StayOps] loadBookingsFromCloud failed', e);
@@ -1351,7 +1372,7 @@ export async function uploadReceiptToStorage(file, expenseId) {
     const propertyId = await getCloudPropertyId();
     const ext = file.name.split('.').pop();
     const path = `${user.id}/${propertyId || 'default'}/${expenseId || Date.now()}.${ext}`;
-    const { data, error } = await window._sb.storage.from('receipts').upload(path, file, { upsert: true });
+    const { data: _data, error } = await window._sb.storage.from('receipts').upload(path, file, { upsert: true });
     if (error) { console.warn('[StayOps] uploadReceiptToStorage error', error); return null; }
     const { data: urlData } = window._sb.storage.from('receipts').getPublicUrl(path);
     return urlData && urlData.publicUrl ? urlData.publicUrl : null;
@@ -1380,61 +1401,6 @@ export async function hydrateFromCloud() {
 
     const normaliseLocalId = (raw) => String(raw || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
-    const toLocalPatch = (row, existing) => {
-      existing = existing || {};
-      const exBrand = existing.branding || {};
-      const exProp  = existing.property || {};
-      const exOwner = existing.owner || {};
-      const exInteg = existing.integrations || {};
-      const exPrice = existing.pricing || {};
-      const suburb = row.suburb || existing.suburb || '';
-      const state  = row.state || existing.state || '';
-      return {
-        supabaseId: row.id,
-        name: row.name || existing.name || '',
-        address: row.address || existing.address || '',
-        suburb, state,
-        region: row.region || existing.region || '',
-        country: row.country || existing.country || 'Australia',
-        platforms:          Array.isArray(row.platforms) ? row.platforms : (existing.platforms || []),
-        airbnbListingId:    row.airbnb_listing_id    || existing.airbnbListingId    || '',
-        airbnbListingUrl:   row.airbnb_listing_url   || existing.airbnbListingUrl   || '',
-        airbnbListingTitle: row.airbnb_listing_title || existing.airbnbListingTitle || '',
-        bookingComUrl:      row.booking_com_url      || existing.bookingComUrl      || '',
-        stayzUrl:           row.stayz_url            || existing.stayzUrl           || '',
-        vrboUrl:            row.vrbo_url             || existing.vrboUrl            || '',
-        branding: {
-          subtitle: [suburb, state].filter(Boolean).join(' · '),
-          tagline: row.tagline || exBrand.tagline || [suburb, state].filter(Boolean).join(', ')
-        },
-        property: {
-          bedrooms:  row.bedrooms   != null ? row.bedrooms   : (exProp.bedrooms  || 0),
-          bathrooms: row.bathrooms  != null ? row.bathrooms  : (exProp.bathrooms || 0),
-          maxGuests: row.max_guests != null ? row.max_guests : (exProp.maxGuests || 0),
-          type:      row.property_type || exProp.type || 'house'
-        },
-        owner: {
-          name:  row.owner_name  || exOwner.name  || '',
-          email: row.owner_email || exOwner.email || '',
-          phone: row.owner_phone || exOwner.phone || '',
-          reportEmailSubject: row.report_email_subject != null ? row.report_email_subject : (exOwner.reportEmailSubject || ''),
-          reportEmailBody:    row.report_email_body    != null ? row.report_email_body    : (exOwner.reportEmailBody || ''),
-          autoSendReport:     row.auto_send_report     != null ? row.auto_send_report     : !!exOwner.autoSendReport,
-          reportFrequency:    row.report_frequency || exOwner.reportFrequency || 'monthly',
-          lastReportSentAt:   row.last_report_sent_at || exOwner.lastReportSentAt || null
-        },
-        integrations: {
-          sheetCsvUrl:    row.sheets_url || exInteg.sheetCsvUrl || '',
-          syncUrl:        row.script_url || exInteg.syncUrl || '',
-          vapidPublicKey: row.vapid_public_key || exInteg.vapidPublicKey || ''
-        },
-        pricing: {
-          baseRate: row.base_rate != null ? row.base_rate : (exPrice.baseRate || 0)
-        },
-        updated_at: row.updated_at || existing.updated_at || new Date().toISOString()
-      };
-    };
-
     // 0. Merge all cloud properties into local list
     const cloudProps = await loadPropertyFromCloud();
     const originalActiveId = getActivePropertyId();
@@ -1458,14 +1424,14 @@ export async function hydrateFromCloud() {
           const cloudTs = row.updated_at   ? new Date(row.updated_at).getTime()   : 0;
           setActivePropertyId(match.propertyId);
           if (cloudTs >= localTs) {
-            savePropertyConfig(toLocalPatch(row, match));
+            savePropertyConfig(_toLocalPatch(row, match));
           } else {
             savePropertyConfig({ supabaseId: row.id, updated_at: match.updated_at || row.updated_at || new Date().toISOString() });
           }
           window._cloudPropertyIds[match.propertyId] = row.id;
           if (!preferredActiveId) preferredActiveId = match.propertyId;
         } else {
-          const created = addPropertyConfig(toLocalPatch(row, {}));
+          const created = addPropertyConfig(_toLocalPatch(row, {}));
           if (created && created.propertyId) {
             window._cloudPropertyIds[created.propertyId] = row.id;
             if (!preferredActiveId) preferredActiveId = created.propertyId;
@@ -1503,7 +1469,7 @@ export async function hydrateFromCloud() {
       }
 
       const activeCfg = getActivePropertyConfig();
-      const activeCloud = activeCfg && activeCfg.supabaseId ? cloudProps.find(p => p.id === activeCfg.supabaseId) : null;
+      const _activeCloud = activeCfg && activeCfg.supabaseId ? cloudProps.find(p => p.id === activeCfg.supabaseId) : null;
       // Note: api_key / mgmt_fee_rate are now routed through window._appConfig (below).
 
       console.log('[StayOps] Hydrated', cloudProps.length, 'properties from cloud');
@@ -1552,6 +1518,7 @@ export async function hydrateFromCloud() {
         outlook_email: cloudAppConfig.outlook_email || '',
         ai_ignore: cloudAppConfig.ai_ignore || [],
         auto_assign_cleaner: cloudAppConfig.auto_assign_cleaner ?? true,
+        // Cloud column: anthropic_api_key → local key: api_key
         api_key: cloudAppConfig.anthropic_api_key || (activeCloud && activeCloud.anthropic_api_key) || '',
         mgmt_fee_rate: cloudAppConfig.mgmt_fee_rate || (activeCloud && activeCloud.mgmt_fee_rate) || 0,
         notification_config: cloudAppConfig.notification_config || {},
@@ -1565,6 +1532,7 @@ export async function hydrateFromCloud() {
         channel_manager_tier: cloudAppConfig.channel_manager_tier || '',
         channel_manager_last_sync: cloudAppConfig.channel_manager_last_sync || null,
         channel_manager_sync_error: cloudAppConfig.channel_manager_sync_error || null,
+        cancellation_last_seen: cloudAppConfig.cancellation_last_seen || null,
       };
       console.log('[StayOps] Hydrated app config from cloud');
     }
@@ -1583,7 +1551,7 @@ export async function hydrateFromCloud() {
     try {
       const user = await getCurrentSupabaseUser();
       if (user && user.id) await validatePropertyIds(user.id);
-    } catch (e) { /* non-critical, ignore property ID validation failures */ }
+    } catch (_e) { /* non-critical, ignore property ID validation failures */ }
 
     // Auto-generate recurring expenses (runs after both expenses and app config are loaded)
     if (typeof globalThis.processRecurringTemplates === 'function') {
@@ -1703,25 +1671,6 @@ export async function loadHostConfigFromSupabase() {
   }
 }
 
-
-// ── EMAIL ─────────────────────────────────────────────────────────────────────
-
-const DB = {
-  async sendEmail(to, subject, html, text) {
-    try {
-      const headers = await getAuthHeaders();
-      const res = await fetch('/.netlify/functions/send-email', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ to, subject, html, text }),
-      });
-      return await res.json();
-    } catch (e) {
-      console.warn('[StayOps] DB.sendEmail failed', e);
-      return { ok: false };
-    }
-  }
-};
 
 // ── PRICING RULES (Smart Pricing) ─────────────────────────────────────────────
 export async function fetchPricingRulesForProperty(propertyIdUuid) {
@@ -1875,7 +1824,7 @@ export function showAppChrome() {
   // private-mode load, an earlier initPropertyUI() can run before config is resolved.
   try {
     initPropertyUI();
-  } catch (e) { /* non-critical */ }
+  } catch (_e) { /* non-critical */ }
 
   hideLoadingScreen();
 }
@@ -1917,7 +1866,7 @@ export async function handleLoginSubmit() {
     if (typeof setLoadingStatus === 'function') setLoadingStatus('Loading your data…');
     if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
     if (typeof reloadInMemoryData === 'function') reloadInMemoryData();
-    if (typeof _normalizeBookingCleanState === 'function') _normalizeBookingCleanState();
+    if (typeof normalizeBookingCleanState === 'function') normalizeBookingCleanState();
     if (typeof initPropertyUI === 'function') initPropertyUI();
     if (typeof window.applyPortfolioModeAfterHostHydrate === 'function') {
       await window.applyPortfolioModeAfterHostHydrate();

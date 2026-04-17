@@ -426,7 +426,7 @@ export async function uploadChatPhoto(file) {
 
     const path = user.id + '/messages/' + Date.now() + '.jpg';
 
-    const { data, error } = await sb.storage
+    const { data: _data, error } = await sb.storage
       .from('receipts')
       .upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false });
 
@@ -455,13 +455,11 @@ export function renderChatBubble() {
   }
 
   container.innerHTML = `
-    <div id="chat-fab" onclick="window._stayOpsOpenChat()" style="position:fixed;bottom:155px;right:22px;z-index:98;cursor:pointer">
-      <div style="width:48px;height:48px;border-radius:50%;background:#1E3A2F;box-shadow:0 4px 14px rgba(30,58,47,0.4);display:flex;align-items:center;justify-content:center">
-        <svg width="22" height="22" fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2v10z" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </div>
+    <div id="chat-fab" onclick="window._stayOpsOpenChat()" class="fab fab-chat" style="bottom:160px;transition:bottom 0.25s ease">
+      <svg width="24" height="24" fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2v10z" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <div id="chat-badge" style="display:none;position:absolute;top:-3px;right:-3px;min-width:20px;height:20px;border-radius:10px;background:#FF3B30;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 5px;border:2px solid #f5f5f3"></div>
     </div>
-    <div id="chat-preview" style="display:none;position:fixed;bottom:210px;right:22px;z-index:98;background:#fff;padding:10px 14px;border-radius:14px 14px 4px 14px;box-shadow:0 4px 16px rgba(0,0,0,0.12);max-width:220px;cursor:pointer" onclick="window._stayOpsOpenChat()">
+    <div id="chat-preview" style="display:none;position:fixed;bottom:220px;right:24px;z-index:98;background:#fff;padding:10px 14px;border-radius:14px 14px 4px 14px;box-shadow:0 4px 16px rgba(0,0,0,0.12);max-width:220px;cursor:pointer" onclick="window._stayOpsOpenChat()">
       <div id="chat-preview-name" style="font-weight:700;font-size:12px;color:#1E3A2F"></div>
       <div id="chat-preview-msg" style="font-size:12px;color:#666;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden"></div>
     </div>
@@ -675,7 +673,7 @@ function _renderSystemCard(msg) {
   const title = CARD_TITLES[cardType] || (msg.body || 'System Message');
   const titleColor = CARD_TITLE_COLORS[cardType] || '#1E3A2F';
 
-  let bodyHTML = '';
+  let bodyHTML;
   const cd = msg.card_data || {};
 
   if (cardType === 'clean_assigned') {

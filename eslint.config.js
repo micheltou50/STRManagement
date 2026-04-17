@@ -39,6 +39,9 @@ const browserGlobals = {
   ServiceWorkerRegistration: 'readonly',
   PushManager: 'readonly',
   globalThis: 'readonly',
+  performance: 'readonly',
+  NodeFilter: 'readonly',
+  Storage: 'readonly',
   crypto: 'readonly',
   atob: 'readonly',
   btoa: 'readonly',
@@ -94,6 +97,25 @@ const browserGlobals = {
   // App globals exposed via main.js globalThis
   render: 'readonly',
   state: 'readonly',
+  checkAutoSendReport: 'readonly',
+  ensureHostIdentityAndRestore: 'readonly',
+  finishAppInit: 'readonly',
+  getHostProfile: 'readonly',
+  isOnboardingComplete: 'readonly',
+  maybeAutoScanGmail: 'readonly',
+  maybeAutoScanOutlook: 'readonly',
+  migrateConfigFromLegacySettings: 'readonly',
+  normalizeBookingCleanState: 'readonly',
+  reloadInMemoryData: 'readonly',
+  renderAll: 'readonly',
+  renderCleanerCleans: 'readonly',
+  renderNewCleanerView: 'readonly',
+  renderPropertySwitcher: 'readonly',
+  renderSetupWarningBanner: 'readonly',
+  saveAppConfigToCloud: 'readonly',
+  saveHostProfile: 'readonly',
+  showLoginScreen: 'readonly',
+  showOnboarding: 'readonly',
 };
 
 const nodeGlobals = {
@@ -154,7 +176,7 @@ export default [
       // globals (functions assigned to globalThis in main.js, called from other modules).
       // ESLint can't see those cross-file links, so many no-undef hits are false positives.
       'no-undef': 'warn',
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
       'no-unreachable': 'error',     // code after return/throw — always a real bug
       'no-constant-condition': 'error',
       'no-duplicate-case': 'error',
@@ -185,7 +207,7 @@ export default [
     rules: {
       ...js.configs.recommended.rules,
       'no-undef': 'error',
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
       'no-unreachable': 'error',
       'no-duplicate-case': 'error',
       'no-self-assign': 'error',

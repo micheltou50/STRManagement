@@ -291,7 +291,7 @@ function parseRowsWithBankMapping(rows, mapping) {
     const dateStr = parseCellDate(cells[mapping.date_col], mapping.date_format);
     const description = String(cells[mapping.description_col] || '').trim();
 
-    let type = null;
+    let type;
     let amountVal = null;
 
     if (mapping.amount_format === 'separate') {

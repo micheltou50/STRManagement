@@ -27,7 +27,7 @@ exports.handler = async (event) => {
   }
 
   let body;
-  try { body = JSON.parse(event.body); } catch (e) {
+  try { body = JSON.parse(event.body); } catch (_e) {
     return json(400, { error: 'Invalid JSON' });
   }
 

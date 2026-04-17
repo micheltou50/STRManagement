@@ -44,7 +44,7 @@ async function verifyAuth(event) {
       return { error: { statusCode: 401, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Invalid or expired token' }) } };
     }
     return { id: data.user.id, email: data.user.email, user: data.user };
-  } catch (e) {
+  } catch (_e) {
     return { error: { statusCode: 401, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Auth verification failed' }) } };
   }
 }

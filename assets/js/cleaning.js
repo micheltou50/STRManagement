@@ -25,7 +25,6 @@ import {
   sendPushToDevice,
   cleanerLinkForId,
   sendCleanerEmail,
-  getFreshHostSub,
 } from './notifications.js';
 import {
   saveCleanToCloud,
@@ -88,7 +87,13 @@ export function isCleanLinkedToCancelledBooking(clean) {
 }
 
 export function getBookingCleanerState(booking) {
-  if (booking && booking.status === 'cancelled') return { key: 'cancelled', label: 'Cancelled — no cleaner required', tone: 'ok' };
+  if (booking && booking.status === 'cancelled') {
+    const clean = findMatchingCleanForBooking(booking);
+    if (clean && clean.cleaner && !clean.cleanerCancelNotified) {
+      return { key: 'cancel_notify', label: 'Cancelled — notify cleaner', tone: 'bad', clean };
+    }
+    return { key: 'cancelled', label: 'Cancelled — no cleaner required', tone: 'ok' };
+  }
   const clean = findMatchingCleanForBooking(booking);
   if (!clean) return { key: 'unassigned', label: 'Needs cleaner assignment', tone: 'warn' };
   if (clean.done) return { key: 'done', label: 'Clean completed', tone: 'ok', clean };
@@ -941,7 +946,7 @@ export function populateCleanerSelect() {
     sel.innerHTML = '<option value="">No cleaners saved — add in Settings</option>';
   }
 }
-export async function revealCleanerReassign(id) {
+export async function revealCleanerReassign(_id) {
   if (!(await globalThis.showAppModal({ title: 'Change Assignment', msg: 'This cleaner is already confirmed. Change the assignment?', confirmText: 'Change' }))) return;
   const form = document.getElementById('detail-reassign-form');
   const btn  = document.getElementById('detail-change-cleaner-btn');

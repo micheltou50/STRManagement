@@ -22,8 +22,6 @@ import {
   getSuggestedCleanerForBooking,
   maybeAutoAssignPreferredCleaner,
   isCleanerPerson,
-  assignCleanerToBooking,
-  toggleCleanerConfirmed,
 } from './cleaning.js';
 import { sendCleanerEmail } from './notifications.js';
 // ── DASHBOARD CALENDAR STATE ─────────────────────────────────────────────────
@@ -892,6 +890,11 @@ async function deleteBooking(id) {
             cleanDate: c.date || (deletedBooking.checkout ? fmt(deletedBooking.checkout) : ''),
             type: 'cancellation',
           });
+          // Mark cleaner as notified about cancellation
+          c.cleanerCancelNotified = true;
+          if (window._sb && c._cloudId) {
+            window._sb.from('cleans').update({ cleaner_cancel_notified: true, updated_at: new Date().toISOString() }).eq('id', c._cloudId).then(() => {}).catch(() => {});
+          }
           console.log('[StayOps] Cancellation email sent to', c.cleaner, email);
         }
       } catch (e) {

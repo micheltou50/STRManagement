@@ -9,7 +9,7 @@ async function request(payload) {
     body: JSON.stringify(payload)
   });
 
-  let data = {};
+  let data;
   try {
     data = await response.json();
   } catch (_) {

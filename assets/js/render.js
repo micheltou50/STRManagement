@@ -1,6 +1,7 @@
 /**
  * StayOps — dashboard, sections, modals, maintenance/inventory, cleaner shell, onboarding.
  */
+/* eslint-disable no-unused-vars */
 import {
   getAllProperties,
   getActivePropertyId,
@@ -253,10 +254,12 @@ import {
   saveCleaningFee,
   saveCleanCost,
 } from './bookings.js';
+/* eslint-enable no-unused-vars */
 
 
 // ── STATE ────────────────────────────────────────────────────────────────
 
+// eslint-disable-next-line no-unused-vars
 function getPlanStateLite() {
   const raw = localStorage.getItem('gh-plan-state') || 'free';
   return raw === 'pro' ? 'pro' : 'free';
@@ -270,6 +273,7 @@ function getUsageSnapshotLite() {
   return { propertyCount, bookingCount, cleanerCount };
 }
 
+// eslint-disable-next-line no-unused-vars
 function getPlanWarningLines(usage, planLimits) {
   const lines = [];
   const pushNudge = (label, count, limit) => {
@@ -283,13 +287,7 @@ function getPlanWarningLines(usage, planLimits) {
   return lines;
 }
 
-function renderSettingsPlanUsageCard() {
-  const planEl = document.getElementById('settings-plan-nudge');
-  if (planEl) planEl.innerHTML = '';
-}
-
-
-function renderOnboardingGuidance(usageSnapshot) {
+function renderOnboardingGuidance(_usageSnapshot) {
   const el = document.getElementById('dashboard-product-guidance');
   if (!el) return;
 
@@ -302,7 +300,7 @@ function renderOnboardingGuidance(usageSnapshot) {
     try {
       const cfg = typeof getActivePropertyConfig === 'function' ? getActivePropertyConfig() : null;
       return !!(cfg && cfg.airbnbListingUrl);
-    } catch(e) { return false; }
+    } catch(_e) { return false; }
   })();
 
   const items = [
@@ -362,12 +360,6 @@ function dismissChecklist() {
   var el = document.getElementById('dashboard-product-guidance');
   if (el) el.style.display = 'none';
 }
-
-function renderPlanNudges(usageSnapshot, planState) {
-  const el = document.getElementById('dashboard-plan-nudges');
-  if (el) el.innerHTML = '';
-}
-
 
 
 // Silent background Gmail scan — runs automatically on boot, throttled to once per 30 min.
@@ -442,6 +434,7 @@ function _flushPendingUiRefresh() {
 }
 
 
+// eslint-disable-next-line no-unused-vars
 function renderSetupWarningBanner() {
   const wrap = document.getElementById('setup-warning-banner');
   const titleEl = document.getElementById('setup-warning-title');
@@ -508,6 +501,9 @@ function showSection(name) {
   // FAB only on Today tab
   const fab = document.querySelector('.fab');
   if (fab) fab.style.display = name === 'today' ? 'flex' : 'none';
+  // Slide chat bubble down when FAB is hidden
+  const chatFab = document.getElementById('chat-fab');
+  if (chatFab) chatFab.style.bottom = name === 'today' ? '160px' : '90px';
   // Only render what's needed for this section
   if (name === 'today') {
     renderDashboard();
@@ -563,6 +559,8 @@ function render() {
   const fab = document.querySelector('.fab');
   const section = currentSection || 'today';
   if (fab) fab.style.display = section === 'today' ? 'flex' : 'none';
+  const chatFab = document.getElementById('chat-fab');
+  if (chatFab) chatFab.style.bottom = section === 'today' ? '90px' : '24px';
   if (section === 'today')        { renderDashboard(); return; }
   if (section === 'bookings')     { renderBookings(); renderNotes(); return; }
   if (section === 'cleaning')     { renderCleaning(); populateSelects(); return; }
@@ -1240,7 +1238,7 @@ function buildStayopsUnifiedTodayCalendarHtml({
       </div>
     </div>`;
 
-  let bodyHtml = '';
+  let bodyHtml;
 
   if (view === 'daily') {
     const focus = new Date(todayStart);
@@ -1263,7 +1261,7 @@ function buildStayopsUnifiedTodayCalendarHtml({
         d0 < co
       );
     });
-    let statusPill = '';
+    let statusPill;
     if (curGuest) {
       statusPill = `<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#E8F5E9;color:#1D9E75;font-size:12px;font-weight:600">${escHtml(curGuest.name)}</span>`;
     } else {
@@ -1603,7 +1601,7 @@ function buildStayopsUnifiedTodayCalendarHtml({
       )
       .join('');
 
-    const isBookedOnCalDate = (ymdStr) =>
+    const _isBookedOnCalDate = (ymdStr) =>
       activeBookings.some((b) => {
         if (!b.checkin || !b.checkout) return false;
         const ci = parseLocalDayStart(b.checkin);
@@ -1612,7 +1610,7 @@ function buildStayopsUnifiedTodayCalendarHtml({
         return !Number.isNaN(ci.getTime()) && !Number.isNaN(co.getTime()) && d >= ci && d < co;
       });
 
-    const firstBookingOnDate = (ymdStr) =>
+    const _firstBookingOnDate = (ymdStr) =>
       activeBookings.find((b) => {
         if (!b.checkin || !b.checkout) return false;
         const ci = parseLocalDayStart(b.checkin);
@@ -1696,8 +1694,8 @@ function buildStayopsUnifiedTodayCalendarHtml({
         return bars.join('');
       }).join('');
 
-    const monthStartR = new Date(calYear, calMonth, 1);
-    const monthEndR = new Date(calYear, calMonth + 1, 1);
+    const _monthStartR = new Date(calYear, calMonth, 1);
+    const _monthEndR = new Date(calYear, calMonth + 1, 1);
 
     bodyHtml =
       `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px">
@@ -1781,7 +1779,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
     })
     .reduce((s, b) => s + safeNum(b.hostPayout), 0);
 
-  let statusHtml = '';
+  let statusHtml;
   const currentGuest = activeBookings.find(b => {
     if (b.status === 'cancelled') return false;
     const ci = parseLocalDayStart(b.checkin);
@@ -2036,9 +2034,7 @@ function renderDashboard() {
   if (mount) mount.innerHTML = buildTodayDashboardMarkup({ portfolio: false });
 
   const usageSnapshot = getUsageSnapshotLite();
-  const planState = getPlanStateLite();
   renderOnboardingGuidance(usageSnapshot);
-  renderPlanNudges(usageSnapshot, planState);
 }
 
 function buildTodayDashboardMarkup(ctx) {
@@ -2361,7 +2357,7 @@ async function runFullRefresh() {
   const btn = document.getElementById('header-refresh-btn');
   if (btn) { btn.disabled = true; btn.textContent = '↻ Syncing…'; }
 
-  let cloudOk = false;
+  let _cloudOk = false;
   let errors = [];
 
   try {
@@ -2369,7 +2365,7 @@ async function runFullRefresh() {
     if (typeof globalThis.hydrateFromCloud === 'function') {
       try {
         await globalThis.hydrateFromCloud();
-        cloudOk = true;
+        _cloudOk = true;
       } catch (e) {
         console.warn('[Refresh] hydrateFromCloud failed:', e);
         errors.push('cloud sync');
@@ -2957,7 +2953,7 @@ function animateList(containerSelector) {
 
 // ── ACTION SHEET ──────────────────────────────────────────────────────────────
 let longPressTimer = null;
-let longPressTarget = null;
+let _longPressTarget = null;
 
 function showActionSheet(title, actions) {
   document.getElementById('action-sheet-title').textContent = title;
@@ -3136,7 +3132,7 @@ function getCleanerParams() {
   try {
     const saved = JSON.parse(localStorage.getItem('gh-cleaner-session') || 'null');
     if (saved && saved.id) return { id: saved.id, encoded: saved.encoded || null, uid: saved.uid || null };
-  } catch (e) { /* ignore malformed session JSON */ }
+  } catch (_e) { /* ignore malformed session JSON */ }
   return { id: null, encoded: null, uid: null };
 }
 globalThis.getCleanerParams = getCleanerParams;
@@ -3260,7 +3256,7 @@ async function verifyCleanerPin() {
     cleanerPinEntry = ''; updatePinDots(); return;
   }
   let stored;
-  try { stored = atob(encoded); } catch(e) { stored = ''; }
+  try { stored = atob(encoded); } catch(_e) { stored = ''; }
   if (cleanerPinEntry === stored) {
     localStorage.setItem('gh-cleaner-authed-' + id, '1');
     // Save cleaner session so home screen launch preserves cleaner mode
@@ -3354,9 +3350,9 @@ function cleanerSignOut() {
 }
 
 // ── CLEANER TAB SWITCHING ─────────────────────────────────────────────────────
-let cleanerTab = 'cleans';
+let _cleanerTab = 'cleans';
 function switchCleanerTab(tab) {
-  cleanerTab = tab;
+  _cleanerTab = tab;
   ['cleans','inventory','chat'].forEach(t => {
     const tabBtn = document.getElementById('ctab-' + t);
     const viewEl = document.getElementById('cleaner-' + t + '-view');
@@ -3367,10 +3363,10 @@ function switchCleanerTab(tab) {
 }
 
 // ── CLEANER CLEANS VIEW ───────────────────────────────────────────────────────
-let cleanerCleanTab = 'upcoming';
+let _cleanerCleanTab = 'upcoming';
 
 function switchCleanerCleanTab(tab) {
-  cleanerCleanTab = tab;
+  _cleanerCleanTab = tab;
   ['upcoming','new'].forEach(t => {
     const btn = document.getElementById('csubtab-' + t);
     const el = document.getElementById('cleaner-cleans-' + t);
@@ -3615,7 +3611,7 @@ function renderCleanerChat() {
           const d = new Date(time);
           timeStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' +
                     d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-        } catch(e) { timeStr = ''; }
+        } catch(_e) { timeStr = ''; }
       }
       const body = escHtml(msg.body || msg.text || msg.message || '');
       html += '<div style="display:flex;justify-content:' + align + '">';
@@ -3932,12 +3928,12 @@ function isOnboardingComplete() {
   try {
     const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
     if (!props.length) return false;
-  } catch(e) { /* ignore if getAllProperties is not yet defined */ }
+  } catch(_e) { /* ignore if getAllProperties is not yet defined */ }
   if (localStorage.getItem('gh-setup-complete') === '1') return true;
   try {
     const cfg = typeof getActivePropertyConfig === 'function' ? getActivePropertyConfig() : null;
     if (cfg && cfg.name) return true;
-  } catch(e) { /* ignore if getActivePropertyConfig is not yet defined */ }
+  } catch(_e) { /* ignore if getActivePropertyConfig is not yet defined */ }
   return false;
 }
 
@@ -3973,7 +3969,7 @@ function checkAutoSendReport() {
       'info',
       12000
     );
-  } catch (e) {
+  } catch (_e) {
     // Non-critical — silently ignore
   }
 }
@@ -4123,11 +4119,41 @@ function renderNewCleanerView(data) {
     return '<div style="font-size:11px;font-weight:500;background:' + bg + ';color:' + color + ';padding:3px 10px;border-radius:12px;white-space:nowrap">' + label + '</div>';
   }
 
-  const actionNeeded = myCleans.filter(c => !c.done && !c.cleaner_confirmed && !c.cleaner_declined);
-  const upcoming = myCleans.filter(c => !c.done && c.cleaner_confirmed && c.clean_date >= todayStr);
-  const completed = myCleans.filter(c => c.done);
+  const cancelled = myCleans.filter(c => c._bookingCancelled && !c.done);
+  const nonCancelled = myCleans.filter(c => !c._bookingCancelled);
+  const actionNeeded = nonCancelled.filter(c => !c.done && !c.cleaner_confirmed && !c.cleaner_declined);
+  const upcoming = nonCancelled.filter(c => !c.done && c.cleaner_confirmed && c.clean_date >= todayStr);
+  const completed = nonCancelled.filter(c => c.done);
 
   let html = '';
+
+  // Cancelled bookings
+  if (cancelled.length) {
+    html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:12px">';
+    html += '<div style="width:8px;height:8px;border-radius:50%;background:#C0392B"></div>';
+    html += '<span style="font-size:12px;font-weight:500;color:#C0392B;text-transform:uppercase;letter-spacing:0.4px">Cancelled</span>';
+    html += '<span style="font-size:11px;color:#999;margin-left:2px">' + cancelled.length + '</span>';
+    html += '</div>';
+
+    cancelled.forEach(c => {
+      const prop = c.properties || {};
+      const guestLine = (c.guest_name || 'Guest');
+
+      html += '<div style="background:white;border:0.5px solid #eee;border-left:3px solid #C0392B;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
+      html += '<div>';
+      html += '<div style="font-size:17px;font-weight:500;color:#1a1a1a;text-decoration:line-through">' + formatDate(c.clean_date) + '</div>';
+      html += '<div style="font-size:13px;color:#888;margin-top:2px;text-decoration:line-through">' + guestLine + '</div>';
+      html += '</div>';
+      html += '<div style="font-size:11px;font-weight:500;background:#FCEBEB;color:#A32D2D;padding:3px 10px;border-radius:12px;white-space:nowrap">Booking cancelled</div>';
+      html += '</div>';
+      html += '<div style="margin-top:10px;padding:10px 12px;background:#f7f7f5;border-radius:6px">';
+      html += '<div style="font-size:13px;font-weight:500;color:#333">' + (prop.name || 'Property') + '</div>';
+      html += '<div style="font-size:12px;color:#888;margin-top:1px">' + (prop.address || '') + '</div>';
+      html += '</div>';
+      html += '</div>';
+    });
+  }
 
   // Action needed
   if (actionNeeded.length) {
@@ -4526,6 +4552,14 @@ function renderCleanerProfile() {
   html += '</div>';
   html += '</div>';
   html += '</div></div>';
+  // "Also a Host?" section — only show if user doesn't already have a host role
+  html += '<div id="cleaner-become-host-section" style="margin-top:20px;display:none">';
+  html += '<div style="background:white;border-radius:12px;padding:16px;border:1.5px solid #EAF3DE">';
+  html += '<div style="font-weight:700;font-size:14px;color:var(--forest,#1E3A2F);margin-bottom:4px">Also manage your own property?</div>';
+  html += '<div style="font-size:12px;color:#888;margin-bottom:12px;line-height:1.4">Add host mode to manage bookings, finances, and cleaning schedules for your own properties.</div>';
+  html += '<button onclick="becomeHost()" id="become-host-btn" style="width:100%;padding:12px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;font-family:\'DM Sans\',sans-serif">Enable Host Mode</button>';
+  html += '</div></div>';
+
   html += '<button onclick="cleanerSignOut()" style="width:100%;margin-top:20px;padding:14px;background:white;color:#C0392B;border:1.5px solid #C0392B;border-radius:12px;font-weight:700;font-size:14px;cursor:pointer">Sign Out</button>';
 
   container.innerHTML = html;
@@ -4544,6 +4578,11 @@ function renderCleanerProfile() {
     } else {
       notifEl.innerHTML = enableBtn;
     }
+  }
+
+  // Check if "Become a Host" section should be visible
+  if (typeof window._checkBecomeHostVisibility === 'function') {
+    window._checkBecomeHostVisibility();
   }
 }
 window.renderCleanerProfile = renderCleanerProfile;
@@ -4568,6 +4607,47 @@ window._enableCleanerNotifs = async function () {
   } catch (e) {
     console.warn('[StayOps] Enable notifs failed:', e);
     if (el) el.innerHTML = '<span style="color:#C0392B">Failed — try again</span>';
+  }
+};
+
+// Check if cleaner already has host role — if not, show "Become a Host" section
+window._checkBecomeHostVisibility = async function () {
+  const section = document.getElementById('cleaner-become-host-section');
+  if (!section || !window._sb) return;
+  try {
+    const user = window._supabaseUser || (await window._sb.auth.getUser()).data?.user;
+    if (!user) return;
+    const { data: roles } = await window._sb.from('user_roles').select('role').eq('auth_user_id', user.id);
+    const hasHost = roles && roles.some(r => r.role === 'host');
+    section.style.display = hasHost ? 'none' : 'block';
+  } catch (_) { /* ignore */ }
+};
+
+window.becomeHost = async function () {
+  const btn = document.getElementById('become-host-btn');
+  if (btn) { btn.textContent = 'Setting up…'; btn.disabled = true; }
+  try {
+    const user = window._supabaseUser || (await window._sb.auth.getUser()).data?.user;
+    if (!user || !window._sb) throw new Error('Not signed in');
+
+    // Insert host role
+    const { error } = await window._sb.from('user_roles').insert({ auth_user_id: user.id, role: 'host' });
+    if (error) throw error;
+
+    if (btn) btn.textContent = 'Host mode enabled!';
+    if (typeof globalThis.showBanner === 'function') {
+      globalThis.showBanner('Host mode enabled — reload to start setting up your property', 'ok');
+    }
+
+    // Hide the section
+    const section = document.getElementById('cleaner-become-host-section');
+    if (section) section.style.display = 'none';
+
+    // Auto-reload after a short delay so the host boot sequence runs
+    setTimeout(() => { window.location.reload(); }, 1500);
+  } catch (e) {
+    console.warn('[StayOps] becomeHost failed:', e);
+    if (btn) { btn.textContent = 'Failed — try again'; btn.disabled = false; }
   }
 };
 
@@ -4685,4 +4765,5 @@ export {
   _calNavigate,
   dismissChecklist,
   renderOnboardingGuidance,
+  renderCleanerCleans,
 };

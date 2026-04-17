@@ -117,7 +117,7 @@ function formatDate(dateStr) {
 
 // ── main handler ──────────────────────────────────────────────────────────────
 
-exports.handler = async (event) => {
+exports.handler = async (_event) => {
   const supabaseUrl        = process.env.SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
   const resendApiKey       = process.env.RESEND_API_KEY;

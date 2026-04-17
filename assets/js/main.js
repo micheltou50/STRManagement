@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 import { SupabaseAdapter } from './adapter.js';
 import { showSetupIfNeeded } from './setup.js';
 import {
@@ -27,8 +28,10 @@ import {
 } from './ai.js';
 import {
   normalizeBookingCleanState, isCleanLinkedToCancelledBooking, getBookingCleanerState, isCleanerPerson, populateSelects, populateCleanerSelect, renderCleaning, quickAssignLastCleaner, addClean, autoFillCleanDate, assignCleanerToBooking, jumpToAssignClean,
-  toggleCleanAction, markCleanDeclined, markCleanerConfirmed, reassignClean, toggleCleanerConfirmed, revealCleanerReassign, switchCleanView, setCleanStatusFilter, cleanerAccept, cleanerDecline, cleanerMarkDone
+  toggleCleanAction, markCleanDeclined, markCleanerConfirmed, reassignClean, toggleCleanerConfirmed, revealCleanerReassign, switchCleanView, setCleanStatusFilter, cleanerAccept, cleanerDecline, cleanerMarkDone,
+  findMatchingCleanForBooking
 } from './cleaning.js';
+import { bookings } from './state.js';
 import {
   resetFinanceSubViewToHub, backToFinanceHub, toggleExpenseAddForm, closeExpenseAddForm, showFinanceSub, switchReportsSubTab, openFinancePanelFromHub, switchPayoutsSubTab, switchMgmtSubTab, switchReportSubTab, renderMgmtFY, renderFinance, fyPrev,
   fyNext, renderReport, revPrev, revNext, renderRevenue, mgmtPrev, mgmtNext, renderManagement, toggleMgmtSelect, mgmtCheckboxChange, mgmtToggleSelectAll, generateInvoice, confirmInvoiceClient, renderClientsList,
@@ -79,8 +82,9 @@ import {
   isCleanerAuthed, pinPress, pinDelete, cleanerRefresh, enableCleanerNotifications, cleanerSignOut, switchCleanerTab, switchCleanerCleanTab, renderCleanerView, cleanerAddInventoryItem,
   cleanerAdjustStock, finishAppInit, showOnboarding, hideOnboarding, _obGoToStep, onboardStep1Next, onboardConnectGoogle, onboardConnectMicrosoft, onboardEmailConnected, onboardStep2Skip,
   onboardTogglePlatform, onboardFinish, isOnboardingComplete, checkAutoSendReport, _calNavigate, renderOnboardingGuidance,
-  dismissChecklist
+  dismissChecklist, renderCleanerCleans
 } from './render.js';
+/* eslint-enable no-unused-vars */
 
 // ── GLOBAL SCOPE ASSIGNMENTS ───────────────────────────────────────────────────
 // ES modules are scoped — functions are not automatically global.
@@ -90,6 +94,8 @@ import {
 // finance.js / settings.js import before main body; runtime hooks for cross-module calls
 globalThis.savePropertyData = savePropertyData;
 globalThis.getHostProfile = getHostProfile;
+globalThis.saveHostProfile = saveHostProfile;
+globalThis.migrateConfigFromLegacySettings = migrateConfigFromLegacySettings;
 globalThis._checkModalsClosed = _checkModalsClosed;
 globalThis.animateList = animateList;
 globalThis.attachLongPress = attachLongPress;
@@ -132,6 +138,7 @@ globalThis.getAssetDepreciationForFY = getAssetDepreciationForFY;
 globalThis.getAssetSchedule = getAssetSchedule;
 globalThis.DEPRECIATION_PRESETS = DEPRECIATION_PRESETS;
 globalThis.sendAutoMessage = sendAutoMessage;
+globalThis.renderCleanerCleans = renderCleanerCleans;
 
 // Called from index.html onclick/onchange handlers
 window.handleLoginSubmit        = handleLoginSubmit;
@@ -414,6 +421,215 @@ globalThis.showLoginScreen = showLoginScreen;
 globalThis.handleAuthFailure = handleAuthFailure;
 
 
+// ── HOST / CLEANER ROLE SWITCHER ─────────────────────────────────────────────
+
+function checkRoleSwitcher() {
+  try {
+    if (typeof isCleanerMode === 'function' && isCleanerMode()) return;
+    if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) return;
+
+    const user = window._supabaseUser;
+    const cleaners = window._cleaners || [];
+    if (!user || !user.email || !cleaners.length) return;
+
+    const hostEmail = user.email.toLowerCase().trim();
+    const match = cleaners.find(c => c.email && c.email.toLowerCase().trim() === hostEmail);
+    if (!match) return;
+
+    window._matchedCleanerRecord = match;
+    const container = document.getElementById('role-switcher-container');
+    if (container) container.style.display = 'block';
+    console.log('[StayOps] Role switcher enabled — host is also cleaner:', match.name);
+  } catch (e) {
+    console.warn('[StayOps] checkRoleSwitcher failed', e);
+  }
+}
+
+window.switchToCleanerMode = function () {
+  if (!window._matchedCleanerRecord) return;
+  console.log('[StayOps] Switching to cleaner mode');
+
+  // Update pill styles
+  const hostPill = document.getElementById('role-pill-host');
+  const cleanerPill = document.getElementById('role-pill-cleaner');
+  if (hostPill) { hostPill.style.background = 'rgba(255,255,255,0.12)'; hostPill.style.color = 'rgba(255,255,255,0.8)'; }
+  if (cleanerPill) { cleanerPill.style.background = '#8FAF85'; cleanerPill.style.color = '#1E3A2F'; }
+
+  // Switch to cleaner view (hides host UI, shows cleaner UI, loads data)
+  showCleanerApp();
+
+  // Register cleaner push notifications
+  const cleanerId = window._matchedCleanerRecord._cloudId || window._matchedCleanerRecord.id;
+  setTimeout(() => {
+    subscribeToPush('cleaner', cleanerId).then(sub => {
+      if (sub) console.log('[StayOps] Cleaner push subscription registered');
+    }).catch(() => {});
+  }, 1500);
+
+  // After cleaner content loads, add "Back to Host" button to cleaner header
+  setTimeout(() => {
+    const cleanerHeader = document.getElementById('cleaner-header');
+    if (cleanerHeader && !document.getElementById('back-to-host-btn')) {
+      const btn = document.createElement('button');
+      btn.id = 'back-to-host-btn';
+      btn.onclick = window.switchToHostMode;
+      btn.style.cssText = 'display:flex;align-items:center;gap:6px;background:rgba(30,58,47,0.1);border:1.5px solid var(--forest,#1E3A2F);border-radius:20px;color:var(--forest,#1E3A2F);font-family:"DM Sans",sans-serif;font-size:12px;font-weight:600;padding:7px 14px;cursor:pointer;margin-top:12px';
+      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg> Back to Host';
+      cleanerHeader.appendChild(btn);
+    }
+  }, 500);
+};
+
+window.switchToHostMode = function () {
+  console.log('[StayOps] Switching back to host mode');
+
+  // Clear cleaner data
+  window._cleanerData = null;
+
+  // Hide cleaner UI
+  const cleanerNav = document.getElementById('cleaner-nav');
+  const cleanerContent = document.getElementById('cleaner-content');
+  if (cleanerNav) cleanerNav.style.display = 'none';
+  if (cleanerContent) cleanerContent.style.display = 'none';
+
+  // Remove back-to-host button
+  const backBtn = document.getElementById('back-to-host-btn');
+  if (backBtn) backBtn.remove();
+
+  // Show host UI
+  showAppChrome();
+  renderAll();
+
+  // Reset pill styles
+  const hostPill = document.getElementById('role-pill-host');
+  const cleanerPill = document.getElementById('role-pill-cleaner');
+  if (hostPill) { hostPill.style.background = '#8FAF85'; hostPill.style.color = '#1E3A2F'; }
+  if (cleanerPill) { cleanerPill.style.background = 'rgba(255,255,255,0.12)'; cleanerPill.style.color = 'rgba(255,255,255,0.8)'; }
+};
+
+// ── CANCELLED BOOKING PROMPT ─────────────────────────────────────────────────
+function checkCancelledBookings() {
+  try {
+    if (typeof isCleanerMode === 'function' && isCleanerMode()) return;
+    if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) return;
+
+    const cfg = window._appConfig || {};
+    const lastSeen = cfg.cancellation_last_seen || null;
+    // Default: look back 7 days if never set
+    const cutoff = lastSeen || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const cancelled = bookings.filter(b =>
+      b.status === 'cancelled' &&
+      String(b.updatedAt || '') > cutoff
+    );
+    if (!cancelled.length) return;
+
+    const fmtD = d => { if (!d) return ''; try { return new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }); } catch (_) { return d; } };
+
+    let cards = '';
+    for (const b of cancelled) {
+      const clean = findMatchingCleanForBooking(b);
+      const propName = typeof getPropertyNameById === 'function' && b._propertyId ? getPropertyNameById(b._propertyId) : '';
+      const cleanerName = clean && clean.cleaner ? clean.cleaner : '';
+      const notified = clean && clean.cleanerCancelNotified;
+
+      // Look up cleaner email
+      let cleanerEmail = '';
+      if (cleanerName && !notified) {
+        const cleaners = (typeof loadCleaners === 'function' ? loadCleaners() : window._cleaners) || [];
+        const cObj = cleaners.find(cl => cl.name === cleanerName || String(cl.id) === String(clean.cleanerId));
+        cleanerEmail = cObj && cObj.email ? cObj.email.trim() : '';
+      }
+
+      cards += '<div style="background:#FCEBEB;border-radius:10px;padding:14px 16px;margin-bottom:10px">';
+      cards += '<div style="font-size:15px;font-weight:600;color:#1a1a1a">' + (b.name || 'Guest') + '</div>';
+      if (propName) cards += '<div style="font-size:12px;color:#888;margin-top:2px">' + propName + '</div>';
+      cards += '<div style="font-size:13px;color:#A32D2D;margin-top:4px;text-decoration:line-through">' + fmtD(b.checkin) + ' → ' + fmtD(b.checkout) + '</div>';
+
+      if (cleanerName) {
+        if (notified) {
+          cards += '<div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:#3B6D11">' +
+            '<span>✓</span><span>' + cleanerName + ' was notified</span></div>';
+        } else {
+          const bId = String(b._cloudId || b.id);
+          const cId = clean._cloudId || String(clean.id);
+          if (cleanerEmail) {
+            cards += '<button onclick="notifyCancelledCleaner(this,\'' + bId.replace(/'/g, '') + '\',\'' + cId.replace(/'/g, '') + '\')" ' +
+              'style="margin-top:10px;width:100%;padding:10px;background:#C0392B;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+              'Notify ' + cleanerName + '</button>';
+          } else {
+            cards += '<div style="margin-top:10px;font-size:12px;color:#854F0B">' + cleanerName + ' has no email on file</div>';
+          }
+        }
+      }
+      cards += '</div>';
+    }
+
+    const container = document.getElementById('cancel-prompt-cards');
+    const overlay = document.getElementById('cancel-prompt-overlay');
+    if (!container || !overlay) return;
+    container.innerHTML = cards;
+    overlay.style.display = 'flex';
+    requestAnimationFrame(() => requestAnimationFrame(() => { overlay.style.opacity = '1'; }));
+  } catch (e) {
+    console.warn('[StayOps] checkCancelledBookings failed', e);
+  }
+}
+
+window.dismissCancelPrompt = function () {
+  const overlay = document.getElementById('cancel-prompt-overlay');
+  if (overlay) {
+    overlay.style.opacity = '0';
+    setTimeout(() => { overlay.style.display = 'none'; }, 250);
+  }
+  // Persist last-seen timestamp to cloud
+  if (window._appConfig) window._appConfig.cancellation_last_seen = new Date().toISOString();
+  if (typeof saveAppConfigToCloud === 'function') {
+    saveAppConfigToCloud({ cancellation_last_seen: new Date().toISOString() }).catch(e => console.warn('[StayOps] silent error:', e));
+  }
+};
+
+window.notifyCancelledCleaner = async function (btn, bookingId, cleanId) {
+  try {
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    const b = bookings.find(x => String(x._cloudId || x.id) === bookingId);
+    const clean = findMatchingCleanForBooking(b);
+    if (!clean || !clean.cleaner) { btn.textContent = 'No cleaner'; return; }
+
+    const cleaners = (typeof loadCleaners === 'function' ? loadCleaners() : window._cleaners) || [];
+    const cObj = cleaners.find(cl => cl.name === clean.cleaner || String(cl.id) === String(clean.cleanerId));
+    const email = cObj && cObj.email ? cObj.email.trim() : '';
+    if (!email) { btn.textContent = 'No email'; return; }
+
+    const fmtD = d => { if (!d) return ''; try { return new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }); } catch (_) { return d; } };
+
+    await sendCleanerEmail({
+      cleanerName: clean.cleaner,
+      cleanerEmail: email,
+      guestName: b.name || 'Guest',
+      checkin: b.checkin ? fmtD(b.checkin) : '',
+      checkout: b.checkout ? fmtD(b.checkout) : '',
+      cleanDate: clean.date || (b.checkout ? fmtD(b.checkout) : ''),
+      type: 'cancellation',
+    });
+
+    // Mark as notified in memory + cloud
+    clean.cleanerCancelNotified = true;
+    if (window._sb && clean._cloudId) {
+      await window._sb.from('cleans').update({ cleaner_cancel_notified: true, updated_at: new Date().toISOString() }).eq('id', clean._cloudId);
+    }
+
+    // Update button to confirmed state
+    btn.outerHTML = '<div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:#3B6D11">' +
+      '<span>✓</span><span>' + clean.cleaner + ' was notified</span></div>';
+  } catch (e) {
+    console.warn('[StayOps] notifyCancelledCleaner failed', e);
+    btn.textContent = 'Failed — try again';
+    btn.disabled = false;
+  }
+};
+
 // Init on load
 (async () => {
   // Handle OAuth redirect back from Google/Microsoft
@@ -589,6 +805,10 @@ globalThis.handleAuthFailure = handleAuthFailure;
     setTimeout(maybeAutoScanGmail, 3000);
     // Auto-scan Outlook for new booking emails
     setTimeout(maybeAutoScanOutlook, 4500);
+    // Check for missed cancellations
+    setTimeout(checkCancelledBookings, 2500);
+    // Check if host is also a cleaner (show role switcher)
+    setTimeout(checkRoleSwitcher, 1000);
     // Auto-sync channel manager bookings
     setTimeout(maybeAutoSyncCM, 6000);
     // Periodic re-scan every 15 minutes while app is open
