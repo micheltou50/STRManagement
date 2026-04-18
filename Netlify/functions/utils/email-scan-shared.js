@@ -454,7 +454,7 @@ async function callClaude(apiKey, prompt) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 600,
       messages: [{ role: 'user', content: prompt }],
     }),
@@ -559,6 +559,9 @@ async function processEmailResult(parsed, msgId, source, ctx) {
       );
       results.cancelled++;
       results.details.push({ msgId, status: 'cancelled', guest: parsed.guestName || match.guest_name, confCode });
+      // Mark this msgId as processed so it's not re-scanned (the booking's gmail_message_id
+      // gets overwritten on subsequent updates, so we can't rely on it alone for dedup)
+      newlySkipped.push(msgId);
       if (!wasCancelled && supabaseAdmin) {
         const pname = (propMap.find(p => p.id === match.property_id) || {}).name || propertyName;
         await notifyBookingOwnerPush(supabaseAdmin, {
@@ -604,6 +607,8 @@ async function processEmailResult(parsed, msgId, source, ctx) {
       );
       results.updated++;
       results.details.push({ msgId, status: 'updated', guest: parsed.guestName, checkin: parsed.checkin });
+      // Mark this msgId as processed so it's not re-scanned
+      newlySkipped.push(msgId);
 
       // Push notification if dates or price changed
       const priceChanged =
@@ -637,6 +642,8 @@ async function processEmailResult(parsed, msgId, source, ctx) {
       await insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed, emailFrom, source);
       results.imported++;
       results.details.push({ msgId, status: 'imported', guest: parsed.guestName, checkin: parsed.checkin, note: 'modification without matching original' });
+      // Mark this msgId as processed so it's not re-scanned
+      newlySkipped.push(msgId);
       if (propertyUnconfirmed) {
         needsReview.push({
           guest: parsed.guestName || 'Guest',
@@ -744,6 +751,8 @@ async function processEmailResult(parsed, msgId, source, ctx) {
     results.imported++;
   }
   results.details.push({ msgId, status: 'imported', guest: parsed.guestName, checkin: parsed.checkin });
+  // Mark this msgId as processed so it's not re-scanned
+  newlySkipped.push(msgId);
   if (propertyUnconfirmed) {
     needsReview.push({
       guest: parsed.guestName || 'Guest',
@@ -760,9 +769,11 @@ async function processEmailResult(parsed, msgId, source, ctx) {
 
 function capSkippedIds(skippedIds, newlySkipped) {
   newlySkipped.forEach(id => skippedIds.add(id));
-  if (skippedIds.size > 500) {
+  // Cap at 2000 — large enough to retain ~14 days of processed emails
+  // (every successful action now adds to skipped list, not just not-a-booking)
+  if (skippedIds.size > 2000) {
     const arr = [...skippedIds];
-    return new Set(arr.slice(arr.length - 500));
+    return new Set(arr.slice(arr.length - 2000));
   }
   return skippedIds;
 }
