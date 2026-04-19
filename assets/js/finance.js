@@ -27,7 +27,7 @@ import {
   getExpensePhotoUploadSnapshot,
   isExpensePhotoConverting,
 } from './ai.js';
-import { uploadReceiptToStorage, saveExpenseToCloud, deleteExpenseFromCloud, getCurrentSupabaseUser } from './supabase.js';
+import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud, getCurrentSupabaseUser } from './supabase.js';
 
 let _financeTab = 'expenses';
 /** Keeps Finance hub vs sub-screens across renderFinance() / sync refresh. */
@@ -2254,8 +2254,9 @@ function toggleExpenseMonth() {
 }
 
 function expenseHasReceiptAttached(e) {
+  // Only "attached" if there's an actual file, not just a receipt_type label
   if (e.driveLink && String(e.driveLink).trim()) return true;
-  if (e.receiptType === 'e-receipt' || e.receiptType === 'printed') return true;
+  if (e.photo && String(e.photo).trim()) return true;
   return false;
 }
 
@@ -2706,6 +2707,10 @@ function addExpense(opts = {}) {
     awaitingReceipt: photoForUpload ? false : (opts.awaitingReceipt || false),
     driveLink: null
   };
+  // Tag with active property cloud ID so the property filter shows it immediately
+  // (without this, the expense is invisible until the app reloads from cloud)
+  const activePid = _financeActiveCloudPropertyId();
+  if (activePid) exp._propertyId = activePid;
   expenses.push(exp);
   try { globalThis.savePropertyData(); } catch(_storageErr) {
     globalThis.showBanner('⚠ Storage full — expense saved without photo', 'warn');
@@ -2923,15 +2928,16 @@ function openExpenseView(id) {
   // ── Receipt action block ────────────────────────────────────────────────────
   let receiptBlock;
   if (e.driveLink) {
+    // Use onclick to fetch a signed URL on demand (bucket is private)
     receiptBlock = `
-      <a href="${e.driveLink}" target="_blank"
+      <button onclick="openReceiptViewer('${escapeJsSingleQuotedHtmlAttr(String(e.driveLink))}', this)"
          style="display:flex;align-items:center;justify-content:center;gap:8px;
                 width:100%;padding:11px;box-sizing:border-box;
                 background:var(--mist);border:1.5px solid var(--moss);border-radius:10px;
-                color:var(--moss);font-weight:600;font-size:13px;text-decoration:none;
+                color:var(--moss);font-weight:600;font-size:13px;cursor:pointer;
                 font-family:'DM Sans',sans-serif">
         📎 View Receipt
-      </a>`;
+      </button>`;
   } else if (e.awaitingReceipt) {
     receiptBlock = `<div style="font-size:13px;color:var(--amber);padding:4px 0">⚠ Receipt awaiting upload</div>`;
   } else if (!e.receiptType || e.receiptType === 'missing') {
@@ -3012,7 +3018,9 @@ function openExpenseEdit(id) {
   const currentReceiptEl = document.getElementById('ee-current-receipt');
   const receiptLinkEl = document.getElementById('ee-receipt-link');
   if (e.driveLink) {
-    receiptLinkEl.href = e.driveLink;
+    // Use onclick to fetch signed URL on demand (bucket is private)
+    receiptLinkEl.href = '#';
+    receiptLinkEl.onclick = (ev) => { ev.preventDefault(); window.openReceiptViewer(e.driveLink); };
     currentReceiptEl.style.display = 'block';
     document.getElementById('ee-receipt-label').textContent = 'Upload a replacement receipt';
   } else {
@@ -4410,6 +4418,30 @@ globalThis.bankImportPickFile = () => getOrCreateBankCsvFileInput().click();
 globalThis.resetFinanceSubViewToHub = resetFinanceSubViewToHub;
 globalThis.mgmtCheckboxChange = mgmtCheckboxChange;
 globalThis.mgmtToggleSelectAll = mgmtToggleSelectAll;
+
+// Open a receipt by fetching a signed URL on demand (bucket is private).
+window.openReceiptViewer = async function (driveLinkValue, btnEl) {
+  if (!driveLinkValue) return;
+  const originalText = btnEl ? btnEl.innerHTML : null;
+  if (btnEl) { btnEl.innerHTML = 'Loading…'; btnEl.disabled = true; }
+  try {
+    const url = await getReceiptViewUrl(driveLinkValue);
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } else {
+      if (typeof globalThis.showBanner === 'function') {
+        globalThis.showBanner('⚠ Could not load receipt — file may be missing', 'error');
+      }
+    }
+  } catch (e) {
+    console.warn('[StayOps] openReceiptViewer failed', e);
+    if (typeof globalThis.showBanner === 'function') {
+      globalThis.showBanner('⚠ Could not load receipt', 'error');
+    }
+  } finally {
+    if (btnEl && originalText) { btnEl.innerHTML = originalText; btnEl.disabled = false; }
+  }
+};
 
 // Expense / finance inline-handler bridges
 window.addExpense = addExpense;

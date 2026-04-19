@@ -1374,10 +1374,36 @@ export async function uploadReceiptToStorage(file, expenseId) {
     const path = `${user.id}/${propertyId || 'default'}/${expenseId || Date.now()}.${ext}`;
     const { data: _data, error } = await window._sb.storage.from('receipts').upload(path, file, { upsert: true });
     if (error) { console.warn('[StayOps] uploadReceiptToStorage error', error); return null; }
-    const { data: urlData } = window._sb.storage.from('receipts').getPublicUrl(path);
-    return urlData && urlData.publicUrl ? urlData.publicUrl : null;
+    // Store the path (not a public URL) since the bucket is private.
+    // Use getReceiptViewUrl() at view time to generate a fresh signed URL.
+    return path;
   } catch (e) {
     console.warn('[StayOps] uploadReceiptToStorage failed', e);
+    return null;
+  }
+}
+
+/**
+ * Get a viewable URL for a receipt, regardless of whether driveLinkValue is
+ * a storage path (new format) or a legacy public URL.
+ * Returns a signed URL valid for 1 hour.
+ */
+export async function getReceiptViewUrl(driveLinkValue) {
+  if (!driveLinkValue || !window._sb) return null;
+  try {
+    let path = String(driveLinkValue).trim();
+    // Legacy: extract path from public URL like
+    //   https://xxx.supabase.co/storage/v1/object/public/receipts/USER/PROPERTY/EXPENSE.ext
+    const publicMatch = path.match(/\/storage\/v1\/object\/(?:public|sign)\/receipts\/(.+?)(?:\?.*)?$/);
+    if (publicMatch) path = publicMatch[1];
+    // If it's still a full URL (e.g. external Drive link), just return it as-is
+    if (/^https?:\/\//i.test(path)) return path;
+    // Generate a fresh signed URL
+    const { data, error } = await window._sb.storage.from('receipts').createSignedUrl(path, 3600);
+    if (error) { console.warn('[StayOps] getReceiptViewUrl error', error); return null; }
+    return data && data.signedUrl ? data.signedUrl : null;
+  } catch (e) {
+    console.warn('[StayOps] getReceiptViewUrl failed', e);
     return null;
   }
 }
