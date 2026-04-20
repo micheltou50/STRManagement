@@ -63,7 +63,7 @@ import {
 } from './settings.js';
 import {
   calPrev, calNext, openCalPreview, closeCalPreview, addNote, showDetail, showEditModal, saveEdit, editCalcNights, editCalcNet, filterBookings, addBooking,
-  deleteBooking, importAirbnbCSV, importCSV, switchModalTab, saveCleaningFee, saveCleanCost, renderBookings
+  deleteBooking, importAirbnbCSV, importCSV, switchModalTab, saveCleaningFee, saveCleanCost, renderBookings, switchBookingsView, renderBookingsCalendarView
 } from './bookings.js';
 import {
   renderAdmin, switchAdminTab, adminHandleToggle, adminToggleTemplate, adminSendTestEmail,
@@ -192,6 +192,8 @@ window.enableNotificationsManually = enableNotificationsManually;
 window.extractBookingFromScreenshot = extractBookingFromScreenshot;
 window.extractExpenseFromReceipt = extractExpenseFromReceipt;
 window.filterBookings           = filterBookings;
+window.switchBookingsView       = switchBookingsView;
+window.renderBookingsCalendarView = renderBookingsCalendarView;
 window.fyNext                   = fyNext;
 window.fyPrev                   = fyPrev;
 window.generateInvoice          = generateInvoice;

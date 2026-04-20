@@ -28,6 +28,255 @@ import { sendCleanerEmail } from './notifications.js';
 let calYear = new Date().getFullYear();
 let calMonth = new Date().getMonth();
 
+// ── BOOKINGS VIEW STATE (list ↔ calendar) ────────────────────────────────────
+let _bookingsView = 'list'; // 'list' | 'calendar'
+let _bkCalYear = new Date().getFullYear();
+let _bkCalMonth = new Date().getMonth();
+
+function _bkCalPlatformStyle(platform) {
+  const p = String(platform || '').toLowerCase();
+  if (p.includes('airbnb'))  return { bg: '#FFF0F0', border: '#FFDADA', text: '#E04E52', chip: '#FFD5D5', label: 'Airbnb' };
+  if (p.includes('vrbo') || p.includes('homeaway')) return { bg: '#EEF0FF', border: '#D5D8F0', text: '#3B5998', chip: '#D5D8F0', label: 'VRBO' };
+  if (p.includes('booking')) return { bg: '#F3EEFF', border: '#E0D2FF', text: '#5846AC', chip: '#E0D2FF', label: 'Booking.com' };
+  return { bg: '#E8F5E9', border: '#C8E6C9', text: '#2D5A3D', chip: '#C8E6C9', label: 'Direct' };
+}
+
+function _bkCalMondayIndex(dow) {
+  // JS getDay: 0=Sun..6=Sat. Calendar uses Mon-first → 0=Mon..6=Sun.
+  return (dow + 6) % 7;
+}
+
+function _bkCalYmd(d) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function _bkCalParseYmd(s) {
+  if (!s) return null;
+  const [y, m, d] = String(s).slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
+function _bkCalBookingsForMonth(year, month) {
+  const monthStart = new Date(year, month, 1);
+  const monthEnd = new Date(year, month + 1, 0);
+  return bookings.filter(b => {
+    if (!b.checkin || !b.checkout) return false;
+    if (bookingFilter === 'cancelled') { if (b.status !== 'cancelled') return false; }
+    else if (b.status === 'cancelled') return false;
+    const ci = _bkCalParseYmd(b.checkin);
+    const co = _bkCalParseYmd(b.checkout);
+    if (!ci || !co) return false;
+    // Include booking if its range overlaps the month at all.
+    return ci <= monthEnd && co >= monthStart;
+  });
+}
+
+function renderBookingsCalendarView() {
+  const root = document.getElementById('bookings-calendar');
+  if (!root) return;
+  const y = _bkCalYear;
+  const m = _bkCalMonth;
+  const title = new Date(y, m, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+  const firstDow = new Date(y, m, 1).getDay();
+  const lead = _bkCalMondayIndex(firstDow);
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const cellCount = lead + daysInMonth;
+  const rows = Math.ceil(cellCount / 7);
+  const gridDays = rows * 7;
+
+  // Build cell date index: cellIndex -> {date, inMonth}
+  const cellDates = [];
+  // Leading days from previous month
+  for (let i = 0; i < lead; i++) {
+    const d = new Date(y, m, 1 - (lead - i));
+    cellDates.push({ date: d, inMonth: false });
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    cellDates.push({ date: new Date(y, m, d), inMonth: true });
+  }
+  while (cellDates.length < gridDays) {
+    const last = cellDates[cellDates.length - 1].date;
+    const next = new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1);
+    cellDates.push({ date: next, inMonth: false });
+  }
+
+  const todayYmd = _bkCalYmd(new Date());
+
+  // ── Build bars per week row ──
+  // For each week row, collect segments [{booking, startCol, endCol, slot}].
+  const weekBookings = Array.from({ length: rows }, () => []);
+  const weekStart = (wk) => cellDates[wk * 7].date;
+  const weekEnd = (wk) => cellDates[wk * 7 + 6].date;
+
+  const monthBookings = _bkCalBookingsForMonth(y, m).sort((a, b) =>
+    _bkCalParseYmd(a.checkin) - _bkCalParseYmd(b.checkin)
+  );
+
+  for (const b of monthBookings) {
+    const ci = _bkCalParseYmd(b.checkin);
+    const co = _bkCalParseYmd(b.checkout); // exclusive — bar occupies ci .. co-1
+    const lastNight = new Date(co.getFullYear(), co.getMonth(), co.getDate() - 1);
+    for (let w = 0; w < rows; w++) {
+      const ws = weekStart(w);
+      const we = weekEnd(w);
+      if (lastNight < ws || ci > we) continue;
+      const segStart = ci < ws ? ws : ci;
+      const segEnd = lastNight > we ? we : lastNight;
+      const startCol = _bkCalMondayIndex(segStart.getDay());
+      const endCol = _bkCalMondayIndex(segEnd.getDay());
+      weekBookings[w].push({ b, startCol, endCol, segStart, segEnd, ci, co: lastNight });
+    }
+  }
+
+  // Slot allocation per week (greedy): 3 visible slots max.
+  const MAX_SLOTS = 3;
+  const weekSlots = Array.from({ length: rows }, () => []);
+  const weekOverflow = Array.from({ length: rows }, () => []);
+  for (let w = 0; w < rows; w++) {
+    const slots = [null, null, null]; // endCol currently occupied per slot
+    for (const seg of weekBookings[w]) {
+      let placed = false;
+      for (let s = 0; s < MAX_SLOTS; s++) {
+        if (slots[s] === null || slots[s] < seg.startCol) {
+          slots[s] = seg.endCol;
+          seg.slot = s;
+          weekSlots[w].push(seg);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) weekOverflow[w].push(seg);
+    }
+  }
+
+  // ── Render HTML ──
+  const dowHdr = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+    .map(d => `<div>${d}</div>`).join('');
+
+  let cellsHtml = '';
+  cellDates.forEach((cd, idx) => {
+    const ds = _bkCalYmd(cd.date);
+    const cls = 'bk-cal-cell'
+      + (cd.inMonth ? '' : ' bk-dim')
+      + (ds === todayYmd ? ' bk-today' : '');
+    cellsHtml += `<div class="${cls}" data-col="${idx % 7}" data-row="${Math.floor(idx / 7)}">
+      <span class="bk-daynum">${cd.date.getDate()}</span>
+    </div>`;
+  });
+
+  // Build overlay bars with absolute positioning inside the grid.
+  // Each week row is 78px + 2px gap. First row starts at 0.
+  const ROW_H = 80;    // grid-auto-rows + gap
+  const TOP_OFFSET = 22; // space for day number
+  const SLOT_H = 22;   // bar height + small gap
+
+  let barsHtml = '';
+  for (let w = 0; w < rows; w++) {
+    for (const seg of weekSlots[w]) {
+      const { b, startCol, endCol, slot, ci, co } = seg;
+      const style = _bkCalPlatformStyle(b.platform);
+      const widthCols = endCol - startCol + 1;
+      const leftPct = (startCol / 7) * 100;
+      const widthPct = (widthCols / 7) * 100;
+      const top = w * ROW_H + TOP_OFFSET + slot * SLOT_H;
+      // Rounding: if segment starts on first visible day (continuation), flat left edge.
+      const segStartsAtCi = seg.segStart.getTime() === ci.getTime();
+      const segEndsAtCo = seg.segEnd.getTime() === co.getTime();
+      const radius = `${segStartsAtCi ? '11px' : '2px'} ${segEndsAtCo ? '11px' : '2px'} ${segEndsAtCo ? '11px' : '2px'} ${segStartsAtCi ? '11px' : '2px'}`;
+      const initial = (b.name || '?').trim().charAt(0).toUpperCase();
+      const nameLabel = (b.name || 'Guest').split(/\s+/)[0];
+      const idAttr = b._cloudId || b.id;
+      barsHtml += `<div class="bk-cal-bar" data-id="${escHtml(String(idAttr))}" title="${escHtml(b.name || 'Guest')} · ${escHtml(b.checkin)} → ${escHtml(b.checkout)}"
+        style="left:calc(${leftPct}% + 2px);width:calc(${widthPct}% - 4px);top:${top}px;border-radius:${radius};background:${style.bg};border-color:${style.border};">
+        ${segStartsAtCi ? `<span class="bk-bar-initial" style="background:${style.chip};color:${style.text}">${escHtml(initial)}</span>` : ''}
+        <span class="bk-bar-name" style="color:${style.text}">${escHtml(nameLabel)}</span>
+      </div>`;
+    }
+    if (weekOverflow[w].length) {
+      const top = w * ROW_H + TOP_OFFSET + MAX_SLOTS * SLOT_H;
+      barsHtml += `<div class="bk-cal-more" style="left:4px;top:${top}px">+${weekOverflow[w].length} more</div>`;
+    }
+  }
+
+  const emptyHtml = monthBookings.length === 0
+    ? `<div class="bk-cal-empty">No bookings in ${escHtml(title)}</div>`
+    : '';
+
+  const legend = [
+    { color: '#FFF0F0', border: '#FFDADA', label: 'Airbnb' },
+    { color: '#EEF0FF', border: '#D5D8F0', label: 'VRBO' },
+    { color: '#F3EEFF', border: '#E0D2FF', label: 'Booking.com' },
+    { color: '#E8F5E9', border: '#C8E6C9', label: 'Direct' },
+  ].map(l => `<div class="bk-cal-legend-item"><div class="bk-cal-legend-dot" style="background:${l.color};border:1px solid ${l.border}"></div>${l.label}</div>`).join('');
+
+  root.innerHTML = `
+    <div class="bk-cal-card">
+      <div class="bk-cal-head">
+        <button type="button" class="bk-cal-nav" id="bk-cal-prev">‹</button>
+        <div class="bk-cal-title">${escHtml(title)}</div>
+        <button type="button" class="bk-cal-nav" id="bk-cal-next">›</button>
+      </div>
+      <div class="bk-cal-dow">${dowHdr}</div>
+      <div class="bk-cal-grid" style="height:${rows * ROW_H - 2}px">
+        ${cellsHtml}
+        ${barsHtml}
+      </div>
+      <div class="bk-cal-legend">${legend}</div>
+      ${emptyHtml}
+    </div>
+  `;
+
+  root.querySelector('#bk-cal-prev').onclick = () => {
+    _bkCalMonth -= 1;
+    if (_bkCalMonth < 0) { _bkCalMonth = 11; _bkCalYear -= 1; }
+    renderBookingsCalendarView();
+  };
+  root.querySelector('#bk-cal-next').onclick = () => {
+    _bkCalMonth += 1;
+    if (_bkCalMonth > 11) { _bkCalMonth = 0; _bkCalYear += 1; }
+    renderBookingsCalendarView();
+  };
+  root.querySelectorAll('.bk-cal-bar').forEach(bar => {
+    bar.onclick = () => {
+      const id = bar.getAttribute('data-id');
+      if (typeof globalThis.openDetailModal === 'function') globalThis.openDetailModal(id);
+    };
+  });
+}
+
+function switchBookingsView(view) {
+  _bookingsView = view === 'calendar' ? 'calendar' : 'list';
+  const list = document.getElementById('bookings-list');
+  const cal = document.getElementById('bookings-calendar');
+  const tabRow = document.getElementById('bookings-tab-row');
+  const notesView = document.getElementById('bookings-notes-view');
+  const listTab = document.getElementById('bookings-view-list');
+  const calTab = document.getElementById('bookings-view-calendar');
+  if (listTab) {
+    listTab.classList.toggle('active', _bookingsView === 'list');
+    listTab.style.fontWeight = _bookingsView === 'list' ? '700' : '600';
+  }
+  if (calTab) {
+    calTab.classList.toggle('active', _bookingsView === 'calendar');
+    calTab.style.fontWeight = _bookingsView === 'calendar' ? '700' : '600';
+  }
+  if (_bookingsView === 'calendar') {
+    if (list) list.style.display = 'none';
+    if (notesView) notesView.style.display = 'none';
+    if (tabRow) tabRow.style.display = 'none';
+    if (cal) cal.style.display = '';
+    renderBookingsCalendarView();
+  } else {
+    if (cal) cal.style.display = 'none';
+    if (tabRow) tabRow.style.display = '';
+    if (list) list.style.display = bookingFilter === 'notes' ? 'none' : '';
+    if (notesView) notesView.style.display = bookingFilter === 'notes' ? '' : 'none';
+    if (typeof globalThis.renderAll === 'function') globalThis.renderAll();
+  }
+}
+
 function calPrev() {
   calMonth--;
   if (calMonth < 0) {
@@ -159,6 +408,19 @@ function closeCalPreview() {
 
 function renderBookings(filter) {
   if (filter) setBookingFilter(filter);
+  // Calendar view: re-render calendar instead of list.
+  if (_bookingsView === 'calendar') {
+    const list = document.getElementById('bookings-list');
+    const cal = document.getElementById('bookings-calendar');
+    const tabRow = document.getElementById('bookings-tab-row');
+    const notesView = document.getElementById('bookings-notes-view');
+    if (list) list.style.display = 'none';
+    if (notesView) notesView.style.display = 'none';
+    if (tabRow) tabRow.style.display = 'none';
+    if (cal) cal.style.display = '';
+    renderBookingsCalendarView();
+    return;
+  }
   if (isPortfolioMode()) {
     renderPortfolioBookings(filter);
     return;
@@ -1270,4 +1532,6 @@ export {
   getBookingIdentityKey,
   saveCleaningFee,
   saveCleanCost,
+  switchBookingsView,
+  renderBookingsCalendarView,
 };

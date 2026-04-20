@@ -1218,6 +1218,10 @@ export async function saveBookingToCloud(booking) {
       })
     }).catch(e => console.warn('[StayOps] CM availability push failed:', e.message));
   }
+
+  // Trigger debounced smart-pricing rerun for this property.
+  const rerunPid = booking.property_id || booking._propertyId || propertyId;
+  if (rerunPid) schedulePricingRerun(rerunPid, 'booking_added');
 }
 
 export async function saveBookingsToCloud(bookingsList) {
@@ -1355,6 +1359,13 @@ export async function deleteBookingFromCloud(booking) {
       console.error('[StayOps] deleteBookingFromCloud failed', error);
       throw error;
     }
+
+    // Trigger debounced smart-pricing rerun — note deleteBooking in this
+    // codebase is a soft-delete (status=cancelled), so the freed nights are
+    // now vacant and should be repriced.
+    const rerunPid = booking.property_id || booking._propertyId || null;
+    if (rerunPid) schedulePricingRerun(rerunPid, 'booking_cancelled');
+
     return result;
   } catch (e) {
     console.error('[StayOps] deleteBookingFromCloud threw', e);
@@ -1803,6 +1814,97 @@ export async function ensureDefaultPricingRules(propertyIdUuid, seed) {
       is_default: true,
     },
   ]);
+}
+
+// ── PRICING SUGGESTIONS (Smart Pricing v2) ────────────────────────────────────
+
+export async function fetchLatestPricingRun(propertyIdUuid) {
+  if (!window._sb || !propertyIdUuid) return null;
+  const user = await getCurrentSupabaseUser();
+  if (!user) return null;
+  const { data, error } = await window._sb
+    .from('pricing_runs')
+    .select('*')
+    .eq('user_id', user.id)
+    .eq('property_id', propertyIdUuid)
+    .is('error', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn('[StayOps] fetchLatestPricingRun', error.message || error);
+    return null;
+  }
+  return data || null;
+}
+
+export async function fetchPricingSuggestionsForRun(runId) {
+  if (!window._sb || !runId) return [];
+  const user = await getCurrentSupabaseUser();
+  if (!user) return [];
+  const { data, error } = await window._sb
+    .from('pricing_suggestions')
+    .select('*')
+    .eq('user_id', user.id)
+    .eq('run_id', runId)
+    .order('date', { ascending: true });
+  if (error) {
+    console.warn('[StayOps] fetchPricingSuggestionsForRun', error.message || error);
+    return [];
+  }
+  return Array.isArray(data) ? data : [];
+}
+
+// Debounce map per-property so batch booking imports don't spam the AI endpoint.
+const _pricingRerunTimers = Object.create(null);
+const PRICING_RERUN_DEBOUNCE_MS = 60000;
+
+export function schedulePricingRerun(propertyId, trigger = 'booking_changed') {
+  if (!propertyId) return;
+  const key = String(propertyId);
+  if (_pricingRerunTimers[key]) clearTimeout(_pricingRerunTimers[key]);
+  _pricingRerunTimers[key] = setTimeout(() => {
+    delete _pricingRerunTimers[key];
+    // Fire and forget — don't block callers, never throw.
+    requestPricingGeneration({ propertyId, trigger, forecastDays: 60 })
+      .then((r) => {
+        if (!r.ok) console.warn('[StayOps] pricing rerun failed:', r.error);
+        else console.log('[StayOps] pricing rerun complete', r.run_id);
+      })
+      .catch((e) => console.warn('[StayOps] pricing rerun threw', e.message || e));
+  }, PRICING_RERUN_DEBOUNCE_MS);
+}
+
+export async function requestPricingGeneration({
+  propertyId,
+  trigger = 'manual',
+  forecastDays = 60,
+  forecastStart = null,
+  forecastEnd = null,
+} = {}) {
+  if (!window._sb || !propertyId) return { ok: false, error: 'missing inputs' };
+  const { data: { session } = {} } = await window._sb.auth.getSession();
+  const token = session?.access_token;
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const payload = { property_id: propertyId, trigger };
+    if (forecastStart) payload.forecast_start = forecastStart;
+    if (forecastEnd) payload.forecast_end = forecastEnd;
+    if (!forecastStart && !forecastEnd) payload.forecast_days = forecastDays;
+    const res = await fetch('/.netlify/functions/generate-pricing-suggestions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: data.error || `HTTP ${res.status}` };
+    return { ok: true, ...data };
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) };
+  }
 }
 
 

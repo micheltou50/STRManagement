@@ -1,12 +1,12 @@
 /**
  * StayOps — Smart Pricing: rules editor + AI calendar (Finance hub).
+ * v2 — suggestions are generated and persisted server-side; client reads
+ * the latest run from Supabase.
  */
-import { bookings } from './state.js';
 import {
   getActivePropertyConfig,
   getActivePropertyId,
   getPricingConfig,
-  getCurrentPropertyName,
 } from './config.js';
 import { isPortfolioMode } from './property.js';
 import {
@@ -16,47 +16,14 @@ import {
   updatePricingRule,
   insertPricingRules,
   deletePricingRuleRow,
+  fetchLatestPricingRun,
+  fetchPricingSuggestionsForRun,
+  requestPricingGeneration,
 } from './supabase.js';
-import { AIService } from './ai-logic.js';
 import { escHtml } from './utils.js';
 
 const SP_ROOT_ID = 'smart-pricing-root';
-
-/** NSW school holiday periods (approximate; update annually). */
-const NSW_SCHOOL_HOLIDAY_RANGES = [
-  { start: '2026-04-11', end: '2026-04-26', label: 'NSW Autumn break 2026' },
-  { start: '2026-07-04', end: '2026-07-19', label: 'NSW Winter break 2026' },
-  { start: '2026-09-19', end: '2026-10-05', label: 'NSW Spring break 2026' },
-  { start: '2026-12-21', end: '2027-01-27', label: 'NSW Summer break 2026–27' },
-  { start: '2027-04-10', end: '2027-04-25', label: 'NSW Autumn break 2027' },
-  { start: '2027-07-03', end: '2027-07-18', label: 'NSW Winter break 2027' },
-];
-
-/** Australian national / NSW public holidays (YYYY-MM-DD). */
-const AU_PUBLIC_HOLIDAYS = [
-  { date: '2026-01-01', name: "New Year's Day" },
-  { date: '2026-01-26', name: 'Australia Day' },
-  { date: '2026-04-03', name: 'Good Friday' },
-  { date: '2026-04-04', name: 'Easter Saturday' },
-  { date: '2026-04-05', name: 'Easter Sunday' },
-  { date: '2026-04-06', name: 'Easter Monday' },
-  { date: '2026-04-25', name: 'Anzac Day' },
-  { date: '2026-06-08', name: "King's Birthday (NSW)" },
-  { date: '2026-10-05', name: 'Labour Day (NSW)' },
-  { date: '2026-12-25', name: 'Christmas Day' },
-  { date: '2026-12-26', name: 'Boxing Day' },
-  { date: '2026-12-28', name: 'Boxing Day (substitute)' },
-  { date: '2027-01-01', name: "New Year's Day" },
-  { date: '2027-01-26', name: 'Australia Day' },
-  { date: '2027-03-26', name: 'Good Friday' },
-  { date: '2027-03-29', name: 'Easter Monday' },
-  { date: '2027-04-25', name: 'Anzac Day' },
-  { date: '2027-06-14', name: "King's Birthday (NSW)" },
-  { date: '2027-10-04', name: 'Labour Day (NSW)' },
-  { date: '2027-12-25', name: 'Christmas Day' },
-  { date: '2027-12-27', name: 'Christmas (substitute)' },
-  { date: '2027-12-28', name: 'Boxing Day (substitute)' },
-];
+const FORECAST_DAYS = 60;
 
 const CONDITION_OPTIONS = [
   { value: 'stay_length', label: 'Stay length is at least...', fieldLabel: 'Nights (min)' },
@@ -81,164 +48,22 @@ function discountRules(rules) {
   return rules.filter((r) => r.rule_type === 'discount');
 }
 
-function bookingsForProperty(pid) {
-  if (!pid) return [];
-  return bookings.filter((b) => b.status !== 'cancelled' && String(b._propertyId || '') === String(pid));
-}
-
 function pad2(n) {
   return String(n).padStart(2, '0');
 }
 
-function ymd(d) {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-
-function parseYmd(s) {
-  const [y, m, d] = String(s).split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
-
-function eachNightYmd(checkin, checkout) {
-  const out = [];
-  const s = parseYmd(String(checkin).slice(0, 10));
-  const e = parseYmd(String(checkout).slice(0, 10));
-  for (let t = s.getTime(); t < e.getTime(); t += 86400000) {
-    out.push(ymd(new Date(t)));
-  }
-  return out;
-}
-
-function buildBookedSetForRange(pid, startYmd, endYmd) {
-  const set = new Set();
-  const start = parseYmd(startYmd);
-  const end = parseYmd(endYmd);
-  for (const b of bookingsForProperty(pid)) {
-    if (!b.checkin || !b.checkout) continue;
-    for (const n of eachNightYmd(b.checkin, b.checkout)) {
-      const d = parseYmd(n);
-      if (d >= start && d < end) set.add(n);
-    }
-  }
-  return set;
-}
-
-function historicalStatsForPrompt(pid) {
-  const now = new Date();
-  const curM = now.getMonth();
-  const curY = now.getFullYear();
-  const list = bookingsForProperty(pid).filter((b) => b.checkin && b.status !== 'cancelled');
-  const priorYears = [curY - 1, curY - 2];
-  const chunks = [];
-  for (const yr of priorYears) {
-    const inMo = list.filter((b) => {
-      const d = parseYmd(String(b.checkin).slice(0, 10));
-      return d.getFullYear() === yr && d.getMonth() === curM;
-    });
-    if (!inMo.length) continue;
-    const revenue = inMo.reduce((s, b) => s + (Number(b.hostPayout) || 0), 0);
-    const nights = inMo.reduce((s, b) => s + (Number(b.nights) || 0), 0);
-    const avg = nights ? Math.round(revenue / nights) : 0;
-    chunks.push({ year: yr, month: curM + 1, bookings: inMo.length, avgNightlyHostPayout: avg });
-  }
-  return chunks;
-}
-
-function buildAiPrompt(rules, pid, forecastStart, forecastEnd) {
-  const pName = getCurrentPropertyName();
-  const today = ymd(new Date());
-  const bookList = bookingsForProperty(pid)
-    .filter((b) => b.checkin)
-    .map((b) => ({
-      checkin: String(b.checkin).slice(0, 10),
-      checkout: String(b.checkout).slice(0, 10),
-      status: b.status || 'confirmed',
-      guest: b.name,
-      hostPayoutTotal: Number(b.hostPayout) || 0,
-      nights: Number(b.nights) || 0,
-    }));
-  const next90 = bookList.filter((b) => {
-    const ci = parseYmd(b.checkin);
-    const lim = parseYmd(forecastEnd);
-    return ci <= lim;
-  });
-  const hist = historicalStatsForPrompt(pid);
-  const rulesJson = JSON.stringify(
-    rules.map((r) => ({
-      rule_type: r.rule_type,
-      name: r.name,
-      value: Number(r.value),
-      condition_type: r.condition_type,
-      condition_value: r.condition_value,
-      is_default: r.is_default,
-      meta: r.meta,
-    }))
-  );
-
-  return `You are a revenue manager for an Australian short-term rental in NSW.
-
-Today is ${today}.
-Property: ${pName}.
-
-PRICING RULES (JSON):
-${rulesJson}
-
-BOOKINGS (next 90 days relevant, all non-cancelled):
-${JSON.stringify(next90.slice(0, 80))}
-
-HISTORICAL SAME-MONTH (prior years): ${JSON.stringify(hist)}
-
-NSW SCHOOL HOLIDAY PERIODS (raise demand — suggest premium vs base):
-${JSON.stringify(NSW_SCHOOL_HOLIDAY_RANGES)}
-
-AUSTRALIAN PUBLIC HOLIDAYS:
-${JSON.stringify(AU_PUBLIC_HOLIDAYS.filter((h) => h.date >= today && h.date <= forecastEnd))}
-
-TASK: For each calendar night from ${forecastStart} through ${forecastEnd} INCLUSIVE of guest stay nights (date is check-in night through night before checkout — same as standard booking calendar): return suggested AUD nightly RATE the guest should be charged before platform fees (or use 0 and rateType "booked" for booked nights).
-
-Apply:
-- Weekday base vs Fri–Sat weekend base from rules
-- Discount rules when conditions match (stay length, lead time, last-minute vacancy, gap, etc.)
-- Premium hints on NSW school holidays and public holidays from the lists above
-- Last-minute / gap logic using condition_value from rules
-
-Respond with ONLY valid JSON, no markdown:
-{
-  "days": [
-    { "date": "2026-04-01", "suggestedRate": 320, "reason": "Weeknight base", "rateType": "base" }
-  ],
-  "insight": "Two or three sentences summarising main pricing moves for the host."
-}
-
-rateType must be one of: "base", "weekend", "peak", "discounted", "booked".
-For booked nights use suggestedRate 0, rateType "booked", reason short.`;
-}
-
-function parseAiJson(text) {
-  let t = String(text || '').trim();
-  t = t.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
-  const start = t.indexOf('{');
-  const end = t.lastIndexOf('}');
-  if (start >= 0 && end > start) t = t.slice(start, end + 1);
-  return JSON.parse(t);
-}
-
-function mergeBookedDays(daysArr, bookedSet) {
-  const by = Object.create(null);
-  for (const d of daysArr) {
-    if (d && d.date) by[d.date] = { ...d };
-  }
-  for (const date of bookedSet) {
-    by[date] = {
-      date,
-      suggestedRate: 0,
-      reason: 'Booked',
-      rateType: 'booked',
+function daysMapFromSuggestions(suggestions) {
+  const byDate = Object.create(null);
+  for (const s of suggestions || []) {
+    if (!s || !s.date) continue;
+    byDate[s.date] = {
+      date: s.date,
+      suggestedRate: Number(s.suggested_rate) || 0,
+      rateType: s.rate_type || 'base',
+      reason: s.reason || '',
     };
   }
-  return Object.keys(by)
-    .sort()
-    .map((k) => by[k]);
+  return byDate;
 }
 
 /** @type {{ rules: any[], daysMap: Record<string, any>, insight: string, forecastStart: string, forecastEnd: string, calMonth: Date } | null} */
@@ -412,6 +237,50 @@ function part2Html() {
   </div>`;
 }
 
+function defaultForecastRange() {
+  const today = new Date();
+  const end = new Date(today);
+  end.setDate(end.getDate() + (FORECAST_DAYS - 1));
+  const fmt = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  return { start: fmt(today), end: fmt(end) };
+}
+
+function currentForecastRange() {
+  // Prefer the user's picked dates; else the most recently loaded run; else defaults.
+  if (_spState?.pickedStart && _spState?.pickedEnd) {
+    return { start: _spState.pickedStart, end: _spState.pickedEnd };
+  }
+  if (_spState?.forecastStart && _spState?.forecastEnd) {
+    return { start: _spState.forecastStart, end: _spState.forecastEnd };
+  }
+  return defaultForecastRange();
+}
+
+function dateRangeCardHtml() {
+  const { start, end } = currentForecastRange();
+  return cardShell(
+    'Forecast window',
+    `<div style="display:flex;gap:10px;align-items:flex-end">
+      <div style="flex:1">
+        <label style="font-size:11px;color:var(--text-soft);display:block;margin-bottom:4px">From</label>
+        <input id="sp-from" type="date" value="${escHtml(start)}" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:0.5px solid rgba(0,0,0,0.15);font-size:14px">
+      </div>
+      <div style="flex:1">
+        <label style="font-size:11px;color:var(--text-soft);display:block;margin-bottom:4px">To</label>
+        <input id="sp-to" type="date" value="${escHtml(end)}" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:0.5px solid rgba(0,0,0,0.15);font-size:14px">
+      </div>
+    </div>
+    <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+      <button type="button" class="sp-preset" data-days="30" style="background:var(--warm);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">30d</button>
+      <button type="button" class="sp-preset" data-days="60" style="background:var(--warm);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">60d</button>
+      <button type="button" class="sp-preset" data-days="90" style="background:var(--warm);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">90d</button>
+      <button type="button" class="sp-preset" data-days="180" style="background:var(--warm);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">6mo</button>
+      <button type="button" class="sp-preset" data-days="365" style="background:var(--warm);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">1yr</button>
+    </div>
+    <div style="font-size:11px;color:var(--text-soft);margin-top:8px">Max 365 days. Longer ranges take longer to generate and cost more tokens.</div>`
+  );
+}
+
 function renderFullUI(root) {
   const rules = _spState?.rules || [];
   const bn = ruleByType(rules, 'base_nightly');
@@ -446,6 +315,7 @@ function renderFullUI(root) {
       </div>
       ${newDiscountPanelHtml()}`
     ) +
+    dateRangeCardHtml() +
     `<button type="button" id="sp-generate" style="width:100%;background:#1E3A2F;color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:600;margin-bottom:8px">Generate pricing calendar</button>
     <div id="sp-gen-spinner" style="display:none;text-align:center;font-size:13px;color:var(--text-soft);margin-bottom:8px">Generating… <span class="sp-spin">⟳</span></div>`;
 
@@ -583,6 +453,31 @@ function bindRows(root) {
     _spState.calMonth = new Date(_spState.calMonth.getFullYear(), _spState.calMonth.getMonth() + 1, 1);
     renderFullUI(root);
   });
+
+  // Date range inputs + preset buttons.
+  const fromEl = root.querySelector('#sp-from');
+  const toEl = root.querySelector('#sp-to');
+  const syncPicked = () => {
+    if (!_spState) return;
+    if (fromEl) _spState.pickedStart = fromEl.value || null;
+    if (toEl) _spState.pickedEnd = toEl.value || null;
+  };
+  if (fromEl) fromEl.onchange = syncPicked;
+  if (toEl) toEl.onchange = syncPicked;
+
+  root.querySelectorAll('.sp-preset').forEach((btn) => {
+    btn.onclick = () => {
+      const days = Number(btn.getAttribute('data-days')) || 60;
+      const start = fromEl && fromEl.value ? fromEl.value : null;
+      const base = start ? new Date(start + 'T00:00:00') : new Date();
+      const end = new Date(base);
+      end.setDate(end.getDate() + (days - 1));
+      const fmt = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+      if (fromEl) fromEl.value = fmt(base);
+      if (toEl) toEl.value = fmt(end);
+      syncPicked();
+    };
+  });
 }
 
 function bindNdForm(root, _pid) {
@@ -620,11 +515,40 @@ async function rebuild() {
   renderFullUI(root);
 }
 
+async function loadLatestRunFromCloud(pid) {
+  const run = await fetchLatestPricingRun(pid);
+  if (!run) return null;
+  const suggestions = await fetchPricingSuggestionsForRun(run.id);
+  return { run, suggestions };
+}
+
 async function runGenerate(root) {
   const btn = root.querySelector('#sp-generate');
   const reg = root.querySelector('#sp-regenerate');
   const spin = root.querySelector('#sp-gen-spinner');
   const activeBtn = reg && reg.offsetParent ? reg : btn;
+
+  // Resolve chosen range.
+  const fromEl = root.querySelector('#sp-from');
+  const toEl = root.querySelector('#sp-to');
+  const picked = {
+    start: fromEl && fromEl.value ? fromEl.value : null,
+    end: toEl && toEl.value ? toEl.value : null,
+  };
+  if (picked.start && picked.end) {
+    if (picked.end < picked.start) {
+      globalThis.showBanner?.('"To" date must be on or after "From"', 'warn');
+      return;
+    }
+    const a = new Date(picked.start + 'T00:00:00');
+    const b = new Date(picked.end + 'T00:00:00');
+    const span = Math.round((b - a) / 86400000) + 1;
+    if (span > 365) {
+      globalThis.showBanner?.('Max range is 365 days', 'warn');
+      return;
+    }
+  }
+
   if (activeBtn) activeBtn.disabled = true;
   if (btn) {
     btn.textContent = 'Generating…';
@@ -634,43 +558,44 @@ async function runGenerate(root) {
   if (spin) spin.style.display = 'block';
   const pid = getActivePropertyUuid();
   try {
-    const rules = await fetchPricingRulesForProperty(pid);
-    const today = new Date();
-    const startD = ymd(today);
-    const endDt = new Date(today);
-    endDt.setDate(endDt.getDate() + 29);
-    const endD = ymd(endDt);
-    const prompt = buildAiPrompt(rules, pid, startD, endD);
-    const { response, data } = await AIService.request({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 8000,
-      messages: [{ role: 'user', content: prompt }],
+    const result = await requestPricingGeneration({
+      propertyId: pid,
+      trigger: 'manual',
+      forecastDays: FORECAST_DAYS,
+      forecastStart: picked.start,
+      forecastEnd: picked.end,
     });
-    if (!response.ok) {
-      const msg = data.error?.message || 'HTTP ' + response.status;
-      throw new Error(msg);
-    }
-    const text = data.content?.[0]?.text || '';
-    let parsed;
-    try {
-      parsed = parseAiJson(text);
-    } catch (_parseErr) {
-      throw new Error('Could not parse AI response as JSON');
-    }
-    const daysArr = Array.isArray(parsed.days) ? parsed.days : [];
-    const booked = buildBookedSetForRange(pid, startD, endD);
-    const merged = mergeBookedDays(daysArr, booked);
+    if (!result.ok) throw new Error(result.error || 'Generation failed');
+    const rules = await fetchPricingRulesForProperty(pid);
     const daysMap = Object.create(null);
-    for (const d of merged) {
-      if (d.date >= startD && d.date <= endD) daysMap[d.date] = d;
+    for (const d of result.days || []) {
+      if (d && d.date) {
+        daysMap[d.date] = {
+          date: d.date,
+          suggestedRate: Number(d.suggestedRate) || 0,
+          rateType: d.rateType || 'base',
+          reason: d.reason || '',
+        };
+      }
+    }
+    // Jump calendar to the forecast's first month so the range is visible.
+    let calMonth;
+    if (result.forecast_start) {
+      const [yy, mm] = result.forecast_start.split('-').map(Number);
+      calMonth = new Date(yy, mm - 1, 1);
+    } else {
+      const t = new Date();
+      calMonth = new Date(t.getFullYear(), t.getMonth(), 1);
     }
     _spState = {
       rules,
       daysMap,
-      insight: parsed.insight || '',
-      forecastStart: startD,
-      forecastEnd: endD,
-      calMonth: new Date(today.getFullYear(), today.getMonth(), 1),
+      insight: result.insight || '',
+      forecastStart: result.forecast_start || '',
+      forecastEnd: result.forecast_end || '',
+      pickedStart: picked.start || result.forecast_start || '',
+      pickedEnd: picked.end || result.forecast_end || '',
+      calMonth,
     };
     console.log('[StayOps] smart pricing calendar generated', Object.keys(daysMap).length, 'days');
     renderFullUI(root);
@@ -725,6 +650,21 @@ export async function renderSmartPricingPanel() {
   }
   _spState.rules = rules;
   _spState.calMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+  // Load the most recent persisted run/suggestions so the calendar appears
+  // immediately without burning tokens on a fresh AI call.
+  try {
+    const loaded = await loadLatestRunFromCloud(pid);
+    if (loaded && loaded.run) {
+      _spState.daysMap = daysMapFromSuggestions(loaded.suggestions);
+      _spState.insight = loaded.run.insight || '';
+      _spState.forecastStart = loaded.run.forecast_start || '';
+      _spState.forecastEnd = loaded.run.forecast_end || '';
+    }
+  } catch (e) {
+    console.warn('[StayOps] loadLatestRun failed', e.message || e);
+  }
+
   renderFullUI(root);
 }
 

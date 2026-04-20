@@ -427,6 +427,10 @@
       </div>
       <button class="btn-secondary section-cta" onclick="openModal()">+ Add Booking</button>
     </div>
+    <div id="bookings-view-toggle" style="display:flex;background:var(--warm,#E8E0D5);border-radius:12px;padding:3px;margin-bottom:10px;gap:2px">
+      <div onclick="switchBookingsView('list')" id="bookings-view-list" class="bookings-view-tab active" style="flex:1;text-align:center;padding:8px 4px;font-size:12px;font-weight:700;border-radius:10px;cursor:pointer">List</div>
+      <div onclick="switchBookingsView('calendar')" id="bookings-view-calendar" class="bookings-view-tab" style="flex:1;text-align:center;padding:8px 4px;font-size:12px;font-weight:600;border-radius:10px;cursor:pointer">Calendar</div>
+    </div>
     <div class="tab-row" id="bookings-tab-row">
       <button class="tab active" onclick="filterBookings('upcoming',this)">Upcoming</button>
       <button class="tab" onclick="filterBookings('completed',this)">Past</button>
@@ -435,6 +439,7 @@
       <button class="tab" onclick="filterBookings('notes',this)">Notes</button>
     </div>
     <div id="bookings-list"></div>
+    <div id="bookings-calendar" style="display:none"></div>
     <div id="desktop-detail-panel"></div>
     <div id="bookings-notes-view" class="card" style="display:none">
       <div class="card-title">Notes</div>

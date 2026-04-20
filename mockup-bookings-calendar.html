@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bookings — Calendar mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<style>
+:root{
+  --forest:#1E3A2F; --sage:#8FAF85; --mist:#F5F5F3; --warm:#E8E0D5; --stone:#D5CFC5;
+  --white:#FFFFFF; --text:#1a1a1a; --text-soft:#6B6560; --amber:#E8A44F;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:'DM Sans',sans-serif;background:var(--mist);color:var(--text);max-width:430px;margin:0 auto;-webkit-font-smoothing:antialiased;min-height:100vh;padding-bottom:80px}
+
+/* Header */
+.header{background:var(--forest);padding:14px 20px 16px;color:#fff}
+.header-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.header-top h1{font-family:'DM Serif Display',serif;font-size:22px;line-height:1.1}
+.header-top h1 span{color:var(--sage);font-style:italic}
+.header-sub{font-size:11px;color:var(--stone);margin-top:2px;letter-spacing:0.5px;text-transform:uppercase}
+.today-badge{background:var(--amber);color:white;font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px}
+.role-switch{display:flex;gap:8px;margin-top:12px}
+.role-pill{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:12px;font-weight:600;padding:6px 14px;border-radius:20px}
+.role-pill.active{background:rgba(255,255,255,0.22);border-color:rgba(255,255,255,0.35)}
+
+/* Section heading */
+.section-heading{padding:18px 16px 8px;display:flex;justify-content:space-between;align-items:flex-start}
+.section-heading h2{font-size:22px;font-weight:700;color:var(--text)}
+.section-heading p{font-size:12px;color:var(--text-soft);margin-top:4px}
+.section-cta{background:#fff;border:1px solid var(--stone);color:var(--text);font-size:13px;font-weight:600;padding:8px 14px;border-radius:20px}
+
+/* View toggle */
+#bookings-view-toggle{display:flex;background:var(--warm);border-radius:12px;padding:3px;margin:0 16px 10px;gap:2px}
+.bookings-view-tab{flex:1;text-align:center;padding:8px 4px;font-size:12px;font-weight:600;border-radius:10px;cursor:pointer;color:var(--text-soft);transition:background 0.15s,color 0.15s}
+.bookings-view-tab.active{background:#fff;color:var(--forest);box-shadow:0 1px 3px rgba(0,0,0,0.08);font-weight:700}
+
+/* Calendar */
+#bookings-calendar{padding:0 16px}
+.bk-cal-card{background:#fff;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);padding:14px;margin-bottom:14px}
+.bk-cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.bk-cal-nav{background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:var(--text)}
+.bk-cal-title{font-size:14px;font-weight:600;color:var(--text)}
+.bk-cal-dow{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px}
+.bk-cal-dow div{text-align:center;font-size:10px;font-weight:600;color:var(--text-soft);padding:4px 0}
+.bk-cal-grid{position:relative;display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:78px;gap:2px}
+.bk-cal-cell{position:relative;padding:4px 3px 0;border-radius:6px;background:transparent}
+.bk-cal-cell .bk-daynum{font-size:11px;color:var(--text-soft);font-weight:500}
+.bk-cal-cell.bk-dim .bk-daynum{opacity:0.35}
+.bk-cal-cell.bk-today .bk-daynum{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--forest);color:#fff;font-weight:600}
+.bk-cal-bar{position:absolute;height:20px;display:flex;align-items:center;gap:4px;padding:0 6px;cursor:pointer;z-index:2;overflow:hidden;border:1px solid transparent}
+.bk-cal-bar .bk-bar-initial{width:14px;height:14px;border-radius:50%;font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.bk-cal-bar .bk-bar-name{font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bk-cal-more{position:absolute;height:18px;font-size:10px;font-weight:600;color:var(--text-soft);padding:0 4px;z-index:2}
+.bk-cal-legend{display:flex;gap:12px;flex-wrap:wrap;padding-top:10px;margin-top:10px;border-top:0.5px solid rgba(0,0,0,0.08)}
+.bk-cal-legend-item{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text-soft)}
+.bk-cal-legend-dot{width:10px;height:10px;border-radius:2px}
+
+/* Nav */
+.nav{display:flex;background:#fff;padding-top:4px;padding-bottom:calc(4px + 15px);gap:0;border-top:1px solid #ede8e0;position:fixed;bottom:0;left:0;right:0;max-width:430px;margin:0 auto;z-index:100;box-shadow:0 -1px 4px rgba(0,0,0,0.06)}
+.nav-btn{flex:1;background:none;border:none;color:#999;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;padding:8px 0;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border-bottom:2px solid transparent}
+.nav-btn.active{color:#3D6B4F;border-bottom-color:#3D6B4F}
+.nav-btn svg{flex-shrink:0;display:block}
+
+.caption{text-align:center;font-size:11px;color:var(--text-soft);padding:8px 0 4px}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-top">
+    <div>
+      <h1>Stay<span>Ops</span></h1>
+      <div class="header-sub">All Properties · 2 properties</div>
+    </div>
+    <div class="today-badge">20 Apr 2026</div>
+  </div>
+  <div class="role-switch">
+    <div class="role-pill active">🏠 Host</div>
+    <div class="role-pill">🧹 Cleaner</div>
+  </div>
+</div>
+
+<div class="section-heading">
+  <div>
+    <h2>Bookings</h2>
+    <p>Track arrivals, departures and status at a glance.</p>
+  </div>
+  <button class="section-cta">+ Add Booking</button>
+</div>
+
+<!-- TOGGLE -->
+<div id="bookings-view-toggle">
+  <div class="bookings-view-tab">List</div>
+  <div class="bookings-view-tab active">Calendar</div>
+</div>
+
+<!-- CALENDAR -->
+<div id="bookings-calendar">
+  <div class="bk-cal-card">
+    <div class="bk-cal-head">
+      <button class="bk-cal-nav">‹</button>
+      <div class="bk-cal-title">April 2026</div>
+      <button class="bk-cal-nav">›</button>
+    </div>
+    <div class="bk-cal-dow">
+      <div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div>Sa</div><div>Su</div>
+    </div>
+    <div class="bk-cal-grid" id="grid" style="height:478px">
+      <!-- cells filled by JS -->
+    </div>
+    <div class="bk-cal-legend">
+      <div class="bk-cal-legend-item"><div class="bk-cal-legend-dot" style="background:#FFF0F0;border:1px solid #FFDADA"></div>Airbnb</div>
+      <div class="bk-cal-legend-item"><div class="bk-cal-legend-dot" style="background:#EEF0FF;border:1px solid #D5D8F0"></div>VRBO</div>
+      <div class="bk-cal-legend-item"><div class="bk-cal-legend-dot" style="background:#F3EEFF;border:1px solid #E0D2FF"></div>Booking.com</div>
+      <div class="bk-cal-legend-item"><div class="bk-cal-legend-dot" style="background:#E8F5E9;border:1px solid #C8E6C9"></div>Direct</div>
+    </div>
+  </div>
+</div>
+
+<!-- NAV -->
+<div class="nav">
+  <button class="nav-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Today</button>
+  <button class="nav-btn active"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Bookings</button>
+  <button class="nav-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><path d="M9 5a2 2 0 012-2h2a2 2 0 012 2v0a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>Cleaning</button>
+  <button class="nav-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>Finance</button>
+  <button class="nav-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>Property</button>
+  <button class="nav-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9"/></svg>Admin</button>
+</div>
+
+<script>
+// ─── Render April 2026 grid with sample bookings ──────────────────────────
+const Y = 2026, M = 3; // April (0-indexed)
+const monthStart = new Date(Y, M, 1);
+const firstDow = (monthStart.getDay() + 6) % 7; // Mon-first
+const daysInMonth = new Date(Y, M + 1, 0).getDate();
+const rows = Math.ceil((firstDow + daysInMonth) / 7);
+const ROW_H = 80, TOP_OFFSET = 22, SLOT_H = 22;
+const todayYmd = '2026-04-20';
+
+const grid = document.getElementById('grid');
+const pad = n => String(n).padStart(2,'0');
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+
+// Build cells
+let cells = [];
+for (let i = 0; i < firstDow; i++) {
+  const d = new Date(Y, M, 1 - (firstDow - i));
+  cells.push({date: d, inMonth: false});
+}
+for (let d = 1; d <= daysInMonth; d++) cells.push({date: new Date(Y, M, d), inMonth: true});
+while (cells.length < rows * 7) {
+  const last = cells[cells.length - 1].date;
+  cells.push({date: new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1), inMonth: false});
+}
+cells.forEach(c => {
+  const ds = ymd(c.date);
+  const cls = 'bk-cal-cell' + (c.inMonth ? '' : ' bk-dim') + (ds === todayYmd ? ' bk-today' : '');
+  grid.insertAdjacentHTML('beforeend',
+    `<div class="${cls}"><span class="bk-daynum">${c.date.getDate()}</span></div>`);
+});
+
+// Sample bookings
+const bookings = [
+  {name:'Wasantha', ci:'2026-04-03', co:'2026-04-06', platform:'Airbnb'},
+  {name:'Heidi',    ci:'2026-04-11', co:'2026-04-14', platform:'Airbnb'},
+  {name:'Tim',      ci:'2026-04-12', co:'2026-04-17', platform:'VRBO'},
+  {name:'Kylee',    ci:'2026-04-17', co:'2026-04-20', platform:'Airbnb'},
+  {name:'Siliba',   ci:'2026-04-24', co:'2026-04-26', platform:'Direct'},
+  {name:'Marcus',   ci:'2026-04-07', co:'2026-04-10', platform:'Booking.com'},
+  {name:'Alice',    ci:'2026-04-24', co:'2026-04-28', platform:'VRBO'},
+];
+
+const stylePlat = p => {
+  p = p.toLowerCase();
+  if (p.includes('airbnb')) return {bg:'#FFF0F0',border:'#FFDADA',text:'#E04E52',chip:'#FFD5D5'};
+  if (p.includes('vrbo')) return {bg:'#EEF0FF',border:'#D5D8F0',text:'#3B5998',chip:'#D5D8F0'};
+  if (p.includes('booking')) return {bg:'#F3EEFF',border:'#E0D2FF',text:'#5846AC',chip:'#E0D2FF'};
+  return {bg:'#E8F5E9',border:'#C8E6C9',text:'#2D5A3D',chip:'#C8E6C9'};
+};
+
+const parseYmd = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y,m-1,d); };
+const monIdx = dow => (dow + 6) % 7;
+const weekStart = w => cells[w*7].date;
+const weekEnd   = w => cells[w*7+6].date;
+
+const weekSegs = Array.from({length:rows},()=>[]);
+for (const b of bookings) {
+  const ci = parseYmd(b.ci);
+  const co = parseYmd(b.co);
+  const lastNight = new Date(co.getFullYear(), co.getMonth(), co.getDate() - 1);
+  for (let w = 0; w < rows; w++) {
+    const ws = weekStart(w), we = weekEnd(w);
+    if (lastNight < ws || ci > we) continue;
+    const segStart = ci < ws ? ws : ci;
+    const segEnd = lastNight > we ? we : lastNight;
+    weekSegs[w].push({b, segStart, segEnd, ci, lastNight,
+      startCol: monIdx(segStart.getDay()), endCol: monIdx(segEnd.getDay())});
+  }
+}
+
+const MAX = 3;
+for (let w = 0; w < rows; w++) {
+  const slots = [null,null,null];
+  const overflow = [];
+  for (const seg of weekSegs[w]) {
+    let placed = false;
+    for (let s = 0; s < MAX; s++) {
+      if (slots[s] === null || slots[s] < seg.startCol) {
+        slots[s] = seg.endCol;
+        seg.slot = s;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) overflow.push(seg);
+    else {
+      const st = stylePlat(seg.b.platform);
+      const widthCols = seg.endCol - seg.startCol + 1;
+      const leftPct = seg.startCol / 7 * 100;
+      const widthPct = widthCols / 7 * 100;
+      const top = w * ROW_H + TOP_OFFSET + seg.slot * SLOT_H;
+      const startsAtCi = seg.segStart.getTime() === seg.ci.getTime();
+      const endsAtLast = seg.segEnd.getTime() === seg.lastNight.getTime();
+      const radius = `${startsAtCi ? '11px' : '2px'} ${endsAtLast ? '11px' : '2px'} ${endsAtLast ? '11px' : '2px'} ${startsAtCi ? '11px' : '2px'}`;
+      const init = seg.b.name.charAt(0).toUpperCase();
+      grid.insertAdjacentHTML('beforeend',
+        `<div class="bk-cal-bar" style="left:calc(${leftPct}% + 2px);width:calc(${widthPct}% - 4px);top:${top}px;border-radius:${radius};background:${st.bg};border-color:${st.border}">
+          ${startsAtCi ? `<span class="bk-bar-initial" style="background:${st.chip};color:${st.text}">${init}</span>` : ''}
+          <span class="bk-bar-name" style="color:${st.text}">${seg.b.name}</span>
+        </div>`);
+    }
+  }
+  if (overflow.length) {
+    const top = w * ROW_H + TOP_OFFSET + MAX * SLOT_H;
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="bk-cal-more" style="left:4px;top:${top}px">+${overflow.length} more</div>`);
+  }
+}
+</script>
+</body>
+</html>
