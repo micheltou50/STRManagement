@@ -138,6 +138,8 @@ const nodeGlobals = {
   Headers: 'readonly',
   Request: 'readonly',
   Response: 'readonly',
+  AbortController: 'readonly',
+  AbortSignal: 'readonly',
   globalThis: 'readonly',
   JSON: 'readonly',
   Math: 'readonly',

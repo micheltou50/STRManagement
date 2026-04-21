@@ -1,4 +1,3 @@
-/* global AbortSignal */
 // Fetches an Airbnb listing page, extracts property details, and returns them
 // for auto-filling the property setup form.
 

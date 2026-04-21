@@ -19,15 +19,10 @@
 [functions."cm-sync-bookings"]
   schedule = "0 */4 * * *"
 
-# Smart Pricing v2 — weekly regeneration for every (user, property) with rules.
-# Monday 18:30 UTC = Tuesday 04:30–05:30 Sydney (depending on DST).
-[functions."scheduled-pricing-weekly"]
-  schedule = "30 18 * * 1"
-
-# Smart Pricing v2 — daily outcome close for the feedback loop.
-# 14:30 UTC = 00:30–01:30 Sydney; target date is "yesterday (Sydney)".
-[functions."close-rate-outcomes"]
-  schedule = "30 14 * * *"
+# Smart Pricing v2 scheduled functions register their cron via the
+# `@netlify/functions` schedule() wrapper in the function source itself
+# (scheduled-pricing-weekly.js, close-rate-outcomes.js). Declaring them here
+# too would create two sources of truth and silent drift if one changes.
 
 [[headers]]
   for = "/assets/js/*"

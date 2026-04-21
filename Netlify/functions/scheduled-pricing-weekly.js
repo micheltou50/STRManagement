@@ -8,8 +8,15 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const { createClient } = require('@supabase/supabase-js');
+const { schedule } = require('@netlify/functions');
 
-exports.handler = async () => {
+// Cron source of truth lives here (removed from netlify.toml). schedule() is
+// a no-op at runtime (just returns the handler); its purpose is to mark this
+// function as scheduled-only during deploy. Netlify's edge router then
+// rejects external HTTP to this endpoint — the actual security boundary is
+// platform-side, not in this file.
+// 30 18 * * 1 = Monday 18:30 UTC = Tue 04:30 AEST / 05:30 AEDT, Sydney.
+exports.handler = schedule('30 18 * * 1', async () => {
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
   const INTERNAL_SECRET = process.env.INTERNAL_FN_SECRET;
@@ -43,7 +50,16 @@ exports.handler = async () => {
   console.log(`[StayOps] scheduled-pricing-weekly: ${targets.length} target(s)`);
 
   const results = { total: targets.length, ok: 0, failed: 0, errors: [] };
-  for (const t of targets) {
+
+  // Bounded concurrency — fan out in small waves so we don't hammer the
+  // downstream function (each call invokes Anthropic) while still finishing
+  // faster than a serial loop. Each call also has a hard timeout so a single
+  // slow property can't starve the scheduler within Netlify's 10-min budget.
+  const CONCURRENCY = 4;
+  const PER_CALL_TIMEOUT_MS = 90_000;
+  const runOne = async (t) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PER_CALL_TIMEOUT_MS);
     try {
       const res = await fetch(`${SITE_URL}/.netlify/functions/generate-pricing-suggestions`, {
         method: 'POST',
@@ -56,20 +72,29 @@ exports.handler = async () => {
           property_id: t.property_id,
           trigger: 'scheduled_weekly',
         }),
+        signal: controller.signal,
       });
       if (!res.ok) {
         const txt = await res.text().catch(() => '');
         results.failed += 1;
         results.errors.push({ ...t, status: res.status, body: txt.slice(0, 200) });
-        continue;
+        return;
       }
       results.ok += 1;
     } catch (e) {
       results.failed += 1;
-      results.errors.push({ ...t, error: e.message || String(e) });
+      const msg = e && e.name === 'AbortError' ? `timeout after ${PER_CALL_TIMEOUT_MS}ms` : (e.message || String(e));
+      results.errors.push({ ...t, error: msg });
+    } finally {
+      clearTimeout(timer);
     }
+  };
+
+  for (let i = 0; i < targets.length; i += CONCURRENCY) {
+    const slice = targets.slice(i, i + CONCURRENCY);
+    await Promise.all(slice.map(runOne));
   }
 
   console.log('[StayOps] scheduled-pricing-weekly: done', JSON.stringify(results));
   return { statusCode: 200, body: JSON.stringify(results) };
-};
+});

@@ -1866,7 +1866,9 @@ export function schedulePricingRerun(propertyId, trigger = 'booking_changed') {
   _pricingRerunTimers[key] = setTimeout(() => {
     delete _pricingRerunTimers[key];
     // Fire and forget — don't block callers, never throw.
-    requestPricingGeneration({ propertyId, trigger, forecastDays: 60 })
+    // Omit forecastDays so the server inherits the span from the user's most
+    // recent manual run (keeps long-range views from shrinking to 60d).
+    requestPricingGeneration({ propertyId, trigger })
       .then((r) => {
         if (!r.ok) console.warn('[StayOps] pricing rerun failed:', r.error);
         else console.log('[StayOps] pricing rerun complete', r.run_id);
@@ -1875,10 +1877,21 @@ export function schedulePricingRerun(propertyId, trigger = 'booking_changed') {
   }, PRICING_RERUN_DEBOUNCE_MS);
 }
 
+// Cancel any pending booking-change debounce — call this when a manual
+// generation is initiated so we don't follow up with a redundant rerun.
+export function cancelPricingRerun(propertyId) {
+  if (!propertyId) return;
+  const key = String(propertyId);
+  if (_pricingRerunTimers[key]) {
+    clearTimeout(_pricingRerunTimers[key]);
+    delete _pricingRerunTimers[key];
+  }
+}
+
 export async function requestPricingGeneration({
   propertyId,
   trigger = 'manual',
-  forecastDays = 60,
+  forecastDays = null,
   forecastStart = null,
   forecastEnd = null,
 } = {}) {
@@ -1890,7 +1903,11 @@ export async function requestPricingGeneration({
     const payload = { property_id: propertyId, trigger };
     if (forecastStart) payload.forecast_start = forecastStart;
     if (forecastEnd) payload.forecast_end = forecastEnd;
-    if (!forecastStart && !forecastEnd) payload.forecast_days = forecastDays;
+    // Only send forecast_days when explicitly provided; otherwise let the
+    // server inherit the span from the last manual run (or fall back to 60d).
+    if (!forecastStart && !forecastEnd && Number.isFinite(Number(forecastDays))) {
+      payload.forecast_days = Number(forecastDays);
+    }
     const res = await fetch('/.netlify/functions/generate-pricing-suggestions', {
       method: 'POST',
       headers: {

@@ -19,6 +19,7 @@ import {
   fetchLatestPricingRun,
   fetchPricingSuggestionsForRun,
   requestPricingGeneration,
+  cancelPricingRerun,
 } from './supabase.js';
 import { escHtml } from './utils.js';
 
@@ -52,16 +53,31 @@ function pad2(n) {
   return String(n).padStart(2, '0');
 }
 
+function normalizeDay(raw) {
+  // Accepts either DB shape (suggested_rate/rate_type) or server-response shape
+  // (suggestedRate/rateType). Returns a single canonical shape used everywhere.
+  return {
+    date: raw.date,
+    suggestedRate: Number(raw.suggestedRate ?? raw.suggested_rate) || 0,
+    rateType: raw.rateType ?? raw.rate_type ?? 'base',
+    reason: raw.reason ?? '',
+  };
+}
+
 function daysMapFromSuggestions(suggestions) {
   const byDate = Object.create(null);
   for (const s of suggestions || []) {
     if (!s || !s.date) continue;
-    byDate[s.date] = {
-      date: s.date,
-      suggestedRate: Number(s.suggested_rate) || 0,
-      rateType: s.rate_type || 'base',
-      reason: s.reason || '',
-    };
+    byDate[s.date] = normalizeDay(s);
+  }
+  return byDate;
+}
+
+function daysMapFromServerDays(days) {
+  const byDate = Object.create(null);
+  for (const d of days || []) {
+    if (!d || !d.date) continue;
+    byDate[d.date] = normalizeDay(d);
   }
   return byDate;
 }
@@ -69,7 +85,6 @@ function daysMapFromSuggestions(suggestions) {
 /** @type {{ rules: any[], daysMap: Record<string, any>, insight: string, forecastStart: string, forecastEnd: string, calMonth: Date } | null} */
 let _spState = null;
 let _spNewDiscountOpen = false;
-let _spLongPressTimer = null;
 
 function cardShell(title, inner) {
   return `<div style="background:white;border-radius:12px;padding:16px;margin-bottom:14px;border:0.5px solid rgba(0,0,0,0.1)">
@@ -256,8 +271,37 @@ function currentForecastRange() {
   return defaultForecastRange();
 }
 
+// Map known server error codes to user-facing copy. Unknown codes fall
+// through unchanged so they're still visible during development.
+const SERVER_ERROR_COPY = {
+  no_pricing_rules: 'No pricing rules set up for this property yet.',
+  parse_failed: 'AI response could not be read — try again.',
+  'forecast_end before forecast_start': 'Invalid date range — end date must be after start.',
+};
+function friendlyError(code) {
+  if (!code) return '';
+  if (SERVER_ERROR_COPY[code]) return SERVER_ERROR_COPY[code];
+  // Strip known prefixes like "anthropic: " to keep the banner readable.
+  const stripped = String(code).replace(/^(anthropic|bookings|rules|run insert|sugg insert):\s*/, '');
+  return stripped;
+}
+
+function daysBetween(startStr, endStr) {
+  if (!startStr || !endStr) return 0;
+  const a = new Date(startStr + 'T00:00:00');
+  const b = new Date(endStr + 'T00:00:00');
+  const n = Math.round((b - a) / 86400000) + 1;
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 function dateRangeCardHtml() {
   const { start, end } = currentForecastRange();
+  const n = daysBetween(start, end);
+  const hint = n >= 180
+    ? `Long range (${n} days) — expect ~30–60s generation.`
+    : n >= 90
+      ? `${n} days — generation may take 10–20s.`
+      : `${n} days selected.`;
   return cardShell(
     'Forecast window',
     `<div style="display:flex;gap:10px;align-items:flex-end">
@@ -277,7 +321,7 @@ function dateRangeCardHtml() {
       <button type="button" class="sp-preset" data-days="180" style="background:var(--warm);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">6mo</button>
       <button type="button" class="sp-preset" data-days="365" style="background:var(--warm);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">1yr</button>
     </div>
-    <div style="font-size:11px;color:var(--text-soft);margin-top:8px">Max 365 days. Longer ranges take longer to generate and cost more tokens.</div>`
+    <div id="sp-range-hint" style="font-size:11px;color:var(--text-soft);margin-top:8px">${escHtml(hint)} Max 365 days.</div>`
   );
 }
 
@@ -344,7 +388,12 @@ function bindRows(root) {
       const save = async () => {
         const v = Number(input.value);
         if (!Number.isFinite(v) || v < 0) return rebuild();
-        await updatePricingRule(rule.id, { value: v });
+        const res = await updatePricingRule(rule.id, { value: v });
+        if (res && res.error) {
+          globalThis.showBanner?.(`Could not save: ${res.error}`, 'warn');
+          await rebuild();
+          return;
+        }
         console.log('[StayOps] pricing rule updated', key, v);
         await rebuild();
       };
@@ -357,11 +406,14 @@ function bindRows(root) {
     };
   });
 
-  root.querySelector('#sp-add-discount').onclick = () => {
-    _spNewDiscountOpen = !_spNewDiscountOpen;
-    renderFullUI(root);
-    bindNdForm(root, pid);
-  };
+  const addBtn = root.querySelector('#sp-add-discount');
+  if (addBtn) {
+    addBtn.onclick = () => {
+      _spNewDiscountOpen = !_spNewDiscountOpen;
+      renderFullUI(root);
+      bindNdForm(root, pid);
+    };
+  }
 
   const ndCancel = root.querySelector('#sp-nd-cancel');
   const ndSave = root.querySelector('#sp-nd-save');
@@ -375,22 +427,32 @@ function bindRows(root) {
       const name = (root.querySelector('#sp-nd-name') || {}).value || '';
       const cond = (root.querySelector('#sp-nd-cond') || {}).value || 'stay_length';
       const pct = Number((root.querySelector('#sp-nd-pct') || {}).value);
-      const days = Number((root.querySelector('#sp-nd-days') || {}).value);
+      // Treat empty-string inputs as "not provided" so stay_length/day_of_week
+      // rules aren't silently saved with condition_value = 0 (which would
+      // match every booking for stay_length). Number('') coerces to 0, so a
+      // raw-string check is needed before the Number() cast.
+      const daysRaw = String((root.querySelector('#sp-nd-days') || {}).value || '').trim();
+      const daysNum = Number(daysRaw);
+      const conditionValue = daysRaw === '' || !Number.isFinite(daysNum) || daysNum < 1 ? null : daysNum;
       if (!name.trim()) {
         globalThis.showBanner?.('Enter a discount name', 'warn');
         return;
       }
-      await insertPricingRules([
+      const res = await insertPricingRules([
         {
           property_id: pid,
           rule_type: 'discount',
           name: name.trim(),
           value: pct,
           condition_type: cond,
-          condition_value: Number.isFinite(days) ? days : null,
+          condition_value: conditionValue,
           is_default: false,
         },
       ]);
+      if (res && res.error) {
+        globalThis.showBanner?.(`Could not save discount: ${res.error}`, 'warn');
+        return;
+      }
       _spNewDiscountOpen = false;
       console.log('[StayOps] custom discount saved');
       await rebuild();
@@ -398,43 +460,56 @@ function bindRows(root) {
 
   bindNdForm(root, pid);
 
+  const deleteRuleWithFeedback = async (id) => {
+    const res = await deletePricingRuleRow(id);
+    if (res && res.error) {
+      globalThis.showBanner?.(`Could not delete: ${res.error}`, 'warn');
+    }
+    await rebuild();
+  };
+
   root.querySelectorAll('.sp-discount-del').forEach((b) => {
     b.onclick = async (ev) => {
       ev.stopPropagation();
       const id = b.getAttribute('data-id');
       if (!id) return;
-      await deletePricingRuleRow(id);
-      await rebuild();
+      await deleteRuleWithFeedback(id);
     };
   });
 
   root.querySelectorAll('.sp-discount-row[data-swipe="1"]').forEach((row) => {
+    // Per-row timer + startX so concurrent touches on different rows don't
+    // clobber each other's state.
     let sx = 0;
+    let pressTimer = null;
     row.addEventListener(
       'touchstart',
       (e) => {
         sx = e.touches[0].clientX;
-        _spLongPressTimer = setTimeout(() => {
+        pressTimer = setTimeout(() => {
+          pressTimer = null;
           const id = row.getAttribute('data-id');
           const r = _spState.rules.find((x) => String(x.id) === String(id));
           if (r && !r.is_default && globalThis.confirm?.('Delete this discount?')) {
-            deletePricingRuleRow(id).then(rebuild);
+            deleteRuleWithFeedback(id);
           }
         }, 550);
       },
       { passive: true }
     );
     row.addEventListener('touchend', (e) => {
-      if (_spLongPressTimer) clearTimeout(_spLongPressTimer);
+      if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
       const ex = e.changedTouches[0].clientX;
       if (sx - ex > 70) {
         const id = row.getAttribute('data-id');
         const r = _spState.rules.find((x) => String(x.id) === String(id));
-        if (r && !r.is_default) deletePricingRuleRow(id).then(rebuild);
+        if (r && !r.is_default && globalThis.confirm?.('Delete this discount?')) {
+          deleteRuleWithFeedback(id);
+        }
       }
     });
     row.addEventListener('touchmove', () => {
-      if (_spLongPressTimer) clearTimeout(_spLongPressTimer);
+      if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
     });
   });
 
@@ -457,10 +532,22 @@ function bindRows(root) {
   // Date range inputs + preset buttons.
   const fromEl = root.querySelector('#sp-from');
   const toEl = root.querySelector('#sp-to');
+  const hintEl = root.querySelector('#sp-range-hint');
+  const updateHint = () => {
+    if (!hintEl || !fromEl || !toEl) return;
+    const n = daysBetween(fromEl.value, toEl.value);
+    const label = n >= 180
+      ? `Long range (${n} days) — expect ~30–60s generation.`
+      : n >= 90
+        ? `${n} days — generation may take 10–20s.`
+        : `${n} days selected.`;
+    hintEl.textContent = `${label} Max 365 days.`;
+  };
   const syncPicked = () => {
     if (!_spState) return;
     if (fromEl) _spState.pickedStart = fromEl.value || null;
     if (toEl) _spState.pickedEnd = toEl.value || null;
+    updateHint();
   };
   if (fromEl) fromEl.onchange = syncPicked;
   if (toEl) toEl.onchange = syncPicked;
@@ -469,7 +556,16 @@ function bindRows(root) {
     btn.onclick = () => {
       const days = Number(btn.getAttribute('data-days')) || 60;
       const start = fromEl && fromEl.value ? fromEl.value : null;
-      const base = start ? new Date(start + 'T00:00:00') : new Date();
+      // Normalize both branches to start-of-day so the +days arithmetic is
+      // identical regardless of whether we're using the picker's value or
+      // "today". Without this, `new Date()` carries a time component.
+      let base;
+      if (start) {
+        base = new Date(start + 'T00:00:00');
+      } else {
+        const now = new Date();
+        base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      }
       const end = new Date(base);
       end.setDate(end.getDate() + (days - 1));
       const fmt = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -510,8 +606,10 @@ async function rebuild() {
   const insight = _spState?.insight || '';
   const forecastStart = _spState?.forecastStart || '';
   const forecastEnd = _spState?.forecastEnd || '';
+  const pickedStart = _spState?.pickedStart || null;
+  const pickedEnd = _spState?.pickedEnd || null;
   const calMonth = _spState?.calMonth || new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-  _spState = { rules, daysMap, insight, forecastStart, forecastEnd, calMonth };
+  _spState = { rules, daysMap, insight, forecastStart, forecastEnd, pickedStart, pickedEnd, calMonth };
   renderFullUI(root);
 }
 
@@ -557,6 +655,8 @@ async function runGenerate(root) {
   if (reg) reg.textContent = 'Generating…';
   if (spin) spin.style.display = 'block';
   const pid = getActivePropertyUuid();
+  // Drop any pending booking-change rerun — we're about to regenerate now.
+  cancelPricingRerun(pid);
   try {
     const result = await requestPricingGeneration({
       propertyId: pid,
@@ -565,19 +665,9 @@ async function runGenerate(root) {
       forecastStart: picked.start,
       forecastEnd: picked.end,
     });
-    if (!result.ok) throw new Error(result.error || 'Generation failed');
-    const rules = await fetchPricingRulesForProperty(pid);
-    const daysMap = Object.create(null);
-    for (const d of result.days || []) {
-      if (d && d.date) {
-        daysMap[d.date] = {
-          date: d.date,
-          suggestedRate: Number(d.suggestedRate) || 0,
-          rateType: d.rateType || 'base',
-          reason: d.reason || '',
-        };
-      }
-    }
+    if (!result.ok) throw new Error(friendlyError(result.error) || 'Generation failed');
+    const rules = _spState?.rules?.length ? _spState.rules : await fetchPricingRulesForProperty(pid);
+    const daysMap = daysMapFromServerDays(result.days);
     // Jump calendar to the forecast's first month so the range is visible.
     let calMonth;
     if (result.forecast_start) {
@@ -637,7 +727,7 @@ export async function renderSmartPricingPanel() {
     return;
   }
   _spNewDiscountOpen = false;
-  _spState = { rules: [], daysMap: null, insight: '', forecastStart: '', forecastEnd: '', calMonth: null };
+  _spState = { rules: [], daysMap: null, insight: '', forecastStart: '', forecastEnd: '', pickedStart: null, pickedEnd: null, calMonth: null };
   let rules = await fetchPricingRulesForProperty(pid);
   if (!rules.length) {
     const pc = getPricingConfig();
