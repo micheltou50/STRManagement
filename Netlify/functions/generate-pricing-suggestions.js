@@ -477,10 +477,17 @@ function parseAiJson(text) {
 
 async function callAnthropic({ model, prompt, nights }) {
   const maxTokens = Math.min(TOKENS_MAX_CAP, TOKENS_OVERHEAD + (Math.max(1, Number(nights) || 60) * TOKENS_PER_NIGHT));
+  // Assistant prefill `{` forces Claude to continue valid JSON instead of ever
+  // emitting a preamble like "Here's the pricing…" that breaks parseAiJson.
+  // The returned content[0].text will be the JSON body MINUS the leading `{`,
+  // so the caller must prepend it back before JSON.parse.
   const body = JSON.stringify({
     model,
     max_tokens: maxTokens,
-    messages: [{ role: 'user', content: prompt }],
+    messages: [
+      { role: 'user', content: prompt },
+      { role: 'assistant', content: '{' },
+    ],
   });
   // Retry transient upstream failures (network errors, 429, 5xx) with short
   // backoff. A fetch throw (DNS/TCP/TLS blip) is treated the same as an HTTP
@@ -657,12 +664,23 @@ async function generateForProperty(sb, { user_id, property_id, trigger, forecast
     const msg = data && data.error && data.error.message ? data.error.message : `HTTP ${status}`;
     throw new Error(`anthropic: ${msg}`);
   }
-  const text = data.content?.[0]?.text || '';
+  // Anthropic returned the JSON body sans leading `{` (because of the assistant
+  // prefill in callAnthropic). Re-attach it so parseAiJson sees a complete obj.
+  const rawText = data.content?.[0]?.text || '';
+  const text = rawText.trimStart().startsWith('{') ? rawText : '{' + rawText;
   let parsed;
   try {
     parsed = parseAiJson(text);
   } catch (_e) {
-    throw new Error('parse_failed');
+    // Attach the raw text + usage to the thrown error so the outer catch can
+    // persist it to pricing_runs.raw_response for post-mortem debugging.
+    const err = new Error('parse_failed');
+    err.rawResponse = {
+      raw_text: text.slice(0, 8000),
+      usage: data.usage || null,
+      stop_reason: data.stop_reason || null,
+    };
+    throw err;
   }
   const aiDays = Array.isArray(parsed.days) ? parsed.days : [];
   const insight = String(parsed.insight || '');
@@ -839,6 +857,9 @@ exports.handler = async (event) => {
         trigger,
         model: DEFAULT_MODEL,
         error: msg,
+        // Capture the AI's raw output on parse failure so we can debug from DB
+        // instead of re-running the (paid) call to reproduce.
+        raw_response: e && e.rawResponse ? e.rawResponse : null,
       });
     } catch (_e) { /* ignore */ }
     // Map known "no rules configured for this property" to 404 so the client
