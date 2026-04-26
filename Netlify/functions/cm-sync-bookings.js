@@ -124,11 +124,10 @@ async function syncUserBookings(sb, user) {
     let accessToken = apiKey;
     if (provider === 'beds24') {
       const tokenRes = await fetch('https://beds24.com/api/v2/authentication/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: refreshToken }),
+        method: 'GET',
+        headers: { refreshToken: refreshToken },
       });
-      const tokenData = await tokenRes.json();
+      const tokenData = await tokenRes.json().catch(() => ({}));
       if (!tokenRes.ok || !tokenData.token) {
         console.error('[StayOps] cm-sync-bookings: beds24 token refresh failed for uid:', user_id);
         await setSyncError(sb, user_id, 'Beds24 token expired');

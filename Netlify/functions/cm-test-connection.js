@@ -57,20 +57,32 @@ exports.handler = async (event) => {
 
     // ── Test connection per provider ──────────────────────────────────────
     if (provider === 'beds24') {
-      // Step 1: Exchange refresh token for access token
-      console.log('[StayOps] cm-test-connection: testing beds24 key');
+      // Step 1a: Try input as a long-life refresh token first.
+      console.log('[StayOps] cm-test-connection: testing beds24 key (refreshToken path)');
+      let accessToken = null;
       const tokenRes = await fetch('https://beds24.com/api/v2/authentication/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: apiKey }),
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json', refreshToken: apiKey },
       });
-      const tokenData = await tokenRes.json();
-      if (!tokenRes.ok || !tokenData.token) {
-        console.error('[StayOps] cm-test-connection: beds24 token exchange failed', tokenData);
-        return json(200, { connected: false, error: 'Invalid Beds24 API key — token exchange failed' });
+      const tokenData = await tokenRes.json().catch(() => ({}));
+      if (tokenRes.ok && tokenData.token) {
+        refreshToken = apiKey;
+        accessToken = tokenData.token;
+      } else {
+        // Step 1b: Fall back — treat input as an invite code and exchange via /setup.
+        console.log('[StayOps] cm-test-connection: refreshToken path failed, trying invite-code path');
+        const setupRes = await fetch('https://beds24.com/api/v2/authentication/setup', {
+          method: 'GET',
+          headers: { code: apiKey, deviceName: 'StayOps' },
+        });
+        const setupData = await setupRes.json().catch(() => ({}));
+        if (!setupRes.ok || !setupData.token || !setupData.refreshToken) {
+          console.error('[StayOps] cm-test-connection: beds24 setup exchange failed', setupData);
+          return json(200, { connected: false, error: 'Invalid Beds24 invite code or refresh token' });
+        }
+        refreshToken = setupData.refreshToken;
+        accessToken = setupData.token;
       }
-      refreshToken = apiKey;
-      const accessToken = tokenData.token;
 
       // Step 2: Fetch properties
       const propRes = await fetch('https://beds24.com/api/v2/properties?includeAllRooms=true', {

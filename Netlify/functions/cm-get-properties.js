@@ -71,11 +71,10 @@ exports.handler = async (event) => {
       // Refresh the access token first
       console.log('[StayOps] cm-get-properties: refreshing beds24 token');
       const tokenRes = await fetch('https://beds24.com/api/v2/authentication/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: refreshToken }),
+        method: 'GET',
+        headers: { refreshToken: refreshToken },
       });
-      const tokenData = await tokenRes.json();
+      const tokenData = await tokenRes.json().catch(() => ({}));
       if (!tokenRes.ok || !tokenData.token) {
         console.error('[StayOps] cm-get-properties: beds24 token refresh failed', tokenData);
         return json(401, { error: 'Beds24 token expired — reconnect in Settings' });

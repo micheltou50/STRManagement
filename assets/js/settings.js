@@ -1211,7 +1211,11 @@ async function syncCMBookings() {
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing…'; }
 
   try {
-    const res = await fetch('/.netlify/functions/cm-sync-bookings?uid=' + encodeURIComponent(user.id));
+    const res = await fetch('/.netlify/functions/cm-sync-bookings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: user.id }),
+    });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Sync failed');
 
@@ -1336,7 +1340,11 @@ async function loadCMMapping() {
 
   try {
     // Fetch CM properties from the API
-    const res = await fetch('/.netlify/functions/cm-get-properties?uid=' + encodeURIComponent(user.id));
+    const res = await fetch('/.netlify/functions/cm-get-properties', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: user.id }),
+    });
     const cmData = await res.json();
     if (!res.ok) throw new Error(cmData.error || 'Failed to load CM properties');
     const cmProperties = cmData.properties || [];
@@ -1425,7 +1433,11 @@ async function maybeAutoSyncCM() {
       if (elapsed < 4 * 60 * 60 * 1000) return;
     }
 
-    const res = await fetch('/.netlify/functions/cm-sync-bookings?uid=' + encodeURIComponent(user.id));
+    const res = await fetch('/.netlify/functions/cm-sync-bookings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: user.id }),
+    });
     if (!res.ok) return;
     const data = await res.json();
 

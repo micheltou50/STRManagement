@@ -87,11 +87,10 @@ exports.handler = async (event) => {
     if (provider === 'beds24') {
       // Refresh access token
       const tokenRes = await fetch('https://beds24.com/api/v2/authentication/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: refreshToken }),
+        method: 'GET',
+        headers: { refreshToken: refreshToken },
       });
-      const tokenData = await tokenRes.json();
+      const tokenData = await tokenRes.json().catch(() => ({}));
       if (!tokenRes.ok || !tokenData.token) {
         console.error('[StayOps] cm-push-availability: beds24 token refresh failed');
         return json(502, { error: 'Beds24 token expired' });
