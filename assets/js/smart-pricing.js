@@ -276,6 +276,7 @@ function currentForecastRange() {
 const SERVER_ERROR_COPY = {
   no_pricing_rules: 'No pricing rules set up for this property yet.',
   parse_failed: 'AI response could not be read — try again.',
+  output_truncated: 'Forecast window too long — try a shorter range (60 days or less).',
   'forecast_end before forecast_start': 'Invalid date range — end date must be after start.',
 };
 function friendlyError(code) {

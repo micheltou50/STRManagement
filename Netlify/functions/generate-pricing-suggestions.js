@@ -456,43 +456,54 @@ and the features to reason about:
 - Historical signal from avg_rate_same_month_last_year, avg_rate_same_month_2y (2-year average when available, null if too little history), and same_date_last_year_booked.
 - Weather when present: cool/rainy may warrant small softening, warm clear weekend may warrant uplift.
 
-Respond with ONLY valid JSON (no markdown fences, no preamble):
-{
-  "days": [
-    { "date": "YYYY-MM-DD", "suggestedRate": 320, "reason": "Weekend base + school holiday uplift", "rateType": "peak" }
-  ],
-  "insight": "Two or three sentences summarising the main pricing moves."
-}
-
-rateType must be one of: "base", "weekend", "peak", "discounted".
-Do NOT include booked nights in days[] (server overlays them).
-Keep reason under 80 characters.`;
-}
-
-function parseAiJson(text) {
-  let t = String(text || '').trim();
-  t = t.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
-  const start = t.indexOf('{');
-  const end = t.lastIndexOf('}');
-  if (start >= 0 && end > start) t = t.slice(start, end + 1);
-  return JSON.parse(t);
+Call the submit_pricing tool with one entry in days[] for every unbooked night
+listed in PER-NIGHT FEATURES. Do NOT include booked nights (server overlays
+them). Keep each reason under 80 characters.`;
 }
 
 // ── Anthropic ────────────────────────────────────────────────────────────
 
+// Tool definition that forces the model to emit structured pricing output.
+// Using Anthropic's tool use with tool_choice is far more robust than asking
+// for "JSON only" in the prompt — the API guarantees the input matches the
+// schema, eliminating the parse_failed failure mode entirely. The only way
+// this can still fail is max_tokens truncation mid-emission, which we detect
+// explicitly via stop_reason and surface as a friendlier error.
+const PRICING_TOOL = {
+  name: 'submit_pricing',
+  description: 'Submit the suggested AUD nightly rate for every unbooked night in the forecast window.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      days: {
+        type: 'array',
+        description: 'One entry per unbooked night listed in PER-NIGHT FEATURES.',
+        items: {
+          type: 'object',
+          properties: {
+            date: { type: 'string', description: 'YYYY-MM-DD' },
+            suggestedRate: { type: 'number', description: 'AUD nightly rate, integer >= 0' },
+            rateType: { type: 'string', enum: ['base', 'weekend', 'peak', 'discounted'] },
+            reason: { type: 'string', description: 'Under 80 chars; why this rate.' },
+          },
+          required: ['date', 'suggestedRate', 'rateType', 'reason'],
+        },
+      },
+      insight: { type: 'string', description: 'Two or three sentences summarising the main pricing moves.' },
+    },
+    required: ['days', 'insight'],
+  },
+};
+
 async function callAnthropic({ model, prompt, nights }) {
   const maxTokens = Math.min(TOKENS_MAX_CAP, TOKENS_OVERHEAD + (Math.max(1, Number(nights) || 60) * TOKENS_PER_NIGHT));
-  // Assistant prefill `{` forces Claude to continue valid JSON instead of ever
-  // emitting a preamble like "Here's the pricing…" that breaks parseAiJson.
-  // The returned content[0].text will be the JSON body MINUS the leading `{`,
-  // so the caller must prepend it back before JSON.parse.
   const body = JSON.stringify({
     model,
     max_tokens: maxTokens,
-    messages: [
-      { role: 'user', content: prompt },
-      { role: 'assistant', content: '{' },
-    ],
+    tools: [PRICING_TOOL],
+    // Force the model to call submit_pricing — guarantees a structured response.
+    tool_choice: { type: 'tool', name: 'submit_pricing' },
+    messages: [{ role: 'user', content: prompt }],
   });
   // Retry transient upstream failures (network errors, 429, 5xx) with short
   // backoff. A fetch throw (DNS/TCP/TLS blip) is treated the same as an HTTP
@@ -669,24 +680,35 @@ async function generateForProperty(sb, { user_id, property_id, trigger, forecast
     const msg = data && data.error && data.error.message ? data.error.message : `HTTP ${status}`;
     throw new Error(`anthropic: ${msg}`);
   }
-  // Anthropic returned the JSON body sans leading `{` (because of the assistant
-  // prefill in callAnthropic). Re-attach it so parseAiJson sees a complete obj.
-  const rawText = data.content?.[0]?.text || '';
-  const text = rawText.trimStart().startsWith('{') ? rawText : '{' + rawText;
-  let parsed;
-  try {
-    parsed = parseAiJson(text);
-  } catch (_e) {
-    // Attach the raw text + usage to the thrown error so the outer catch can
-    // persist it to pricing_runs.raw_response for post-mortem debugging.
-    const err = new Error('parse_failed');
+  // With tool_choice forcing submit_pricing, a successful response has a
+  // tool_use content block whose .input is the parsed object — no JSON.parse
+  // needed. Failure modes:
+  //   - stop_reason='max_tokens' → the model was mid-emission of tool input.
+  //     Surface as output_truncated so the user gets a clear message
+  //     (forecast window too long for a single call).
+  //   - tool_use block missing or malformed → genuinely unexpected; treat as
+  //     parse_failed and persist the raw response for post-mortem.
+  const stopReason = data.stop_reason || null;
+  const toolBlock = (data.content || []).find(b => b && b.type === 'tool_use' && b.name === 'submit_pricing');
+  if (stopReason === 'max_tokens') {
+    const err = new Error('output_truncated');
     err.rawResponse = {
-      raw_text: text.slice(0, 8000),
+      stop_reason: stopReason,
       usage: data.usage || null,
-      stop_reason: data.stop_reason || null,
+      partial_input: toolBlock && toolBlock.input ? JSON.stringify(toolBlock.input).slice(0, 8000) : null,
     };
     throw err;
   }
+  if (!toolBlock || !toolBlock.input || !Array.isArray(toolBlock.input.days)) {
+    const err = new Error('parse_failed');
+    err.rawResponse = {
+      stop_reason: stopReason,
+      usage: data.usage || null,
+      content: JSON.stringify(data.content || []).slice(0, 8000),
+    };
+    throw err;
+  }
+  const parsed = toolBlock.input;
   const aiDays = Array.isArray(parsed.days) ? parsed.days : [];
   const insight = String(parsed.insight || '');
 
