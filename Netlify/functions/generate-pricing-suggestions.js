@@ -26,11 +26,16 @@ const CORS = {
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 const DEFAULT_FORECAST_DAYS = 60;
 const MAX_FORECAST_DAYS = 365;
-// Response sizing: base overhead + ~40 tokens per night (date + rate + rateType + short reason).
-// Max cap sized so a full 365-day run fits comfortably under Haiku 4.5's output limit.
-const TOKENS_PER_NIGHT = 40;
-const TOKENS_OVERHEAD = 500;
-const TOKENS_MAX_CAP = 32000;
+// Response sizing: base overhead + tokens-per-night for the JSON row.
+// Empirically (see pricing_runs raw_response with stop_reason=max_tokens) Claude
+// emits ~60 tokens per night when the prompt asks for date+rate+rateType+reason.
+// Use 80 to leave headroom and avoid truncation on default 60-night windows.
+// Max cap = Haiku 4.5's output ceiling (~8K tokens). Anything beyond is wasted —
+// the API will silently clamp. Long windows (>~95 nights) still get truncated;
+// the caller can split or reduce window if needed.
+const TOKENS_PER_NIGHT = 80;
+const TOKENS_OVERHEAD = 800;
+const TOKENS_MAX_CAP = 8000;
 
 // ── Holidays (NSW) ────────────────────────────────────────────────────────
 // TODO: review annually. NSW Department of Education publishes school dates a
