@@ -4,7 +4,6 @@
 import {
   getPropertyConfig,
   getCurrentPropertyName,
-  getCurrentPropertyTagline,
   getActivePropertyId,
   getActivePropertyConfig,
   savePropertyConfig,
@@ -1829,101 +1828,249 @@ function _getInvoiceIdentity() {
   return {
     name:    host.name    || inv.name    || '',
     email:   host.email   || inv.email   || '',
+    phone:   host.phone   || inv.phone   || '',
     address: host.address || inv.address || '',
     company: host.company || inv.company || '',
     abn:     host.abn     || inv.abn     || '',
     acn:     host.acn     || inv.acn     || '',
   };
 }
+
+// ── Invoice numbering helpers (INV<YY><NNN>) ───────────────────────────────
+// Format: INV26001 = INV + 2-digit year (from invoice date) + 3-digit
+// sequence that resets each year. Existing invoices are preserved as-is.
+function _getInvoiceYearCode(date) {
+  const d = (date instanceof Date) ? date : new Date(date);
+  if (isNaN(d.getTime())) return String(new Date().getFullYear()).slice(-2);
+  return String(d.getFullYear()).slice(-2);
+}
+
+function _formatInvoiceSequence(seq) {
+  return String(Math.max(1, parseInt(seq, 10) || 1)).padStart(3, '0');
+}
+
+// Strict parser: only accepts INV<YY><NNN+> (no dashes, no spaces). Older
+// timestamp-based numbers like 'INV-123456' are intentionally returned as
+// null so they can't poison the year-based counter.
+function _parseInvoiceNumber(num) {
+  if (!num || typeof num !== 'string') return null;
+  const m = num.match(/^INV(\d{2})(\d{3,})$/);
+  if (!m) return null;
+  return { yearCode: m[1], sequence: parseInt(m[2], 10) };
+}
+
+function _getNextInvoiceNumber(existingInvoices, invoiceDate) {
+  const yc = _getInvoiceYearCode(invoiceDate);
+  const list = Array.isArray(existingInvoices) ? existingInvoices : [];
+  let highest = 0;
+  for (const rec of list) {
+    if (!rec) continue;
+    const parsed = _parseInvoiceNumber(rec.number || rec.invoiceNumber);
+    if (parsed && parsed.yearCode === yc && parsed.sequence > highest) {
+      highest = parsed.sequence;
+    }
+  }
+  return 'INV' + yc + _formatInvoiceSequence(highest + 1);
+}
+
+function _getIssuedInvoices() {
+  const list = (window._appConfig && window._appConfig.invoices) || [];
+  return Array.isArray(list) ? list : [];
+}
+
+function _recordIssuedInvoice(record) {
+  try {
+    if (!record || !record.number) return;
+    window._appConfig = window._appConfig || {};
+    const list = Array.isArray(window._appConfig.invoices) ? window._appConfig.invoices.slice() : [];
+    // Idempotency guard: never store the same number twice.
+    if (list.some(r => r && (r.number || r.invoiceNumber) === record.number)) return;
+    list.push(record);
+    window._appConfig.invoices = list;
+    if (typeof saveAppConfigToCloud === 'function') {
+      saveAppConfigToCloud({ invoices: list }).catch(e => console.warn('[StayOps] silent error:', e));
+    }
+  } catch (_e) { /* fail silently — never block invoice generation */ }
+}
+
 function buildInvoicePDF(selected, client) {
   const inv = _getInvoiceIdentity();
   const bank = (window._appConfig && window._appConfig.bank_details) || { name:'', bsb:'', acc:'', bank:'' };
-  const invNum = 'INV-' + Date.now().toString().slice(-6);
-  const today = new Date().toLocaleDateString('en-AU',{day:'numeric',month:'long',year:'numeric'});
-  const totalMgmt = selected.reduce((s,b)=>s+Number(b.mgmtPayout||0),0);
+
+  const invDate = new Date();
+  const invNum = _getNextInvoiceNumber(_getIssuedInvoices(), invDate);
+  const today = invDate.toLocaleDateString('en-AU', { day:'numeric', month:'long', year:'numeric' });
+  const dueDate = new Date(invDate.getTime() + 14 * 24 * 60 * 60 * 1000)
+    .toLocaleDateString('en-AU', { day:'numeric', month:'long', year:'numeric' });
+
+  // Treat each booking's mgmtPayout as GST-INCLUSIVE AUD (Australian convention).
+  // Unit Price = ex-GST = amount × 10/11. GST = amount × 1/11. Line Amount = inclusive.
+  let subtotal = 0;
+  let gstTotal = 0;
+  let invoiceTotal = 0;
   const rows = selected.map(b => {
-    const mgmtPct = b.mgmtFeeRaw || (b.mgmtFee && b.hostPayout ? Math.round((b.mgmtFee/b.hostPayout)*1000)/10 : 0);
+    const incAmt = Number(b.mgmtPayout || 0);
+    const gst = incAmt / 11;
+    const exAmt = incAmt - gst;
+    subtotal += exAmt;
+    gstTotal += gst;
+    invoiceTotal += incAmt;
+    const desc = `Management fee — ${b.name || 'Guest'} (${fmt(b.checkin)} → ${fmt(b.checkout)})`;
     return `<tr>
-      <td style="padding:10px 8px;border-bottom:1px solid #eee">${b.name}</td>
-      <td style="padding:10px 8px;border-bottom:1px solid #eee">${fmt(b.checkin)} — ${fmt(b.checkout)}</td>
-      <td style="padding:10px 8px;border-bottom:1px solid #eee;text-align:right">$${Number(b.hostPayout||0).toFixed(2)}</td>
-      <td style="padding:10px 8px;border-bottom:1px solid #eee;text-align:right">$${Number(b.cleaningFee||0).toFixed(2)}</td>
-      <td style="padding:10px 8px;border-bottom:1px solid #eee;text-align:center">${mgmtPct}%</td>
-      <td style="padding:10px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:600">$${Number(b.mgmtPayout||0).toFixed(2)}</td>
+      <td class="cell desc">${desc}</td>
+      <td class="cell num">1</td>
+      <td class="cell num">$${exAmt.toFixed(2)}</td>
+      <td class="cell num">$${gst.toFixed(2)}</td>
+      <td class="cell num">$${incAmt.toFixed(2)}</td>
     </tr>`;
   }).join('');
 
-  const toBlock = client ? `
-    <div style="margin-bottom:28px">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#999;margin-bottom:6px">Bill To</div>
-      <div style="font-weight:700;font-size:15px">${client.name}</div>
-      ${client.contact?`<div style="color:#666;font-size:13px">${client.contact}</div>`:''}
-      ${client.email?`<div style="color:#666;font-size:13px">${client.email}</div>`:''}
-      ${client.address?`<div style="color:#666;font-size:13px">${client.address}</div>`:''}
+  const reference = (client && (client.reference || client.po)) ? String(client.reference || client.po) : '';
+
+  const billToBlock = client ? `
+    <div class="bill-to">
+      <div class="meta-label">Bill To</div>
+      <div class="bill-to-name">${client.name || ''}</div>
+      ${client.contact?`<div class="muted">${client.contact}</div>`:''}
+      ${client.email?`<div class="muted">${client.email}</div>`:''}
+      ${client.address?`<div class="muted">${client.address}</div>`:''}
     </div>` : '';
 
   const bankBlock = (bank.bsb && bank.acc) ? `
-    <div style="background:#F8F8F8;border-radius:8px;padding:14px 16px;margin-top:28px;font-size:13px">
-      <div style="font-weight:700;margin-bottom:8px">Payment Details</div>
-      ${bank.name?`<div><span style="color:#666">Account Name:</span> ${bank.name}</div>`:''}
-      <div><span style="color:#666">BSB:</span> ${bank.bsb} &nbsp;|&nbsp; <span style="color:#666">Account:</span> ${bank.acc}</div>
-      ${bank.bank?`<div style="color:#666;margin-top:2px">${bank.bank}</div>`:''}
-    </div>` : '';
+    <div class="pay-block">
+      <div class="meta-label">Payment Details</div>
+      <div class="pay-rows">
+        <div><span class="pay-key">Due Date</span><span class="pay-val">${dueDate}</span></div>
+        ${bank.bank?`<div><span class="pay-key">Bank</span><span class="pay-val">${bank.bank}</span></div>`:''}
+        ${bank.name?`<div><span class="pay-key">Account Name</span><span class="pay-val">${bank.name}</span></div>`:''}
+        <div><span class="pay-key">BSB</span><span class="pay-val">${bank.bsb}</span></div>
+        <div><span class="pay-key">Account Number</span><span class="pay-val">${bank.acc}</span></div>
+      </div>
+      <div class="pay-note">Please include the invoice number ${invNum} as the payment reference.</div>
+    </div>` : `
+    <div class="pay-block">
+      <div class="meta-label">Payment Details</div>
+      <div class="pay-rows"><div><span class="pay-key">Due Date</span><span class="pay-val">${dueDate}</span></div></div>
+      <div class="pay-note">Bank details not configured — set them in Settings → Invoice.</div>
+    </div>`;
 
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Tax Invoice ${invNum}</title>
   <style>
-    body{font-family:'Helvetica Neue',sans-serif;color:#1a1a1a;max-width:700px;margin:40px auto;padding:0 20px}
-    h1{font-size:28px;color:#1E3A2F;margin:0;font-weight:800}
-    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:20px;border-bottom:2px solid #1E3A2F}
-    .inv-meta{text-align:right;font-size:13px;color:#666}
-    .inv-meta strong{display:block;font-size:22px;color:#1E3A2F;margin-bottom:4px}
-    table{width:100%;border-collapse:collapse;margin-top:20px;font-size:13px}
-    th{background:#1E3A2F;color:white;padding:10px 8px;text-align:left;font-weight:600}
-    th:last-child,th:nth-child(3),th:nth-child(4),th:nth-child(6){text-align:right}
-    th:nth-child(5){text-align:center}
-    .total-row td{padding:12px 8px;font-weight:700;font-size:15px;border-top:2px solid #1E3A2F}
-    .footer{margin-top:40px;font-size:11px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:16px}
-    .property-badge{background:#F0EDE8;border-radius:8px;padding:12px 16px;margin-bottom:20px;font-size:13px}
+    *{box-sizing:border-box}
+    body{font-family:'Helvetica Neue','Helvetica','Arial',sans-serif;color:#222;background:#fff;max-width:760px;margin:40px auto;padding:0 28px;font-size:13px;line-height:1.45}
+    h1{font-size:28px;color:#222;margin:0 0 4px;font-weight:700;letter-spacing:0.5px}
+    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;gap:24px}
+    .sender .biz-line{margin-top:2px;color:#444;font-size:12px}
+    .right-block{text-align:right;font-size:12px;color:#444}
+    .right-block .biz-name{font-weight:700;color:#222;font-size:14px}
+    .meta-grid{margin-top:20px;display:grid;grid-template-columns:1fr 1fr;gap:24px;font-size:12px}
+    .meta-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#888;margin-bottom:4px}
+    .meta-row{margin-bottom:8px}
+    .meta-row .meta-val{font-size:13px;color:#222;font-weight:600}
+    .bill-to{margin-top:24px}
+    .bill-to-name{font-weight:700;font-size:14px;color:#222}
+    .muted{color:#666;font-size:12px}
+    table.lines{width:100%;border-collapse:collapse;margin-top:24px;font-size:12px}
+    table.lines th{border-bottom:1px solid #999;padding:8px 6px;text-align:left;font-weight:700;color:#222;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
+    table.lines th.num,table.lines td.num{text-align:right}
+    table.lines td.cell{border-bottom:1px solid #eee;padding:10px 6px;vertical-align:top}
+    table.lines td.desc{color:#222}
+    .totals{margin-top:18px;display:flex;justify-content:flex-end}
+    .totals-inner{min-width:280px;font-size:13px}
+    .totals-inner .row{display:flex;justify-content:space-between;padding:5px 0}
+    .totals-inner .row .lbl{color:#555}
+    .totals-inner .row .val{color:#222;font-variant-numeric:tabular-nums}
+    .totals-inner .row.grand{border-top:1px solid #999;margin-top:6px;padding-top:8px;font-weight:700;font-size:14px}
+    .totals-inner .row.due{border-top:1px solid #ccc;margin-top:4px;padding-top:8px;font-weight:700}
+    .gst-note{text-align:right;margin-top:6px;font-size:11px;color:#777;font-style:italic}
+    .pay-block{margin-top:28px;border-top:1px solid #ddd;padding-top:16px;font-size:12px}
+    .pay-rows{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;margin-top:6px}
+    .pay-rows>div{display:flex;justify-content:space-between;border-bottom:1px dotted #eee;padding:3px 0}
+    .pay-key{color:#666}
+    .pay-val{color:#222;font-weight:600}
+    .pay-note{margin-top:10px;color:#666;font-size:11px}
+    .footer{margin-top:32px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:12px}
+    .actions{text-align:center;margin-top:28px;display:flex;gap:12px;justify-content:center}
+    .actions button{font-family:inherit;font-size:13px;font-weight:600;border:none;border-radius:6px;padding:10px 20px;cursor:pointer}
+    .actions .primary{background:#222;color:#fff}
+    .actions .secondary{background:#eee;color:#222}
+    @media print{
+      body{margin:0;padding:24px;max-width:none}
+      .actions{display:none}
+    }
   </style></head><body>
   <div class="header">
+    <div class="sender">
+      <h1>TAX INVOICE</h1>
+      ${inv.company ? `<div class="biz-line"><strong>${inv.company}</strong></div>` : ''}
+      ${inv.name && inv.name !== inv.company ? `<div class="biz-line">${inv.name}</div>` : ''}
+    </div>
+    <div class="right-block">
+      ${inv.company || inv.name ? `<div class="biz-name">${inv.company || inv.name}</div>` : ''}
+      ${inv.address ? `<div>${inv.address}</div>` : ''}
+      ${inv.phone ? `<div>${inv.phone}</div>` : ''}
+      ${inv.email ? `<div>${inv.email}</div>` : ''}
+      ${inv.abn ? `<div>ABN: ${inv.abn}</div>` : ''}
+      ${inv.acn ? `<div>ACN: ${inv.acn}</div>` : ''}
+    </div>
+  </div>
+
+  <div class="meta-grid">
     <div>
-      <h1>${inv.company || inv.name || getCurrentPropertyName()}</h1>
-      ${inv.name && inv.company ? `<div style="color:#666;margin-top:3px;font-size:13px">${inv.name}</div>` : ''}
-      ${inv.abn ? `<div style="color:#666;font-size:12px">ABN: ${inv.abn}</div>` : ''}
-      ${inv.acn ? `<div style="color:#666;font-size:12px">ACN: ${inv.acn}</div>` : ''}
-      ${inv.email ? `<div style="color:#666;font-size:12px">${inv.email}</div>` : ''}
-      ${inv.address ? `<div style="color:#666;font-size:12px">${inv.address}</div>` : ''}
+      <div class="meta-row"><div class="meta-label">Invoice Date</div><div class="meta-val">${today}</div></div>
+      <div class="meta-row"><div class="meta-label">Invoice Number</div><div class="meta-val">${invNum}</div></div>
+      ${reference ? `<div class="meta-row"><div class="meta-label">Reference / PO</div><div class="meta-val">${reference}</div></div>` : ''}
     </div>
-    <div class="inv-meta">
-      <strong>${invNum}</strong>
-      <div>Date: ${today}</div>
-    </div>
+    ${billToBlock || '<div></div>'}
   </div>
-  ${toBlock}
-  <div class="property-badge">
-    🏡 <strong>${getCurrentPropertyName()}</strong> · ${getCurrentPropertyTagline()}<br>
-    <span style="color:#666">Management Fee Invoice</span>
-  </div>
-  <table>
+
+  <table class="lines">
     <thead><tr>
-      <th>Guest</th><th>Dates</th><th style="text-align:right">Gross Revenue</th>
-      <th style="text-align:right">Cleaning Fee</th><th style="text-align:center">Mgmt %</th>
-      <th style="text-align:right">Management Payout</th>
+      <th>Description</th>
+      <th class="num">Quantity</th>
+      <th class="num">Unit Price</th>
+      <th class="num">GST</th>
+      <th class="num">Amount AUD</th>
     </tr></thead>
     <tbody>${rows}</tbody>
-    <tfoot><tr class="total-row">
-      <td colspan="5" style="text-align:right;color:#1E3A2F">Total Management Payout</td>
-      <td style="text-align:right;color:#C17F3E;font-size:18px">$${totalMgmt.toFixed(2)}</td>
-    </tr></tfoot>
   </table>
+
+  <div class="totals">
+    <div class="totals-inner">
+      <div class="row"><span class="lbl">Subtotal</span><span class="val">$${subtotal.toFixed(2)}</span></div>
+      <div class="row"><span class="lbl">Total GST 10%</span><span class="val">$${gstTotal.toFixed(2)}</span></div>
+      <div class="row grand"><span class="lbl">Invoice Total AUD</span><span class="val">$${invoiceTotal.toFixed(2)}</span></div>
+      <div class="row"><span class="lbl">Total Net Payments AUD</span><span class="val">$0.00</span></div>
+      <div class="row due"><span class="lbl">Amount Due AUD</span><span class="val">$${invoiceTotal.toFixed(2)}</span></div>
+    </div>
+  </div>
+  <div class="gst-note">Total price includes GST</div>
+
   ${bankBlock}
-  <div class="footer">${getCurrentPropertyName()} Property Management · ${[getPropertyConfig().suburb, getPropertyConfig().state].filter(Boolean).join(' ')} · Generated ${today}</div>
-  <div style="text-align:center;margin-top:32px;display:flex;gap:12px;justify-content:center">
-    <button onclick="window.print()" style="background:#1E3A2F;color:white;border:none;border-radius:8px;padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer">🖨 Save as PDF</button>
-    <button onclick="window.close()" style="background:#F0EDE8;color:#1A1A1A;border:none;border-radius:8px;padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer">← Back to App</button>
+
+  <div class="footer">${getCurrentPropertyName()} · ${[getPropertyConfig().suburb, getPropertyConfig().state].filter(Boolean).join(' ')} · Generated ${today}</div>
+  <div class="actions">
+    <button class="primary" onclick="window.print()">Save as PDF</button>
+    <button class="secondary" onclick="window.close()">Back to App</button>
   </div>
 </body></html>`;
-  const w = window.open('','_blank');
+
+  // Persist the issued number BEFORE opening the popup so the next call
+  // increments correctly even if the popup is blocked or closed early.
+  _recordIssuedInvoice({
+    number: invNum,
+    date: invDate.toISOString(),
+    total: Number(invoiceTotal.toFixed(2)),
+    clientName: (client && client.name) || '',
+  });
+
+  const w = window.open('', '_blank');
+  if (!w) {
+    if (typeof globalThis.showBanner === 'function') {
+      globalThis.showBanner('⚠ Popup blocked — allow popups to view invoice', 'warn');
+    }
+    return;
+  }
   w.document.write(html);
   w.document.close();
 }
