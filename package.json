@@ -4,13 +4,11 @@
   "description": "StayOps property manager",
   "scripts": {
     "lint": "eslint assets/js/ Netlify/functions/",
-    "lint:fix": "eslint assets/js/ Netlify/functions/ --fix"
+    "lint:fix": "eslint assets/js/ Netlify/functions/ --fix",
+    "test": "node --test tests/*.test.js",
+    "smoke:deploy": "node scripts/smoke-deploy.mjs"
   },
   "dependencies": {
-    "@capacitor/android": "^8.3.0",
-    "@capacitor/cli": "^8.3.0",
-    "@capacitor/core": "^8.3.0",
-    "@capacitor/ios": "^8.3.0",
     "@netlify/functions": "^5.2.0",
     "@sentry/node": "^10.48.0",
     "@supabase/supabase-js": "^2.100.1",

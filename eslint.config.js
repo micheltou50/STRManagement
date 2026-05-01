@@ -225,6 +225,6 @@ export default [
 
   // ── Ignore www/ (auto-synced copy), node_modules, android, ios ───────
   {
-    ignores: ['www/', 'node_modules/', 'android/', 'ios/', 'scripts/', 'supabase/'],
+    ignores: ['node_modules/', 'scripts/', 'supabase/'],
   },
 ];

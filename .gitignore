@@ -10,7 +10,4 @@ node_modules
 /supabase
 /supabase/functions
 
-# www/assets/js/ is auto-synced from assets/js/ by the pre-commit hook.
-# Never edit files here directly — edit in assets/js/ instead.
-www/assets/js/
 Netlify/.DS_Store
