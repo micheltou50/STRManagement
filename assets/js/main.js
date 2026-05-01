@@ -32,6 +32,7 @@ import {
   findMatchingCleanForBooking
 } from './cleaning.js';
 import { bookings } from './state.js';
+import { maybeShowSinceLastOpenedRundown } from './since-last-opened.js';
 import {
   resetFinanceSubViewToHub, backToFinanceHub, toggleExpenseAddForm, closeExpenseAddForm, showFinanceSub, switchReportsSubTab, openFinancePanelFromHub, switchPayoutsSubTab, switchMgmtSubTab, switchReportSubTab, renderMgmtFY, renderFinance, fyPrev,
   fyNext, renderReport, revPrev, revNext, renderRevenue, mgmtPrev, mgmtNext, renderManagement, toggleMgmtSelect, mgmtCheckboxChange, mgmtToggleSelectAll, generateInvoice, confirmInvoiceClient, renderClientsList,
@@ -777,6 +778,9 @@ window.notifyCancelledCleaner = async function (btn, bookingId, cleanId) {
     if (!isPortfolioMode()) {
       renderAll();
     }
+    // Host-only "Since you last opened StayOps" rundown.
+    // Runs once per session; cleaner-mode boot already returned earlier.
+    try { maybeShowSinceLastOpenedRundown(bookings); } catch (_e) { /* fail silently */ }
     initMessaging().catch(e => console.warn('[StayOps] Messaging init failed:', e.message));
     applyStayopsPostSwitchAction();
     // Prompt to enable notifications if not enabled
