@@ -1132,6 +1132,7 @@ function openFinancePanelFromHub(panelId) {
   globalThis.openSettingsPanel(panelId, 'finance');
   if (panelId === 'expense-cats') financeSubView = 'categories';
   else if (panelId === 'smart-pricing') financeSubView = 'smartpricing';
+  else if (panelId === 'bank-details') financeSubView = 'bankdetails';
 }
 
 /**
@@ -1937,59 +1938,54 @@ function buildInvoicePDF(selected, client) {
     </div>` : '';
 
   const bankBlock = (bank.bsb && bank.acc) ? `
+    <div class="pay-due"><strong>Due Date: ${dueDate}</strong></div>
     <div class="pay-block">
-      <div class="meta-label">Payment Details</div>
-      <div class="pay-rows">
-        <div><span class="pay-key">Due Date</span><span class="pay-val">${dueDate}</span></div>
-        ${bank.bank?`<div><span class="pay-key">Bank</span><span class="pay-val">${bank.bank}</span></div>`:''}
-        ${bank.name?`<div><span class="pay-key">Account Name</span><span class="pay-val">${bank.name}</span></div>`:''}
-        <div><span class="pay-key">BSB</span><span class="pay-val">${bank.bsb}</span></div>
-        <div><span class="pay-key">Account Number</span><span class="pay-val">${bank.acc}</span></div>
-      </div>
-      <div class="pay-note">Please include the invoice number ${invNum} as the payment reference.</div>
+      <div class="pay-intro">Please pay on invoice</div>
+      <div class="pay-method">Direct Deposit${bank.bank ? ' — ' + bank.bank : ''}${bank.name ? ' — ' + bank.name : ''}</div>
+      <div class="pay-detail">BSB: ${bank.bsb}</div>
+      <div class="pay-detail">Acc: ${bank.acc}</div>
     </div>` : `
+    <div class="pay-due"><strong>Due Date: ${dueDate}</strong></div>
     <div class="pay-block">
-      <div class="meta-label">Payment Details</div>
-      <div class="pay-rows"><div><span class="pay-key">Due Date</span><span class="pay-val">${dueDate}</span></div></div>
-      <div class="pay-note">Bank details not configured — set them in Settings → Invoice.</div>
+      <div class="pay-intro">Bank details not configured — set them in Finance → Bank Details.</div>
     </div>`;
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Tax Invoice ${invNum}</title>
   <style>
     *{box-sizing:border-box}
-    body{font-family:'Helvetica Neue','Helvetica','Arial',sans-serif;color:#222;background:#fff;max-width:760px;margin:40px auto;padding:0 28px;font-size:13px;line-height:1.45}
-    h1{font-size:28px;color:#222;margin:0 0 4px;font-weight:700;letter-spacing:0.5px}
-    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;gap:24px}
-    .sender .biz-line{margin-top:2px;color:#444;font-size:12px}
+    body{font-family:'Helvetica Neue','Helvetica','Arial',sans-serif;color:#222;background:#fff;max-width:760px;margin:40px auto;padding:0 28px;font-size:13px;line-height:1.5}
+    h1{font-size:32px;color:#222;margin:0;font-weight:800;letter-spacing:0.3px}
+    .header{display:grid;grid-template-columns:1fr auto 1fr;align-items:start;margin-bottom:32px;gap:32px}
+    .sender{font-size:12px;color:#444}
+    .sender .biz-line{margin-top:2px}
+    .meta-col{font-size:12px}
+    .meta-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#888;margin-bottom:2px}
+    .meta-row{margin-bottom:10px}
+    .meta-row .meta-val{font-size:13px;color:#222;font-weight:600}
     .right-block{text-align:right;font-size:12px;color:#444}
     .right-block .biz-name{font-weight:700;color:#222;font-size:14px}
-    .meta-grid{margin-top:20px;display:grid;grid-template-columns:1fr 1fr;gap:24px;font-size:12px}
-    .meta-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#888;margin-bottom:4px}
-    .meta-row{margin-bottom:8px}
-    .meta-row .meta-val{font-size:13px;color:#222;font-weight:600}
-    .bill-to{margin-top:24px}
+    .bill-to{margin-bottom:24px}
     .bill-to-name{font-weight:700;font-size:14px;color:#222}
     .muted{color:#666;font-size:12px}
-    table.lines{width:100%;border-collapse:collapse;margin-top:24px;font-size:12px}
-    table.lines th{border-bottom:1px solid #999;padding:8px 6px;text-align:left;font-weight:700;color:#222;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
+    table.lines{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}
+    table.lines th{border-bottom:2px solid #333;padding:8px 6px;text-align:left;font-weight:700;color:#222;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
     table.lines th.num,table.lines td.num{text-align:right}
-    table.lines td.cell{border-bottom:1px solid #eee;padding:10px 6px;vertical-align:top}
+    table.lines td.cell{border-bottom:1px solid #ddd;padding:10px 6px;vertical-align:top}
     table.lines td.desc{color:#222}
-    .totals{margin-top:18px;display:flex;justify-content:flex-end}
+    .totals{margin-top:16px;display:flex;justify-content:flex-end}
     .totals-inner{min-width:280px;font-size:13px}
-    .totals-inner .row{display:flex;justify-content:space-between;padding:5px 0}
+    .totals-inner .row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #eee}
     .totals-inner .row .lbl{color:#555}
     .totals-inner .row .val{color:#222;font-variant-numeric:tabular-nums}
-    .totals-inner .row.grand{border-top:1px solid #999;margin-top:6px;padding-top:8px;font-weight:700;font-size:14px}
-    .totals-inner .row.due{border-top:1px solid #ccc;margin-top:4px;padding-top:8px;font-weight:700}
-    .gst-note{text-align:right;margin-top:6px;font-size:11px;color:#777;font-style:italic}
-    .pay-block{margin-top:28px;border-top:1px solid #ddd;padding-top:16px;font-size:12px}
-    .pay-rows{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;margin-top:6px}
-    .pay-rows>div{display:flex;justify-content:space-between;border-bottom:1px dotted #eee;padding:3px 0}
-    .pay-key{color:#666}
-    .pay-val{color:#222;font-weight:600}
-    .pay-note{margin-top:10px;color:#666;font-size:11px}
-    .footer{margin-top:32px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:12px}
+    .totals-inner .row.grand{border-bottom:2px solid #333;font-weight:700;font-size:14px}
+    .totals-inner .row.due{border-bottom:2px solid #333;font-weight:700}
+    .gst-note{text-align:right;margin-top:8px;font-size:12px;color:#555}
+    .pay-due{margin-top:48px;font-size:14px;color:#222}
+    .pay-block{margin-top:24px;font-size:14px;color:#222}
+    .pay-intro{font-size:16px;margin-bottom:8px}
+    .pay-method{font-weight:700;font-size:15px;margin-bottom:4px}
+    .pay-detail{font-weight:700;font-size:15px}
+    .footer{margin-top:40px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:12px}
     .actions{text-align:center;margin-top:28px;display:flex;gap:12px;justify-content:center}
     .actions button{font-family:inherit;font-size:13px;font-weight:600;border:none;border-radius:6px;padding:10px 20px;cursor:pointer}
     .actions .primary{background:#222;color:#fff}
@@ -2004,25 +2000,25 @@ function buildInvoicePDF(selected, client) {
       <h1>TAX INVOICE</h1>
       ${inv.company ? `<div class="biz-line"><strong>${inv.company}</strong></div>` : ''}
       ${inv.name && inv.name !== inv.company ? `<div class="biz-line">${inv.name}</div>` : ''}
+      ${inv.address ? `<div class="biz-line">${inv.address}</div>` : ''}
+      ${inv.abn ? `<div class="biz-line">ABN: ${inv.abn}</div>` : ''}
+    </div>
+    <div class="meta-col">
+      <div class="meta-row"><div class="meta-label">Invoice Date</div><div class="meta-val">${today}</div></div>
+      <div class="meta-row"><div class="meta-label">Invoice Number</div><div class="meta-val">${invNum}</div></div>
+      ${reference ? `<div class="meta-row"><div class="meta-label">Reference / PO</div><div class="meta-val">${reference}</div></div>` : `<div class="meta-row"><div class="meta-label">Reference / PO</div><div class="meta-val">&nbsp;</div></div>`}
     </div>
     <div class="right-block">
       ${inv.company || inv.name ? `<div class="biz-name">${inv.company || inv.name}</div>` : ''}
       ${inv.address ? `<div>${inv.address}</div>` : ''}
       ${inv.phone ? `<div>${inv.phone}</div>` : ''}
       ${inv.email ? `<div>${inv.email}</div>` : ''}
-      ${inv.abn ? `<div>ABN: ${inv.abn}</div>` : ''}
+      ${inv.abn ? `<div>A.B.N ${inv.abn}</div>` : ''}
       ${inv.acn ? `<div>ACN: ${inv.acn}</div>` : ''}
     </div>
   </div>
 
-  <div class="meta-grid">
-    <div>
-      <div class="meta-row"><div class="meta-label">Invoice Date</div><div class="meta-val">${today}</div></div>
-      <div class="meta-row"><div class="meta-label">Invoice Number</div><div class="meta-val">${invNum}</div></div>
-      ${reference ? `<div class="meta-row"><div class="meta-label">Reference / PO</div><div class="meta-val">${reference}</div></div>` : ''}
-    </div>
-    ${billToBlock || '<div></div>'}
-  </div>
+  ${billToBlock}
 
   <table class="lines">
     <thead><tr>
