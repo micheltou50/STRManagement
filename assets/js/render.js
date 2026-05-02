@@ -1184,24 +1184,6 @@ function buildStayopsUnifiedTodayCalendarHtml({
       return ds === dayStr;
     });
 
-  const svgIn =
-    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 19V5M12 5l4 4M12 5L8 9"/></svg>';
-  const svgOut =
-    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M12 19l4-4M12 19l-4-4"/></svg>';
-  const svgSpark =
-    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2l2 7h7l-6 4 2 7-5-5-5 5 2-7-6-4h7z"/></svg>';
-  const svgWrench =
-    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 010 1.4l-2.8 2.8a4 4 0 11-5.6 5.6l-.7-.7 3.5-3.5-2.5-2.5 3.5-3.5.7.7a4 4 0 011.9-1.8c.5-.3 1.1-.2 1.5.2z"/></svg>';
-
-  const dailyCard = (bg, border, titleC, iconBg, iconFg, svgEl, title, subHtml) =>
-    `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-left:3px solid ${border};border-radius:8px;background:${bg};margin-bottom:6px">
-      <div style="width:26px;height:26px;border-radius:8px;background:${iconBg};color:${iconFg};flex-shrink:0;display:flex;align-items:center;justify-content:center">${svgEl}</div>
-      <div style="min-width:0;flex:1">
-        <div style="font-size:13px;font-weight:600;color:${titleC}">${title}</div>
-        ${subHtml ? `<div style="font-size:12px;color:var(--text-soft);margin-top:2px">${subHtml}</div>` : ''}
-      </div>
-    </div>`;
-
   // ── Month grid ──
   const calM = _getTodayCalMonthStart();
   const calYear = calM.getFullYear();
@@ -1323,39 +1305,63 @@ function buildStayopsUnifiedTodayCalendarHtml({
     return bars.join('');
   }).join('');
 
-  // ── Inline day detail (iOS-style) ──
+  // ── Inline day detail (iOS-style timeline with times) ──
   let dayDetailHtml = '';
   if (selDate) {
     const ds = selYmd;
-    const headLine = `${selDate.toLocaleDateString('en-AU', { weekday: 'long' })}, ${selDate.getDate()} ${selDate.toLocaleDateString('en-AU', { month: 'short' })}`;
+    const headLine = `${selDate.toLocaleDateString('en-AU', { weekday: 'long' })}, ${selDate.getDate()} ${selDate.toLocaleDateString('en-AU', { month: 'long' })}`;
 
-    const parts = [];
-    const cinB = activeBookings.find((b) => String(b.checkin || '').slice(0, 10) === ds);
-    if (cinB) {
-      parts.push(dailyCard('#E8F5E9', '#1D9E75', 'var(--forest,#2D5A3D)', '#D4EDDA', '#1D9E75', svgIn, 'Check-in',
-        escHtml(cinB.name) + (cinB.guests ? ` · ${escHtml(String(cinB.guests))} guest${cinB.guests === 1 ? '' : 's'}` : '')));
-    }
+    // Collect events with times for chronological ordering
+    const events = []; // { time: 'HH:MM', sortKey: number, html: string }
+
+    const timeRow = (time, color, title, sub, dotColor) =>
+      `<div style="display:flex;gap:12px;align-items:flex-start;padding:8px 0;border-bottom:0.5px solid rgba(0,0,0,0.05)">
+        <div style="width:48px;flex-shrink:0;text-align:right;padding-top:1px">
+          <span style="font-size:12px;font-weight:600;color:${tertiary}">${time}</span>
+        </div>
+        <div style="width:4px;flex-shrink:0;position:relative;display:flex;flex-direction:column;align-items:center">
+          <span style="width:8px;height:8px;border-radius:50%;background:${dotColor};flex-shrink:0;margin-top:4px"></span>
+          <span style="width:1px;flex:1;background:rgba(0,0,0,0.08)"></span>
+        </div>
+        <div style="flex:1;min-width:0;padding-bottom:4px">
+          <div style="font-size:13px;font-weight:600;color:${color}">${title}</div>
+          ${sub ? `<div style="font-size:12px;color:var(--text-soft);margin-top:2px">${sub}</div>` : ''}
+        </div>
+      </div>`;
+
     const coutB = activeBookings.find((b) => String(b.checkout || '').slice(0, 10) === ds);
     if (coutB) {
-      parts.push(dailyCard('#FEF2F2', '#E24B4A', '#A32D2D', '#FCEBEB', '#E24B4A', svgOut, 'Check-out', escHtml(coutB.name)));
+      events.push({ sortKey: 1000, html: timeRow('10 AM', '#A32D2D', 'Check-out', escHtml(coutB.name), '#E24B4A') });
       const mc = findMatchingCleanForBooking(coutB);
       const hasCl = !!(mc && (String(mc.cleaner || '').trim() || mc.cleanerId));
       if (mc && !mc.done) {
-        parts.push(dailyCard('#FEF2F2', '#E24B4A', '#A32D2D', '#FCEBEB', '#E24B4A', svgSpark, 'Clean not done',
-          escHtml(mc.cleaner || 'Cleaner') + ' · ' + fmtShort(mc.date || coutB.checkout)));
+        events.push({ sortKey: 1100, html: timeRow('11 AM', '#A32D2D', 'Clean not done',
+          escHtml(mc.cleaner || 'Unassigned'), '#E24B4A') });
+      } else if (mc && mc.done) {
+        events.push({ sortKey: 1100, html: timeRow('11 AM', '#1D9E75', 'Clean complete',
+          escHtml(mc.cleaner || 'Cleaner'), '#1D9E75') });
       } else if (!hasCl) {
-        parts.push(dailyCard('#FEF2F2', '#E24B4A', '#A32D2D', '#FCEBEB', '#E24B4A', svgSpark, 'Clean needed', 'No cleaner assigned'));
+        events.push({ sortKey: 1100, html: timeRow('11 AM', '#BA7517', 'Clean needed',
+          'No cleaner assigned', '#BA7517') });
       }
+    }
+
+    const cinB = activeBookings.find((b) => String(b.checkin || '').slice(0, 10) === ds);
+    if (cinB) {
+      const guestInfo = cinB.guests ? ` · ${escHtml(String(cinB.guests))} guest${cinB.guests === 1 ? '' : 's'}` : '';
+      events.push({ sortKey: 1500, html: timeRow('3 PM', '#1D6B3D', 'Check-in',
+        escHtml(cinB.name) + guestInfo, '#1D9E75') });
     }
 
     const clOnly = cleanForPropertyOnDate(ds);
     if (clOnly && (!coutB || findMatchingCleanForBooking(coutB)?.id !== clOnly.id)) {
       const clAssigned = !!((clOnly.cleaner && String(clOnly.cleaner).trim()) || clOnly.cleanerId);
-      if (clAssigned) {
-        parts.push(dailyCard('#E8F5E9', '#1D9E75', 'var(--forest,#2D5A3D)', '#D4EDDA', '#1D9E75', svgSpark,
-          clOnly.done ? 'Clean complete' : 'Clean scheduled', escHtml(clOnly.cleaner || 'Cleaner')));
+      if (clOnly.done) {
+        events.push({ sortKey: 1100, html: timeRow('11 AM', '#1D9E75', 'Clean complete', escHtml(clOnly.cleaner || 'Cleaner'), '#1D9E75') });
+      } else if (clAssigned) {
+        events.push({ sortKey: 1100, html: timeRow('11 AM', '#0D47A1', 'Clean scheduled', escHtml(clOnly.cleaner || 'Cleaner'), '#0D47A1') });
       } else {
-        parts.push(dailyCard('#FEF2F2', '#E24B4A', '#A32D2D', '#FCEBEB', '#E24B4A', svgSpark, 'Clean needed', 'No cleaner assigned'));
+        events.push({ sortKey: 1100, html: timeRow('11 AM', '#BA7517', 'Clean needed', 'No cleaner assigned', '#BA7517') });
       }
     }
 
@@ -1370,23 +1376,25 @@ function buildStayopsUnifiedTodayCalendarHtml({
       if (occ) {
         const ci = parseLocalDayStart(occ.checkin);
         const n = Math.max(1, Math.floor((selDate.getTime() - ci.getTime()) / 86400000) + 1);
-        parts.push(dailyCard('#E8F5E9', '#92C9A9', 'var(--sage,#3D6B4F)', '#D4EDDA', '#1D9E75', svgIn,
-          'Stay in progress', `${escHtml(occ.name)} · night ${n}`));
+        events.push({ sortKey: 0, html: timeRow('all day', '#3D6B4F', 'Stay in progress',
+          `${escHtml(occ.name)} · night ${n}`, '#92C9A9') });
       }
     }
 
     maintListForDate(ds).forEach((mt) => {
-      parts.push(dailyCard('#FFF8E1', '#D4A017', '#7A5A00', '#FFECB3', '#D4A017', svgWrench,
-        escHtml(mt.description || 'Maintenance'), escHtml(fmt(mt.date || mt.scheduledDate || ''))));
+      events.push({ sortKey: 900, html: timeRow('9 AM', '#7A5A00', escHtml(mt.description || 'Maintenance'),
+        escHtml(fmt(mt.date || mt.scheduledDate || '')), '#D4A017') });
     });
 
-    const emptyHint = !parts.length
+    events.sort((a, b) => a.sortKey - b.sortKey);
+
+    const emptyHint = !events.length
       ? `<div style="font-size:13px;color:var(--text-soft);text-align:center;padding:12px 8px">No events</div>`
       : '';
 
     dayDetailHtml = `<div style="margin-top:10px;padding-top:10px;border-top:0.5px solid rgba(0,0,0,0.1)">
-      <div style="font-size:13px;font-weight:600;color:${primary};margin-bottom:8px">${headLine}</div>
-      ${parts.join('')}${emptyHint}
+      <div style="font-size:15px;font-weight:700;color:${primary};margin-bottom:10px">${headLine}</div>
+      ${events.map(e => e.html).join('')}${emptyHint}
     </div>`;
   }
 
