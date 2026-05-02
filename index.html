@@ -49,7 +49,7 @@
 
     // Patterns we never want to forward as Sentry events from console.error/warn.
     // Auth and token-expiry messages are normal lifecycle, not bugs.
-    var SENTRY_NOISE = /(Auth session missing|Invalid Refresh Token|Refresh Token Not Found|clearing stale session|Gmail (token expired|API 403)|user needs to reconnect|extension|ResizeObserver|\[cm-auto-sync\]|loadCMMapping|Beds24 token expired)/i;
+    var SENTRY_NOISE = /(Auth session missing|Invalid Refresh Token|Refresh Token Not Found|clearing stale session|Gmail (token expired|API 403)|user needs to reconnect|extension|ResizeObserver|\[cm-auto-sync\]|loadCMMapping|Beds24 token expired|schema cache|switchActiveProperty.*drifted|p256dh value should be|HTTP 520)/i;
 
     // Capture all console.error and console.warn as Sentry events
     // so silently-caught failures are visible in the dashboard.
