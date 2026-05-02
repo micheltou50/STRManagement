@@ -3749,6 +3749,9 @@ async function finishAppInit() {
 // ── ONBOARDING FLOW ───────────────────────────────────────────────────────────
 
 const _OB_PLATFORMS = new Set();
+const _OB_INTEGRATIONS = new Set();
+let _OB_PROPERTY_TYPE = '';
+const _OB_STEPS = [0, 1, 2, 3, 4, 5, 6];
 
 function showOnboarding() {
   const el = document.getElementById('stayops-onboarding');
@@ -3759,7 +3762,7 @@ function showOnboarding() {
   if (app) app.style.display = 'none';
   if (nav) nav.style.display = 'none';
   if (hdr) hdr.style.display = 'none';
-  _obGoToStep(1);
+  _obGoToStep(0);
 }
 
 function hideOnboarding() {
@@ -3775,15 +3778,56 @@ function hideOnboarding() {
 }
 
 function _obGoToStep(step) {
-  [1, 2, 3].forEach(n => {
+  _OB_STEPS.forEach(n => {
     const s = document.getElementById('onboard-step-' + n);
     if (s) s.style.display = n === step ? '' : 'none';
   });
-  // Only 2 dots now (step 1 and step 3)
-  const d1 = document.getElementById('onboard-dot-1');
-  const d3 = document.getElementById('onboard-dot-3');
-  if (d1) d1.classList.toggle('active', true);
-  if (d3) d3.classList.toggle('active', step >= 3);
+  // Update progress dots
+  document.querySelectorAll('#onboard-dots .onboard-step-dot').forEach(dot => {
+    const n = parseInt(dot.getAttribute('data-step'), 10);
+    dot.classList.remove('active', 'done');
+    if (n < step) dot.classList.add('done');
+    else if (n === step) dot.classList.add('active');
+  });
+  // Build quick-start list when arriving at step 6
+  if (step === 6) renderQuickStartList();
+  // Scroll to top on step change
+  const wrap = document.getElementById('stayops-onboarding');
+  if (wrap) wrap.scrollTop = 0;
+}
+
+// Step 0 — Property type
+function onboardSetPropertyType(type) {
+  _OB_PROPERTY_TYPE = type;
+  ['whole', 'room', 'multi'].forEach(t => {
+    const card  = document.getElementById('ob-ptype-' + t);
+    const check = document.getElementById('ob-ptype-check-' + t);
+    const active = (t === type);
+    if (card) {
+      card.style.borderColor = active ? 'var(--forest,#1E3A2F)' : 'transparent';
+      card.style.background  = active ? '#E5EFE9' : 'white';
+    }
+    if (check) {
+      check.style.background  = active ? 'var(--forest,#1E3A2F)' : 'transparent';
+      check.style.borderColor = active ? 'var(--forest,#1E3A2F)' : '#E5E5EA';
+      check.innerHTML = active ? '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' : '';
+    }
+  });
+  const errEl = document.getElementById('ob-step0-error');
+  if (errEl) errEl.textContent = '';
+}
+
+function onboardStep0Next() {
+  const errEl = document.getElementById('ob-step0-error');
+  if (!_OB_PROPERTY_TYPE) {
+    if (errEl) errEl.textContent = 'Please choose one to continue.';
+    return;
+  }
+  if (errEl) errEl.textContent = '';
+  // Persist on the active property config (stored as propertyType so we don't
+  // collide with the existing property.type field used for "house/apartment")
+  try { savePropertyConfig({ propertyType: _OB_PROPERTY_TYPE }); } catch(_) { /* non-critical */ }
+  _obGoToStep(1);
 }
 
 // Step 1 — Property details
@@ -3825,7 +3869,46 @@ function onboardStep1Next() {
     globalThis.savePropertyToCloud(getActivePropertyConfig()).catch(e => console.warn("[StayOps] silent error:", e));
   }
 
-  _obGoToStep(3);  // Skip Step 2 (email connection now in Getting Started checklist)
+  _obGoToStep(2);
+}
+
+// Step 2 — Add cleaner (optional)
+async function onboardStep2Next() {
+  const name  = (document.getElementById('ob-cleaner-name')  || {}).value?.trim() || '';
+  const phone = (document.getElementById('ob-cleaner-phone') || {}).value?.trim() || '';
+  const email = (document.getElementById('ob-cleaner-email') || {}).value?.trim() || '';
+  const errEl = document.getElementById('ob-step2-error');
+  if (!name) {
+    if (errEl) errEl.textContent = 'Cleaner name is required, or skip this step.';
+    return;
+  }
+  if (errEl) errEl.textContent = '';
+  // Push to in-memory cleaners array and sync to cloud
+  try {
+    window._cleaners = window._cleaners || [];
+    const list = window._cleaners;
+    const newCleaner = {
+      id: Date.now(),
+      name, phone, email,
+      role: 'Cleaner',
+      pin: '',
+      permissions: {},
+      active: true,
+      invitation_status: 'pending'
+    };
+    list.push(newCleaner);
+    if (typeof globalThis.saveCleanersToCloud === 'function') {
+      globalThis.saveCleanersToCloud([newCleaner]).catch(e => console.warn('[StayOps] saveCleanersToCloud silent error:', e));
+    }
+  } catch (e) { console.warn('[StayOps] add cleaner during onboarding failed', e); }
+  _obGoToStep(3);
+}
+
+// Generic skip — advance to next step without saving the current step's data
+function onboardSkipStep(currentStep) {
+  const next = currentStep + 1;
+  if (next > 6) { onboardFinish(); return; }
+  _obGoToStep(next);
 }
 
 // Step 2 — Connect email (kept for OAuth callback compatibility)
@@ -3885,29 +3968,99 @@ function onboardTogglePlatform(platform) {
   });
 }
 
-async function onboardFinish() {
+// Step 3 — Platforms (advance to integrations)
+async function onboardStep3Next() {
   const errEl = document.getElementById('ob-step3-error');
   if (_OB_PLATFORMS.size === 0) {
     if (errEl) errEl.textContent = 'Please select at least one platform.';
     return;
   }
   if (errEl) errEl.textContent = '';
-
-  // Save platforms to property config
   const platforms = Array.from(_OB_PLATFORMS);
   savePropertyConfig({ platforms });
-
-  // Save to Supabase
   if (typeof globalThis.savePropertyToCloud === 'function') {
-    await globalThis.savePropertyToCloud(getActivePropertyConfig());
+    globalThis.savePropertyToCloud(getActivePropertyConfig()).catch(e => console.warn('[StayOps] silent save error:', e));
   }
+  _obGoToStep(4);
+}
 
-  // No localStorage flag needed — completion is determined by
-  // whether the user has a property record in Supabase
+// Step 4 — Integrations (optional, multi-select)
+function onboardToggleIntegration(key) {
+  if (_OB_INTEGRATIONS.has(key)) _OB_INTEGRATIONS.delete(key);
+  else _OB_INTEGRATIONS.add(key);
+  ['calendar', 'email', 'ical', 'sheet', 'receipts'].forEach(k => {
+    const card  = document.getElementById('ob-int-' + k);
+    const check = document.getElementById('ob-int-check-' + k);
+    const active = _OB_INTEGRATIONS.has(k);
+    if (card) card.style.borderColor = active ? 'var(--forest,#1E3A2F)' : 'transparent';
+    if (check) {
+      check.style.background  = active ? 'var(--forest,#1E3A2F)' : 'transparent';
+      check.style.borderColor = active ? 'var(--forest,#1E3A2F)' : '#E5E5EA';
+      check.innerHTML = active ? '<svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' : '';
+    }
+  });
+}
 
+function onboardStep4Next() {
+  if (_OB_INTEGRATIONS.size) {
+    const integrationsToConnect = Array.from(_OB_INTEGRATIONS);
+    try { savePropertyConfig({ pendingIntegrations: integrationsToConnect }); } catch(_) { /* non-critical */ }
+  }
+  _obGoToStep(5);
+}
+
+// Step 5 — Notifications
+async function onboardEnableNotifications() {
+  const btn = document.getElementById('ob-notif-enable-btn');
+  const result = document.getElementById('ob-notif-result');
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    if (typeof globalThis.subscribeToPush === 'function') {
+      const sub = await globalThis.subscribeToPush('host');
+      if (sub) {
+        if (result) { result.style.display = 'block'; result.textContent = '✓ Notifications on.'; }
+        if (btn) { btn.textContent = '✓ Enabled'; btn.disabled = true; }
+        setTimeout(() => _obGoToStep(6), 700);
+        return;
+      }
+    }
+    if (result) { result.style.display = 'block'; result.style.color = '#FF6B6B'; result.textContent = "Couldn't enable — check browser permissions."; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Try again'; }
+  } catch (e) {
+    console.warn('[StayOps] notif enable failed', e);
+    if (btn) { btn.disabled = false; btn.textContent = 'Try again'; }
+  }
+}
+
+// Step 6 — Quick start checklist
+function renderQuickStartList() {
+  const wrap = document.getElementById('ob-quickstart-list');
+  if (!wrap) return;
+  const cleanersCount = (() => {
+    try { return (window._cleaners || []).length; } catch(_) { return 0; }
+  })();
+  const cfg = (() => { try { return getActivePropertyConfig() || {}; } catch(_) { return {}; } })();
+  const integrationsConnected = !!(cfg.pendingIntegrations && cfg.pendingIntegrations.length);
+  const items = [
+    { label: 'Add your first booking',    done: false },
+    { label: 'Add or invite a cleaner',   done: cleanersCount > 0 },
+    { label: 'Connect a calendar',        done: integrationsConnected },
+    { label: 'Take a tour of your dashboard', done: false }
+  ];
+  wrap.innerHTML = items.map(item => `
+    <div style="display:flex;align-items:center;gap:14px;background:white;border-radius:14px;padding:14px 16px">
+      <div style="width:24px;height:24px;border-radius:50%;${item.done ? 'background:var(--forest,#1E3A2F);' : 'background:transparent;border:2px solid #E5E5EA;'}display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        ${item.done ? '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}
+      </div>
+      <div style="flex:1;font-size:14px;font-weight:600;color:#1C1C1E;${item.done ? 'text-decoration:line-through;color:#999;' : ''}">${item.label}</div>
+    </div>
+  `).join('');
+}
+
+async function onboardFinish() {
   // Boot the app
   hideOnboarding();
-  if (typeof globalThis.showLoadingScreen === 'function') globalThis.showLoadingScreen('Setting up your account…');
+  if (typeof globalThis.showLoadingScreen === 'function') globalThis.showLoadingScreen('Setting up your workspace…');
   if (typeof finishAppInit === 'function') await finishAppInit();
   if (typeof globalThis.hydrateFromCloud === 'function') await globalThis.hydrateFromCloud();
   reloadInMemoryData();
@@ -3915,6 +4068,10 @@ async function onboardFinish() {
   if (typeof applyPortfolioModeAfterHostHydrate === 'function') await applyPortfolioModeAfterHostHydrate();
   if (typeof globalThis.showAppChrome === 'function') globalThis.showAppChrome();
   if (!(typeof isPortfolioMode === 'function' && isPortfolioMode()) && typeof renderAll === 'function') renderAll();
+  // Show success toast for "Property live" moment
+  if (typeof globalThis.showSuccessToast === 'function') {
+    setTimeout(() => globalThis.showSuccessToast('✓ Your workspace is live.'), 400);
+  }
   setTimeout(() => { if (typeof checkAutoSendReport === 'function') checkAutoSendReport(); }, 1500);
 }
 
@@ -4753,12 +4910,20 @@ export {
   showOnboarding,
   hideOnboarding,
   _obGoToStep,
+  onboardSetPropertyType,
+  onboardStep0Next,
   onboardStep1Next,
+  onboardStep2Next,
+  onboardSkipStep,
   onboardConnectGoogle,
   onboardConnectMicrosoft,
   onboardEmailConnected,
   onboardStep2Skip,
   onboardTogglePlatform,
+  onboardStep3Next,
+  onboardToggleIntegration,
+  onboardStep4Next,
+  onboardEnableNotifications,
   onboardFinish,
   isOnboardingComplete,
   checkAutoSendReport,

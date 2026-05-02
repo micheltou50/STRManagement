@@ -88,49 +88,90 @@
 
 <div id="stayops-login-screen" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:var(--forest,#1E3A2F);flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;overflow-y:auto;">
 
-  <div style="text-align:center;margin-bottom:32px">
-    <div style="font-family:'DM Serif Display',serif;font-size:38px;color:white;line-height:1">Stay<span style="color:var(--sage,#8FAF85);font-style:italic">Ops</span></div>
-    <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-top:8px;max-width:320px;line-height:1.5">The all-in-one tool for short-term rental hosts. Manage bookings, cleaners, finances, and taxes — from one app.</div>
-    <div style="display:flex;justify-content:center;gap:16px;margin-top:14px;flex-wrap:wrap">
-      <div style="font-size:11px;color:rgba(255,255,255,0.4);display:flex;align-items:center;gap:4px">📅 Bookings</div>
-      <div style="font-size:11px;color:rgba(255,255,255,0.4);display:flex;align-items:center;gap:4px">🧹 Cleaning</div>
-      <div style="font-size:11px;color:rgba(255,255,255,0.4);display:flex;align-items:center;gap:4px">💰 Finance</div>
-      <div style="font-size:11px;color:rgba(255,255,255,0.4);display:flex;align-items:center;gap:4px">📊 Tax</div>
-    </div>
+  <!-- WELCOME (default landing) -->
+  <div id="login-welcome-section" style="width:100%;max-width:380px;text-align:center">
+    <div style="font-family:'DM Serif Display',serif;font-size:48px;color:white;line-height:1">Stay<span style="color:var(--sage,#8FAF85);font-style:italic">Ops</span></div>
+    <div style="font-size:12px;color:rgba(255,255,255,0.45);letter-spacing:1.4px;text-transform:uppercase;margin-top:10px">Property Management</div>
+
+    <div style="margin:48px 0 40px;font-family:'DM Serif Display',serif;font-size:30px;color:white;line-height:1.25;letter-spacing:-0.01em">Run your rentals,<br>calmly.</div>
+    <div style="font-size:14px;color:rgba(255,255,255,0.6);line-height:1.55;max-width:320px;margin:0 auto 36px">Bookings, cleans, and guests — handled in one place.</div>
+
+    <button onclick="welcomeShowSignUp()" style="width:100%;padding:16px;background:white;color:var(--forest,#1E3A2F);border:none;border-radius:14px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:12px">Get started</button>
+    <button onclick="welcomeShowSignIn()" style="width:100%;padding:14px;background:transparent;color:white;border:1.5px solid rgba(255,255,255,0.25);border-radius:14px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer">I already have an account</button>
   </div>
 
-  <div style="background:white;border-radius:20px;padding:28px 24px;width:100%;max-width:360px;box-shadow:0 8px 40px rgba(0,0,0,0.25);">
+  <!-- WRAPPER: brand + form card (signin / signup / verify) -->
+  <div id="login-form-wrapper" style="display:none;width:100%;max-width:380px">
 
-    <div id="login-signin-section">
-      <div style="font-family:'DM Serif Display',serif;font-size:22px;color:var(--forest,#1E3A2F);margin-bottom:4px">Welcome back</div>
-      <div style="font-size:13px;color:#999;margin-bottom:22px">Sign in to your StayOps account</div>
-      <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Email</label>
-      <input id="login-email" type="email" autocomplete="email" placeholder="you@email.com" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:#1C1C1E;margin-bottom:14px;outline:none;" onfocus="this.style.borderColor='var(--forest,#1E3A2F)'" onblur="this.style.borderColor='#E5E5EA'">
-      <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Password</label>
-      <input id="login-password" type="password" autocomplete="current-password" placeholder="••••••••" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:#1C1C1E;margin-bottom:6px;outline:none;" onfocus="this.style.borderColor='var(--forest,#1E3A2F)'" onblur="this.style.borderColor='#E5E5EA'" onkeydown="if(event.key==='Enter') handleLoginSubmit()">
-      <div id="login-error" style="font-size:12px;color:#FF3B30;min-height:18px;margin-bottom:12px"></div>
-      <button id="login-btn" onclick="handleLoginSubmit()" style="width:100%;padding:15px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;">Sign In</button>
-      <div style="display:flex;align-items:center;gap:10px;margin-top:14px">
-        <div style="flex:1;height:1px;background:#E5E5EA"></div>
-        <span style="font-size:11px;color:#999;font-weight:500">or</span>
-        <div style="flex:1;height:1px;background:#E5E5EA"></div>
-      </div>
-      <button id="magic-link-btn" onclick="handleMagicLinkSubmit()" style="width:100%;margin-top:14px;padding:15px;background:transparent;color:var(--forest,#1E3A2F);border:1.5px solid var(--forest,#1E3A2F);border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;">Send Magic Link</button>
+    <div style="text-align:center;margin-bottom:24px">
+      <div style="font-family:'DM Serif Display',serif;font-size:32px;color:white;line-height:1">Stay<span style="color:var(--sage,#8FAF85);font-style:italic">Ops</span></div>
     </div>
 
-    <div id="login-signup-section" style="display:none">
-      <div style="font-family:'DM Serif Display',serif;font-size:22px;color:var(--forest,#1E3A2F);margin-bottom:4px">Create account</div>
-      <div style="font-size:13px;color:#999;margin-bottom:22px">Get started with StayOps</div>
-      <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Email</label>
-      <input id="signup-email" type="email" autocomplete="email" placeholder="you@email.com" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:#1C1C1E;margin-bottom:14px;outline:none;" onfocus="this.style.borderColor='var(--forest,#1E3A2F)'" onblur="this.style.borderColor='#E5E5EA'">
-      <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Password</label>
-      <input id="signup-password" type="password" autocomplete="new-password" placeholder="Min. 6 characters" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:#1C1C1E;margin-bottom:6px;outline:none;" onfocus="this.style.borderColor='var(--forest,#1E3A2F)'" onblur="this.style.borderColor='#E5E5EA'" onkeydown="if(event.key==='Enter') handleSignUpSubmit()">
-      <div id="signup-error" style="font-size:12px;color:#FF3B30;min-height:18px;margin-bottom:12px"></div>
-      <button id="signup-btn" onclick="handleSignUpSubmit()" style="width:100%;padding:15px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;">Create Account</button>
+    <div style="background:white;border-radius:20px;padding:28px 24px;box-shadow:0 8px 40px rgba(0,0,0,0.25);">
+
+      <!-- SIGN IN -->
+      <div id="login-signin-section">
+        <div style="font-family:'DM Serif Display',serif;font-size:22px;color:var(--forest,#1E3A2F);margin-bottom:4px">Welcome back</div>
+        <div style="font-size:13px;color:#999;margin-bottom:22px">Sign in to your StayOps account</div>
+        <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Email</label>
+        <input id="login-email" type="email" autocomplete="email" placeholder="you@email.com" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:#1C1C1E;margin-bottom:14px;outline:none;" onfocus="this.style.borderColor='var(--forest,#1E3A2F)'" onblur="this.style.borderColor='#E5E5EA'">
+        <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Password</label>
+        <input id="login-password" type="password" autocomplete="current-password" placeholder="••••••••" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:#1C1C1E;margin-bottom:6px;outline:none;" onfocus="this.style.borderColor='var(--forest,#1E3A2F)'" onblur="this.style.borderColor='#E5E5EA'" onkeydown="if(event.key==='Enter') handleLoginSubmit()">
+        <div id="login-error" style="font-size:12px;color:#FF3B30;min-height:18px;margin-bottom:12px"></div>
+        <button id="login-btn" onclick="handleLoginSubmit()" style="width:100%;padding:15px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;">Sign in</button>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:14px">
+          <div style="flex:1;height:1px;background:#E5E5EA"></div>
+          <span style="font-size:11px;color:#999;font-weight:500">or</span>
+          <div style="flex:1;height:1px;background:#E5E5EA"></div>
+        </div>
+        <button id="magic-link-btn" onclick="handleMagicLinkSubmit()" style="width:100%;margin-top:14px;padding:14px;background:transparent;color:var(--forest,#1E3A2F);border:1.5px solid var(--forest,#1E3A2F);border-radius:12px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;">Email me a sign-in link</button>
+      </div>
+
+      <!-- SIGN UP -->
+      <div id="login-signup-section" style="display:none">
+        <div style="font-family:'DM Serif Display',serif;font-size:22px;color:var(--forest,#1E3A2F);margin-bottom:4px">Create your account</div>
+        <div style="font-size:13px;color:#999;margin-bottom:22px">Takes about a minute.</div>
+        <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Full name</label>
+        <input id="signup-name" type="text" autocomplete="name" placeholder="Jane Host" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:#1C1C1E;margin-bottom:14px;outline:none;" onfocus="this.style.borderColor='var(--forest,#1E3A2F)'" onblur="this.style.borderColor='#E5E5EA'">
+        <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Email</label>
+        <input id="signup-email" type="email" autocomplete="email" placeholder="you@email.com" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:#1C1C1E;margin-bottom:14px;outline:none;" onfocus="this.style.borderColor='var(--forest,#1E3A2F)'" onblur="this.style.borderColor='#E5E5EA'">
+        <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Password</label>
+        <input id="signup-password" type="password" autocomplete="new-password" placeholder="At least 8 characters" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:#1C1C1E;margin-bottom:6px;outline:none;" onfocus="this.style.borderColor='var(--forest,#1E3A2F)'" onblur="this.style.borderColor='#E5E5EA'" onkeydown="if(event.key==='Enter') handleSignUpSubmit()">
+        <div id="signup-error" style="font-size:12px;color:#FF3B30;min-height:18px;margin-bottom:12px"></div>
+        <button id="signup-btn" onclick="handleSignUpSubmit()" style="width:100%;padding:15px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;">Continue</button>
+        <div style="font-size:11px;color:#999;margin-top:14px;line-height:1.5;text-align:center">By continuing you agree to our Terms and Privacy.</div>
+      </div>
+
+      <!-- VERIFY EMAIL -->
+      <div id="login-verify-section" style="display:none">
+        <div style="font-family:'DM Serif Display',serif;font-size:22px;color:var(--forest,#1E3A2F);margin-bottom:4px">Check your email</div>
+        <div style="font-size:13px;color:#999;margin-bottom:22px">We sent a 6-digit code to <span id="verify-email-display" style="color:var(--forest,#1E3A2F);font-weight:600"></span>.</div>
+        <div id="verify-code-row" style="display:flex;gap:8px;justify-content:space-between;margin-bottom:14px">
+          <input class="verify-digit" data-i="0" type="tel" inputmode="numeric" maxlength="1" style="width:14%;min-width:0;height:54px;text-align:center;border:1.5px solid #E5E5EA;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:22px;font-weight:700;color:#1C1C1E;outline:none">
+          <input class="verify-digit" data-i="1" type="tel" inputmode="numeric" maxlength="1" style="width:14%;min-width:0;height:54px;text-align:center;border:1.5px solid #E5E5EA;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:22px;font-weight:700;color:#1C1C1E;outline:none">
+          <input class="verify-digit" data-i="2" type="tel" inputmode="numeric" maxlength="1" style="width:14%;min-width:0;height:54px;text-align:center;border:1.5px solid #E5E5EA;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:22px;font-weight:700;color:#1C1C1E;outline:none">
+          <input class="verify-digit" data-i="3" type="tel" inputmode="numeric" maxlength="1" style="width:14%;min-width:0;height:54px;text-align:center;border:1.5px solid #E5E5EA;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:22px;font-weight:700;color:#1C1C1E;outline:none">
+          <input class="verify-digit" data-i="4" type="tel" inputmode="numeric" maxlength="1" style="width:14%;min-width:0;height:54px;text-align:center;border:1.5px solid #E5E5EA;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:22px;font-weight:700;color:#1C1C1E;outline:none">
+          <input class="verify-digit" data-i="5" type="tel" inputmode="numeric" maxlength="1" style="width:14%;min-width:0;height:54px;text-align:center;border:1.5px solid #E5E5EA;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:22px;font-weight:700;color:#1C1C1E;outline:none">
+        </div>
+        <div id="verify-error" style="font-size:12px;color:#FF3B30;min-height:18px;margin-bottom:8px"></div>
+        <button id="verify-btn" onclick="handleVerifySubmit()" style="width:100%;padding:15px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;">Verify</button>
+        <div style="text-align:center;margin-top:14px">
+          <button id="resend-code-btn" onclick="handleResendCode()" style="background:none;border:none;font-family:'DM Sans',sans-serif;font-size:13px;color:#999;font-weight:500;cursor:pointer;padding:0;">Resend code</button>
+        </div>
+        <div style="text-align:center;margin-top:8px">
+          <button onclick="welcomeShowSignUp()" style="background:none;border:none;font-family:'DM Sans',sans-serif;font-size:12px;color:#bbb;cursor:pointer;padding:0;">Wrong email? Change it</button>
+        </div>
+      </div>
+
+      <div id="login-toggle-row" style="text-align:center;margin-top:18px">
+        <button id="login-toggle-link" onclick="toggleSignUp()" style="background:none;border:none;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--forest,#1E3A2F);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;padding:0;">Don't have an account? Create one</button>
+      </div>
+
     </div>
 
     <div style="text-align:center;margin-top:18px">
-      <button id="login-toggle-link" onclick="toggleSignUp()" style="background:none;border:none;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--forest,#1E3A2F);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;padding:0;">Don't have an account? Create one</button>
+      <button onclick="welcomeShowLanding()" style="background:none;border:none;font-family:'DM Sans',sans-serif;font-size:12px;color:rgba(255,255,255,0.5);font-weight:500;cursor:pointer;padding:0;">← Back</button>
     </div>
 
   </div>
@@ -149,13 +190,43 @@
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px">
       <div style="font-family:'DM Serif Display',serif;font-size:22px;color:white">Stay<span style="color:var(--sage,#8FAF85);font-style:italic">Ops</span></div>
     </div>
-    <div style="display:flex;gap:6px;margin-bottom:24px">
-      <div class="onboard-step-dot active" id="onboard-dot-1"></div>
-      <div class="onboard-step-dot" id="onboard-dot-3"></div>
+    <div id="onboard-dots" style="display:flex;gap:6px;margin-bottom:24px">
+      <div class="onboard-step-dot" data-step="0"></div>
+      <div class="onboard-step-dot" data-step="1"></div>
+      <div class="onboard-step-dot" data-step="2"></div>
+      <div class="onboard-step-dot" data-step="3"></div>
+      <div class="onboard-step-dot" data-step="4"></div>
+      <div class="onboard-step-dot" data-step="5"></div>
+      <div class="onboard-step-dot" data-step="6"></div>
     </div>
   </div>
 
   <div style="padding:0 24px 48px;flex:1">
+
+    <!-- STEP 0: Property type -->
+    <div id="onboard-step-0" style="display:none">
+      <div style="font-family:'DM Serif Display',serif;font-size:28px;color:white;margin-bottom:8px">What are you hosting?</div>
+      <div style="font-size:14px;color:rgba(255,255,255,0.6);margin-bottom:28px">We'll tailor StayOps to fit.</div>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:24px">
+        <label id="ob-ptype-whole" onclick="onboardSetPropertyType('whole')" style="display:flex;align-items:center;gap:16px;background:white;border-radius:16px;padding:18px 20px;cursor:pointer;border:2px solid transparent">
+          <div style="width:40px;height:40px;border-radius:12px;background:#E5EFE9;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🏡</div>
+          <div style="flex:1"><div style="font-weight:600;font-size:15px">Whole property</div><div style="font-size:12px;color:#999">Entire home or apartment</div></div>
+          <div id="ob-ptype-check-whole" style="width:24px;height:24px;border-radius:50%;border:2px solid #E5E5EA;flex-shrink:0"></div>
+        </label>
+        <label id="ob-ptype-room" onclick="onboardSetPropertyType('room')" style="display:flex;align-items:center;gap:16px;background:white;border-radius:16px;padding:18px 20px;cursor:pointer;border:2px solid transparent">
+          <div style="width:40px;height:40px;border-radius:12px;background:#E5EFE9;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🛏</div>
+          <div style="flex:1"><div style="font-weight:600;font-size:15px">Private room</div><div style="font-size:12px;color:#999">A room in your home</div></div>
+          <div id="ob-ptype-check-room" style="width:24px;height:24px;border-radius:50%;border:2px solid #E5E5EA;flex-shrink:0"></div>
+        </label>
+        <label id="ob-ptype-multi" onclick="onboardSetPropertyType('multi')" style="display:flex;align-items:center;gap:16px;background:white;border-radius:16px;padding:18px 20px;cursor:pointer;border:2px solid transparent">
+          <div style="width:40px;height:40px;border-radius:12px;background:#E5EFE9;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🏘</div>
+          <div style="flex:1"><div style="font-weight:600;font-size:15px">Multiple properties</div><div style="font-size:12px;color:#999">More than one listing</div></div>
+          <div id="ob-ptype-check-multi" style="width:24px;height:24px;border-radius:50%;border:2px solid #E5E5EA;flex-shrink:0"></div>
+        </label>
+      </div>
+      <div id="ob-step0-error" style="font-size:12px;color:#FF6B6B;min-height:18px;margin-bottom:8px"></div>
+      <button onclick="onboardStep0Next()" style="width:100%;padding:16px;background:white;color:var(--forest,#1E3A2F);border:none;border-radius:16px;font-size:16px;font-weight:700;cursor:pointer">Continue →</button>
+    </div>
 
     <!-- STEP 1: Property Details (minimal) -->
     <div id="onboard-step-1">
@@ -196,8 +267,35 @@
       <button onclick="onboardStep1Next()" style="width:100%;margin-top:16px;padding:16px;background:white;color:var(--forest,#1E3A2F);border:none;border-radius:16px;font-size:16px;font-weight:700;cursor:pointer">Continue →</button>
     </div>
 
-    <!-- STEP 2: removed (email connection now in Getting Started checklist) -->
-    <div id="onboard-step-2" style="display:none"></div>
+    <!-- STEP 2: Add cleaner (optional) -->
+    <div id="onboard-step-2" style="display:none">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="font-family:'DM Serif Display',serif;font-size:28px;color:white">Add your cleaner</div>
+        <span style="font-size:11px;color:rgba(255,255,255,0.6);background:rgba(255,255,255,0.12);padding:3px 8px;border-radius:8px;font-weight:600;letter-spacing:0.4px;text-transform:uppercase">Optional</span>
+      </div>
+      <div style="font-size:14px;color:rgba(255,255,255,0.6);margin-bottom:28px">So we can auto-assign cleans after each checkout.</div>
+      <div style="background:white;border-radius:20px;padding:24px">
+        <div style="margin-bottom:16px">
+          <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Name</label>
+          <input id="ob-cleaner-name" type="text" placeholder="e.g. Sam Smith" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-size:15px;outline:none" onfocus="this.style.borderColor='#1E3A2F'" onblur="this.style.borderColor='#E5E5EA'">
+        </div>
+        <div style="margin-bottom:16px">
+          <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Phone</label>
+          <input id="ob-cleaner-phone" type="tel" placeholder="04xx xxx xxx" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-size:15px;outline:none" onfocus="this.style.borderColor='#1E3A2F'" onblur="this.style.borderColor='#E5E5EA'">
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Email</label>
+          <input id="ob-cleaner-email" type="email" placeholder="cleaner@email.com" style="width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid #E5E5EA;border-radius:12px;font-size:15px;outline:none" onfocus="this.style.borderColor='#1E3A2F'" onblur="this.style.borderColor='#E5E5EA'">
+        </div>
+        <div style="margin-top:16px;display:flex;align-items:center;gap:10px;font-size:12px;color:#777">
+          <span style="font-size:16px">🛡</span>
+          <span>They get their own simple cleaner app — no setup needed.</span>
+        </div>
+        <div id="ob-step2-error" style="font-size:12px;color:#FF3B30;min-height:18px;margin-top:8px"></div>
+      </div>
+      <button onclick="onboardStep2Next()" style="width:100%;margin-top:16px;padding:16px;background:white;color:var(--forest,#1E3A2F);border:none;border-radius:16px;font-size:16px;font-weight:700;cursor:pointer">Add cleaner →</button>
+      <button onclick="onboardSkipStep(2)" style="width:100%;margin-top:10px;padding:12px;background:transparent;color:rgba(255,255,255,0.6);border:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer;text-decoration:underline;text-underline-offset:3px">Skip for now</button>
+    </div>
 
     <!-- STEP 3: Platforms -->
     <div id="onboard-step-3" style="display:none">
@@ -232,8 +330,80 @@
         </label>
       </div>
 
-      <div id="ob-step3-error" style="font-size:12px;color:#FF3B30;min-height:18px;margin-bottom:8px"></div>
-      <button onclick="onboardFinish()" style="width:100%;padding:16px;background:white;color:var(--forest,#1E3A2F);border:none;border-radius:16px;font-size:16px;font-weight:700;cursor:pointer">Get Started →</button>
+      <div id="ob-step3-error" style="font-size:12px;color:#FF6B6B;min-height:18px;margin-bottom:8px"></div>
+      <button onclick="onboardStep3Next()" style="width:100%;padding:16px;background:white;color:var(--forest,#1E3A2F);border:none;border-radius:16px;font-size:16px;font-weight:700;cursor:pointer">Continue →</button>
+    </div>
+
+    <!-- STEP 4: Integrations (optional) -->
+    <div id="onboard-step-4" style="display:none">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="font-family:'DM Serif Display',serif;font-size:28px;color:white">Connect what you use</div>
+        <span style="font-size:11px;color:rgba(255,255,255,0.6);background:rgba(255,255,255,0.12);padding:3px 8px;border-radius:8px;font-weight:600;letter-spacing:0.4px;text-transform:uppercase">Optional</span>
+      </div>
+      <div style="font-size:14px;color:rgba(255,255,255,0.6);margin-bottom:24px">Pick what you have. Skip the rest — connect anything later from Settings.</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px">
+        <div id="ob-int-calendar" onclick="onboardToggleIntegration('calendar')" style="display:flex;align-items:center;gap:14px;background:white;border-radius:14px;padding:14px 16px;cursor:pointer;border:2px solid transparent">
+          <div style="width:36px;height:36px;border-radius:10px;background:#E5EFE9;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📅</div>
+          <div style="flex:1"><div style="font-weight:600;font-size:14px">Calendar</div><div style="font-size:12px;color:#999">Sync bookings to Google Calendar</div></div>
+          <div id="ob-int-check-calendar" style="width:22px;height:22px;border-radius:50%;border:2px solid #E5E5EA;flex-shrink:0"></div>
+        </div>
+        <div id="ob-int-email" onclick="onboardToggleIntegration('email')" style="display:flex;align-items:center;gap:14px;background:white;border-radius:14px;padding:14px 16px;cursor:pointer;border:2px solid transparent">
+          <div style="width:36px;height:36px;border-radius:10px;background:#E5EFE9;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">✉️</div>
+          <div style="flex:1"><div style="font-weight:600;font-size:14px">Email inbox</div><div style="font-size:12px;color:#999">Auto-read Airbnb &amp; Booking.com confirmations</div></div>
+          <div id="ob-int-check-email" style="width:22px;height:22px;border-radius:50%;border:2px solid #E5E5EA;flex-shrink:0"></div>
+        </div>
+        <div id="ob-int-ical" onclick="onboardToggleIntegration('ical')" style="display:flex;align-items:center;gap:14px;background:white;border-radius:14px;padding:14px 16px;cursor:pointer;border:2px solid transparent">
+          <div style="width:36px;height:36px;border-radius:10px;background:#E5EFE9;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🔗</div>
+          <div style="flex:1"><div style="font-weight:600;font-size:14px">Airbnb / iCal</div><div style="font-size:12px;color:#999">Pull bookings from your listing</div></div>
+          <div id="ob-int-check-ical" style="width:22px;height:22px;border-radius:50%;border:2px solid #E5E5EA;flex-shrink:0"></div>
+        </div>
+        <div id="ob-int-sheet" onclick="onboardToggleIntegration('sheet')" style="display:flex;align-items:center;gap:14px;background:white;border-radius:14px;padding:14px 16px;cursor:pointer;border:2px solid transparent">
+          <div style="width:36px;height:36px;border-radius:10px;background:#E5EFE9;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📊</div>
+          <div style="flex:1"><div style="font-weight:600;font-size:14px">Booking spreadsheet</div><div style="font-size:12px;color:#999">Import from a Google Sheet</div></div>
+          <div id="ob-int-check-sheet" style="width:22px;height:22px;border-radius:50%;border:2px solid #E5E5EA;flex-shrink:0"></div>
+        </div>
+        <div id="ob-int-receipts" onclick="onboardToggleIntegration('receipts')" style="display:flex;align-items:center;gap:14px;background:white;border-radius:14px;padding:14px 16px;cursor:pointer;border:2px solid transparent">
+          <div style="width:36px;height:36px;border-radius:10px;background:#E5EFE9;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🧾</div>
+          <div style="flex:1"><div style="font-weight:600;font-size:14px">Receipts folder</div><div style="font-size:12px;color:#999">Save expense receipts to Drive</div></div>
+          <div id="ob-int-check-receipts" style="width:22px;height:22px;border-radius:50%;border:2px solid #E5E5EA;flex-shrink:0"></div>
+        </div>
+      </div>
+      <button onclick="onboardStep4Next()" style="width:100%;padding:16px;background:white;color:var(--forest,#1E3A2F);border:none;border-radius:16px;font-size:16px;font-weight:700;cursor:pointer">Continue →</button>
+      <button onclick="onboardSkipStep(4)" style="width:100%;margin-top:10px;padding:12px;background:transparent;color:rgba(255,255,255,0.6);border:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer;text-decoration:underline;text-underline-offset:3px">Skip — I'll connect later</button>
+    </div>
+
+    <!-- STEP 5: Notifications (optional) -->
+    <div id="onboard-step-5" style="display:none">
+      <div style="text-align:center;margin-top:8px">
+        <div style="font-size:56px;margin-bottom:16px">🔔</div>
+        <div style="font-family:'DM Serif Display',serif;font-size:28px;color:white;margin-bottom:8px">Stay in the loop</div>
+        <div style="font-size:14px;color:rgba(255,255,255,0.6);margin-bottom:28px;max-width:340px;margin-left:auto;margin-right:auto">We'll only ping you when it matters.</div>
+      </div>
+      <div style="background:white;border-radius:20px;padding:22px 24px;margin-bottom:24px">
+        <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+          <div style="color:var(--forest,#1E3A2F);font-weight:700;font-size:14px">✓</div>
+          <div style="font-size:14px;color:#1C1C1E;line-height:1.5">A cleaner replies or marks a job done</div>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+          <div style="color:var(--forest,#1E3A2F);font-weight:700;font-size:14px">✓</div>
+          <div style="font-size:14px;color:#1C1C1E;line-height:1.5">A clean is coming up</div>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <div style="color:var(--forest,#1E3A2F);font-weight:700;font-size:14px">✓</div>
+          <div style="font-size:14px;color:#1C1C1E;line-height:1.5">A booking changes or cancels</div>
+        </div>
+        <div id="ob-notif-result" style="font-size:13px;color:#34C759;font-weight:600;margin-top:14px;display:none"></div>
+      </div>
+      <button id="ob-notif-enable-btn" onclick="onboardEnableNotifications()" style="width:100%;padding:16px;background:white;color:var(--forest,#1E3A2F);border:none;border-radius:16px;font-size:16px;font-weight:700;cursor:pointer">Turn on notifications</button>
+      <button onclick="onboardSkipStep(5)" style="width:100%;margin-top:10px;padding:12px;background:transparent;color:rgba(255,255,255,0.6);border:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer;text-decoration:underline;text-underline-offset:3px">Not now</button>
+    </div>
+
+    <!-- STEP 6: Quick start -->
+    <div id="onboard-step-6" style="display:none">
+      <div style="font-family:'DM Serif Display',serif;font-size:28px;color:white;margin-bottom:8px">You're ready.</div>
+      <div style="font-size:14px;color:rgba(255,255,255,0.6);margin-bottom:24px">Here's what's next.</div>
+      <div id="ob-quickstart-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px"></div>
+      <button onclick="onboardFinish()" style="width:100%;padding:16px;background:white;color:var(--forest,#1E3A2F);border:none;border-radius:16px;font-size:16px;font-weight:700;cursor:pointer">Go to dashboard →</button>
     </div>
 
   </div>
@@ -262,12 +432,38 @@
   .onboard-step-dot {
     height: 4px;
     border-radius: 2px;
-    background: rgba(255,255,255,0.25);
+    background: rgba(255,255,255,0.18);
     flex: 1;
     transition: background 0.3s;
   }
   .onboard-step-dot.active {
-    background: white;
+    background: var(--sage,#8FAF85);
+  }
+  .onboard-step-dot.done {
+    background: rgba(255,255,255,0.55);
+  }
+  .so-success-toast {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-12px);
+    background: var(--forest,#1E3A2F);
+    color: white;
+    padding: 14px 20px;
+    border-radius: 14px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.18);
+    z-index: 9997;
+    opacity: 0;
+    transition: opacity 0.35s ease, transform 0.35s ease;
+    max-width: 90vw;
+    text-align: center;
+  }
+  .so-success-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
   }
 </style>
 </div>

@@ -1956,7 +1956,61 @@ export function showLoginScreen() {
   if (app)   app.style.display   = 'none';
   if (nav)   nav.style.display   = 'none';
   if (hdr)   hdr.style.display   = 'none';
+  // Default to welcome landing
+  welcomeShowLanding();
   hideLoadingScreen();
+}
+
+// ── WELCOME / FORM SECTION TOGGLES ────────────────────────────────────────────
+function _setLoginSection(section) {
+  const welcome = document.getElementById('login-welcome-section');
+  const wrap    = document.getElementById('login-form-wrapper');
+  const signin  = document.getElementById('login-signin-section');
+  const signup  = document.getElementById('login-signup-section');
+  const verify  = document.getElementById('login-verify-section');
+  const toggle  = document.getElementById('login-toggle-row');
+  if (!wrap) return;
+  if (section === 'welcome') {
+    if (welcome) welcome.style.display = '';
+    wrap.style.display = 'none';
+    return;
+  }
+  if (welcome) welcome.style.display = 'none';
+  wrap.style.display = '';
+  if (signin) signin.style.display = section === 'signin' ? '' : 'none';
+  if (signup) signup.style.display = section === 'signup' ? '' : 'none';
+  if (verify) verify.style.display = section === 'verify' ? '' : 'none';
+  // Hide the toggle row on verify step
+  if (toggle) toggle.style.display = section === 'verify' ? 'none' : '';
+  // Update toggle label so it always offers the *other* mode
+  const toggleLink = document.getElementById('login-toggle-link');
+  if (toggleLink) {
+    if (section === 'signin') toggleLink.textContent = "Don't have an account? Create one";
+    else if (section === 'signup') toggleLink.textContent = 'Already have an account? Sign in';
+  }
+}
+
+export function welcomeShowLanding() { _setLoginSection('welcome'); }
+export function welcomeShowSignIn()  { _setLoginSection('signin'); }
+export function welcomeShowSignUp()  { _setLoginSection('signup'); }
+export function welcomeShowVerify()  { _setLoginSection('verify'); }
+
+// ── SUCCESS TOAST ─────────────────────────────────────────────────────────────
+let _toastTimer = null;
+export function showSuccessToast(text, duration) {
+  let el = document.getElementById('so-success-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'so-success-toast';
+    el.className = 'so-success-toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = text || '';
+  // Force reflow then add 'show' for transition
+  void el.offsetWidth;
+  el.classList.add('show');
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { el.classList.remove('show'); }, duration || 4000);
 }
 
 export function showAppChrome() {
@@ -2115,31 +2169,192 @@ export function showCleanerApp() {
 }
 
 export function toggleSignUp() {
-  const loginForm  = document.getElementById('login-signin-section');
-  const signupForm = document.getElementById('login-signup-section');
-  if (!loginForm || !signupForm) return;
-  const isLogin = loginForm.style.display !== 'none';
-  loginForm.style.display  = isLogin ? 'none' : '';
-  signupForm.style.display = isLogin ? '' : 'none';
+  const signin = document.getElementById('login-signin-section');
+  const signup = document.getElementById('login-signup-section');
+  if (!signin || !signup) return;
+  const isLogin = signin.style.display !== 'none';
+  _setLoginSection(isLogin ? 'signup' : 'signin');
 }
 
+// Track the email being verified across steps
+let _pendingVerifyEmail = '';
+let _pendingVerifyName  = '';
+
 export async function handleSignUpSubmit() {
-  const email    = (document.getElementById('signup-email')    || {}).value || '';
+  const name     = (document.getElementById('signup-name')     || {}).value?.trim() || '';
+  const email    = (document.getElementById('signup-email')    || {}).value?.trim() || '';
   const password = (document.getElementById('signup-password') || {}).value || '';
   const errEl    = document.getElementById('signup-error');
   if (errEl) errEl.textContent = '';
-  if (!email || !password) { if (errEl) errEl.textContent = 'Enter your email and password.'; return; }
+  if (!name)     { if (errEl) errEl.textContent = 'Enter your name.'; return; }
+  if (!email)    { if (errEl) errEl.textContent = 'Enter your email.'; return; }
+  if (!password || password.length < 8) { if (errEl) errEl.textContent = 'Password must be at least 8 characters.'; return; }
   const btn = document.getElementById('signup-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Creating account…'; }
-  showLoadingScreen('Creating your account…');
-  const { error } = await supabaseSignUp(email, password);
-  hideLoadingScreen();
-  if (btn) { btn.disabled = false; btn.textContent = 'Create Account'; }
-  if (error) {
-    if (errEl) errEl.textContent = (typeof error === 'object' ? error.message : error) || 'Sign up failed.';
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending code…'; }
+  // Pass display name into Supabase user metadata so we can read it later
+  let result;
+  try {
+    result = await window._sb.auth.signUp({
+      email, password,
+      options: { data: { full_name: name } }
+    });
+  } catch (e) {
+    result = { error: { message: e.message || String(e) } };
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'Continue'; }
+  if (result && result.error) {
+    if (errEl) errEl.textContent = result.error.message || 'Sign up failed.';
     return;
   }
-  if (errEl) errEl.textContent = 'Check your email to confirm your account.';
+  // Stash for verify step
+  _pendingVerifyEmail = email;
+  _pendingVerifyName  = name;
+  const display = document.getElementById('verify-email-display');
+  if (display) display.textContent = email;
+  // If Supabase auto-signed-in (email confirmation off), skip verify
+  if (result && result.data && result.data.session) {
+    if (typeof window._supabaseUser !== 'undefined') window._supabaseUser = result.data.user;
+    await _postAuthBootstrap();
+    return;
+  }
+  welcomeShowVerify();
+  // Focus first digit input
+  setTimeout(() => {
+    const first = document.querySelector('.verify-digit[data-i="0"]');
+    if (first) first.focus();
+  }, 50);
+}
+
+export async function handleVerifySubmit() {
+  const errEl = document.getElementById('verify-error');
+  if (errEl) errEl.textContent = '';
+  const digits = Array.from(document.querySelectorAll('.verify-digit'))
+    .map(i => (i.value || '').replace(/\D/g, '').slice(0, 1))
+    .join('');
+  if (digits.length !== 6) { if (errEl) errEl.textContent = 'Enter the 6-digit code.'; return; }
+  if (!_pendingVerifyEmail) { if (errEl) errEl.textContent = 'Session expired — please sign up again.'; return; }
+  const btn = document.getElementById('verify-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Verifying…'; }
+  let result;
+  try {
+    result = await window._sb.auth.verifyOtp({
+      email: _pendingVerifyEmail,
+      token: digits,
+      type: 'signup'
+    });
+  } catch (e) {
+    result = { error: { message: e.message || String(e) } };
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'Verify'; }
+  if (result && result.error) {
+    if (errEl) errEl.textContent = result.error.message || 'That code didn’t work — try again.';
+    return;
+  }
+  if (result && result.data && result.data.user) window._supabaseUser = result.data.user;
+  await _postAuthBootstrap();
+}
+
+export async function handleResendCode() {
+  const btn = document.getElementById('resend-code-btn');
+  const errEl = document.getElementById('verify-error');
+  if (!_pendingVerifyEmail) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  try {
+    const { error } = await window._sb.auth.resend({
+      type: 'signup',
+      email: _pendingVerifyEmail
+    });
+    if (error) {
+      if (errEl) errEl.textContent = error.message || 'Could not resend.';
+    } else {
+      if (errEl) { errEl.style.color = '#34C759'; errEl.textContent = 'Code resent.'; }
+      setTimeout(() => { if (errEl) { errEl.textContent = ''; errEl.style.color = '#FF3B30'; } }, 2500);
+    }
+  } catch (e) {
+    if (errEl) errEl.textContent = e.message || 'Could not resend.';
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'Resend code'; }
+}
+
+// Verify-digit auto-advance / paste handling — wire once when DOM ready
+function _initVerifyDigitInputs() {
+  const inputs = document.querySelectorAll('.verify-digit');
+  if (!inputs.length) return;
+  inputs.forEach(inp => {
+    inp.addEventListener('input', e => {
+      const i = parseInt(inp.getAttribute('data-i'), 10);
+      const v = (inp.value || '').replace(/\D/g, '').slice(0, 1);
+      inp.value = v;
+      if (v && i < 5) {
+        const next = document.querySelector('.verify-digit[data-i="' + (i + 1) + '"]');
+        if (next) next.focus();
+      }
+      // Auto-submit when last digit filled
+      if (i === 5 && v) {
+        const all = Array.from(inputs).every(x => x.value.length === 1);
+        if (all) handleVerifySubmit();
+      }
+    });
+    inp.addEventListener('keydown', e => {
+      const i = parseInt(inp.getAttribute('data-i'), 10);
+      if (e.key === 'Backspace' && !inp.value && i > 0) {
+        const prev = document.querySelector('.verify-digit[data-i="' + (i - 1) + '"]');
+        if (prev) { prev.focus(); prev.value = ''; }
+      }
+    });
+    inp.addEventListener('paste', e => {
+      const text = (e.clipboardData || window.clipboardData).getData('text') || '';
+      const digits = text.replace(/\D/g, '').slice(0, 6);
+      if (!digits) return;
+      e.preventDefault();
+      inputs.forEach((x, idx) => { x.value = digits[idx] || ''; });
+      const lastFilled = Math.min(digits.length, 6) - 1;
+      const target = document.querySelector('.verify-digit[data-i="' + lastFilled + '"]');
+      if (target) target.focus();
+      if (digits.length === 6) handleVerifySubmit();
+    });
+  });
+}
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _initVerifyDigitInputs);
+  } else {
+    _initVerifyDigitInputs();
+  }
+}
+
+// Shared post-auth bootstrap — runs after either password sign-in OR successful verify
+async function _postAuthBootstrap() {
+  const loginEl = document.getElementById('stayops-login-screen');
+  if (loginEl) loginEl.style.display = 'none';
+  showLoadingScreen('Setting up your StayOps workspace…');
+  try {
+    if (typeof migrateConfigFromLegacySettings === 'function') migrateConfigFromLegacySettings();
+    setLoadingStatus('Preparing your dashboard…');
+    if (typeof seedLocalConfigFromCloud === 'function') await seedLocalConfigFromCloud();
+    if (typeof ensureHostIdentityAndRestore === 'function') await ensureHostIdentityAndRestore();
+    setLoadingStatus('Almost ready…');
+    if (typeof finishAppInit === 'function') await finishAppInit();
+    if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
+    if (typeof reloadInMemoryData === 'function') reloadInMemoryData();
+    if (typeof normalizeBookingCleanState === 'function') normalizeBookingCleanState();
+    if (typeof initPropertyUI === 'function') initPropertyUI();
+    if (typeof window.applyPortfolioModeAfterHostHydrate === 'function') {
+      await window.applyPortfolioModeAfterHostHydrate();
+    }
+    if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) {
+      hideLoadingScreen();
+      if (typeof showOnboarding === 'function') showOnboarding();
+      return;
+    }
+    if (typeof window.isPortfolioMode === 'function' && !window.isPortfolioMode() && typeof renderAll === 'function') {
+      renderAll();
+    }
+  } catch (e) {
+    console.error('[StayOps] Post-auth bootstrap failed:', e);
+  } finally {
+    if (typeof showAppChrome === 'function') showAppChrome();
+  }
 }
 
 

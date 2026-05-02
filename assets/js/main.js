@@ -7,10 +7,11 @@ import {
 } from './config.js';
 import {
   getSupabaseSession, getCurrentSupabaseUser, seedLocalConfigFromCloud, hydrateFromCloud, savePropertyToCloud, saveHostConfigToCloud,
-  loadCleansFromCloud, saveCleanToCloud, saveCleansToCloud, saveInventoryToCloud, saveMaintenanceToCloud, deleteMaintenanceFromCloud,
+  loadCleansFromCloud, saveCleanToCloud, saveCleansToCloud, saveCleanersToCloud, saveInventoryToCloud, saveMaintenanceToCloud, deleteMaintenanceFromCloud,
   saveBookingToCloud, saveBookingsToCloud, deleteBookingFromCloud, saveHostConfigToSupabase, loadHostConfigFromSupabase, saveAppConfigToCloud, saveExpenseToCloud,
   showLoadingScreen, hideLoadingScreen, setLoadingStatus, showLoginScreen, handleAuthFailure, showAppChrome,
-  handleLoginSubmit, handleSignUpSubmit, handleMagicLinkSubmit, toggleSignUp, hostSignOut,
+  handleLoginSubmit, handleSignUpSubmit, handleMagicLinkSubmit, handleVerifySubmit, handleResendCode, toggleSignUp, hostSignOut,
+  welcomeShowLanding, welcomeShowSignIn, welcomeShowSignUp, welcomeShowVerify, showSuccessToast,
   detectUserRole, showCleanerApp, loadCleanerDashboard,
 } from './supabase.js';
 import { calcNights, calcNet } from './utils.js';
@@ -81,8 +82,9 @@ import {
   deleteInventoryItem, openInvEdit, closeInvEdit, saveInvEdit, deleteInventoryItemFromEdit, savePropertyData, reassignBookingProperty, processScanNeedsReview, showAppModal, appModalConfirm,
   appModalCancel, attachButtonPress, animateList, closeActionSheet, attachLongPress, attachModalHandleDrag, isCleanerMode, getCleanerParams, hydrateCleanerFromFunction, _showCleanerLinkError,
   isCleanerAuthed, pinPress, pinDelete, cleanerRefresh, enableCleanerNotifications, cleanerSignOut, switchCleanerTab, switchCleanerCleanTab, renderCleanerView, cleanerAddInventoryItem,
-  cleanerAdjustStock, finishAppInit, showOnboarding, hideOnboarding, _obGoToStep, onboardStep1Next, onboardConnectGoogle, onboardConnectMicrosoft, onboardEmailConnected, onboardStep2Skip,
-  onboardTogglePlatform, onboardFinish, isOnboardingComplete, checkAutoSendReport, _calNavigate, renderOnboardingGuidance,
+  cleanerAdjustStock, finishAppInit, showOnboarding, hideOnboarding, _obGoToStep, onboardSetPropertyType, onboardStep0Next, onboardStep1Next, onboardStep2Next, onboardSkipStep,
+  onboardConnectGoogle, onboardConnectMicrosoft, onboardEmailConnected, onboardStep2Skip,
+  onboardTogglePlatform, onboardStep3Next, onboardToggleIntegration, onboardStep4Next, onboardEnableNotifications, onboardFinish, isOnboardingComplete, checkAutoSendReport, _calNavigate, renderOnboardingGuidance,
   dismissChecklist, renderCleanerCleans
 } from './render.js';
 /* eslint-enable no-unused-vars */
@@ -120,6 +122,7 @@ globalThis.saveBookingsToCloud = saveBookingsToCloud;
 globalThis.deleteBookingFromCloud = deleteBookingFromCloud;
 globalThis.saveCleanToCloud = saveCleanToCloud;
 globalThis.saveCleansToCloud = saveCleansToCloud;
+globalThis.saveCleanersToCloud = saveCleanersToCloud;
 globalThis.getCurrentSupabaseUser = getCurrentSupabaseUser;
 globalThis.getFreshHostSub = getFreshHostSub;
 globalThis.sendPushToDevice = sendPushToDevice;
@@ -145,7 +148,14 @@ globalThis.renderCleanerCleans = renderCleanerCleans;
 window.handleLoginSubmit        = handleLoginSubmit;
 window.handleSignUpSubmit       = handleSignUpSubmit;
 window.handleMagicLinkSubmit    = handleMagicLinkSubmit;
+window.handleVerifySubmit       = handleVerifySubmit;
+window.handleResendCode         = handleResendCode;
 window.toggleSignUp             = toggleSignUp;
+window.welcomeShowLanding       = welcomeShowLanding;
+window.welcomeShowSignIn        = welcomeShowSignIn;
+window.welcomeShowSignUp        = welcomeShowSignUp;
+window.welcomeShowVerify        = welcomeShowVerify;
+window.showSuccessToast         = showSuccessToast;
 window.hostSignOut              = hostSignOut;
 window.addBooking               = addBooking;
 window.addClean                 = addClean;
@@ -207,8 +217,16 @@ window.mgmtPrev                 = mgmtPrev;
 window.onboardConnectGoogle     = onboardConnectGoogle;
 window.onboardConnectMicrosoft  = onboardConnectMicrosoft;
 window.onboardFinish            = onboardFinish;
+window.onboardSetPropertyType   = onboardSetPropertyType;
+window.onboardStep0Next         = onboardStep0Next;
 window.onboardStep1Next         = onboardStep1Next;
+window.onboardStep2Next         = onboardStep2Next;
+window.onboardStep3Next         = onboardStep3Next;
+window.onboardStep4Next         = onboardStep4Next;
+window.onboardSkipStep          = onboardSkipStep;
 window.onboardTogglePlatform    = onboardTogglePlatform;
+window.onboardToggleIntegration = onboardToggleIntegration;
+window.onboardEnableNotifications = onboardEnableNotifications;
 window.openFinancePanelFromHub  = openFinancePanelFromHub;
 window.openModal                = openModal;
 window.openOwnerReportFromHub   = openOwnerReportFromHub;
