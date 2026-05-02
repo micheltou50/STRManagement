@@ -6,7 +6,7 @@
 import { saveAppConfigToCloud, getCurrentSupabaseUser } from './supabase.js';
 import { getActivePropertyConfig } from './config.js';
 
-const ADMIN_EMAIL = 'micheltou50@gmail.com';
+const ADMIN_EMAILS = ['micheltoubia@outlook.com', 'micheltou50@gmail.com'];
 
 /* ── Default notification_config ─────────────────────────────────────────── */
 const DEFAULT_CONFIG = {
@@ -52,16 +52,16 @@ async function persistConfig() {
 export async function isAdmin() {
   try {
     const user = await getCurrentSupabaseUser();
-    return user && user.email === ADMIN_EMAIL;
+    return user && ADMIN_EMAILS.includes(user.email);
   } catch { return false; }
 }
 
 export function isAdminSync() {
   try {
-    if (window._supabaseUser && window._supabaseUser.email === ADMIN_EMAIL) return true;
+    if (window._supabaseUser && ADMIN_EMAILS.includes(window._supabaseUser.email)) return true;
     if (window._sb && window._sb.auth) {
       const session = window._sb.auth.session && window._sb.auth.session();
-      if (session && session.user && session.user.email === ADMIN_EMAIL) return true;
+      if (session && session.user && ADMIN_EMAILS.includes(session.user.email)) return true;
     }
   } catch { /* ignore */ }
   return false;
