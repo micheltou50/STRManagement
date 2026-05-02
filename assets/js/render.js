@@ -818,29 +818,25 @@ globalThis._stayopsSetTodayCalView = (v) => {
   });
 };
 
-// Open daily detail view when tapping a day on the weekly/monthly calendar
 globalThis._stayopsOpenDayView = (dayOffset) => {
-  globalThis._stayopsTodayDayOffset = dayOffset;
-  globalThis._stayopsTodayCalView = 'daily';
-  _dashSlideTransition('fade', () => {});
+  globalThis._stayopsCalSelectedDay = dayOffset;
+  globalThis.renderDashboard?.();
 };
 
-// Back from daily view to previous view
 globalThis._stayopsCloseDayView = () => {
-  globalThis._stayopsTodayCalView = globalThis._stayopsPrevCalView || 'weekly';
-  globalThis._stayopsTodayDayOffset = 0;
-  _dashSlideTransition('fade', () => {});
+  globalThis._stayopsCalSelectedDay = null;
+  globalThis.renderDashboard?.();
 };
 
 globalThis._stayopsTodayDayNav = (delta) => {
   _dashSlideTransition(delta > 0 ? 'next' : 'prev', () => {
-    globalThis._stayopsTodayDayOffset =
-      (globalThis._stayopsTodayDayOffset || 0) + delta;
+    globalThis._stayopsCalSelectedDay =
+      (globalThis._stayopsCalSelectedDay || 0) + delta;
   });
 };
 
 globalThis._stayopsTodayDayReset = () => {
-  globalThis._stayopsTodayDayOffset = 0;
+  globalThis._stayopsCalSelectedDay = 0;
   globalThis.renderDashboard?.();
 };
 
@@ -1162,8 +1158,7 @@ function buildStayopsUnifiedTodayCalendarHtml({
   tertiary,
   primary,
 }) {
-  const view = globalThis._stayopsTodayCalView || 'weekly';
-  const dayOffset = globalThis._stayopsTodayDayOffset || 0;
+  const selectedDay = globalThis._stayopsCalSelectedDay;
 
   const cleanForPropertyOnDate = (dayStr) =>
     cleans.find((c) => {
@@ -1189,46 +1184,6 @@ function buildStayopsUnifiedTodayCalendarHtml({
       return ds === dayStr;
     });
 
-  const segBtn = (v, label) => {
-    const on = view === v;
-    return `<button type="button" onclick="_stayopsSetTodayCalView('${v}')" style="flex:1;border:none;border-radius:8px;padding:6px 4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;touch-action:manipulation;color:${on ? primary : tertiary};background:${on ? '#fff' : 'transparent'};box-shadow:${on ? '0 1px 3px rgba(0,0,0,0.12)' : 'none'}">${label}</button>`;
-  };
-
-  const bookingUpcoming = (b) => {
-    const ci = parseLocalDayStart(b.checkin);
-    return !Number.isNaN(ci.getTime()) && ci > todayStart;
-  };
-
-  const bookingBarsBlock = (rangeStart, rangeEnd) => {
-    const list = activeBookings
-      .filter((b) => {
-        if (!b.checkin || !b.checkout) return false;
-        const ci = parseLocalDayStart(b.checkin);
-        const co = parseLocalDayStart(b.checkout);
-        if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) return false;
-        return co > rangeStart && ci < rangeEnd;
-      })
-      .sort((a, b) => parseLocalDayStart(a.checkin) - parseLocalDayStart(b.checkin));
-    if (!list.length) return '';
-    const rows = list
-      .map((b) => {
-        const up = bookingUpcoming(b);
-        const bg = up ? '#E3F2FD' : '#D4EDDA';
-        const co = parseLocalDayStart(b.checkout);
-        const ci = parseLocalDayStart(b.checkin);
-        let r = fmtShort(b.checkin) + ' \u2013 ' + fmtShort(b.checkout);
-        if (ci < rangeStart) r = '\u2190 ' + r;
-        if (co > rangeEnd) r += ' \u2192';
-        const bidEsc = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
-        return `<div onclick="showDetail('${bidEsc}')" style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;margin-bottom:6px;background:${bg};cursor:pointer;touch-action:manipulation">
-        <span style="font-size:12px;font-weight:500;color:${primary}">${escHtml(b.name)}</span>
-        <span style="font-size:11px;color:${tertiary};text-align:right;white-space:nowrap;margin-left:8px">${escHtml(r)}</span>
-      </div>`;
-      })
-      .join('');
-    return `<div style="margin-top:12px;padding-top:12px;border-top:0.5px solid rgba(0,0,0,0.1)">${rows}</div>`;
-  };
-
   const svgIn =
     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 19V5M12 5l4 4M12 5L8 9"/></svg>';
   const svgOut =
@@ -1239,150 +1194,168 @@ function buildStayopsUnifiedTodayCalendarHtml({
     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 010 1.4l-2.8 2.8a4 4 0 11-5.6 5.6l-.7-.7 3.5-3.5-2.5-2.5 3.5-3.5.7.7a4 4 0 011.9-1.8c.5-.3 1.1-.2 1.5.2z"/></svg>';
 
   const dailyCard = (bg, border, titleC, iconBg, iconFg, svgEl, title, subHtml) =>
-    `<div style="display:flex;gap:10px;align-items:flex-start;padding:12px;border-left:3px solid ${border};border-radius:8px;background:${bg};margin-bottom:8px">
-      <div style="width:28px;height:28px;border-radius:8px;background:${iconBg};color:${iconFg};flex-shrink:0;display:flex;align-items:center;justify-content:center">${svgEl}</div>
+    `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-left:3px solid ${border};border-radius:8px;background:${bg};margin-bottom:6px">
+      <div style="width:26px;height:26px;border-radius:8px;background:${iconBg};color:${iconFg};flex-shrink:0;display:flex;align-items:center;justify-content:center">${svgEl}</div>
       <div style="min-width:0;flex:1">
         <div style="font-size:13px;font-weight:600;color:${titleC}">${title}</div>
         ${subHtml ? `<div style="font-size:12px;color:var(--text-soft);margin-top:2px">${subHtml}</div>` : ''}
       </div>
     </div>`;
 
-  let bodyHtml;
+  // ── Month grid ──
+  const calM = _getTodayCalMonthStart();
+  const calYear = calM.getFullYear();
+  const calMonth = calM.getMonth();
+  const calMonthName = calM.toLocaleString('en-AU', { month: 'long', year: 'numeric' });
+  const firstJsDow = new Date(calYear, calMonth, 1).getDay();
+  const gridStart = new Date(calYear, calMonth, 1 - firstJsDow);
+  const calHeader = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
+    .map(
+      (h) =>
+        `<div style="text-align:center;font-size:10px;font-weight:600;color:${tertiary};padding:4px 0">${h}</div>`
+    )
+    .join('');
 
-  if (view === 'daily') {
-    const focus = new Date(todayStart);
-    focus.setDate(focus.getDate() + dayOffset);
-    const ds = _ymd(focus);
-    const headLine = `${focus.toLocaleDateString('en-AU', { weekday: 'long' })}, ${focus.getDate()} ${focus.toLocaleDateString('en-AU', { month: 'short' })}`;
-    const isFocusToday = ds === _ymd(todayStart);
-    const todaySub = isFocusToday
-      ? `<div style="font-size:12px;color:var(--text-soft);margin-top:2px;text-align:center">Today</div>`
-      : '';
+  const _calPlatformColor = (platform) => {
+    const p = String(platform || '').toLowerCase();
+    if (p.includes('airbnb')) return { bg: '#FFDADA', text: '#C0392B' };
+    if (p.includes('vrbo') || p.includes('homeaway')) return { bg: '#D5D8F0', text: '#3B5998' };
+    if (p.includes('booking')) return { bg: '#C8D8F0', text: '#1A3B6E' };
+    return { bg: '#C8E6C9', text: '#2D5A3D' };
+  };
 
-    const curGuest = activeBookings.find((b) => {
-      const ci = parseLocalDayStart(b.checkin);
-      const co = parseLocalDayStart(b.checkout);
-      const d0 = new Date(focus.getFullYear(), focus.getMonth(), focus.getDate());
-      return (
-        !Number.isNaN(ci.getTime()) &&
-        !Number.isNaN(co.getTime()) &&
-        d0 >= ci &&
-        d0 < co
-      );
-    });
-    let statusPill;
-    if (curGuest) {
-      statusPill = `<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#E8F5E9;color:#1D9E75;font-size:12px;font-weight:600">${escHtml(curGuest.name)}</span>`;
-    } else {
-      statusPill = `<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#F1EFE8;color:#5F5E5A;font-size:12px;font-weight:600">Vacant</span>`;
+  const selDate = selectedDay != null ? new Date(todayStart.getFullYear(), todayStart.getMonth(), todayStart.getDate() + selectedDay) : null;
+  const selYmd = selDate ? _ymd(selDate) : null;
+
+  const barH = 16;
+  const barGap = 1;
+  const barTopBase = 24;
+
+  // Assign booking lanes for vertical stacking
+  const sortedBookings = activeBookings
+    .filter(b => b.checkin && b.checkout && b.status !== 'cancelled')
+    .sort((a, b) => parseLocalDayStart(a.checkin) - parseLocalDayStart(b.checkin));
+  const bookingLanes = new Map();
+  const laneEnds = [];
+  sortedBookings.forEach(b => {
+    const ci = parseLocalDayStart(b.checkin);
+    let lane = 0;
+    while (lane < laneEnds.length && laneEnds[lane] > ci.getTime()) lane++;
+    if (lane >= laneEnds.length) laneEnds.push(0);
+    laneEnds[lane] = parseLocalDayStart(b.checkout).getTime();
+    bookingLanes.set(b, lane);
+  });
+  const maxLanes = laneEnds.length || 1;
+  const dynamicCellH = barTopBase + maxLanes * (barH + barGap) + 14;
+
+  let calCells = '';
+  for (let c = 0; c < 42; c++) {
+    const cellDate = new Date(gridStart);
+    cellDate.setDate(gridStart.getDate() + c);
+    const inMonth = cellDate.getMonth() === calMonth && cellDate.getFullYear() === calYear;
+    const dayNum = cellDate.getDate();
+    const ymdStr = _ymd(cellDate);
+    const isTodayCell = ymdStr === _ymd(todayStart);
+    const isSelected = ymdStr === selYmd;
+    const numColor = inMonth ? primary : tertiary;
+    const numStyle = isTodayCell
+      ? `width:22px;height:22px;border-radius:50%;background:#2D5A3D;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700`
+      : isSelected
+        ? `width:22px;height:22px;border-radius:50%;background:#E6F1FB;color:#0C447C;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700`
+        : `font-size:11px;color:${numColor};font-weight:500;opacity:${inMonth ? 1 : 0.4}`;
+
+    let dots = '';
+    if (inMonth) {
+      const cl = cleanForPropertyOnDate(ymdStr);
+      const ml = maintListForDate(ymdStr);
+      const dotItems = [];
+      if (cl) dotItems.push(cl.done ? '#00695C' : '#0D47A1');
+      ml.forEach(() => dotItems.push('#E65100'));
+      if (dotItems.length) {
+        dots = `<div style="display:flex;justify-content:center;gap:3px;position:absolute;bottom:2px;left:0;right:0">${dotItems.map(dc => `<span style="width:5px;height:5px;border-radius:50%;background:${dc}"></span>`).join('')}</div>`;
+      }
     }
+
+    const dayClickOffset = Math.round((cellDate.getTime() - todayStart.getTime()) / 86400000);
+    calCells += `<div onclick="_stayopsOpenDayView(${dayClickOffset})" style="position:relative;text-align:center;padding:2px 0 0;height:${dynamicCellH}px;box-sizing:border-box;cursor:pointer;border-top:0.5px solid rgba(0,0,0,0.06)">
+      <span style="${numStyle}">${dayNum}</span>${dots}
+    </div>`;
+  }
+
+  // Continuous booking bars as absolute overlays
+  const gridStartMs = gridStart.getTime();
+  const dayMs = 86400000;
+  const colW = 100 / 7;
+  const bookingOverlays = sortedBookings.map(b => {
+    const ci = parseLocalDayStart(b.checkin);
+    const co = parseLocalDayStart(b.checkout);
+    if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) return '';
+    let startIdx = Math.round((ci.getTime() - gridStartMs) / dayMs);
+    let endIdx = Math.round((co.getTime() - gridStartMs) / dayMs);
+    if (endIdx <= 0 || startIdx >= 42) return '';
+    startIdx = Math.max(0, startIdx);
+    endIdx = Math.min(42, endIdx);
+    const lane = bookingLanes.get(b) || 0;
+    const pc = _calPlatformColor(b.platform);
+    const bidEsc = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
+    const guestLabel = escHtml((b.name || 'Guest').split(' ')[0]);
+    const bars = [];
+    let idx = startIdx;
+    while (idx < endIdx) {
+      const row = Math.floor(idx / 7);
+      const colStart = idx % 7;
+      const colEnd = Math.min(7, colStart + (endIdx - idx));
+      const span = colEnd - colStart;
+      const left = colStart * colW;
+      const width = span * colW;
+      const top = row * dynamicCellH + barTopBase + lane * (barH + barGap);
+      const isStart = idx === startIdx;
+      const isEnd = (idx + span) >= endIdx;
+      const rLeft = isStart ? '4px' : '0';
+      const rRight = isEnd ? '4px' : '0';
+      bars.push(
+        `<div onclick="event.stopPropagation();showDetail('${bidEsc}')" style="position:absolute;top:${top}px;left:calc(${left}% + 1px);width:calc(${width}% - 2px);height:${barH}px;background:${pc.bg};border-radius:${rLeft} ${rRight} ${rRight} ${rLeft};display:flex;align-items:center;padding:0 4px;cursor:pointer;z-index:2;box-sizing:border-box;overflow:hidden">` +
+        (isStart ? `<span style="font-size:9px;font-weight:700;color:${pc.text};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${guestLabel}</span>` : '') +
+        `</div>`
+      );
+      idx += span;
+    }
+    return bars.join('');
+  }).join('');
+
+  // ── Inline day detail (iOS-style) ──
+  let dayDetailHtml = '';
+  if (selDate) {
+    const ds = selYmd;
+    const headLine = `${selDate.toLocaleDateString('en-AU', { weekday: 'long' })}, ${selDate.getDate()} ${selDate.toLocaleDateString('en-AU', { month: 'short' })}`;
 
     const parts = [];
     const cinB = activeBookings.find((b) => String(b.checkin || '').slice(0, 10) === ds);
     if (cinB) {
-      parts.push(
-        dailyCard(
-          '#E8F5E9',
-          '#1D9E75',
-          'var(--forest, #2D5A3D)',
-          '#D4EDDA',
-          '#1D9E75',
-          svgIn,
-          'Check-in',
-          escHtml(cinB.name) +
-            (cinB.guests
-              ? ` \u00b7 ${escHtml(String(cinB.guests))} guest${cinB.guests === 1 ? '' : 's'}`
-              : '')
-        )
-      );
+      parts.push(dailyCard('#E8F5E9', '#1D9E75', 'var(--forest,#2D5A3D)', '#D4EDDA', '#1D9E75', svgIn, 'Check-in',
+        escHtml(cinB.name) + (cinB.guests ? ` · ${escHtml(String(cinB.guests))} guest${cinB.guests === 1 ? '' : 's'}` : '')));
     }
     const coutB = activeBookings.find((b) => String(b.checkout || '').slice(0, 10) === ds);
     if (coutB) {
-      parts.push(
-        dailyCard(
-          '#FEF2F2',
-          '#E24B4A',
-          '#A32D2D',
-          '#FCEBEB',
-          '#E24B4A',
-          svgOut,
-          'Check-out',
-          escHtml(coutB.name)
-        )
-      );
+      parts.push(dailyCard('#FEF2F2', '#E24B4A', '#A32D2D', '#FCEBEB', '#E24B4A', svgOut, 'Check-out', escHtml(coutB.name)));
       const mc = findMatchingCleanForBooking(coutB);
       const hasCl = !!(mc && (String(mc.cleaner || '').trim() || mc.cleanerId));
       if (mc && !mc.done) {
-        parts.push(
-          dailyCard(
-            '#FEF2F2',
-            '#E24B4A',
-            '#A32D2D',
-            '#FCEBEB',
-            '#E24B4A',
-            svgSpark,
-            'Clean not done',
-            escHtml(mc.cleaner || 'Cleaner') + ' \u00b7 ' + fmtShort(mc.date || coutB.checkout)
-          )
-        );
+        parts.push(dailyCard('#FEF2F2', '#E24B4A', '#A32D2D', '#FCEBEB', '#E24B4A', svgSpark, 'Clean not done',
+          escHtml(mc.cleaner || 'Cleaner') + ' · ' + fmtShort(mc.date || coutB.checkout)));
       } else if (!hasCl) {
-        parts.push(
-          dailyCard(
-            '#FEF2F2',
-            '#E24B4A',
-            '#A32D2D',
-            '#FCEBEB',
-            '#E24B4A',
-            svgSpark,
-            'Clean needed',
-            'No cleaner assigned for departure'
-          )
-        );
+        parts.push(dailyCard('#FEF2F2', '#E24B4A', '#A32D2D', '#FCEBEB', '#E24B4A', svgSpark, 'Clean needed', 'No cleaner assigned'));
       }
     }
 
     const clOnly = cleanForPropertyOnDate(ds);
     if (clOnly && (!coutB || findMatchingCleanForBooking(coutB)?.id !== clOnly.id)) {
       const clAssigned = !!((clOnly.cleaner && String(clOnly.cleaner).trim()) || clOnly.cleanerId);
-      if (clOnly.done) {
-        parts.push(
-          dailyCard(
-            '#E8F5E9',
-            '#1D9E75',
-            'var(--forest, #2D5A3D)',
-            '#D4EDDA',
-            '#1D9E75',
-            svgSpark,
-            'Clean complete',
-            escHtml(clOnly.cleaner || 'Cleaner') + ' \u00b7 ' + fmtShort(clOnly.date)
-          )
-        );
-      } else if (clAssigned) {
-        parts.push(
-          dailyCard(
-            '#E8F5E9',
-            '#1D9E75',
-            'var(--forest, #2D5A3D)',
-            '#D4EDDA',
-            '#1D9E75',
-            svgSpark,
-            'Clean scheduled',
-            escHtml(clOnly.cleaner || 'Cleaner') + ' \u00b7 ' + fmtShort(clOnly.date)
-          )
-        );
+      if (clAssigned) {
+        parts.push(dailyCard('#E8F5E9', '#1D9E75', 'var(--forest,#2D5A3D)', '#D4EDDA', '#1D9E75', svgSpark,
+          clOnly.done ? 'Clean complete' : 'Clean scheduled', escHtml(clOnly.cleaner || 'Cleaner')));
       } else {
-        parts.push(
-          dailyCard(
-            '#FEF2F2',
-            '#E24B4A',
-            '#A32D2D',
-            '#FCEBEB',
-            '#E24B4A',
-            svgSpark,
-            'Clean needed',
-            'No cleaner assigned \u00b7 ' + fmtShort(clOnly.date)
-          )
-        );
+        parts.push(dailyCard('#FEF2F2', '#E24B4A', '#A32D2D', '#FCEBEB', '#E24B4A', svgSpark, 'Clean needed', 'No cleaner assigned'));
       }
     }
 
@@ -1390,314 +1363,46 @@ function buildStayopsUnifiedTodayCalendarHtml({
       const occ = activeBookings.find((b) => {
         const ci = parseLocalDayStart(b.checkin);
         const co = parseLocalDayStart(b.checkout);
-        const d0 = new Date(focus.getFullYear(), focus.getMonth(), focus.getDate());
+        const d0 = new Date(selDate.getFullYear(), selDate.getMonth(), selDate.getDate());
         if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) return false;
-        if (!(d0 >= ci && d0 < co)) return false;
-        if (String(b.checkin || '').slice(0, 10) === ds) return false;
-        if (String(b.checkout || '').slice(0, 10) === ds) return false;
-        return true;
+        return d0 >= ci && d0 < co;
       });
       if (occ) {
         const ci = parseLocalDayStart(occ.checkin);
-        const n = Math.max(1, Math.floor((focus.getTime() - ci.getTime()) / 86400000) + 1);
-        parts.push(
-          dailyCard(
-            '#E8F5E9',
-            '#92C9A9',
-            'var(--sage, #3D6B4F)',
-            '#D4EDDA',
-            '#1D9E75',
-            svgIn,
-            'Stay in progress',
-            `${escHtml(occ.name)} \u00b7 night ${n}`
-          )
-        );
+        const n = Math.max(1, Math.floor((selDate.getTime() - ci.getTime()) / 86400000) + 1);
+        parts.push(dailyCard('#E8F5E9', '#92C9A9', 'var(--sage,#3D6B4F)', '#D4EDDA', '#1D9E75', svgIn,
+          'Stay in progress', `${escHtml(occ.name)} · night ${n}`));
       }
     }
 
     maintListForDate(ds).forEach((mt) => {
-      parts.push(
-        dailyCard(
-          '#FFF8E1',
-          '#D4A017',
-          '#7A5A00',
-          '#FFECB3',
-          '#D4A017',
-          svgWrench,
-          escHtml(mt.description || 'Maintenance'),
-          escHtml(fmt(mt.date || mt.scheduledDate || ''))
-        )
-      );
+      parts.push(dailyCard('#FFF8E1', '#D4A017', '#7A5A00', '#FFECB3', '#D4A017', svgWrench,
+        escHtml(mt.description || 'Maintenance'), escHtml(fmt(mt.date || mt.scheduledDate || ''))));
     });
 
-    const emptyHint =
-      !parts.length
-        ? `<div style="font-size:13px;color:var(--text-soft);text-align:center;padding:16px 8px">No events today</div>`
-        : '';
+    const emptyHint = !parts.length
+      ? `<div style="font-size:13px;color:var(--text-soft);text-align:center;padding:12px 8px">No events</div>`
+      : '';
 
-    const resetDay =
-      dayOffset !== 0
-        ? `<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><span onclick="_stayopsTodayDayReset()" style="font-size:11px;font-weight:600;color:var(--forest);cursor:pointer">Today</span></div>`
-        : '';
-
-    bodyHtml =
-      `<div onclick="_stayopsCloseDayView()" style="display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:600;color:var(--forest);cursor:pointer;margin-bottom:10px">‹ Back</div>` +
-      `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">
-        <button type="button" onclick="_stayopsTodayDayNav(-1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">‹</button>
-        <div style="text-align:center;flex:1;min-width:0">
-          <div style="font-size:14px;font-weight:600;color:${primary}">${headLine}</div>
-          ${todaySub}
-        </div>
-        <button type="button" onclick="_stayopsTodayDayNav(1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">›</button>
-      </div>` +
-      resetDay +
-      `<div style="margin-bottom:12px;text-align:center">${statusPill}</div>` +
-      parts.join('') +
-      emptyHint;
-  } else if (view === 'weekly') {
-    if (!_todayWeekStart) _todayWeekStart = _mondayStart(new Date());
-    const wkStart = new Date(
-      _todayWeekStart.getFullYear(),
-      _todayWeekStart.getMonth(),
-      _todayWeekStart.getDate()
-    );
-    const wkEnd = new Date(wkStart);
-    wkEnd.setDate(wkEnd.getDate() + 7);
-    const wkEndLbl = new Date(wkStart);
-    wkEndLbl.setDate(wkEndLbl.getDate() + 6);
-    const wkRange =
-      wkStart.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) +
-      ' \u2014 ' +
-      wkEndLbl.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
-
-    const pillDot = (col) =>
-      `<span style="width:6px;height:6px;border-radius:50%;background:${col};flex-shrink:0"></span>`;
-
-    const rows = [];
-    for (let i = 0; i < 7; i++) {
-      const dayDate = new Date(wkStart);
-      dayDate.setDate(dayDate.getDate() + i);
-      const dStr = _ymd(dayDate);
-      const isTodayRow = dStr === _ymd(todayStart);
-      const dnum = dayDate.getDate();
-      const dname = dayDate.toLocaleDateString('en-AU', { weekday: 'short' });
-      const pills = [];
-
-      const cinBk = activeBookings.find((b) => String(b.checkin || '').slice(0, 10) === dStr);
-      const coutBk = activeBookings.find((b) => String(b.checkout || '').slice(0, 10) === dStr);
-
-      if (coutBk) {
-        pills.push(
-          `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#FEF2F2;color:#A32D2D;margin-bottom:4px">${pillDot('#E24B4A')}Check-out: ${escHtml(coutBk.name)}</div>`
-        );
-        const mc = findMatchingCleanForBooking(coutBk);
-        const hasCl = !!(mc && (String(mc.cleaner || '').trim() || mc.cleanerId));
-        if (mc && !mc.done) {
-          pills.push(
-            `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#FEF2F2;color:#A32D2D;margin-bottom:4px">${pillDot('#E24B4A')}Clean not done</div>`
-          );
-        } else if (!hasCl) {
-          pills.push(
-            `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#FAEEDA;color:#BA7517;margin-bottom:4px">${pillDot('#BA7517')}Clean needed</div>`
-          );
-        }
-      }
-      if (cinBk) {
-        const gc =
-          cinBk.guests != null && cinBk.guests !== ''
-            ? `<span style="margin-left:6px;font-size:11px;font-weight:600;opacity:0.9">${escHtml(String(cinBk.guests))} guests</span>`
-            : '';
-        pills.push(
-          `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#E8F5E9;color:#1D9E75;margin-bottom:4px"><span style="display:flex;align-items:center;gap:6px;min-width:0">${pillDot('#1D9E75')}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Check-in: ${escHtml(cinBk.name)}</span></span>${gc}</div>`
-        );
-      }
-
-      maintListForDate(dStr).forEach((mt) => {
-        pills.push(
-          `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#FFF8E1;color:#7A5A00;margin-bottom:4px">
-            <span style="flex-shrink:0;display:flex;color:#D4A017">${svgWrench}</span>
-            <span style="overflow:hidden;text-overflow:ellipsis"><span style="font-weight:600">${escHtml(fmt(mt.date || mt.scheduledDate || ''))}</span> \u00b7 ${escHtml(mt.description || 'Maintenance')}</span>
-          </div>`
-        );
-      });
-
-      if (!cinBk && !coutBk) {
-        const occ = activeBookings.find((b) => {
-          const ci = parseLocalDayStart(b.checkin);
-          const co = parseLocalDayStart(b.checkout);
-          const d0 = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate());
-          if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) return false;
-          if (!(d0 >= ci && d0 < co)) return false;
-          if (String(b.checkin || '').slice(0, 10) === dStr) return false;
-          if (String(b.checkout || '').slice(0, 10) === dStr) return false;
-          return true;
-        });
-        if (occ) {
-          const ci = parseLocalDayStart(occ.checkin);
-          const n = Math.max(1, Math.floor((dayDate.getTime() - ci.getTime()) / 86400000) + 1);
-          pills.push(
-            `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#E8F5E9;color:#1D9E75;margin-bottom:4px">${pillDot('#1D9E75')}${escHtml(occ.name)} \u00b7 night ${n}</div>`
-          );
-        }
-      }
-
-      const cl = cleanForPropertyOnDate(dStr);
-      if (cl && (!coutBk || findMatchingCleanForBooking(coutBk)?.id !== cl.id)) {
-        const clAssigned = !!((cl.cleaner && String(cl.cleaner).trim()) || cl.cleanerId);
-        if (cl.done) {
-          pills.push(
-            `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#E8F5E9;color:#1D9E75;margin-bottom:4px">${pillDot('#1D9E75')}Clean done</div>`
-          );
-        } else if (!clAssigned) {
-          pills.push(
-            `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#FAEEDA;color:#BA7517;margin-bottom:4px">${pillDot('#BA7517')}Clean needed</div>`
-          );
-        } else {
-          pills.push(
-            `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:500;background:#FEF2F2;color:#A32D2D;margin-bottom:4px">${pillDot('#E24B4A')}Clean not done</div>`
-          );
-        }
-      }
-
-      const rightContent =
-        pills.length > 0
-          ? pills.join('')
-          : `<span style="font-size:12px;color:var(--text-soft)">\u2014</span>`;
-
-      const leftNumStyle = isTodayRow
-        ? 'width:26px;height:26px;border-radius:50%;background:#1E3A2F;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700'
-        : 'font-size:14px;font-weight:600;color:' + primary;
-
-      const rowBg = isTodayRow ? 'background:var(--warm);' : '';
-      const rowBorder = i < 6 ? 'border-bottom:0.5px solid rgba(0,0,0,0.06);' : '';
-      const dayClickOffset = Math.round((dayDate.getTime() - todayStart.getTime()) / 86400000);
-      rows.push(
-        `<div onclick="_stayopsOpenDayView(${dayClickOffset})" style="display:flex;gap:10px;align-items:flex-start;padding:10px 8px;cursor:pointer;${rowBg}${rowBorder}">
-          <div style="width:52px;flex-shrink:0;text-align:center">
-            <div style="font-size:11px;font-weight:600;color:${tertiary};text-transform:capitalize">${dname}</div>
-            <div style="margin-top:4px"><span style="${leftNumStyle}">${dnum}</span></div>
-          </div>
-          <div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:stretch">${rightContent}</div>
-        </div>`
-      );
-    }
-
-    bodyHtml =
-      `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px">
-        <button type="button" onclick="_todayWeekNav(-1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">‹</button>
-        <div style="font-size:14px;font-weight:600;color:${primary};text-align:center;flex:1">${escHtml(wkRange)}</div>
-        <button type="button" onclick="_todayWeekNav(1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">›</button>
-      </div>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-        <span onclick="_todayWeekReset()" style="font-size:11px;font-weight:600;color:var(--forest);cursor:pointer">This week</span>
-      </div>
-      <div style="border-radius:10px;overflow:hidden;border:0.5px solid rgba(0,0,0,0.06)">
-        ${rows.join('')}
-      </div>` +
-      bookingBarsBlock(wkStart, wkEnd);
-  } else {
-    const calM = _getTodayCalMonthStart();
-    const calYear = calM.getFullYear();
-    const calMonth = calM.getMonth();
-    const calMonthName = calM.toLocaleString('en-AU', { month: 'long', year: 'numeric' });
-    const firstJsDow = new Date(calYear, calMonth, 1).getDay();
-    const gridStart = new Date(calYear, calMonth, 1 - firstJsDow);
-    const calHeader = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
-      .map(
-        (h) =>
-          `<div style="text-align:center;font-size:10px;font-weight:600;color:${tertiary};padding:4px 0">${h}</div>`
-      )
-      .join('');
-
-    const _calPillColor = (platform) => {
-      const p = String(platform || '').toLowerCase();
-      if (p.includes('airbnb')) return { bg: '#FFDADA', text: '#C0392B' };
-      if (p.includes('vrbo') || p.includes('homeaway')) return { bg: '#D5D8F0', text: '#3B5998' };
-      if (p.includes('booking')) return { bg: '#C8D8F0', text: '#1A3B6E' };
-      return { bg: '#C8E6C9', text: '#2D5A3D' };
-    };
-
-    const maxPills = 3;
-    let calCells = '';
-    const totalCells = 42;
-    for (let c = 0; c < totalCells; c++) {
-      const cellDate = new Date(gridStart);
-      cellDate.setDate(gridStart.getDate() + c);
-      const inMonth = cellDate.getMonth() === calMonth && cellDate.getFullYear() === calYear;
-      const dayNum = cellDate.getDate();
-      const ymdStr = _ymd(cellDate);
-      const isTodayCell = ymdStr === _ymd(todayStart);
-      const numColor = inMonth ? primary : tertiary;
-      const numStyle = isTodayCell
-        ? `width:22px;height:22px;border-radius:50%;background:#2D5A3D;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700`
-        : `font-size:11px;color:${numColor};font-weight:500;opacity:${inMonth ? 1 : 0.4}`;
-
-      const pills = [];
-      if (inMonth) {
-        activeBookings.forEach(b => {
-          if (!b.checkin || !b.checkout) return;
-          const ciStr = (b.checkin || '').slice(0, 10);
-          const coStr = (b.checkout || '').slice(0, 10);
-          const ci = parseLocalDayStart(b.checkin);
-          const co = parseLocalDayStart(b.checkout);
-          const d = parseLocalDayStart(ymdStr);
-          if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) return;
-          if (!(d >= ci && d < co)) return;
-          const pc = _calPillColor(b.platform);
-          const bidEsc = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
-          let label = escHtml((b.name || 'Guest').split(' ')[0]);
-          if (ciStr === ymdStr) label = '↑ ' + label;
-          else if (coStr === ymdStr) label = '↓ ' + label;
-          pills.push(`<div onclick="event.stopPropagation();showDetail('${bidEsc}')" style="background:${pc.bg};color:${pc.text};font-size:9px;font-weight:600;border-radius:3px;padding:1px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;line-height:1.4">${label}</div>`);
-        });
-
-        const cl = cleanForPropertyOnDate(ymdStr);
-        if (cl) {
-          const clLabel = cl.done ? '✓ Clean' : (cl.cleaner ? escHtml(cl.cleaner.split(' ')[0]) : 'Clean');
-          const clBg = cl.done ? '#B2DFDB' : '#BBDEFB';
-          const clTxt = cl.done ? '#00695C' : '#0D47A1';
-          pills.push(`<div style="background:${clBg};color:${clTxt};font-size:9px;font-weight:600;border-radius:3px;padding:1px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4">${clLabel}</div>`);
-        }
-
-        maintListForDate(ymdStr).forEach(mt => {
-          pills.push(`<div style="background:#FFE0B2;color:#E65100;font-size:9px;font-weight:600;border-radius:3px;padding:1px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4">${escHtml((mt.description || 'Maint.').slice(0, 12))}</div>`);
-        });
-      }
-
-      const shown = pills.slice(0, maxPills);
-      const extra = pills.length - maxPills;
-      const pillsHtml = shown.join('') + (extra > 0 ? `<div style="font-size:8px;color:${tertiary};font-weight:600;text-align:center;line-height:1.3">+${extra}</div>` : '');
-      const dayClickOffset = Math.round((cellDate.getTime() - todayStart.getTime()) / 86400000);
-      calCells += `<div onclick="_stayopsOpenDayView(${dayClickOffset})" style="text-align:center;padding:2px 1px;min-height:58px;box-sizing:border-box;cursor:pointer;border-top:0.5px solid rgba(0,0,0,0.06)">
-        <span style="${numStyle}">${dayNum}</span>
-        <div style="display:flex;flex-direction:column;gap:1px;margin-top:2px;align-items:stretch">${pillsHtml}</div>
-      </div>`;
-    }
-
-    bodyHtml =
-      `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">
-        <span style="font-size:16px;font-weight:700;color:${primary}">${escHtml(calMonthName)}</span>
-        <div style="display:flex;align-items:center;gap:4px">
-          <button type="button" onclick="_todayCalNav(-1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">‹</button>
-          <button type="button" onclick="_todayCalNav(1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">›</button>
-        </div>
-      </div>
-      <div style="border-radius:8px;overflow:hidden">
-        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:0;margin-bottom:2px">${calHeader}</div>
-        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:0">${calCells}</div>
-      </div>`;
+    dayDetailHtml = `<div style="margin-top:10px;padding-top:10px;border-top:0.5px solid rgba(0,0,0,0.1)">
+      <div style="font-size:13px;font-weight:600;color:${primary};margin-bottom:8px">${headLine}</div>
+      ${parts.join('')}${emptyHint}
+    </div>`;
   }
 
   return (
     `<div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);padding:10px 12px;margin-bottom:14px;box-sizing:border-box">` +
-    `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">` +
-    `<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft)">Schedule</div>` +
+    `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">` +
+    `<span style="font-size:16px;font-weight:700;color:${primary}">${escHtml(calMonthName)}</span>` +
+    `<div style="display:flex;align-items:center;gap:4px">` +
+    `<button type="button" onclick="_todayCalNav(-1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">‹</button>` +
+    `<button type="button" onclick="_todayCalNav(1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">›</button>` +
+    `</div></div>` +
+    `<div style="border-radius:8px;overflow:hidden">` +
+    `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:0;margin-bottom:2px">${calHeader}</div>` +
+    `<div style="position:relative;display:grid;grid-template-columns:repeat(7,1fr);gap:0">${calCells}${bookingOverlays}</div>` +
     `</div>` +
-    `<div style="display:flex;background:var(--warm);border-radius:10px;padding:3px;margin-bottom:10px;gap:2px">` +
-    segBtn('weekly', 'Weekly') +
-    segBtn('monthly', 'Monthly') +
-    `</div>` +
-    bodyHtml +
+    dayDetailHtml +
     `</div>`
   );
 }
