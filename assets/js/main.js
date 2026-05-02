@@ -630,17 +630,51 @@ window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
   const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const fmtD = d => { if (!d) return ''; try { return new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }); } catch (_e) { return d; } };
   const propName = typeof getPropertyNameById === 'function' && b._propertyId ? getPropertyNameById(b._propertyId) : '';
+  const phone = cObj && cObj.phone ? cObj.phone.trim() : '';
+  const cleanerFirst = (clean.cleaner || '').split(' ')[0];
+  const guestFirst = (b.name || 'Guest').split(' ')[0];
 
-  // Build confirmation overlay
+  // 1. Send email automatically
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  try {
+    await sendCleanerEmail({
+      cleanerName: clean.cleaner,
+      cleanerEmail: email,
+      guestName: b.name || 'Guest',
+      checkin: b.checkin ? fmtD(b.checkin) : '',
+      checkout: b.checkout ? fmtD(b.checkout) : '',
+      cleanDate: clean.date || (b.checkout ? fmtD(b.checkout) : ''),
+      type: 'cancellation',
+    });
+
+    clean.cleanerCancelNotified = true;
+    if (window._sb && clean._cloudId) {
+      await window._sb.from('cleans').update({ cleaner_cancel_notified: true, updated_at: new Date().toISOString() }).eq('id', clean._cloudId);
+    }
+  } catch (e) {
+    console.warn('[StayOps] notifyCancelledCleaner email failed', e);
+    btn.textContent = 'Email failed';
+    btn.disabled = false;
+    return;
+  }
+
+  // 2. Show overlay: email sent ✓ + option to also send SMS
+  const smsBody = `Hi ${cleanerFirst}, just letting you know the booking for ${guestFirst} (${fmtD(b.checkin)} – ${fmtD(b.checkout)})${propName ? ' at ' + propName : ''} has been cancelled. Your clean is no longer needed. Thanks!`;
+
   const overlay = document.createElement('div');
   overlay.id = 'cancel-notify-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;transition:opacity 0.2s';
   overlay.innerHTML = `
     <div style="background:white;border-radius:16px;max-width:400px;width:100%;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.2)">
-      <div style="font-size:17px;font-weight:700;color:#1a1a1a;margin-bottom:16px">Notify cleaner of cancellation</div>
-      <div style="background:#FEF2F2;border-radius:10px;padding:14px;margin-bottom:16px">
-        <div style="font-size:13px;color:#6B6560;margin-bottom:6px">This will email <strong style="color:#1a1a1a">${esc(clean.cleaner)}</strong> at:</div>
-        <div style="font-size:14px;font-weight:600;color:#1a1a1a">${esc(email)}</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
+        <div style="width:36px;height:36px;border-radius:50%;background:#EAF1E6;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3D6B4F" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div>
+          <div style="font-size:16px;font-weight:700;color:#1a1a1a">Email sent</div>
+          <div style="font-size:12px;color:#6B6560;margin-top:2px">${esc(clean.cleaner)} · ${esc(email)}</div>
+        </div>
       </div>
       <div style="font-size:12px;color:#6B6560;margin-bottom:14px;line-height:1.5">
         <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Property</span><strong style="color:#1a1a1a">${esc(propName || 'N/A')}</strong></div>
@@ -648,12 +682,18 @@ window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
         <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Check-in</span><strong style="color:#1a1a1a">${esc(fmtD(b.checkin))}</strong></div>
         <div style="display:flex;justify-content:space-between;padding:6px 0"><span>Check-out</span><strong style="color:#1a1a1a">${esc(fmtD(b.checkout))}</strong></div>
       </div>
-      <div style="background:#FFF8E1;border-radius:8px;padding:10px 12px;margin-bottom:18px;font-size:12px;color:#7A5A00;line-height:1.4">
-        The email will inform ${esc(clean.cleaner)} that this booking has been cancelled and their clean is no longer required.
+      <div style="border-top:1px solid rgba(0,0,0,0.06);padding-top:16px;margin-top:4px">
+        <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:10px">Also send a text message?</div>
+        <textarea id="cancel-sms-body" style="width:100%;min-height:80px;border:1px solid rgba(0,0,0,0.12);border-radius:10px;padding:10px 12px;font-family:inherit;font-size:13px;color:#1a1a1a;resize:vertical;line-height:1.5;box-sizing:border-box">${esc(smsBody)}</textarea>
+        ${phone
+          ? `<div style="font-size:12px;color:#6B6560;margin-top:6px">To: ${esc(phone)}</div>`
+          : '<div style="font-size:12px;color:#C0392B;margin-top:6px">No phone number on file — add one in Settings → Cleaning</div>'}
       </div>
-      <div style="display:flex;gap:10px">
-        <button id="cancel-notify-dismiss" style="flex:1;padding:12px;border:1px solid rgba(0,0,0,0.15);border-radius:10px;background:white;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;color:#1a1a1a">Cancel</button>
-        <button id="cancel-notify-send" style="flex:1;padding:12px;border:none;border-radius:10px;background:#C0392B;color:white;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Send Email</button>
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button id="cancel-notify-done" style="flex:1;padding:12px;border:1px solid rgba(0,0,0,0.15);border-radius:10px;background:white;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;color:#1a1a1a">Done</button>
+        <button id="cancel-notify-sms" style="flex:1;padding:12px;border:none;border-radius:10px;background:#1E3A2F;color:white;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;${phone ? '' : 'opacity:0.4;pointer-events:none'}">
+          <span style="display:inline-flex;align-items:center;gap:6px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>Send SMS</span>
+        </button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -661,44 +701,22 @@ window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
 
   const dismiss = () => {
     overlay.style.opacity = '0';
-    setTimeout(() => overlay.remove(), 200);
+    setTimeout(() => {
+      overlay.remove();
+      if (typeof renderDashboard === 'function') renderDashboard();
+    }, 200);
   };
 
-  overlay.querySelector('#cancel-notify-dismiss').onclick = dismiss;
+  overlay.querySelector('#cancel-notify-done').onclick = dismiss;
   overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
 
-  overlay.querySelector('#cancel-notify-send').onclick = async function () {
-    const sendBtn = this;
-    sendBtn.disabled = true;
-    sendBtn.textContent = 'Sending…';
-    try {
-      await sendCleanerEmail({
-        cleanerName: clean.cleaner,
-        cleanerEmail: email,
-        guestName: b.name || 'Guest',
-        checkin: b.checkin ? fmtD(b.checkin) : '',
-        checkout: b.checkout ? fmtD(b.checkout) : '',
-        cleanDate: clean.date || (b.checkout ? fmtD(b.checkout) : ''),
-        type: 'cancellation',
-      });
-
-      clean.cleanerCancelNotified = true;
-      if (window._sb && clean._cloudId) {
-        await window._sb.from('cleans').update({ cleaner_cancel_notified: true, updated_at: new Date().toISOString() }).eq('id', clean._cloudId);
-      }
-
-      sendBtn.textContent = '✓ Sent';
-      sendBtn.style.background = '#2D5A3D';
-      setTimeout(() => {
-        dismiss();
-        if (typeof renderDashboard === 'function') renderDashboard();
-      }, 1200);
-    } catch (e) {
-      console.warn('[StayOps] notifyCancelledCleaner failed', e);
-      sendBtn.textContent = 'Failed — try again';
-      sendBtn.disabled = false;
-    }
-  };
+  if (phone) {
+    overlay.querySelector('#cancel-notify-sms').onclick = () => {
+      const msg = overlay.querySelector('#cancel-sms-body').value;
+      window.location.href = `sms:${phone}?&body=${encodeURIComponent(msg)}`;
+      dismiss();
+    };
+  }
 };
 
 // Init on load
