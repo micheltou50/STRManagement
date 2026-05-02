@@ -1905,22 +1905,25 @@ function buildInvoicePDF(selected, client) {
   const dueDate = new Date(invDate.getTime() + 14 * 24 * 60 * 60 * 1000)
     .toLocaleDateString('en-AU', { day:'numeric', month:'long', year:'numeric' });
 
-  // Not registered for GST — no GST column or breakdown.
+  // Management fee is calculated on booking revenue EXCLUDING cleaning fees.
   let invoiceTotal = 0;
   const rows = selected.map(b => {
     const amt = Number(b.mgmtPayout || 0);
     const gross = Number(b.hostPayout || 0);
-    const pct = b.mgmtFeeRaw != null ? Number(b.mgmtFeeRaw) : (b.mgmtFee && b.hostPayout ? Math.round((b.mgmtFee / b.hostPayout) * 1000) / 10 : 0);
+    const cleaning = Number(b.cleaningFee || 0);
+    const feeBase = gross - cleaning;
+    const pct = b.mgmtFeeRaw != null ? Number(b.mgmtFeeRaw) : (b.mgmtFee && feeBase ? Math.round((b.mgmtFee / feeBase) * 1000) / 10 : 0);
     invoiceTotal += amt;
     const guest = b.name || 'Guest';
-    const dates = `${fmt(b.checkin)} → ${fmt(b.checkout)}`;
-    const desc = pct
-      ? `${pct}% management fee of $${gross.toFixed(2)} gross revenue — ${guest} (${dates})`
-      : `Management fee — ${guest} (${dates})`;
+    const ci = new Date(b.checkin);
+    const co = new Date(b.checkout);
+    const fmtShort = d => isNaN(d) ? '' : d.toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' });
+    const dates = `${fmtShort(ci)}–${fmtShort(co)}`;
+    const desc = `Management fee — ${guest} booking, ${dates}`;
     return `<tr>
       <td class="cell desc">${desc}</td>
-      <td class="cell num">1</td>
-      <td class="cell num">$${amt.toFixed(2)}</td>
+      <td class="cell num">$${feeBase > 0 ? feeBase.toFixed(2) : amt.toFixed(2)}</td>
+      <td class="cell num">${pct ? pct + '%' : '—'}</td>
       <td class="cell num">$${amt.toFixed(2)}</td>
     </tr>`;
   }).join('');
@@ -2023,8 +2026,8 @@ function buildInvoicePDF(selected, client) {
   <table class="lines">
     <thead><tr>
       <th>Description</th>
-      <th class="num">Quantity</th>
-      <th class="num">Unit Price</th>
+      <th class="num">Fee Base</th>
+      <th class="num">Fee Rate</th>
       <th class="num">Amount AUD</th>
     </tr></thead>
     <tbody>${rows}</tbody>
@@ -2037,7 +2040,7 @@ function buildInvoicePDF(selected, client) {
       <div class="row due"><span class="lbl">Amount Due AUD</span><span class="val">$${invoiceTotal.toFixed(2)}</span></div>
     </div>
   </div>
-  <div class="gst-note">Not registered for GST</div>
+  <div class="gst-note">Management fee is calculated on booking revenue excluding cleaning fees. Not registered for GST.</div>
 
   ${bankBlock}
 
