@@ -848,8 +848,8 @@ function computeDedupedTodayAlerts(isPortfolio) {
   const cloudIds = window._cloudPropertyIds || {};
   const activeBookingsAll = bookings.filter(b => b.status !== 'cancelled');
   const alerts = [];
-  const pushAlert = (type, title, subtitle, urgent, cleanId, bookingLocalId) => {
-    alerts.push({ type, title, subtitle, urgent, cleanId, bookingLocalId });
+  const pushAlert = (type, title, subtitle, urgent, cleanId, bookingLocalId, extra) => {
+    alerts.push({ type, title, subtitle, urgent, cleanId, bookingLocalId, ...(extra || {}) });
   };
   const inNextDays = (d, n) => {
     const t = parseLocalDayStart(d);
@@ -872,12 +872,12 @@ function computeDedupedTodayAlerts(isPortfolio) {
     const ci = parseLocalDayStart(b.checkin);
     if (Number.isNaN(ci.getTime())) return;
     const days = daysUntil(b.checkin);
-    if (days < 0 || days > 13) return;
+    if (days < 0 || days > 60) return;
     const clean = findMatchingCleanForBooking(b);
     const propName = isPortfolio ? getPropertyNameById(b._propertyId) : getCurrentPropertyName();
     const hasCleaner = !!(clean && (String(clean.cleaner || '').trim() || clean.cleanerId));
 
-    if (days <= 13 && (!clean || !hasCleaner)) {
+    if (!clean || !hasCleaner) {
       const urg = days <= 3;
       pushAlert(
         'b',
@@ -948,13 +948,15 @@ function computeDedupedTodayAlerts(isPortfolio) {
     // ── Cancellation: cleaner assigned but not notified ──
     if (isCancelled && hasCleaner && !c.cleanerCancelNotified) {
       const guest = c.guestName || bk?.name || 'Guest';
+      const bCloudId = bk ? String(bk._cloudId || bk.id) : '';
       pushAlert(
         'f',
         'Cleaner not notified of cancellation',
         `${propName} · ${String(c.cleaner || '—')} · ${guest}`,
         true,
         c.id,
-        null
+        null,
+        { bookingCloudId: bCloudId }
       );
     }
 
@@ -1069,6 +1071,14 @@ function buildNeedsAttentionHtmlFromDeduped(deduped) {
       } else {
         onclk = `onclick="showSection('cleaning')"`;
       }
+      // Action button for cancellation alerts
+      let actionBtn = '';
+      if (a.type === 'f' && a.bookingCloudId) {
+        const bIdEsc = escapeJsSingleQuotedHtmlAttr(a.bookingCloudId);
+        const cIdEsc = a.cleanId != null ? escapeJsSingleQuotedHtmlAttr(String(a.cleanId)) : '';
+        actionBtn = `<button onclick="event.stopPropagation();notifyCancelledCleaner(this,'${bIdEsc}','${cIdEsc}')" style="flex-shrink:0;background:#C0392B;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;touch-action:manipulation">Notify</button>`;
+      }
+
       return `<div ${onclk} style="background:white;border-radius:8px;padding:10px 12px;margin-bottom:6px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,0,0,0.06)">
           <div style="display:flex;align-items:flex-start;gap:8px;min-width:0;flex:1">
             <div style="width:6px;height:6px;border-radius:50%;background:${dot};margin-top:5px;flex-shrink:0"></div>
@@ -1077,7 +1087,7 @@ function buildNeedsAttentionHtmlFromDeduped(deduped) {
               <div style="font-size:11px;color:#854F0B;margin-top:2px;line-height:1.35">${escHtml(a.subtitle)}</div>
             </div>
           </div>
-          <div style="font-size:18px;color:#854F0B;flex-shrink:0">›</div>
+          ${actionBtn || '<div style="font-size:18px;color:#854F0B;flex-shrink:0">›</div>'}
         </div>`;
     })
     .join('');
@@ -1092,7 +1102,7 @@ function buildNeedsAttentionHtmlFromDeduped(deduped) {
         <div style="font-size:13px;font-weight:700;color:#412402;letter-spacing:0.2px">Needs your attention</div>
         ${badge}
       </div>
-      <div style="max-height:240px;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-right:2px">${cards}</div>
+      <div style="max-height:400px;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-right:2px">${cards}</div>
       ${moreFooter}
     </div>`;
 }
