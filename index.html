@@ -32,8 +32,24 @@
         /chrome-extension/,
         /safari-extension/,
         /Invalid regular expression/,
+        // Expected auth/token lifecycle — these are recovery paths, not bugs.
+        /Auth session missing/i,
+        /Invalid Refresh Token/i,
+        /Refresh Token Not Found/i,
+        /clearing stale session/i,
+        // User disconnected / revoked Gmail or Outlook — show in UI, don't page us.
+        /Gmail (token expired|API 403)/i,
+        /user needs to reconnect/i,
+        // Stale channel-manager errors — feature removed; if any sneak in, drop them.
+        /\[cm-auto-sync\]/i,
+        /loadCMMapping/i,
+        /Beds24 token expired/i,
       ],
     });
+
+    // Patterns we never want to forward as Sentry events from console.error/warn.
+    // Auth and token-expiry messages are normal lifecycle, not bugs.
+    var SENTRY_NOISE = /(Auth session missing|Invalid Refresh Token|Refresh Token Not Found|clearing stale session|Gmail (token expired|API 403)|user needs to reconnect|extension|ResizeObserver|\[cm-auto-sync\]|loadCMMapping|Beds24 token expired)/i;
 
     // Capture all console.error and console.warn as Sentry events
     // so silently-caught failures are visible in the dashboard.
@@ -45,7 +61,7 @@
         var msg = Array.prototype.map.call(arguments, function(a) {
           return a instanceof Error ? a.message : (typeof a === 'object' ? JSON.stringify(a) : String(a));
         }).join(' ');
-        if (/extension|ResizeObserver/i.test(msg)) return;
+        if (SENTRY_NOISE.test(msg)) return;
         Sentry.captureMessage(msg, 'error');
       } catch(e) {}
     };
@@ -56,13 +72,40 @@
           return a instanceof Error ? a.message : (typeof a === 'object' ? JSON.stringify(a) : String(a));
         }).join(' ');
         if (!/\[StayOps\]|failed|error/i.test(msg)) return;
-        if (/extension|ResizeObserver/i.test(msg)) return;
+        if (SENTRY_NOISE.test(msg)) return;
         Sentry.captureMessage(msg, 'warning');
       } catch(e) {}
     };
   }
 </script>
 
+<script>
+// Stub the most-clicked inline-onclick handlers so a click landing in the
+// brief window before main.js loads doesn't throw a ReferenceError. The
+// real handlers in main.js overwrite these on load; if the user clicked a
+// nav button early, we replay it once the real one is wired up.
+(function() {
+  var pending = null;
+  function makeQueueingStub(name) {
+    return function() {
+      pending = { name: name, args: Array.prototype.slice.call(arguments) };
+    };
+  }
+  ['showSection', 'showFinanceSub', 'showPropertySub'].forEach(function(fn) {
+    if (typeof window[fn] === 'undefined') window[fn] = makeQueueingStub(fn);
+  });
+  // After main.js has loaded and replaced the stubs, replay the last queued call.
+  window.addEventListener('load', function() {
+    setTimeout(function() {
+      if (pending && typeof window[pending.name] === 'function' &&
+          window[pending.name].toString().indexOf('makeQueueingStub') < 0) {
+        try { window[pending.name].apply(null, pending.args); } catch (_) {}
+      }
+      pending = null;
+    }, 100);
+  });
+})();
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script>
