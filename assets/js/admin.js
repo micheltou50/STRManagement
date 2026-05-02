@@ -582,9 +582,10 @@ export async function adminSendTestEmail(templateId) {
       return;
     }
 
-    const data = await DB.sendEmail(ADMIN_EMAIL, subject, html, subject);
+    const adminEmail = (window._supabaseUser && window._supabaseUser.email) || ADMIN_EMAILS[0];
+    const data = await DB.sendEmail(adminEmail, subject, html, subject);
     if (data && (data.success || data.status === 'ok')) {
-      globalThis.showBanner('✉️ Test email sent to ' + ADMIN_EMAIL, 'ok');
+      globalThis.showBanner('✉️ Test email sent to ' + adminEmail, 'ok');
     } else {
       globalThis.showBanner('Email send failed', 'warn');
     }
