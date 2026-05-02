@@ -83,7 +83,7 @@ exports.handler = async (event) => {
         refresh_token: tokens.refresh_token || null,
         token_expiry:  expiry,
         updated_at:    new Date().toISOString(),
-      }, { onConflict: 'user_id' });
+      }, { onConflict: 'user_id,provider' });
 
     if (dbError) throw new Error('Supabase error: ' + dbError.message);
 
