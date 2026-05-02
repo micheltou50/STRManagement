@@ -82,16 +82,17 @@ function extractEmailBody(msg) {
 }
 
 async function updateLastScan(supabaseUrl, headers, uid, skippedIds) {
-  const patch = {
-    gmail_last_scan: new Date().toISOString(),
-    gmail_skipped_ids: JSON.stringify([...skippedIds]),
-    updated_at: new Date().toISOString(),
-  };
-  await fetch(supabaseUrl + '/rest/v1/app_config?user_id=eq.' + enc(uid), {
-    method: 'PATCH',
-    headers: { ...headers, Prefer: 'return=minimal' },
-    body: JSON.stringify(patch),
-  });
+  await fetch(
+    supabaseUrl + '/rest/v1/email_connections?user_id=eq.' + enc(uid) + '&provider=eq.google',
+    {
+      method: 'PATCH',
+      headers: { ...headers, Prefer: 'return=minimal' },
+      body: JSON.stringify({
+        skipped_ids: JSON.stringify([...skippedIds]),
+        updated_at: new Date().toISOString(),
+      }),
+    }
+  );
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────────
@@ -119,25 +120,25 @@ exports.handler = async (event) => {
   const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_KEY);
 
   try {
-    // ── 1. Get Gmail config from app_config ─────────────────────────────
-    const cfgRes = await fetch(
-      SUPABASE_URL + '/rest/v1/app_config?user_id=eq.' + enc(uid) +
-        '&select=gmail_refresh_token,gmail_email,gmail_last_scan,gmail_skipped_ids&limit=1',
+    // ── 1. Get Gmail tokens from email_connections ───────────────────────
+    const connRes = await fetch(
+      SUPABASE_URL + '/rest/v1/email_connections?user_id=eq.' + enc(uid) +
+        '&provider=eq.google&select=refresh_token,email,skipped_ids&limit=1',
       { headers: sbHeaders }
     );
-    const cfgRows = await safeJson(cfgRes, 'Supabase app_config');
+    const connRows = await safeJson(connRes, 'Supabase email_connections');
     console.log('[gmail-scan] uid:', uid);
-    console.log('[gmail-scan] cfgRes status:', cfgRes.status);
-    console.log('[gmail-scan] cfgRows:', JSON.stringify(cfgRows));
-    console.log('[gmail-scan] has refresh token:', !!(cfgRows && cfgRows.length && cfgRows[0] && cfgRows[0].gmail_refresh_token));
-    if (!cfgRows || !cfgRows.length || !cfgRows[0].gmail_refresh_token) {
+    console.log('[gmail-scan] connRes status:', connRes.status);
+    console.log('[gmail-scan] connRows:', JSON.stringify(connRows));
+    console.log('[gmail-scan] has refresh token:', !!(connRows && connRows.length && connRows[0] && connRows[0].refresh_token));
+    if (!connRows || !connRows.length || !connRows[0].refresh_token) {
       return json(400, { error: 'Gmail not connected — connect in Settings first' });
     }
-    const refreshToken = cfgRows[0].gmail_refresh_token;
+    const refreshToken = connRows[0].refresh_token;
 
     let skippedIds = new Set();
     try {
-      const raw = cfgRows[0].gmail_skipped_ids;
+      const raw = connRows[0].skipped_ids;
       if (raw) skippedIds = new Set(JSON.parse(raw));
     } catch (_e) { /* ignore malformed skipped-IDs JSON */ }
 

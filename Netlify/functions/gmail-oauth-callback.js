@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    STAYOPS — Gmail OAuth Callback
-   Exchanges auth code for tokens, stores refresh_token in Supabase app_config,
-   then redirects back to the app with success/error status.
+   Exchanges auth code for tokens, stores refresh_token in Supabase
+   email_connections, then redirects back to the app with success/error status.
 
    Required Netlify env vars:
      GOOGLE_CLIENT_ID
@@ -11,6 +11,7 @@
      SUPABASE_SERVICE_KEY
    ═══════════════════════════════════════════════════════════════════════════ */
 
+const { createClient } = require('@supabase/supabase-js');
 const { captureError, flush } = require('./utils/sentry');
 
 exports.handler = async (event) => {
@@ -66,42 +67,21 @@ exports.handler = async (event) => {
     const profile = await profileRes.json();
     const email = profile.email || '';
 
-    // 3. Store refresh token + email in Supabase app_config
-    const sbHeaders = {
-      apikey: SUPABASE_KEY,
-      Authorization: 'Bearer ' + SUPABASE_KEY,
-      'Content-Type': 'application/json',
-      Prefer: 'return=minimal',
-    };
+    // 3. Store refresh token + email in Supabase email_connections
+    const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    const gmailFields = {
-      gmail_refresh_token: tokens.refresh_token || null,
-      gmail_email: email,
-      gmail_connected_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    const { error: dbError } = await sb
+      .from('email_connections')
+      .upsert({
+        user_id:       state,
+        email,
+        provider:      'google',
+        refresh_token: tokens.refresh_token || null,
+        updated_at:    new Date().toISOString(),
+      }, { onConflict: 'user_id,provider' });
 
-    // Try PATCH first (row already exists from app login)
-    const patchRes = await fetch(
-      SUPABASE_URL + '/rest/v1/app_config?user_id=eq.' + encodeURIComponent(state),
-      { method: 'PATCH', headers: sbHeaders, body: JSON.stringify(gmailFields) }
-    );
-
-    if (!patchRes.ok) {
-      // Row doesn't exist yet — insert with user_id
-      console.log('[gmail-oauth-callback] PATCH failed (' + patchRes.status + '), trying POST...');
-      const postRes = await fetch(
-        SUPABASE_URL + '/rest/v1/app_config',
-        {
-          method: 'POST',
-          headers: sbHeaders,
-          body: JSON.stringify({ user_id: state, ...gmailFields }),
-        }
-      );
-      if (!postRes.ok) {
-        const errText = await postRes.text();
-        console.error('[gmail-oauth-callback] POST also failed:', postRes.status, errText);
-      }
+    if (dbError) {
+      console.error('[gmail-oauth-callback] Upsert failed:', dbError.message);
     }
 
     // Log whether refresh token was received

@@ -1536,8 +1536,8 @@ export async function hydrateFromCloud() {
         expense_cats: cloudAppConfig.expense_cats || [],
         email_templates: cloudAppConfig.email_templates || {},
         push_subs: cloudAppConfig.push_subs || {},
-        gmail_email: cloudAppConfig.gmail_email || '',
-        outlook_email: cloudAppConfig.outlook_email || '',
+        gmail_email: '',
+        outlook_email: '',
         ai_ignore: cloudAppConfig.ai_ignore || [],
         auto_assign_cleaner: cloudAppConfig.auto_assign_cleaner ?? true,
         // Cloud column: anthropic_api_key → local key: api_key
@@ -1558,6 +1558,29 @@ export async function hydrateFromCloud() {
         cancellation_last_seen: cloudAppConfig.cancellation_last_seen || null,
       };
       console.log('[StayOps] Hydrated app config from cloud');
+
+      // Populate email connection addresses from email_connections table
+      try {
+        const ecUser = await getCurrentSupabaseUser();
+        if (ecUser && ecUser.id) {
+          const { data: emailConns } = await window._sb
+            .from('email_connections')
+            .select('provider,email')
+            .eq('user_id', ecUser.id);
+          if (Array.isArray(emailConns)) {
+            for (const conn of emailConns) {
+              if (conn.provider === 'google' && conn.email) {
+                window._appConfig.gmail_email = conn.email;
+              } else if (conn.provider === 'microsoft' && conn.email) {
+                window._appConfig.outlook_email = conn.email;
+              }
+            }
+          }
+          console.log('[StayOps] Hydrated email connections from cloud');
+        }
+      } catch (ecErr) {
+        console.warn('[StayOps] Failed to load email_connections:', ecErr);
+      }
     }
 
     // 9. Host profile
