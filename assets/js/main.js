@@ -839,12 +839,25 @@ window.notifyCancelledCleaner = async function (btn, bookingId, cleanId) {
     setTimeout(checkCancelledBookings, 2500);
     // Check if host is also a cleaner (show role switcher)
     setTimeout(checkRoleSwitcher, 1000);
-    // Auto-sync iCal feeds (per-property calendar imports)
-    setTimeout(maybeAutoSyncICal, 6000);
+    // Auto-sync iCal feeds (per-property calendar imports) — fire early so
+    // bookings are fresh by the time the user looks at the calendar.
+    setTimeout(maybeAutoSyncICal, 1500);
     // Periodic re-scan every 15 minutes while app is open
     setInterval(maybeAutoScanGmail, 15 * 60 * 1000);
     setInterval(maybeAutoScanOutlook, 15 * 60 * 1000 + 1500);
     setInterval(maybeAutoSyncICal, 15 * 60 * 1000 + 3000);
+    // Re-sync when the app returns to the foreground (PWA reopen / tab switch
+    // back). Throttle to once per 60s so rapid focus changes don't hammer it.
+    let _lastForegroundSync = 0;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (now - _lastForegroundSync < 60 * 1000) return;
+      _lastForegroundSync = now;
+      maybeAutoSyncICal();
+      maybeAutoScanGmail();
+      maybeAutoScanOutlook();
+    });
   } catch (e) {
     console.error('[StayOps] Boot failed:', e);
   } finally {
