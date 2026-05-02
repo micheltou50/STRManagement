@@ -1574,28 +1574,6 @@ function buildSinglePropertyTodayDashboardMarkup() {
     primary,
   });
 
-  const todayStrLocal = todayStart.toISOString().split('T')[0];
-  const todayCleansShared = cleans.filter(c => {
-    if (c.done) return false;
-    if ((c.date || '').slice(0, 10) !== todayStrLocal) return false;
-    if (activePid) {
-      const bk = c.bookingId && bookings.find(x => String(x.id) === String(c.bookingId) || (x._cloudId && String(x._cloudId) === String(c.bookingId)));
-      if (bk) return String(bk._propertyId || '') === String(activePid);
-      return !c._propertyId || String(c._propertyId) === String(activePid);
-    }
-    return true;
-  });
-  const cleansListHtml = todayCleansShared.length
-    ? todayCleansShared.map(c => `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f0ede8">
-        <div style="flex:1"><div style="font-size:13px;font-weight:500">${escHtml(c.guestName||c.name||'Guest')}</div><div style="font-size:11px;color:var(--text-soft)">${escHtml(c.propertyName||'')}</div></div>
-        <div style="text-align:right"><div style="font-size:12px;color:var(--moss);font-weight:500">${escHtml(c.cleaner||'Unassigned')}</div><span class="dt-badge ${c.cleanerConfirmed?'dt-badge-green':'dt-badge-amber'}" style="font-size:10px">${c.cleanerConfirmed?'Confirmed':'Pending'}</span></div>
-      </div>`).join('')
-    : '<div style="text-align:center;padding:16px;color:var(--text-soft);font-size:13px">No cleans scheduled today<br><span onclick="showSection(\'cleaning\')" style="color:var(--moss);cursor:pointer;font-weight:500;font-size:12px">Go to cleaning →</span></div>';
-  const todaysCleansCard = `<div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);padding:14px;margin-bottom:14px">
-    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:8px">Today's Cleaning</div>
-    ${cleansListHtml}
-  </div>`;
-
   const statsHtml = `<div class="dashboard-stat-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
     <div style="background:white;border-radius:10px;border:0.5px solid rgba(0,0,0,0.1);padding:12px 10px;text-align:center">
       <div style="font-size:18px;font-weight:500;color:${primary}">${occupancyThisMonth}%</div>
@@ -1689,8 +1667,6 @@ function buildSinglePropertyTodayDashboardMarkup() {
       <table class="desktop-table"><thead><tr><th>Guest</th><th>Check-in</th><th>Check-out</th><th>Payout</th><th>Platform</th><th>Status</th></tr></thead><tbody>${tblRows || '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-soft)">No upcoming bookings</td></tr>'}</tbody></table>
     </div>`;
 
-    const cleansHtml = cleansListHtml;
-
     // Occupancy card
     const occCard = `<div class="card">
       <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Monthly Occupancy</div>
@@ -1711,10 +1687,6 @@ function buildSinglePropertyTodayDashboardMarkup() {
     <div style="display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:20px">
       <div style="display:flex;flex-direction:column;gap:16px">
         ${needsHtml || ''}
-        <div class="card">
-          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Today's Cleaning</div>
-          ${cleansHtml}
-        </div>
         ${occCard}
         ${quickHtml}
       </div>
@@ -1746,7 +1718,6 @@ function buildSinglePropertyTodayDashboardMarkup() {
   return (
     statusHtml +
     needsHtml +
-    todaysCleansCard +
     upcomingCardsHtml +
     unifiedCalHtml +
     statsHtml +
@@ -2010,15 +1981,6 @@ function buildPortfolioTodayDashboardMarkup() {
     </div>`;
 
     // Today's cleans for sidebar
-    const todayStr = todayStart.toISOString().split('T')[0];
-    const todayCleans = cleans.filter(c => (c.date||'').slice(0,10) === todayStr && !c.done);
-    const cleansHtml = todayCleans.length
-      ? todayCleans.map(c => `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f0ede8">
-          <div style="flex:1"><div style="font-size:13px;font-weight:500">${escHtml(c.guestName||c.name||'Guest')}</div><div style="font-size:11px;color:var(--text-soft)">${escHtml(c.propertyName||'')}</div></div>
-          <div style="text-align:right"><div style="font-size:12px;color:var(--moss);font-weight:500">${escHtml(c.cleaner||'Unassigned')}</div></div>
-        </div>`).join('')
-      : '<div style="text-align:center;padding:16px;color:var(--text-soft);font-size:13px">No cleans today<br><span onclick="showSection(\'cleaning\')" style="color:var(--moss);cursor:pointer;font-weight:500;font-size:12px">Go to cleaning \u2192</span></div>';
-
     // Per-property occupancy
     const propOccHtml = props.map((p, i) => {
       const pid = _pidForProperty(p);
@@ -2048,7 +2010,6 @@ function buildPortfolioTodayDashboardMarkup() {
       </div>
       <div style="display:flex;flex-direction:column;gap:16px">
         ${needsHtml ? '<div class="card" style="padding:16px">' + needsHtml + '</div>' : ''}
-        <div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Today's Cleaning</div>${cleansHtml}</div>
         <div class="card">
           <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Occupancy by Property</div>
           <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
