@@ -58,7 +58,7 @@ import {
 import {
   renderConnectionSummary, refreshConnectionSummarySoon, connectGmail, connectOutlook, maybeAutoScanGmail, scanGmailBookings, maybeAutoScanOutlook, scanOutlookBookings, populateCalendarFeedPanel, copyCalendarFeedUrl, _resetSettingsToMenu, openSettingsCat,
   openSettingsPanel, closeSettingsPanel, closeSettingsCat, renderSettings, clearCacheAndResync, saveSMSTemplate, saveGeminiKey, saveApiKey, getApiKey, getHostProfile, saveHostProfile, saveHostProfilePanel,
-  renderHostProfileRow, loadCleaners, saveCleaners, addCleaner, deleteCleaner, renderTeamList, openCleanerProfile, saveCleanerContact, populateContractorSelect, renderStorageViewer, getFx, saveFxSetting,
+  handleLogoUpload, removeHostLogo, renderHostProfileRow, loadCleaners, saveCleaners, addCleaner, deleteCleaner, renderTeamList, openCleanerProfile, saveCleanerContact, populateContractorSelect, renderStorageViewer, getFx, saveFxSetting,
   initFxSettings, initSettingsSwipeBack, toggleAutoAssignCleaner, resetConnectionCheckerResults, openCleanerSettings, renderCleanerAccessList, saveCleanerPinById, clearCleanerPinById, saveCleanerPerm, copyCleanerLinkById,
   testCMConnection, syncCMBookings, requestCMSetup, disconnectCM, loadCMMapping, saveCMMapping, maybeAutoSyncCM
 } from './settings.js';
@@ -241,6 +241,8 @@ window.saveApiKey               = saveApiKey;
 window.saveBankDetails          = saveBankDetails;
 window.saveExpenseEdit          = saveExpenseEdit;
 window.saveHostProfilePanel     = saveHostProfilePanel;
+window.handleLogoUpload         = handleLogoUpload;
+window.removeHostLogo           = removeHostLogo;
 window.saveInvEdit              = saveInvEdit;
 window.saveMgmtFeeRate          = saveMgmtFeeRate;
 window.saveOwnerReportSettings  = saveOwnerReportSettings;

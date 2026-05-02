@@ -1834,6 +1834,7 @@ function _getInvoiceIdentity() {
     company: host.company || inv.company || '',
     abn:     host.abn     || inv.abn     || '',
     acn:     host.acn     || inv.acn     || '',
+    logo:    (window._appConfig && window._appConfig.invoice_logo) || '',
   };
 }
 
@@ -2009,6 +2010,7 @@ function buildInvoicePDF(selected, client) {
       ${reference ? `<div class="meta-row"><div class="meta-label">Reference / PO</div><div class="meta-val">${reference}</div></div>` : `<div class="meta-row"><div class="meta-label">Reference / PO</div><div class="meta-val">&nbsp;</div></div>`}
     </div>
     <div class="right-block">
+      ${inv.logo ? `<div style="margin-bottom:8px"><img src="${inv.logo}" style="max-width:100px;max-height:70px" alt="Logo"></div>` : ''}
       ${inv.company || inv.name ? `<div class="biz-name">${inv.company || inv.name}</div>` : ''}
       ${inv.address ? `<div>${inv.address}</div>` : ''}
       ${inv.phone ? `<div>${inv.phone}</div>` : ''}

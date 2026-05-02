@@ -1315,6 +1315,16 @@
         <label>Address</label>
         <input type="text" id="host-profile-address" placeholder="e.g. 123 Main St, Sydney NSW 2000">
       </div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-title">🖼 Business Logo</div>
+        <div style="font-size:12px;color:var(--text-soft);margin-bottom:10px">Appears on your invoices (top-right). PNG, JPG, or SVG — max 200 KB.</div>
+        <div id="host-logo-preview" style="margin-bottom:10px"></div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <label for="host-logo-input" style="background:var(--warm);color:#1a1a1a;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:500;cursor:pointer;display:inline-block">Choose File</label>
+          <input type="file" id="host-logo-input" accept="image/png,image/jpeg,image/svg+xml" onchange="handleLogoUpload(event)" style="display:none">
+          <button type="button" id="host-logo-remove" onclick="removeHostLogo()" style="background:none;border:none;color:var(--red);font-size:13px;cursor:pointer;display:none">Remove</button>
+        </div>
+      </div>
       <button class="btn-primary" onclick="saveHostProfilePanel()" style="width:100%">Save Profile</button>
     </div>
     <!-- /PANEL: HOST PROFILE -->

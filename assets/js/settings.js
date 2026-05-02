@@ -515,6 +515,7 @@ function openSettingsPanel(panelId, returnSection) {
   }
   if (panelId === 'host-profile') {
     populateHostProfilePanel();
+    _renderLogoPreview();
   }
 }
 function closeSettingsPanel() {
@@ -710,6 +711,45 @@ function populateHostProfilePanel() {
   _v('host-profile-email',   existing.email   || _inv.email);
   _v('host-profile-phone',   existing.phone   || '');
   _v('host-profile-address', existing.address || _inv.address);
+}
+
+// ── Logo upload/remove for invoices ──────────────────────────────────────
+function _renderLogoPreview() {
+  const el = document.getElementById('host-logo-preview');
+  const rmBtn = document.getElementById('host-logo-remove');
+  if (!el) return;
+  const logo = (window._appConfig && window._appConfig.invoice_logo) || '';
+  if (logo) {
+    el.innerHTML = '<img src="' + logo + '" style="max-width:120px;max-height:80px;border-radius:6px;border:0.5px solid rgba(0,0,0,0.1)" alt="Logo">';
+    if (rmBtn) rmBtn.style.display = '';
+  } else {
+    el.innerHTML = '<div style="font-size:12px;color:var(--text-soft)">No logo uploaded</div>';
+    if (rmBtn) rmBtn.style.display = 'none';
+  }
+}
+function handleLogoUpload(event) {
+  const file = event && event.target && event.target.files && event.target.files[0];
+  if (!file) return;
+  if (file.size > 200 * 1024) { globalThis.showBanner('⚠ Logo must be under 200 KB', 'warn'); event.target.value = ''; return; }
+  if (!file.type.match(/^image\/(png|jpeg|svg\+xml)$/)) { globalThis.showBanner('⚠ PNG, JPG, or SVG only', 'warn'); event.target.value = ''; return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    window._appConfig = window._appConfig || {};
+    window._appConfig.invoice_logo = reader.result;
+    if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ invoice_logo: reader.result }).catch(e => console.warn('[StayOps] silent error:', e));
+    _renderLogoPreview();
+    globalThis.showBanner('✓ Logo saved', 'ok');
+  };
+  reader.readAsDataURL(file);
+}
+function removeHostLogo() {
+  window._appConfig = window._appConfig || {};
+  window._appConfig.invoice_logo = null;
+  if (typeof saveAppConfigToCloud === 'function') saveAppConfigToCloud({ invoice_logo: null }).catch(e => console.warn('[StayOps] silent error:', e));
+  _renderLogoPreview();
+  const inp = document.getElementById('host-logo-input');
+  if (inp) inp.value = '';
+  globalThis.showBanner('✓ Logo removed', 'ok');
 }
 
 async function saveHostProfilePanel() {
@@ -1501,6 +1541,8 @@ export {
   manageHostIdentity,
   populateHostProfilePanel,
   saveHostProfilePanel,
+  handleLogoUpload,
+  removeHostLogo,
   renderHostProfileRow,
   loadCleaners,
   saveCleaners,
