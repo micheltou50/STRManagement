@@ -366,8 +366,7 @@ export function prepareCleaningData() {
   nextWeekEnd.setDate(nextWeekEnd.getDate() + 7);
 
   const upcoming = cleans.filter(c =>
-    !c.done && !c.cleanerDeclined && c.date >= todayStr &&
-    !isCleanLinkedToCancelledBooking(c)
+    !c.done && !c.cleanerDeclined && c.date >= todayStr
   ).sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
   const unassignedBookings = bookings.filter(b => {
@@ -384,6 +383,11 @@ export function prepareCleaningData() {
       (bk._cloudId && String(bk._cloudId) === String(c.bookingId)) ||
       _normName(bk.name) === _normName(c.guestName)
     );
+    const isCancelled = b && b.status === 'cancelled';
+    let itemStatus;
+    if (isCancelled) itemStatus = 'cancelled';
+    else if (c.cleanerConfirmed) itemStatus = 'confirmed';
+    else itemStatus = 'awaiting';
     allItems.push({
       type: 'clean',
       clean: c,
@@ -391,7 +395,7 @@ export function prepareCleaningData() {
       guest: b ? b.name : (c.guestName || '—'),
       date: c.date,
       cleaner: c.cleaner || null,
-      status: c.cleanerConfirmed ? 'confirmed' : 'awaiting',
+      status: itemStatus,
       propertyId: c._propertyId || (b && b._propertyId) || null,
     });
   });
@@ -458,6 +462,7 @@ export function prepareCleaningData() {
     unassigned: allItems.filter(i => i.status === 'unassigned').length,
     awaiting: allItems.filter(i => i.status === 'awaiting').length,
     confirmed: allItems.filter(i => i.status === 'confirmed').length,
+    cancelled: allItems.filter(i => i.status === 'cancelled').length,
   };
 
   return { allItems, filtered, groups, byProperty, counts, now, todayStart };
@@ -480,7 +485,8 @@ export function renderCleanFilterPills(counts) {
     pill('all', 'All', counts.all, '#F0EDE8', '#5F5E5A') +
     pill('unassigned', 'Unassigned', counts.unassigned, '#FCEBEB', '#A32D2D') +
     pill('awaiting', 'Awaiting', counts.awaiting, '#FEF3E2', '#854F0B') +
-    pill('confirmed', 'Confirmed', counts.confirmed, '#EAF3DE', '#3B6D11');
+    pill('confirmed', 'Confirmed', counts.confirmed, '#EAF3DE', '#3B6D11') +
+    (counts.cancelled > 0 ? pill('cancelled', 'Cancelled', counts.cancelled, '#FCEBEB', '#A32D2D') : '');
 }
 
 export function renderCleanRow(item, showProperty, index) {
@@ -489,7 +495,9 @@ export function renderCleanRow(item, showProperty, index) {
   const propName = showProperty && item.propertyId
     ? getPropertyNameById(item.propertyId) : '';
 
-  const statusPill = item.status === 'unassigned'
+  const statusPill = item.status === 'cancelled'
+    ? '<div style="background:#FCEBEB;color:#A32D2D;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px">Cancelled</div>'
+    : item.status === 'unassigned'
     ? '<div style="background:#FCEBEB;color:#A32D2D;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px">Unassigned</div>'
     : item.status === 'awaiting'
       ? '<div style="background:#FEF3E2;color:#854F0B;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px">Awaiting</div>'
@@ -565,6 +573,8 @@ export function renderCleanPipeline(data, showProperty) {
   if (!list) return;
 
   const columns = [
+    { key: 'cancelled', label: 'Cancelled', bg: '#FCEBEB', colour: '#A32D2D',
+      items: data.filtered.filter(i => i.status === 'cancelled') },
     { key: 'unassigned', label: 'Needs assignment', bg: '#FCEBEB', colour: '#A32D2D',
       items: data.filtered.filter(i => i.status === 'unassigned') },
     { key: 'awaiting', label: 'Awaiting', bg: '#FEF3E2', colour: '#854F0B',
@@ -804,6 +814,7 @@ function _renderCleanDesktopTable(data, showProperty) {
 
   const fmtSh = d => { if (!d) return ''; return new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day:'numeric', month:'short' }); };
   const statusBadge = item => {
+    if (item.status === 'cancelled') return '<span class="dt-badge" style="background:#FCEBEB;color:#A32D2D">Cancelled</span>';
     if (item.status === 'confirmed') return '<span class="dt-badge dt-badge-green">Confirmed</span>';
     if (item.status === 'unassigned') return '<span class="dt-badge dt-badge-red">Unassigned</span>';
     if (item.status === 'awaiting') return '<span class="dt-badge dt-badge-amber">Awaiting</span>';
