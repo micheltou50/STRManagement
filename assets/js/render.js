@@ -3462,10 +3462,10 @@ async function finishAppInit() {
     }
   } else {
     await globalThis.showSetupIfNeeded();
-    // Show/hide admin nav button — only for owner
+    // Show/hide admin nav button — only for admin role in user_roles table
     const adminNav = document.getElementById('nav-admin');
     if (adminNav) {
-      const showAdmin = typeof globalThis.isAdminSync === 'function' && globalThis.isAdminSync();
+      const showAdmin = typeof globalThis.isAdmin === 'function' ? await globalThis.isAdmin() : false;
       adminNav.style.display = showAdmin ? '' : 'none';
     }
   }

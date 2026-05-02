@@ -69,7 +69,7 @@ import {
 } from './bookings.js';
 import {
   renderAdmin, switchAdminTab, adminHandleToggle, adminToggleTemplate, adminSendTestEmail,
-  isAdminSync, getNotificationConfig, isNotifEnabled
+  isAdmin, isAdminSync, getNotificationConfig, isNotifEnabled
 } from './admin.js';
 import {
   initMessaging, openChat, closeChat, sendMessage, sendAutoMessage,
@@ -127,6 +127,7 @@ globalThis.getCurrentSupabaseUser = getCurrentSupabaseUser;
 globalThis.getFreshHostSub = getFreshHostSub;
 globalThis.sendPushToDevice = sendPushToDevice;
 globalThis.renderAdmin = renderAdmin;
+globalThis.isAdmin = isAdmin;
 globalThis.isAdminSync = isAdminSync;
 globalThis.getNotificationConfig = getNotificationConfig;
 globalThis.isNotifEnabled = isNotifEnabled;

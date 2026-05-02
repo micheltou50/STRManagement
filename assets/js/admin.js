@@ -1,16 +1,24 @@
 /**
  * StayOps — Admin module
- * Admin access is controlled via Supabase Auth app_metadata: { "role": "admin" }
- * Set this in Supabase Dashboard → Auth → Users → edit user → app_metadata.
+ * Admin access is controlled via the user_roles table in Supabase (role = 'admin').
  * Provides notification toggles, email template previews, notification logs, and push device management.
  */
 import { saveAppConfigToCloud, getCurrentSupabaseUser } from './supabase.js';
 import { getActivePropertyConfig } from './config.js';
 
-function _hasAdminRole(user) {
+/* ── Admin role cache (hydrated from user_roles table at boot) ────────── */
+let _isAdminCached = null;
+
+async function _fetchAdminRole() {
+  if (!window._sb) return false;
+  const user = await getCurrentSupabaseUser();
   if (!user) return false;
-  const meta = user.app_metadata || {};
-  return meta.role === 'admin';
+  const { data } = await window._sb
+    .from('user_roles')
+    .select('role')
+    .eq('auth_user_id', user.id)
+    .eq('role', 'admin');
+  return !!(data && data.length > 0);
 }
 
 /* ── Default notification_config ─────────────────────────────────────────── */
@@ -53,23 +61,18 @@ async function persistConfig() {
   await saveAppConfigToCloud({ notification_config: notifConfig });
 }
 
-/* ── Access guard (reads role from Supabase Auth app_metadata) ───────── */
+/* ── Access guard (reads role from user_roles table) ─────────────────── */
 export async function isAdmin() {
   try {
-    const user = await getCurrentSupabaseUser();
-    return _hasAdminRole(user);
+    if (_isAdminCached !== null) return _isAdminCached;
+    _isAdminCached = await _fetchAdminRole();
+    return _isAdminCached;
   } catch { return false; }
 }
 
 export function isAdminSync() {
-  try {
-    if (_hasAdminRole(window._supabaseUser)) return true;
-    if (window._sb && window._sb.auth) {
-      const session = window._sb.auth.session && window._sb.auth.session();
-      if (session && session.user && _hasAdminRole(session.user)) return true;
-    }
-  } catch { /* ignore */ }
-  return false;
+  // Returns cached result from isAdmin(); call isAdmin() at boot to hydrate
+  return _isAdminCached === true;
 }
 
 /* ── TOGGLE DEFINITIONS ─────────────────────────────────────────────────── */
