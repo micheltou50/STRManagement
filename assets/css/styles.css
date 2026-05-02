@@ -1285,7 +1285,7 @@ label {
 
   /* Bottom nav — compact bar; flush to bottom edge */
   .nav {
-    padding: 2px 4px;
+    padding: 2px 4px calc(2px + env(safe-area-inset-bottom));
   }
   .nav-btn {
     font-size: 11px;
@@ -2797,7 +2797,7 @@ label {
     /* Respect the home-indicator safe area at about half intensity so the
        tappable items don't float too far above the home bar. */
     padding-top: 4px !important;
-    padding-bottom: calc(env(safe-area-inset-bottom) * 0.45 + 4px) !important;
+    padding-bottom: calc(env(safe-area-inset-bottom) + 4px) !important;
     box-shadow: 0 -1px 4px rgba(0,0,0,0.06);
   }
   /* Ensure the iOS home-indicator region matches the nav colour so there's
