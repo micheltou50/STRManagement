@@ -1905,25 +1905,17 @@ function buildInvoicePDF(selected, client) {
   const dueDate = new Date(invDate.getTime() + 14 * 24 * 60 * 60 * 1000)
     .toLocaleDateString('en-AU', { day:'numeric', month:'long', year:'numeric' });
 
-  // Treat each booking's mgmtPayout as GST-INCLUSIVE AUD (Australian convention).
-  // Unit Price = ex-GST = amount × 10/11. GST = amount × 1/11. Line Amount = inclusive.
-  let subtotal = 0;
-  let gstTotal = 0;
+  // Not registered for GST — no GST column or breakdown.
   let invoiceTotal = 0;
   const rows = selected.map(b => {
-    const incAmt = Number(b.mgmtPayout || 0);
-    const gst = incAmt / 11;
-    const exAmt = incAmt - gst;
-    subtotal += exAmt;
-    gstTotal += gst;
-    invoiceTotal += incAmt;
+    const amt = Number(b.mgmtPayout || 0);
+    invoiceTotal += amt;
     const desc = `Management fee — ${b.name || 'Guest'} (${fmt(b.checkin)} → ${fmt(b.checkout)})`;
     return `<tr>
       <td class="cell desc">${desc}</td>
       <td class="cell num">1</td>
-      <td class="cell num">$${exAmt.toFixed(2)}</td>
-      <td class="cell num">$${gst.toFixed(2)}</td>
-      <td class="cell num">$${incAmt.toFixed(2)}</td>
+      <td class="cell num">$${amt.toFixed(2)}</td>
+      <td class="cell num">$${amt.toFixed(2)}</td>
     </tr>`;
   }).join('');
 
@@ -1951,7 +1943,7 @@ function buildInvoicePDF(selected, client) {
       <div class="pay-intro">Bank details not configured — set them in Finance → Bank Details.</div>
     </div>`;
 
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Tax Invoice ${invNum}</title>
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Invoice ${invNum}</title>
   <style>
     *{box-sizing:border-box}
     body{font-family:'Helvetica Neue','Helvetica','Arial',sans-serif;color:#222;background:#fff;max-width:760px;margin:40px auto;padding:0 28px;font-size:13px;line-height:1.5}
@@ -1998,7 +1990,7 @@ function buildInvoicePDF(selected, client) {
   </style></head><body>
   <div class="header">
     <div class="sender">
-      <h1>TAX INVOICE</h1>
+      <h1>INVOICE</h1>
       ${inv.company ? `<div class="biz-line"><strong>${inv.company}</strong></div>` : ''}
       ${inv.name && inv.name !== inv.company ? `<div class="biz-line">${inv.name}</div>` : ''}
       ${inv.address ? `<div class="biz-line">${inv.address}</div>` : ''}
@@ -2027,7 +2019,6 @@ function buildInvoicePDF(selected, client) {
       <th>Description</th>
       <th class="num">Quantity</th>
       <th class="num">Unit Price</th>
-      <th class="num">GST</th>
       <th class="num">Amount AUD</th>
     </tr></thead>
     <tbody>${rows}</tbody>
@@ -2035,14 +2026,12 @@ function buildInvoicePDF(selected, client) {
 
   <div class="totals">
     <div class="totals-inner">
-      <div class="row"><span class="lbl">Subtotal</span><span class="val">$${subtotal.toFixed(2)}</span></div>
-      <div class="row"><span class="lbl">Total GST 10%</span><span class="val">$${gstTotal.toFixed(2)}</span></div>
       <div class="row grand"><span class="lbl">Invoice Total AUD</span><span class="val">$${invoiceTotal.toFixed(2)}</span></div>
       <div class="row"><span class="lbl">Total Net Payments AUD</span><span class="val">$0.00</span></div>
       <div class="row due"><span class="lbl">Amount Due AUD</span><span class="val">$${invoiceTotal.toFixed(2)}</span></div>
     </div>
   </div>
-  <div class="gst-note">Total price includes GST</div>
+  <div class="gst-note">Not registered for GST</div>
 
   ${bankBlock}
 
