@@ -82,7 +82,7 @@ import {
   deleteInventoryItem, openInvEdit, closeInvEdit, saveInvEdit, deleteInventoryItemFromEdit, savePropertyData, reassignBookingProperty, processScanNeedsReview, showAppModal, appModalConfirm,
   appModalCancel, attachButtonPress, animateList, closeActionSheet, attachLongPress, attachModalHandleDrag, isCleanerMode, getCleanerParams, hydrateCleanerFromFunction, _showCleanerLinkError,
   isCleanerAuthed, pinPress, pinDelete, cleanerRefresh, enableCleanerNotifications, cleanerSignOut, switchCleanerTab, switchCleanerCleanTab, renderCleanerView, cleanerAddInventoryItem,
-  cleanerAdjustStock, finishAppInit, showOnboarding, hideOnboarding, _obGoToStep, onboardSetPropertyType, onboardStep0Next, onboardStep1Next, onboardStep2Next, onboardSkipStep,
+  cleanerAdjustStock, finishAppInit, showOnboarding, hideOnboarding, _obGoToStep, onboardBack, onboardSetPropertyType, onboardStep0Next, onboardStep1Next, onboardStep1SkipAddress, onboardStep2Next, onboardSkipStep, onboardLiveContinue, obStepperAdjust, obSetGuests,
   onboardConnectGoogle, onboardConnectMicrosoft, onboardEmailConnected, onboardStep2Skip,
   onboardTogglePlatform, onboardStep3Next, onboardToggleIntegration, onboardStep4Next, onboardEnableNotifications, onboardFinish, isOnboardingComplete, checkAutoSendReport, _calNavigate, renderOnboardingGuidance,
   dismissChecklist, renderCleanerCleans
@@ -220,10 +220,15 @@ window.onboardFinish            = onboardFinish;
 window.onboardSetPropertyType   = onboardSetPropertyType;
 window.onboardStep0Next         = onboardStep0Next;
 window.onboardStep1Next         = onboardStep1Next;
+window.onboardStep1SkipAddress  = onboardStep1SkipAddress;
 window.onboardStep2Next         = onboardStep2Next;
 window.onboardStep3Next         = onboardStep3Next;
 window.onboardStep4Next         = onboardStep4Next;
 window.onboardSkipStep          = onboardSkipStep;
+window.onboardLiveContinue      = onboardLiveContinue;
+window.onboardBack              = onboardBack;
+window.obStepperAdjust          = obStepperAdjust;
+window.obSetGuests              = obSetGuests;
 window.onboardTogglePlatform    = onboardTogglePlatform;
 window.onboardToggleIntegration = onboardToggleIntegration;
 window.onboardEnableNotifications = onboardEnableNotifications;

@@ -3777,45 +3777,117 @@ function hideOnboarding() {
   if (hdr) hdr.style.display = '';
 }
 
+// Step IDs (some are strings, like 'live')
+const _OB_STEP_ORDER = [0, 1, 2, 3, 'live', 4, 5, 6];
+// Progress label for the X / 4 indicator (PDF treats setup as 4 sections)
+const _OB_PROGRESS_LABELS = {
+  0: '3 / 4', 1: '3 / 4', 2: null,    // cleaner is OPTIONAL — no counter
+  3: '4 / 4', live: null,
+  4: '4 / 4', 5: null, 6: null
+};
+
 function _obGoToStep(step) {
-  _OB_STEPS.forEach(n => {
+  _OB_STEP_ORDER.forEach(n => {
     const s = document.getElementById('onboard-step-' + n);
     if (s) s.style.display = n === step ? '' : 'none';
   });
-  // Update progress dots
-  document.querySelectorAll('#onboard-dots .onboard-step-dot').forEach(dot => {
-    const n = parseInt(dot.getAttribute('data-step'), 10);
-    dot.classList.remove('active', 'done');
-    if (n < step) dot.classList.add('done');
-    else if (n === step) dot.classList.add('active');
-  });
+  // Update progress label + bar fill
+  const label = document.getElementById('ob-progress-label');
+  const lblText = _OB_PROGRESS_LABELS[step];
+  if (label) {
+    label.textContent = lblText || '';
+    label.style.visibility = lblText ? 'visible' : 'hidden';
+  }
+  const fill = document.getElementById('ob-progress-fill');
+  if (fill) {
+    const idx = _OB_STEP_ORDER.indexOf(step);
+    const pct = Math.max(8, Math.round(((idx + 1) / _OB_STEP_ORDER.length) * 100));
+    fill.style.width = pct + '%';
+  }
+  // Hide back button on first step
+  const back = document.getElementById('ob-back-btn');
+  if (back) back.style.visibility = step === 0 ? 'hidden' : 'visible';
   // Build quick-start list when arriving at step 6
   if (step === 6) renderQuickStartList();
+  // Populate property summary when arriving at live
+  if (step === 'live') renderLiveSummary();
   // Scroll to top on step change
   const wrap = document.getElementById('stayops-onboarding');
   if (wrap) wrap.scrollTop = 0;
+  // Track current step for back nav
+  window._obCurrentStep = step;
+}
+
+function onboardBack() {
+  const cur = window._obCurrentStep;
+  const idx = _OB_STEP_ORDER.indexOf(cur);
+  if (idx > 0) _obGoToStep(_OB_STEP_ORDER[idx - 1]);
 }
 
 // Step 0 — Property type
 function onboardSetPropertyType(type) {
   _OB_PROPERTY_TYPE = type;
-  ['whole', 'room', 'multi'].forEach(t => {
+  ['whole', 'room', 'multi', 'other'].forEach(t => {
     const card  = document.getElementById('ob-ptype-' + t);
     const check = document.getElementById('ob-ptype-check-' + t);
     const active = (t === type);
-    if (card) {
-      card.style.borderColor = active ? 'var(--forest,#1E3A2F)' : 'transparent';
-      card.style.background  = active ? '#E5EFE9' : 'white';
-    }
-    if (check) {
-      check.style.background  = active ? 'var(--forest,#1E3A2F)' : 'transparent';
-      check.style.borderColor = active ? 'var(--forest,#1E3A2F)' : '#E5E5EA';
-      check.innerHTML = active ? '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' : '';
-    }
+    if (card) card.classList.toggle('selected', active);
+    if (check) check.classList.toggle('on', active);
   });
   const errEl = document.getElementById('ob-step0-error');
   if (errEl) errEl.textContent = '';
+  const btn = document.getElementById('ob-step0-btn');
+  if (btn) btn.disabled = false;
 }
+
+// Stepper helpers (Property details bedrooms/bathrooms)
+function obStepperAdjust(inputId, delta) {
+  const input = document.getElementById(inputId);
+  const valSpan = document.getElementById(inputId + '-val');
+  if (!input) return;
+  const min = inputId === 'ob-baths' ? 0 : 1;
+  let cur = parseInt(input.value, 10) || min;
+  cur = Math.max(min, Math.min(20, cur + delta));
+  input.value = cur;
+  if (valSpan) valSpan.textContent = cur;
+}
+
+// Max-guests pills
+function obSetGuests(n) {
+  const input = document.getElementById('ob-guests');
+  if (input) input.value = n;
+  document.querySelectorAll('#ob-guests-pills .so-pill-opt').forEach(el => {
+    el.classList.toggle('on', parseInt(el.getAttribute('data-g'), 10) === n);
+  });
+}
+
+// Step 1 — skip address
+function onboardStep1SkipAddress() {
+  const suburb = document.getElementById('ob-suburb');
+  if (suburb && !suburb.value) suburb.value = '—';
+  onboardStep1Next();
+}
+
+// Render property summary on the "Property is live" step
+function renderLiveSummary() {
+  try {
+    const cfg = (typeof getActivePropertyConfig === 'function' ? getActivePropertyConfig() : null) || {};
+    const nameEl = document.getElementById('ob-live-name');
+    const metaEl = document.getElementById('ob-live-meta');
+    if (nameEl) nameEl.textContent = cfg.name || 'Your property';
+    if (metaEl) {
+      const p = cfg.property || {};
+      const parts = [];
+      if (cfg.suburb && cfg.suburb !== '—') parts.push(cfg.suburb);
+      if (p.bedrooms) parts.push(p.bedrooms + ' bd');
+      if (p.bathrooms) parts.push(p.bathrooms + ' ba');
+      if (p.maxGuests) parts.push('sleeps ' + p.maxGuests);
+      metaEl.textContent = parts.join(' · ');
+    }
+  } catch (_) { /* non-critical */ }
+}
+
+function onboardLiveContinue() { _obGoToStep(4); }
 
 function onboardStep0Next() {
   const errEl = document.getElementById('ob-step0-error');
@@ -3981,7 +4053,7 @@ async function onboardStep3Next() {
   if (typeof globalThis.savePropertyToCloud === 'function') {
     globalThis.savePropertyToCloud(getActivePropertyConfig()).catch(e => console.warn('[StayOps] silent save error:', e));
   }
-  _obGoToStep(4);
+  _obGoToStep('live');
 }
 
 // Step 4 — Integrations (optional, multi-select)
@@ -3990,13 +4062,21 @@ function onboardToggleIntegration(key) {
   else _OB_INTEGRATIONS.add(key);
   ['calendar', 'email', 'ical', 'sheet', 'receipts'].forEach(k => {
     const card  = document.getElementById('ob-int-' + k);
-    const check = document.getElementById('ob-int-check-' + k);
     const active = _OB_INTEGRATIONS.has(k);
-    if (card) card.style.borderColor = active ? 'var(--forest,#1E3A2F)' : 'transparent';
-    if (check) {
-      check.style.background  = active ? 'var(--forest,#1E3A2F)' : 'transparent';
-      check.style.borderColor = active ? 'var(--forest,#1E3A2F)' : '#E5E5EA';
-      check.innerHTML = active ? '<svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' : '';
+    if (card) {
+      card.classList.toggle('selected', active);
+      const btn = card.querySelector('.ob-int-btn');
+      if (btn) {
+        if (active) {
+          btn.textContent = '✓ Connected';
+          btn.style.background = 'var(--forest,#1E3A2F)';
+          btn.style.color = '#fff';
+        } else {
+          btn.textContent = 'Connect';
+          btn.style.background = 'var(--sage-tint,#EAF1E6)';
+          btn.style.color = 'var(--forest,#1E3A2F)';
+        }
+      }
     }
   });
 }
@@ -4040,19 +4120,35 @@ function renderQuickStartList() {
     try { return (window._cleaners || []).length; } catch(_) { return 0; }
   })();
   const cfg = (() => { try { return getActivePropertyConfig() || {}; } catch(_) { return {}; } })();
+  const propertyDone = !!(cfg && cfg.name);
   const integrationsConnected = !!(cfg.pendingIntegrations && cfg.pendingIntegrations.length);
   const items = [
-    { label: 'Add your first booking',    done: false },
-    { label: 'Add or invite a cleaner',   done: cleanersCount > 0 },
-    { label: 'Connect a calendar',        done: integrationsConnected },
-    { label: 'Take a tour of your dashboard', done: false }
+    { label: 'Add your first property',  meta: '1 min', done: propertyDone,           optional: false },
+    { label: 'Add your cleaner',         meta: '1 min', done: cleanersCount > 0,      optional: false },
+    { label: 'Import or add a booking',  meta: '2 min', done: false,                  optional: false },
+    { label: 'Schedule your first clean',meta: '1 min', done: false,                  optional: false },
+    { label: 'Connect Airbnb calendar',  meta: '2 min', done: integrationsConnected,  optional: true  },
+    { label: 'Log an expense or receipt',meta: '1 min', done: false,                  optional: true  }
   ];
+  const doneCount = items.filter(i => i.done).length;
+  const totalCount = items.length;
+  // Update header pill + bar
+  const pill = document.getElementById('ob-qs-count');
+  if (pill) pill.textContent = doneCount + ' of ' + totalCount + ' done';
+  const bar = document.getElementById('ob-qs-bar');
+  if (bar) bar.style.width = Math.round((doneCount / totalCount) * 100) + '%';
+
   wrap.innerHTML = items.map(item => `
-    <div style="display:flex;align-items:center;gap:14px;background:white;border-radius:14px;padding:14px 16px">
-      <div style="width:24px;height:24px;border-radius:50%;${item.done ? 'background:var(--forest,#1E3A2F);' : 'background:transparent;border:2px solid #E5E5EA;'}display:flex;align-items:center;justify-content:center;flex-shrink:0">
-        ${item.done ? '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}
+    <div class="so-card" style="display:flex;align-items:center;gap:14px;${item.done ? 'background:var(--sage-tint,#EAF1E6);border-color:var(--sage-soft,#D6E3D2);' : ''}">
+      <div class="so-radio ${item.done ? 'on' : ''}" style="${item.done ? '' : 'border-color:var(--line,#E4DCC9);'}">
+        ${item.done ? '' : ''}
       </div>
-      <div style="flex:1;font-size:14px;font-weight:600;color:#1C1C1E;${item.done ? 'text-decoration:line-through;color:#999;' : ''}">${item.label}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:600;color:var(--ink,#1B2A24);${item.done ? 'text-decoration:line-through;color:var(--ink-muted,#6F7568);' : ''}">${item.label}</div>
+        <div style="font-family:'DM Mono','SF Mono',monospace;font-size:11px;color:var(--ink-muted,#6F7568);margin-top:2px">${item.meta}</div>
+      </div>
+      ${item.optional ? '<span class="so-pill optional">Optional</span>' : ''}
+      ${item.done ? '' : '<span style="color:var(--ink-muted,#6F7568);font-size:18px;line-height:1">›</span>'}
     </div>
   `).join('');
 }
@@ -4910,11 +5006,16 @@ export {
   showOnboarding,
   hideOnboarding,
   _obGoToStep,
+  onboardBack,
   onboardSetPropertyType,
   onboardStep0Next,
   onboardStep1Next,
+  onboardStep1SkipAddress,
   onboardStep2Next,
   onboardSkipStep,
+  onboardLiveContinue,
+  obStepperAdjust,
+  obSetGuests,
   onboardConnectGoogle,
   onboardConnectMicrosoft,
   onboardEmailConnected,
