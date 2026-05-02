@@ -1204,21 +1204,6 @@ export async function saveBookingToCloud(booking) {
     }
   }
 
-  // Push availability to channel manager if connected
-  if (window._appConfig && window._appConfig.channel_manager_connected && booking.source !== 'channel_manager') {
-    fetch('/.netlify/functions/cm-push-availability', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        uid: user.id,
-        propertyId: booking.property_id || booking._propertyId,
-        checkin: booking.checkin,
-        checkout: booking.checkout,
-        action: booking.status === 'cancelled' ? 'unblock' : 'block'
-      })
-    }).catch(e => console.warn('[StayOps] CM availability push failed:', e.message));
-  }
-
   // Trigger debounced smart-pricing rerun for this property.
   const rerunPid = booking.property_id || booking._propertyId || propertyId;
   if (rerunPid) schedulePricingRerun(rerunPid, 'booking_added');
@@ -1568,11 +1553,8 @@ export async function hydrateFromCloud() {
         invoice_details: cloudAppConfig.invoice_details || {},
         invoice_logo: cloudAppConfig.invoice_logo || '',
         invoices: cloudAppConfig.invoices || [],
-        channel_manager_provider: cloudAppConfig.channel_manager_provider || '',
-        channel_manager_connected: cloudAppConfig.channel_manager_connected || false,
-        channel_manager_tier: cloudAppConfig.channel_manager_tier || '',
-        channel_manager_last_sync: cloudAppConfig.channel_manager_last_sync || null,
-        channel_manager_sync_error: cloudAppConfig.channel_manager_sync_error || null,
+        ical_last_sync: cloudAppConfig.ical_last_sync || null,
+        ical_last_error: cloudAppConfig.ical_last_error || null,
         cancellation_last_seen: cloudAppConfig.cancellation_last_seen || null,
       };
       console.log('[StayOps] Hydrated app config from cloud');

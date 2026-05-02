@@ -94,9 +94,10 @@ function looksLikeBookingEmail(subject, from, body) {
 
 // ── Booking matching ────────────────────────────────────────────────────────
 
-function findExistingBooking(bookings, confCode, guestName, checkin) {
+function findExistingBooking(bookings, confCode, guestName, checkin, propertyId) {
   if (!Array.isArray(bookings)) return null;
 
+  // Tier 1: confirmation code (strongest)
   if (confCode) {
     const byCode = bookings.find(b =>
       b.confirmation_code &&
@@ -111,14 +112,29 @@ function findExistingBooking(bookings, confCode, guestName, checkin) {
     if (byCodeAny) return byCodeAny;
   }
 
-  if (guestName && checkin) {
-    const normName = guestName.toLowerCase().trim();
-    return bookings.find(b =>
-      b.guest_name && b.guest_name.toLowerCase().trim() === normName &&
-      b.checkin === checkin
-    ) || null;
+  // Tier 2: property_id + checkin — catches iCal-seeded stubs once the email
+  // resolves the property. iCal doesn't carry guest name or platform's
+  // human-facing confirmation code, so this is the natural enrichment join.
+  if (propertyId && checkin) {
+    const byPropDate = bookings.find(b =>
+      String(b.property_id) === String(propertyId) &&
+      b.checkin === checkin &&
+      b.status !== 'cancelled'
+    );
+    if (byPropDate) return byPropDate;
   }
 
+  // Tier 3: guest name + checkin
+  if (guestName && checkin) {
+    const normName = guestName.toLowerCase().trim();
+    const byNameDate = bookings.find(b =>
+      b.guest_name && b.guest_name.toLowerCase().trim() === normName &&
+      b.checkin === checkin
+    );
+    if (byNameDate) return byNameDate;
+  }
+
+  // Tier 4: guest name only when unique
   if (guestName) {
     const normName = guestName.toLowerCase().trim();
     const matches = bookings.filter(b =>
@@ -221,7 +237,7 @@ async function loadProperties(supabaseUrl, sbHeaders, uid, pidParam) {
 async function loadExistingBookings(supabaseUrl, sbHeaders, uid) {
   const res = await fetch(
     supabaseUrl + '/rest/v1/bookings?user_id=eq.' + enc(uid) +
-      '&select=id,local_id,confirmation_code,guest_name,checkin,checkout,status,property_id,host_payout,cleaning_fee,platform',
+      '&select=id,local_id,confirmation_code,guest_name,checkin,checkout,status,property_id,host_payout,cleaning_fee,platform,source,enrichment_status,ical_uid',
     { headers: sbHeaders }
   );
   return await safeJson(res, 'Supabase bookings list');
@@ -546,7 +562,7 @@ async function processEmailResult(parsed, msgId, source, ctx) {
 
   // ── Cancellation ────────────────────────────────────────────────────
   if (emailType === 'cancellation') {
-    const match = findExistingBooking(existingBookings, confCode, parsed.guestName, parsed.checkin);
+    const match = findExistingBooking(existingBookings, confCode, parsed.guestName, parsed.checkin, propertyId);
     if (match) {
       const wasCancelled = String(match.status || '').toLowerCase() === 'cancelled';
       await fetch(
@@ -588,7 +604,7 @@ async function processEmailResult(parsed, msgId, source, ctx) {
 
   // ── Modification (with updated details) ─────────────────────────────
   if (emailType === 'modification') {
-    const match = findExistingBooking(existingBookings, confCode, parsed.guestName, null);
+    const match = findExistingBooking(existingBookings, confCode, parsed.guestName, parsed.checkin, propertyId);
     if (match) {
       const datesChanged =
         (parsed.checkin && parsed.checkin !== match.checkin) ||
@@ -664,7 +680,7 @@ async function processEmailResult(parsed, msgId, source, ctx) {
 
   // ── Modification notice (alteration accepted, no details) ───────────
   if (emailType === 'modification_notice') {
-    const modMatch = findExistingBooking(existingBookings, confCode, parsed.guestName, null);
+    const modMatch = findExistingBooking(existingBookings, confCode, parsed.guestName, parsed.checkin, propertyId);
     if (modMatch) {
       await fetch(
         supabaseUrl + '/rest/v1/bookings?id=eq.' + enc(modMatch.id),
@@ -722,17 +738,78 @@ async function processEmailResult(parsed, msgId, source, ctx) {
     return;
   }
 
-  // Duplicate check by confirmation code
-  if (confCode) {
-    const dup = existingBookings.find(b =>
-      b.confirmation_code && b.confirmation_code.toLowerCase() === confCode.toLowerCase()
-    );
-    if (dup) {
-      results.skipped++;
+  // Enrich an iCal-seeded stub if one matches (by code, or property_id+checkin).
+  // The stub already has dates/property; the email fills in guest name, payout,
+  // cleaning fee, and the human-facing confirmation code.
+  const stub = findExistingBooking(existingBookings, confCode, parsed.guestName, parsed.checkin, propertyId);
+  if (stub) {
+    const stubName = String(stub.guest_name || '').trim();
+    const isStub = stub.source === 'ical' || stub.enrichment_status === 'pending' || stubName === 'Reserved' || stubName === 'Reserved — awaiting details';
+    if (isStub || (stub.confirmation_code || '') !== confCode) {
+      const rate = Number(mgmtFeeRate) || 0;
+      const payout = parsed.hostPayout || 0;
+      const cleaning = parsed.cleaningFee || 0;
+      const mgmtBase = payout - cleaning;
+      const mgmtFee = Math.round(mgmtBase * (rate / 100) * 100) / 100;
+      const netPayout = Math.round((mgmtBase - mgmtFee) * 100) / 100;
+      const patch = {
+        guest_name: parsed.guestName || stub.guest_name || 'Guest',
+        guests: parsed.guests || 1,
+        host_payout: payout,
+        cleaning_fee: cleaning,
+        net_payout: netPayout,
+        mgmt_fee_raw: rate,
+        mgmt_fee: mgmtFee,
+        mgmt_payout: mgmtFee,
+        platform: parsed.platform || stub.platform || detectPlatform(emailFrom || ''),
+        confirmation_code: confCode || stub.confirmation_code || '',
+        enrichment_status: 'enriched',
+        gmail_message_id: msgId,
+        updated_at: new Date().toISOString(),
+      };
+      // If the email's checkin/checkout differ from the stub, trust the email.
+      if (parsed.checkin && parsed.checkin !== stub.checkin) {
+        patch.checkin = parsed.checkin;
+      }
+      if (parsed.checkout && parsed.checkout !== stub.checkout) {
+        patch.checkout = parsed.checkout;
+      }
+      if (patch.checkin || patch.checkout) {
+        patch.nights = daysBetween(patch.checkin || stub.checkin, patch.checkout || stub.checkout);
+      }
+      await fetch(
+        supabaseUrl + '/rest/v1/bookings?id=eq.' + enc(stub.id),
+        { method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=minimal' }, body: JSON.stringify(patch) }
+      );
+      results.updated++;
+      results.details.push({ msgId, status: 'enriched', guest: parsed.guestName, checkin: parsed.checkin });
       newlySkipped.push(msgId);
-      results.details.push({ msgId, status: 'skipped', reason: 'Booking with this confirmation code already exists' });
+      if (supabaseAdmin) {
+        const enrichRow = {
+          id: stub.id,
+          property_id: stub.property_id,
+          guest_name: parsed.guestName || stub.guest_name,
+          checkin: patch.checkin || stub.checkin,
+          checkout: patch.checkout || stub.checkout,
+          guests: patch.guests,
+          platform: patch.platform,
+          host_payout: payout,
+        };
+        const enrichPropName = (propMap.find(p => p.id === stub.property_id) || {}).name || propertyName;
+        await notifyBookingOwnerPush(supabaseAdmin, {
+          notifyType: 'new_booking',
+          propertyId: stub.property_id,
+          bookingRow: enrichRow,
+          fallbackPropertyName: enrichPropName,
+        });
+      }
       return;
     }
+    // Same confirmation code, already enriched — true duplicate.
+    results.skipped++;
+    newlySkipped.push(msgId);
+    results.details.push({ msgId, status: 'skipped', reason: 'Booking already enriched' });
+    return;
   }
 
   const inserted = await insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed, emailFrom, source);

@@ -97,68 +97,23 @@ test('cleaner-message: GET → 405', async () => {
   assert.equal(r.statusCode, 405);
 });
 
-// ── cm-get-properties ────────────────────────────────────────────────────────
-test('cm-get-properties: OPTIONS → 200', async () => {
-  const { handler } = load('cm-get-properties');
+// ── ical-sync ────────────────────────────────────────────────────────────────
+test('ical-sync: OPTIONS → 200', async () => {
+  const { handler } = load('ical-sync');
   const r = await handler(event({ httpMethod: 'OPTIONS' }));
   assert.equal(r.statusCode, 200);
 });
 
-test('cm-get-properties: GET → 405', async () => {
-  const { handler } = load('cm-get-properties');
+test('ical-sync: GET → 405', async () => {
+  const { handler } = load('ical-sync');
   const r = await handler(event({ httpMethod: 'GET' }));
   assert.equal(r.statusCode, 405);
 });
 
-test('cm-get-properties: bad JSON → 400', async () => {
-  const { handler } = load('cm-get-properties');
+test('ical-sync: bad JSON → 400', async () => {
+  const { handler } = load('ical-sync');
   const r = await handler(event({ httpMethod: 'POST', body: 'not-json' }));
   assert.equal(r.statusCode, 400);
-});
-
-// ── cm-push-availability ─────────────────────────────────────────────────────
-test('cm-push-availability: OPTIONS → 200', async () => {
-  const { handler } = load('cm-push-availability');
-  const r = await handler(event({ httpMethod: 'OPTIONS' }));
-  assert.equal(r.statusCode, 200);
-});
-
-test('cm-push-availability: GET → 405', async () => {
-  const { handler } = load('cm-push-availability');
-  const r = await handler(event({ httpMethod: 'GET' }));
-  assert.equal(r.statusCode, 405);
-});
-
-test('cm-push-availability: missing fields → 400', async () => {
-  const { handler } = load('cm-push-availability');
-  const r = await handler(event({ httpMethod: 'POST', body: '{}' }));
-  assert.equal(r.statusCode, 400);
-});
-
-// ── cm-sync-bookings ─────────────────────────────────────────────────────────
-test('cm-sync-bookings: OPTIONS → 200', async () => {
-  const { handler } = load('cm-sync-bookings');
-  const r = await handler(event({ httpMethod: 'OPTIONS' }));
-  assert.equal(r.statusCode, 200);
-});
-
-test('cm-sync-bookings: GET → 405', async () => {
-  const { handler } = load('cm-sync-bookings');
-  const r = await handler(event({ httpMethod: 'GET' }));
-  assert.equal(r.statusCode, 405);
-});
-
-// ── cm-test-connection ───────────────────────────────────────────────────────
-test('cm-test-connection: OPTIONS → 200', async () => {
-  const { handler } = load('cm-test-connection');
-  const r = await handler(event({ httpMethod: 'OPTIONS' }));
-  assert.equal(r.statusCode, 200);
-});
-
-test('cm-test-connection: GET → 405', async () => {
-  const { handler } = load('cm-test-connection');
-  const r = await handler(event({ httpMethod: 'GET' }));
-  assert.equal(r.statusCode, 405);
 });
 
 // ── daily-notifications ──────────────────────────────────────────────────────

@@ -61,7 +61,7 @@ import {
   openSettingsPanel, closeSettingsPanel, closeSettingsCat, renderSettings, clearCacheAndResync, saveSMSTemplate, saveGeminiKey, saveApiKey, getApiKey, getHostProfile, saveHostProfile, saveHostProfilePanel,
   handleLogoUpload, removeHostLogo, renderHostProfileRow, loadCleaners, saveCleaners, addCleaner, deleteCleaner, renderTeamList, openCleanerProfile, saveCleanerContact, populateContractorSelect, renderStorageViewer, getFx, saveFxSetting,
   initFxSettings, initSettingsSwipeBack, toggleAutoAssignCleaner, resetConnectionCheckerResults, openCleanerSettings, renderCleanerAccessList, saveCleanerPinById, clearCleanerPinById, saveCleanerPerm, copyCleanerLinkById,
-  testCMConnection, syncCMBookings, requestCMSetup, disconnectCM, loadCMMapping, saveCMMapping, maybeAutoSyncCM
+  populateICalFeedsPanel, addICalFeed, removeICalFeed, syncICalFeedsNow, maybeAutoSyncICal
 } from './settings.js';
 import {
   calPrev, calNext, openCalPreview, closeCalPreview, addNote, showDetail, showEditModal, saveEdit, editCalcNights, editCalcNet, filterBookings, addBooking,
@@ -360,11 +360,6 @@ window.saveEdit                 = saveEdit;
 window.saveEmailTemplate        = saveEmailTemplate;
 window.scanGmailBookings        = scanGmailBookings;
 window.scanOutlookBookings      = scanOutlookBookings;
-window.testCMConnection         = testCMConnection;
-window.syncCMBookings           = syncCMBookings;
-window.requestCMSetup           = requestCMSetup;
-window.disconnectCM             = disconnectCM;
-window.saveCMMapping            = saveCMMapping;
 window.selectMerchantSuggest    = selectMerchantSuggest;
 window.hideMerchantSuggest      = hideMerchantSuggest;
 window.sendCleanerReminder      = sendCleanerReminder;
@@ -415,7 +410,11 @@ window.applyStayopsPostSwitchAction = applyStayopsPostSwitchAction;
 window.checkAutoSendReport      = checkAutoSendReport;
 window.maybeAutoScanGmail       = maybeAutoScanGmail;
 window.maybeAutoScanOutlook     = maybeAutoScanOutlook;
-window.maybeAutoSyncCM          = maybeAutoSyncCM;
+window.maybeAutoSyncICal        = maybeAutoSyncICal;
+window.syncICalFeedsNow         = syncICalFeedsNow;
+window.addICalFeed              = addICalFeed;
+window.removeICalFeed           = removeICalFeed;
+window.populateICalFeedsPanel   = populateICalFeedsPanel;
 window._obGoToStep              = _obGoToStep;
 
 // Internal reference used by calendar navigation
@@ -840,12 +839,12 @@ window.notifyCancelledCleaner = async function (btn, bookingId, cleanId) {
     setTimeout(checkCancelledBookings, 2500);
     // Check if host is also a cleaner (show role switcher)
     setTimeout(checkRoleSwitcher, 1000);
-    // Auto-sync channel manager bookings
-    setTimeout(maybeAutoSyncCM, 6000);
+    // Auto-sync iCal feeds (per-property calendar imports)
+    setTimeout(maybeAutoSyncICal, 6000);
     // Periodic re-scan every 15 minutes while app is open
     setInterval(maybeAutoScanGmail, 15 * 60 * 1000);
     setInterval(maybeAutoScanOutlook, 15 * 60 * 1000 + 1500);
-    setInterval(maybeAutoSyncCM, 4 * 60 * 60 * 1000);
+    setInterval(maybeAutoSyncICal, 15 * 60 * 1000 + 3000);
   } catch (e) {
     console.error('[StayOps] Boot failed:', e);
   } finally {

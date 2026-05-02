@@ -16,8 +16,9 @@
 [functions."send-clean-reminders"]
   schedule = "0 22 * * *"
 
-[functions."cm-sync-bookings"]
-  schedule = "0 */4 * * *"
+# ical-sync: every 15 minutes (matches email auto-scan cadence)
+[functions."ical-sync"]
+  schedule = "*/15 * * * *"
 
 # Smart Pricing v2 scheduled functions register their cron via the
 # `@netlify/functions` schedule() wrapper in the function source itself

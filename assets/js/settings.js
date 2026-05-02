@@ -87,7 +87,7 @@ function renderConnectionSummary() {
       `}
     </div>
 
-    ${_renderCMCard()}`
+    ${_renderICalFeedsCard()}`
   ;
 }
 async function connectGmail() {
@@ -504,8 +504,8 @@ function openSettingsPanel(panelId, returnSection) {
   if (panelId === 'integrations') {
     renderConnectionSummary();
   }
-  if (panelId === 'cm-mapping') {
-    loadCMMapping();
+  if (panelId === 'ical-feeds') {
+    populateICalFeedsPanel();
   }
   if (panelId === 'owner-report') {
     populateOwnerReportPanel();
@@ -1159,351 +1159,213 @@ function copyCleanerLinkById(id) {
     .catch(() => globalThis.showBanner('⚠ Copy failed — select the link manually', 'warn'));
 }
 
-// ── CHANNEL MANAGER ──────────────────────────────────────────────────────────
+// ── ICAL CALENDAR FEEDS ──────────────────────────────────────────────────────
+// Per-property iCal subscriptions (Airbnb, Booking.com, VRBO, Stayz, etc).
+// Polled every 15 min by Netlify scheduled function `ical-sync`. Each VEVENT
+// becomes a booking stub (dates + property only); the matching confirmation
+// email later enriches it with guest name, payout, and confirmation code.
 
-function _renderCMCard() {
-  const cmConnected = window._appConfig && window._appConfig.channel_manager_connected;
-  if (cmConnected) {
-    const provider = escHtml((window._appConfig.channel_manager_provider || '').toUpperCase());
-    const tier = escHtml(window._appConfig.channel_manager_tier || 'self-serve');
-    const lastSync = window._appConfig.channel_manager_last_sync;
-    const syncError = window._appConfig.channel_manager_sync_error || '';
-    let lastSyncFormatted = '';
-    if (lastSync) {
-      try { lastSyncFormatted = new Date(lastSync).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }); } catch(_e) { lastSyncFormatted = lastSync; }
-    }
-    return `<div style="background:var(--mist);padding:14px 16px;border-radius:10px;margin-top:8px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <div style="font-weight:600;font-size:14px">📡 Channel Manager</div>
-        <span style="font-size:11px;color:var(--moss)">✓ Connected</span>
-      </div>
-      <div style="font-size:12px;color:var(--text-soft);margin-bottom:8px">
-        Provider: <strong>${provider}</strong> · Tier: <strong>${tier}</strong>
-        ${lastSync ? ' · Last sync: ' + lastSyncFormatted : ''}
-        ${syncError ? '<br><span style="color:var(--red)">⚠ ' + escHtml(syncError) + '</span>' : ''}
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button onclick="syncCMBookings()" class="btn-primary" style="padding:8px 14px;font-size:12px" id="cm-sync-btn">🔄 Sync Now</button>
-        <button onclick="openSettingsPanel('cm-mapping')" style="padding:8px 14px;font-size:12px;background:var(--warm);border:none;border-radius:var(--radius-sm);cursor:pointer;font-weight:600;color:var(--forest)">🗺️ Properties</button>
-        <button onclick="disconnectCM()" style="padding:8px 14px;font-size:12px;background:none;border:1px solid var(--red);border-radius:var(--radius-sm);cursor:pointer;color:var(--red)">Disconnect</button>
-      </div>
-    </div>`;
-  }
-  // Not connected
+const ICAL_PLATFORMS = [
+  { value: 'airbnb',  label: 'Airbnb' },
+  { value: 'booking', label: 'Booking.com' },
+  { value: 'vrbo',    label: 'VRBO' },
+  { value: 'stayz',   label: 'Stayz' },
+  { value: 'other',   label: 'Other' },
+];
+
+function _renderICalFeedsCard() {
   return `<div style="background:var(--mist);padding:14px 16px;border-radius:10px;margin-top:8px">
-    <div style="font-weight:600;font-size:14px;margin-bottom:4px">📡 Channel Manager</div>
-    <div style="font-size:11px;color:var(--text-soft);margin-bottom:12px;line-height:1.5">Sync bookings in real-time across Airbnb, Booking.com, VRBO, and more. No more double bookings.</div>
-    <div style="display:flex;gap:8px">
-      <button onclick="openSettingsPanel('cm-connect')" class="btn-primary" style="flex:1;padding:10px;font-size:13px">I have an account</button>
-      <button onclick="openSettingsPanel('cm-request')" style="flex:1;padding:10px;font-size:13px;background:var(--warm);border:none;border-radius:var(--radius-sm);cursor:pointer;font-weight:600;color:var(--forest)">Set it up for me</button>
-    </div>
+    <div style="font-weight:600;font-size:14px;margin-bottom:4px">📅 Calendar Feeds</div>
+    <div style="font-size:11px;color:var(--text-soft);margin-bottom:12px;line-height:1.5">Subscribe to per-property iCal URLs from Airbnb, Booking.com, VRBO, Stayz. Bookings appear automatically; emails fill in guest details.</div>
+    <button onclick="openSettingsPanel('ical-feeds')" class="btn-primary" style="width:100%;padding:10px;font-size:13px">Manage Calendar Feeds</button>
   </div>`;
 }
 
-async function testCMConnection() {
+async function populateICalFeedsPanel() {
+  const user = await getCurrentSupabaseUser();
+  const listEl = document.getElementById('ical-feeds-list');
+  if (!listEl) return;
+  if (!user) { listEl.innerHTML = '<div style="font-size:12px;color:var(--text-soft)">Sign in first.</div>'; return; }
+
+  const allProps = typeof getAllProperties === 'function' ? getAllProperties() : [];
+  if (!allProps.length) {
+    listEl.innerHTML = '<div style="font-size:12px;color:var(--text-soft)">Add a property first, then add iCal feeds for it.</div>';
+    return;
+  }
+
+  let feeds = [];
+  try {
+    const { data, error } = await window._sb
+      .from('property_ical_feeds')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    feeds = data || [];
+  } catch (e) {
+    listEl.innerHTML = '<div style="font-size:12px;color:var(--red)">⚠ ' + escHtml(e.message) + '</div>';
+    return;
+  }
+
+  const platformOptions = ICAL_PLATFORMS.map(p => `<option value="${p.value}">${p.label}</option>`).join('');
+  let html = '';
+  allProps.forEach(prop => {
+    const propId = prop.supabaseId || prop.id;
+    const propName = prop.name || prop.id;
+    const propFeeds = feeds.filter(f => String(f.property_id) === String(propId));
+    html += `<div style="background:var(--card-bg);padding:12px;border-radius:10px;margin-bottom:10px;border:1px solid var(--border)">
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px">${escHtml(propName)}</div>`;
+    if (!propFeeds.length) {
+      html += '<div style="font-size:11px;color:var(--text-soft);margin-bottom:8px">No feeds yet.</div>';
+    } else {
+      propFeeds.forEach(f => {
+        const platLabel = (ICAL_PLATFORMS.find(p => p.value === f.platform) || {}).label || f.platform;
+        const lastSync = f.last_synced_at ? new Date(f.last_synced_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : 'never';
+        const err = f.last_error ? '<div style="font-size:11px;color:var(--red);margin-top:4px">⚠ ' + escHtml(f.last_error) + '</div>' : '';
+        html += `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px;background:var(--mist);border-radius:8px;margin-bottom:6px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:600">${escHtml(platLabel)}</div>
+            <div style="font-size:10px;color:var(--text-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(f.ical_url)}</div>
+            <div style="font-size:10px;color:var(--text-soft)">Last sync: ${escHtml(lastSync)}</div>
+            ${err}
+          </div>
+          <button onclick="removeICalFeed('${escHtml(f.id)}')" style="padding:6px 10px;font-size:11px;background:none;border:1px solid var(--red);border-radius:6px;color:var(--red);cursor:pointer;flex-shrink:0">Remove</button>
+        </div>`;
+      });
+    }
+    html += `<div style="display:flex;gap:6px;margin-top:8px">
+        <select id="ical-add-platform-${escHtml(propId)}" style="padding:8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--card-bg)">${platformOptions}</select>
+        <input type="text" id="ical-add-url-${escHtml(propId)}" placeholder="Paste iCal URL" style="flex:1;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:12px;min-width:0">
+        <button onclick="addICalFeed('${escHtml(propId)}')" class="btn-primary" style="padding:8px 12px;font-size:12px">Add</button>
+      </div>
+    </div>`;
+  });
+  listEl.innerHTML = html;
+}
+
+async function addICalFeed(propertyId) {
   const user = await getCurrentSupabaseUser();
   if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
-
-  const provider = document.getElementById('cm-provider')?.value || 'beds24';
-  const apiKey = (document.getElementById('cm-api-key')?.value || '').trim();
-  if (!apiKey) { globalThis.showBanner('⚠ Please enter your API key', 'warn'); return; }
-
-  const btn = document.getElementById('cm-connect-btn');
-  const statusEl = document.getElementById('cm-connect-status');
-  if (btn) { btn.disabled = true; btn.textContent = '⟳ Testing…'; }
-  if (statusEl) { statusEl.style.color = 'var(--text-soft)'; statusEl.textContent = 'Connecting…'; }
-
+  const platform = document.getElementById('ical-add-platform-' + propertyId)?.value || 'other';
+  const urlInput = document.getElementById('ical-add-url-' + propertyId);
+  const url = (urlInput?.value || '').trim();
+  const statusEl = document.getElementById('ical-feeds-status');
+  if (!url) { if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = '⚠ Paste an iCal URL first'; } return; }
+  if (!/^https?:\/\//i.test(url) && !/^webcal:\/\//i.test(url)) {
+    if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = '⚠ URL must start with http(s):// or webcal://'; }
+    return;
+  }
   try {
-    const res = await fetch('/.netlify/functions/cm-test-connection', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid: user.id, provider, apiKey })
+    const { error } = await window._sb.from('property_ical_feeds').insert({
+      user_id: user.id,
+      property_id: propertyId,
+      platform,
+      ical_url: url.replace(/^webcal:/i, 'https:'),
+      active: true,
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Connection failed');
-
-    // Save to app config
-    if (!window._appConfig) window._appConfig = {};
-    window._appConfig.channel_manager_provider = provider;
-    window._appConfig.channel_manager_connected = true;
-    window._appConfig.channel_manager_tier = 'self-serve';
-    await saveAppConfigToCloud({
-      channel_manager_provider: provider,
-      channel_manager_connected: true,
-      channel_manager_tier: 'self-serve',
-    });
-
-    if (statusEl) { statusEl.style.color = 'var(--moss)'; statusEl.textContent = '✓ Connected! Redirecting to property mapping…'; }
-    globalThis.showBanner('✓ Channel manager connected', 'ok');
-    setTimeout(() => openSettingsPanel('cm-mapping'), 800);
+    if (error) throw new Error(error.message);
+    if (statusEl) { statusEl.style.color = 'var(--moss)'; statusEl.textContent = '✓ Feed added — first sync runs in the background'; }
+    if (urlInput) urlInput.value = '';
+    await populateICalFeedsPanel();
+    syncICalFeedsNow();
   } catch (e) {
     if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = '⚠ ' + e.message; }
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Test & Connect'; }
   }
 }
 
-async function syncCMBookings() {
+async function removeICalFeed(feedId) {
+  const user = await getCurrentSupabaseUser();
+  if (!user) return;
+  globalThis.showAppModal(
+    'Remove this calendar feed?',
+    'Bookings already imported will stay. New bookings from this feed will stop appearing.',
+    async () => {
+      try {
+        const { error } = await window._sb.from('property_ical_feeds').delete().eq('id', feedId).eq('user_id', user.id);
+        if (error) throw new Error(error.message);
+        globalThis.showBanner('✓ Feed removed', 'ok');
+        await populateICalFeedsPanel();
+      } catch (e) {
+        globalThis.showBanner('⚠ Remove failed: ' + e.message, 'warn');
+      }
+    }
+  );
+}
+
+async function syncICalFeedsNow() {
   const user = await getCurrentSupabaseUser();
   if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
-
-  const btn = document.getElementById('cm-sync-btn');
+  const btn = document.getElementById('ical-sync-now-btn');
+  const statusEl = document.getElementById('ical-feeds-status');
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing…'; }
-
+  if (statusEl) { statusEl.style.color = 'var(--text-soft)'; statusEl.textContent = 'Fetching feeds…'; }
   try {
-    const res = await fetch('/.netlify/functions/cm-sync-bookings', {
+    const res = await fetch('/.netlify/functions/ical-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: user.id }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Sync failed');
-
-    // Update last sync time in app config
-    if (!window._appConfig) window._appConfig = {};
-    window._appConfig.channel_manager_last_sync = new Date().toISOString();
-    window._appConfig.channel_manager_sync_error = null;
-    await saveAppConfigToCloud({
-      channel_manager_last_sync: window._appConfig.channel_manager_last_sync,
-      channel_manager_sync_error: null,
-    });
-
     const totalChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0);
     if (totalChanges > 0) {
       if (typeof globalThis.hydrateFromCloud === 'function') await globalThis.hydrateFromCloud();
-      globalThis.reloadInMemoryData();
-      globalThis.renderAll();
+      if (typeof globalThis.reloadInMemoryData === 'function') globalThis.reloadInMemoryData();
+      if (typeof globalThis.renderAll === 'function') globalThis.renderAll();
       const parts = [];
       if (data.imported) parts.push(data.imported + ' imported');
       if (data.updated) parts.push(data.updated + ' updated');
       if (data.cancelled) parts.push(data.cancelled + ' cancelled');
-      globalThis.showBanner('✓ CM sync: ' + parts.join(', '), 'ok');
+      if (statusEl) { statusEl.style.color = 'var(--moss)'; statusEl.textContent = '✓ ' + parts.join(', '); }
+      globalThis.showBanner('✓ iCal sync: ' + parts.join(', '), 'ok');
     } else {
-      globalThis.showBanner('✓ Channel manager in sync — no new bookings', 'ok');
+      if (statusEl) { statusEl.style.color = 'var(--moss)'; statusEl.textContent = '✓ All feeds in sync'; }
     }
-    renderConnectionSummary();
-  } catch (e) {
-    if (!window._appConfig) window._appConfig = {};
-    window._appConfig.channel_manager_sync_error = e.message;
-    globalThis.showBanner('⚠ CM sync failed: ' + e.message, 'warn');
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync Now'; }
-  }
-}
-
-async function requestCMSetup() {
-  const user = await getCurrentSupabaseUser();
-  if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
-
-  const btn = document.getElementById('cm-request-btn');
-  const statusEl = document.getElementById('cm-request-status');
-  if (btn) { btn.disabled = true; btn.textContent = '⟳ Sending…'; }
-
-  try {
-    // Get host email for the notification
-    const hostProfile = typeof getHostProfile === 'function' ? getHostProfile() : {};
-    const hostEmail = user.email || (hostProfile && hostProfile.email) || 'unknown';
-
-    // Send push notification to admin
-    const _res = await globalThis.authFetch('/.netlify/functions/send-push', {
-      method: 'POST',
-      body: JSON.stringify({
-        uid: user.id,
-        title: '🛎️ Channel Manager Setup Request',
-        body: 'User ' + hostEmail + ' (uid: ' + user.id + ') requested managed CM setup.',
-        admin: true,
-      })
-    });
-
-    // Update app config to mark tier as managed
-    if (!window._appConfig) window._appConfig = {};
-    window._appConfig.channel_manager_tier = 'managed';
-    await saveAppConfigToCloud({ channel_manager_tier: 'managed' });
-
-    if (statusEl) { statusEl.style.color = 'var(--moss)'; statusEl.textContent = '✓ Request sent! We will be in touch shortly.'; }
-    globalThis.showBanner('✓ Setup request sent', 'ok');
-  } catch (e) {
-    if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = '⚠ Failed to send request'; }
-    globalThis.showBanner('⚠ Could not send request: ' + e.message, 'warn');
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Request Setup'; }
-  }
-}
-
-async function disconnectCM() {
-  globalThis.showAppModal(
-    'Disconnect Channel Manager?',
-    'This will stop syncing bookings from your channel manager. Your existing bookings won\'t be affected.',
-    async () => {
-      try {
-        const user = await getCurrentSupabaseUser();
-        if (!user) return;
-
-        // Clear channel manager fields from app config
-        if (!window._appConfig) window._appConfig = {};
-        window._appConfig.channel_manager_provider = '';
-        window._appConfig.channel_manager_connected = false;
-        window._appConfig.channel_manager_tier = '';
-        window._appConfig.channel_manager_last_sync = null;
-        window._appConfig.channel_manager_sync_error = null;
-        await saveAppConfigToCloud({
-          channel_manager_provider: '',
-          channel_manager_connected: false,
-          channel_manager_tier: '',
-          channel_manager_last_sync: null,
-          channel_manager_sync_error: null,
-        });
-
-        // Delete channel property mappings
-        try {
-          await window._sb.from('channel_property_map').delete().eq('user_id', user.id);
-        } catch (e) {
-          console.warn('[StayOps] Failed to delete CM property mappings:', e.message);
-        }
-
-        renderConnectionSummary();
-        globalThis.showBanner('✓ Channel manager disconnected', 'ok');
-      } catch (e) {
-        globalThis.showBanner('⚠ Disconnect failed: ' + e.message, 'warn');
-      }
-    }
-  );
-}
-
-async function loadCMMapping() {
-  const user = await getCurrentSupabaseUser();
-  if (!user) return;
-  const listEl = document.getElementById('cm-mapping-list');
-  const _statusEl = document.getElementById('cm-mapping-status');
-  if (!listEl) return;
-  listEl.innerHTML = '<div style="font-size:12px;color:var(--text-soft)">Loading properties…</div>';
-
-  try {
-    // Fetch CM properties from the API
-    const res = await fetch('/.netlify/functions/cm-get-properties', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid: user.id }),
-    });
-    const cmData = await res.json();
-    if (!res.ok) throw new Error(cmData.error || 'Failed to load CM properties');
-    const cmProperties = cmData.properties || [];
-
-    // Fetch current mappings from Supabase
-    const { data: mappings } = await window._sb
-      .from('channel_property_map')
-      .select('*')
-      .eq('user_id', user.id);
-    const mappingsByProp = {};
-    (mappings || []).forEach(m => { mappingsByProp[m.property_id] = m; });
-
-    // Get local StayOps properties
-    const allProps = typeof getAllProperties === 'function' ? getAllProperties() : [];
-    if (!allProps.length) {
-      listEl.innerHTML = '<div style="font-size:12px;color:var(--text-soft)">No StayOps properties found. Add a property first.</div>';
-      return;
-    }
-
-    let html = '';
-    allProps.forEach(prop => {
-      const propId = prop.supabaseId || prop.id;
-      const propName = prop.name || prop.id;
-      const existing = mappingsByProp[propId];
-      const selectedCmId = existing ? existing.cm_property_id : '';
-
-      html += `<div style="background:var(--mist);padding:12px;border-radius:10px;margin-bottom:8px">
-        <div style="font-weight:600;font-size:13px;margin-bottom:6px">${escHtml(propName)}</div>
-        <select onchange="saveCMMapping('${escHtml(propId)}', this.value, '', this.options[this.selectedIndex].text)"
-          style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--card-bg)">
-          <option value="">— Not mapped —</option>
-          ${cmProperties.map(cp =>
-            `<option value="${escHtml(cp.id)}" ${String(cp.id) === String(selectedCmId) ? 'selected' : ''}>${escHtml(cp.name || cp.id)}</option>`
-          ).join('')}
-        </select>
-      </div>`;
-    });
-    listEl.innerHTML = html;
-  } catch (e) {
-    listEl.innerHTML = '<div style="font-size:12px;color:var(--red)">⚠ ' + escHtml(e.message) + '</div>';
-    console.warn('[StayOps] loadCMMapping error:', e);
-  }
-}
-
-async function saveCMMapping(propertyId, cmPropId, cmRoomId, cmPropName) {
-  const user = await getCurrentSupabaseUser();
-  if (!user) return;
-  const statusEl = document.getElementById('cm-mapping-status');
-
-  try {
-    if (!cmPropId) {
-      // Remove mapping
-      await window._sb.from('channel_property_map').delete()
-        .eq('user_id', user.id)
-        .eq('property_id', propertyId);
-      if (statusEl) { statusEl.style.color = 'var(--text-soft)'; statusEl.textContent = 'Mapping removed'; }
-      return;
-    }
-    // Upsert mapping
-    const { error } = await window._sb.from('channel_property_map').upsert({
-      user_id: user.id,
-      property_id: propertyId,
-      cm_property_id: cmPropId,
-      cm_room_id: cmRoomId || null,
-      cm_property_name: cmPropName || '',
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id,property_id' });
-    if (error) throw new Error(error.message);
-    if (statusEl) { statusEl.style.color = 'var(--moss)'; statusEl.textContent = '✓ Mapping saved'; }
+    await populateICalFeedsPanel();
   } catch (e) {
     if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = '⚠ ' + e.message; }
-    globalThis.showBanner('⚠ Failed to save mapping: ' + e.message, 'warn');
+    globalThis.showBanner('⚠ iCal sync failed: ' + e.message, 'warn');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync All Feeds Now'; }
   }
 }
 
-async function maybeAutoSyncCM() {
+async function maybeAutoSyncICal() {
   try {
-    if (!window._appConfig || !window._appConfig.channel_manager_connected) return;
     const user = window._supabaseUser;
     if (!user) return;
+    // Skip if no feeds configured
+    const { data: feeds } = await window._sb
+      .from('property_ical_feeds')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('active', true)
+      .limit(1);
+    if (!feeds || !feeds.length) return;
 
-    // Only run if last sync was > 4 hours ago
-    const lastSync = window._appConfig.channel_manager_last_sync;
-    if (lastSync) {
-      const elapsed = Date.now() - new Date(lastSync).getTime();
-      if (elapsed < 4 * 60 * 60 * 1000) return;
-    }
-
-    const res = await fetch('/.netlify/functions/cm-sync-bookings', {
+    const res = await fetch('/.netlify/functions/ical-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: user.id }),
     });
     if (!res.ok) return;
     const data = await res.json();
-
-    // Update last sync time silently
-    window._appConfig.channel_manager_last_sync = new Date().toISOString();
-    window._appConfig.channel_manager_sync_error = null;
-    saveAppConfigToCloud({
-      channel_manager_last_sync: window._appConfig.channel_manager_last_sync,
-      channel_manager_sync_error: null,
-    }).catch(e => console.warn("[StayOps] silent error:", e));
-
     const totalChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0);
     if (totalChanges > 0) {
       if (typeof globalThis.hydrateFromCloud === 'function') await globalThis.hydrateFromCloud();
-      globalThis.reloadInMemoryData();
-      globalThis.renderAll();
+      if (typeof globalThis.reloadInMemoryData === 'function') globalThis.reloadInMemoryData();
+      if (typeof globalThis.renderAll === 'function') globalThis.renderAll();
       const parts = [];
       if (data.imported) parts.push(data.imported + ' imported');
       if (data.updated) parts.push(data.updated + ' updated');
       if (data.cancelled) parts.push(data.cancelled + ' cancelled');
-      globalThis.showBanner('✓ ' + parts.join(', ') + ' from channel manager', 'ok');
+      globalThis.showBanner('✓ ' + parts.join(', ') + ' from calendar feeds', 'ok');
     }
   } catch (e) {
-    console.warn('[cm-auto-sync] background sync error:', e.message);
+    console.warn('[ical-auto-sync] background sync error:', e.message);
   }
 }
+
 
 /** Navigate to Settings section (main settings menu). */
 function openSettings() {
@@ -1567,11 +1429,9 @@ export {
   clearCleanerPinById,
   saveCleanerPerm,
   copyCleanerLinkById,
-  testCMConnection,
-  syncCMBookings,
-  requestCMSetup,
-  disconnectCM,
-  loadCMMapping,
-  saveCMMapping,
-  maybeAutoSyncCM,
+  populateICalFeedsPanel,
+  addICalFeed,
+  removeICalFeed,
+  syncICalFeedsNow,
+  maybeAutoSyncICal,
 };
