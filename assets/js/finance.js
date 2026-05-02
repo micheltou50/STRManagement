@@ -1909,8 +1909,14 @@ function buildInvoicePDF(selected, client) {
   let invoiceTotal = 0;
   const rows = selected.map(b => {
     const amt = Number(b.mgmtPayout || 0);
+    const gross = Number(b.hostPayout || 0);
+    const pct = b.mgmtFeeRaw != null ? Number(b.mgmtFeeRaw) : (b.mgmtFee && b.hostPayout ? Math.round((b.mgmtFee / b.hostPayout) * 1000) / 10 : 0);
     invoiceTotal += amt;
-    const desc = `Management fee — ${b.name || 'Guest'} (${fmt(b.checkin)} → ${fmt(b.checkout)})`;
+    const guest = b.name || 'Guest';
+    const dates = `${fmt(b.checkin)} → ${fmt(b.checkout)}`;
+    const desc = pct
+      ? `${pct}% management fee of $${gross.toFixed(2)} gross revenue — ${guest} (${dates})`
+      : `Management fee — ${guest} (${dates})`;
     return `<tr>
       <td class="cell desc">${desc}</td>
       <td class="cell num">1</td>
