@@ -922,16 +922,17 @@ function computeDedupedTodayAlerts(isPortfolio) {
   });
 
   cleans.forEach(c => {
-    if (isCleanLinkedToCancelledBooking(c)) return;
+    const bid = c.bookingId;
+    const bk = bookings.find(
+      x =>
+        String(x.id) === String(bid) ||
+        (x._cloudId && String(x._cloudId) === String(bid))
+    );
+    const isCancelled = isCleanLinkedToCancelledBooking(c);
+
     if (!isPortfolio) {
       const cfg = getActivePropertyConfig();
       const pid = cloudIds[cfg.propertyId] || cfg.supabaseId || '';
-      const bid = c.bookingId;
-      const bk = bookings.find(
-        x =>
-          String(x.id) === String(bid) ||
-          (x._cloudId && String(x._cloudId) === String(bid))
-      );
       if (bk && pid && String(bk._propertyId || '') !== String(pid)) return;
       if (!bk && c._propertyId && pid && String(c._propertyId) !== String(pid)) return;
     }
@@ -939,21 +940,45 @@ function computeDedupedTodayAlerts(isPortfolio) {
     const propName = c._propertyId
       ? getPropertyNameById(c._propertyId)
       : isPortfolio && c.bookingId
-        ? getPropertyNameById(
-            bookings.find(
-              x =>
-                String(x.id) === String(c.bookingId) ||
-                (x._cloudId && String(x._cloudId) === String(c.bookingId))
-            )?._propertyId
-          )
+        ? getPropertyNameById(bk?._propertyId)
         : getCurrentPropertyName();
+
+    const hasCleaner = !!((c.cleaner && String(c.cleaner).trim()) || c.cleanerId);
+
+    // ── Cancellation: cleaner assigned but not notified ──
+    if (isCancelled && hasCleaner && !c.cleanerCancelNotified) {
+      const guest = c.guestName || bk?.name || 'Guest';
+      pushAlert(
+        'f',
+        'Cleaner not notified of cancellation',
+        `${propName} · ${String(c.cleaner || '—')} · ${guest}`,
+        true,
+        c.id,
+        null
+      );
+    }
+
+    if (isCancelled) return;
 
     const assignedAt = c.assignedAt ? new Date(c.assignedAt) : null;
     const ageH = assignedAt && !Number.isNaN(assignedAt.getTime())
       ? (now - assignedAt) / 3600000
       : 0;
-    const hasCleaner = !!((c.cleaner && String(c.cleaner).trim()) || c.cleanerId);
 
+    // ── Cleaner assigned but never notified ──
+    if (hasCleaner && !c.notified && !c.done && c.date && inNextDays(c.date, 14)) {
+      const dleft = daysUntil(c.date);
+      pushAlert(
+        'g',
+        'Cleaner not notified',
+        `${propName} · ${String(c.cleaner || '—')} · ${fmtShort(c.date)}`,
+        dleft <= 3,
+        c.id,
+        null
+      );
+    }
+
+    // ── No response from cleaner (>12h) ──
     if (
       hasCleaner &&
       !c.cleanerConfirmed &&
@@ -974,6 +999,7 @@ function computeDedupedTodayAlerts(isPortfolio) {
       );
     }
 
+    // ── Cleaner declined — needs reassignment ──
     if (c.cleanerDeclined && !c.done && c.date && inNextDays(c.date, 7)) {
       const guest = c.guestName || 'Guest';
       const urg = daysUntil(c.date) <= 3;
@@ -987,14 +1013,11 @@ function computeDedupedTodayAlerts(isPortfolio) {
       );
     }
 
-    // Review cleaning cost — done cleans in last 7 days with no fee on booking
+    // ── Review cleaning cost — done cleans in last 7 days with no fee ──
     if (c.done && c.date) {
       const cd = parseLocalDayStart(c.date);
       const daysSince = Number.isNaN(cd.getTime()) ? 99 : Math.ceil((todayStart - cd) / 86400000);
       if (daysSince >= 0 && daysSince <= 7) {
-        const bk = bookings.find(
-          x => String(x.id) === String(c.bookingId) || (x._cloudId && String(x._cloudId) === String(c.bookingId))
-        );
         if (bk && !Number(bk.cleaningFee)) {
           pushAlert(
             'e',
