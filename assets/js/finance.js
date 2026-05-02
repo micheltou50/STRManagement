@@ -1973,11 +1973,11 @@ function buildInvoicePDF(selected, client) {
     .totals-inner .row.grand{border-bottom:2px solid #333;font-weight:700;font-size:14px}
     .totals-inner .row.due{border-bottom:2px solid #333;font-weight:700}
     .gst-note{text-align:right;margin-top:8px;font-size:12px;color:#555}
-    .pay-due{margin-top:48px;font-size:14px;color:#222}
-    .pay-block{margin-top:24px;font-size:14px;color:#222}
-    .pay-intro{font-size:16px;margin-bottom:8px}
-    .pay-method{font-weight:700;font-size:15px;margin-bottom:4px}
-    .pay-detail{font-weight:700;font-size:15px}
+    .pay-due{margin-top:40px;font-size:13px;color:#222}
+    .pay-block{margin-top:16px;font-size:13px;color:#222}
+    .pay-intro{margin-bottom:6px}
+    .pay-method{font-weight:600;margin-bottom:2px}
+    .pay-detail{font-weight:600}
     .footer{margin-top:40px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:12px}
     .actions{text-align:center;margin-top:28px;display:flex;gap:12px;justify-content:center}
     .actions button{font-family:inherit;font-size:13px;font-weight:600;border:none;border-radius:6px;padding:10px 20px;cursor:pointer}
