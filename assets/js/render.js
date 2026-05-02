@@ -1026,7 +1026,12 @@ function computeDedupedTodayAlerts(isPortfolio) {
 }
 
 function buildNeedsAttentionHtmlFromDeduped(deduped) {
-  if (!deduped.length) return '';
+  if (!deduped.length) {
+    return `<div style="background:#EFF5EE;border-left:3px solid #4F7A4A;border-radius:6px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:8px">
+        <div style="width:6px;height:6px;border-radius:50%;background:#4F7A4A;flex-shrink:0"></div>
+        <div style="font-size:12px;font-weight:500;color:#2F5A2A">All clear today</div>
+      </div>`;
+  }
   const cards = deduped
     .map(a => {
       const dot = a.urgent ? '#E24B4A' : '#BA7517';
@@ -1049,7 +1054,7 @@ function buildNeedsAttentionHtmlFromDeduped(deduped) {
           <div style="display:flex;align-items:flex-start;gap:8px;min-width:0;flex:1">
             <div style="width:6px;height:6px;border-radius:50%;background:${dot};margin-top:5px;flex-shrink:0"></div>
             <div style="min-width:0">
-              <div style="font-weight:700;font-size:13px;color:#412402">${escHtml(a.title)}</div>
+              <div style="font-weight:700;font-size:14px;color:#412402">${escHtml(a.title)}</div>
               <div style="font-size:11px;color:#854F0B;margin-top:2px;line-height:1.35">${escHtml(a.subtitle)}</div>
             </div>
           </div>
@@ -1062,9 +1067,13 @@ function buildNeedsAttentionHtmlFromDeduped(deduped) {
     moreCount > 0
       ? `<div style="text-align:center;font-size:11px;color:#854F0B;margin-top:8px;padding-top:6px;border-top:1px solid rgba(133,79,11,0.12)">${moreCount} more</div>`
       : '';
-  return `<div style="background:#FEF3E7;border-left:3px solid #BA7517;padding:12px 14px;margin-bottom:14px">
-      <div style="font-size:12px;font-weight:500;color:#854F0B;margin-bottom:10px">Needs attention</div>
-      <div style="max-height:200px;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-right:2px">${cards}</div>
+  const badge = `<span style="background:#BA7517;color:#fff;font-size:11px;font-weight:700;border-radius:10px;padding:2px 8px;min-width:18px;text-align:center;line-height:1.4">${deduped.length}</span>`;
+  return `<div style="background:#FEF3E7;border-left:4px solid #BA7517;border-radius:6px;padding:12px 14px;margin-bottom:14px;box-shadow:0 1px 3px rgba(186,117,23,0.08)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:700;color:#412402;letter-spacing:0.2px">Needs your attention</div>
+        ${badge}
+      </div>
+      <div style="max-height:240px;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-right:2px">${cards}</div>
       ${moreFooter}
     </div>`;
 }
@@ -1182,7 +1191,7 @@ function buildStayopsUnifiedTodayCalendarHtml({
 
   const segBtn = (v, label) => {
     const on = view === v;
-    return `<button type="button" onclick="_stayopsSetTodayCalView('${v}')" style="flex:1;border:none;border-radius:8px;padding:8px 6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;touch-action:manipulation;color:${on ? primary : tertiary};background:${on ? '#fff' : 'transparent'};box-shadow:${on ? '0 1px 3px rgba(0,0,0,0.12)' : 'none'}">${label}</button>`;
+    return `<button type="button" onclick="_stayopsSetTodayCalView('${v}')" style="flex:1;border:none;border-radius:8px;padding:6px 4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;touch-action:manipulation;color:${on ? primary : tertiary};background:${on ? '#fff' : 'transparent'};box-shadow:${on ? '0 1px 3px rgba(0,0,0,0.12)' : 'none'}">${label}</button>`;
   };
 
   const bookingUpcoming = (b) => {
@@ -1211,7 +1220,7 @@ function buildStayopsUnifiedTodayCalendarHtml({
         if (ci < rangeStart) r = '\u2190 ' + r;
         if (co > rangeEnd) r += ' \u2192';
         const bidEsc = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
-        return `<div onclick="showDetail('${bidEsc}')" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:8px;margin-bottom:6px;background:${bg};cursor:pointer;touch-action:manipulation">
+        return `<div onclick="showDetail('${bidEsc}')" style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;margin-bottom:6px;background:${bg};cursor:pointer;touch-action:manipulation">
         <span style="font-size:12px;font-weight:500;color:${primary}">${escHtml(b.name)}</span>
         <span style="font-size:11px;color:${tertiary};text-align:right;white-space:nowrap;margin-left:8px">${escHtml(r)}</span>
       </div>`;
@@ -1705,15 +1714,18 @@ function buildStayopsUnifiedTodayCalendarHtml({
           <button type="button" onclick="_todayCalNav(1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">›</button>
         </div>
       </div>
-      <div style="border-radius:10px;overflow:hidden;padding-bottom:8px">
+      <div style="border-radius:10px;overflow:hidden;padding-bottom:8px;max-height:380px;overflow-y:auto;-webkit-overflow-scrolling:touch">
         <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px">${calHeader}</div>
         <div style="position:relative;display:grid;grid-template-columns:repeat(7,1fr);gap:${gridGap}px">${calCells}${bookingOverlays}</div>
       </div>`;
   }
 
   return (
-    `<div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);padding:14px;margin-bottom:14px;box-sizing:border-box">` +
-    `<div style="display:flex;background:var(--warm);border-radius:10px;padding:3px;margin-bottom:14px;gap:2px">` +
+    `<div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);padding:10px 12px;margin-bottom:14px;box-sizing:border-box">` +
+    `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">` +
+    `<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft)">Schedule</div>` +
+    `</div>` +
+    `<div style="display:flex;background:var(--warm);border-radius:10px;padding:3px;margin-bottom:10px;gap:2px">` +
     segBtn('weekly', 'Weekly') +
     segBtn('monthly', 'Monthly') +
     `</div>` +
@@ -1824,6 +1836,28 @@ function buildSinglePropertyTodayDashboardMarkup() {
     primary,
   });
 
+  const todayStrLocal = todayStart.toISOString().split('T')[0];
+  const todayCleansShared = cleans.filter(c => {
+    if (c.done) return false;
+    if ((c.date || '').slice(0, 10) !== todayStrLocal) return false;
+    if (activePid) {
+      const bk = c.bookingId && bookings.find(x => String(x.id) === String(c.bookingId) || (x._cloudId && String(x._cloudId) === String(c.bookingId)));
+      if (bk) return String(bk._propertyId || '') === String(activePid);
+      return !c._propertyId || String(c._propertyId) === String(activePid);
+    }
+    return true;
+  });
+  const cleansListHtml = todayCleansShared.length
+    ? todayCleansShared.map(c => `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f0ede8">
+        <div style="flex:1"><div style="font-size:13px;font-weight:500">${escHtml(c.guestName||c.name||'Guest')}</div><div style="font-size:11px;color:var(--text-soft)">${escHtml(c.propertyName||'')}</div></div>
+        <div style="text-align:right"><div style="font-size:12px;color:var(--moss);font-weight:500">${escHtml(c.cleaner||'Unassigned')}</div><span class="dt-badge ${c.cleanerConfirmed?'dt-badge-green':'dt-badge-amber'}" style="font-size:10px">${c.cleanerConfirmed?'Confirmed':'Pending'}</span></div>
+      </div>`).join('')
+    : '<div style="text-align:center;padding:16px;color:var(--text-soft);font-size:13px">No cleans scheduled today<br><span onclick="showSection(\'cleaning\')" style="color:var(--moss);cursor:pointer;font-weight:500;font-size:12px">Go to cleaning →</span></div>';
+  const todaysCleansCard = `<div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);padding:14px;margin-bottom:14px">
+    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:8px">Today's Cleaning</div>
+    ${cleansListHtml}
+  </div>`;
+
   const statsHtml = `<div class="dashboard-stat-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
     <div style="background:white;border-radius:10px;border:0.5px solid rgba(0,0,0,0.1);padding:12px 10px;text-align:center">
       <div style="font-size:18px;font-weight:500;color:${primary}">${occupancyThisMonth}%</div>
@@ -1917,18 +1951,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
       <table class="desktop-table"><thead><tr><th>Guest</th><th>Check-in</th><th>Check-out</th><th>Payout</th><th>Platform</th><th>Status</th></tr></thead><tbody>${tblRows || '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-soft)">No upcoming bookings</td></tr>'}</tbody></table>
     </div>`;
 
-    // Today's cleans
-    const todayCleans = cleans.filter(c => {
-      const cd = (c.date||'').slice(0,10);
-      const todayStr = todayStart.toISOString().split('T')[0];
-      return cd === todayStr && !c.done;
-    });
-    const cleansHtml = todayCleans.length
-      ? todayCleans.map(c => `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f0ede8">
-          <div style="flex:1"><div style="font-size:13px;font-weight:500">${escHtml(c.guestName||c.name||'Guest')}</div><div style="font-size:11px;color:var(--text-soft)">${escHtml(c.propertyName||'')}</div></div>
-          <div style="text-align:right"><div style="font-size:12px;color:var(--moss);font-weight:500">${escHtml(c.cleaner||'Unassigned')}</div><span class="dt-badge ${c.cleanerConfirmed?'dt-badge-green':'dt-badge-amber'}" style="font-size:10px">${c.cleanerConfirmed?'Confirmed':'Pending'}</span></div>
-        </div>`).join('')
-      : '<div style="text-align:center;padding:16px;color:var(--text-soft);font-size:13px">No cleans scheduled today<br><span onclick="showSection(\'cleaning\')" style="color:var(--moss);cursor:pointer;font-weight:500;font-size:12px">Go to cleaning \u2192</span></div>';
+    const cleansHtml = cleansListHtml;
 
     // Occupancy card
     const occCard = `<div class="card">
@@ -1947,19 +1970,19 @@ function buildSinglePropertyTodayDashboardMarkup() {
       <div class="card" style="text-align:center"><div data-animate-number="${activeBookings.length}" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
       <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueNext30)}" data-num-prefix="$" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr minmax(300px,380px);gap:20px">
+    <div style="display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:20px">
       <div style="display:flex;flex-direction:column;gap:16px">
-        ${upcomingTable}
-        ${unifiedCalHtml}
-      </div>
-      <div style="display:flex;flex-direction:column;gap:16px">
-        ${needsHtml ? '<div class="card">' + needsHtml + '</div>' : ''}
+        ${needsHtml || ''}
         <div class="card">
           <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Today's Cleaning</div>
           ${cleansHtml}
         </div>
         ${occCard}
         ${quickHtml}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        ${upcomingTable}
+        ${unifiedCalHtml}
       </div>
     </div>`;
   }
@@ -1985,8 +2008,9 @@ function buildSinglePropertyTodayDashboardMarkup() {
   return (
     statusHtml +
     needsHtml +
-    unifiedCalHtml +
+    todaysCleansCard +
     upcomingCardsHtml +
+    unifiedCalHtml +
     statsHtml +
     quickHtml
   );

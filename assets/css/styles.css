@@ -1625,7 +1625,7 @@ label {
 
 /* Calendar: stays compact — less padding, no extra gap */
 #section-today .dashboard-calendar {
-  padding: 14px 16px;
+  padding: 10px 12px;
 }
 
 /* ── Dashboard: collapse empty placeholder divs out of flex gap ──────────
