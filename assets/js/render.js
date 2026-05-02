@@ -1200,18 +1200,20 @@ function buildStayopsUnifiedTodayCalendarHtml({
 
   const _calPlatformColor = (platform) => {
     const p = String(platform || '').toLowerCase();
-    if (p.includes('airbnb')) return { bg: '#FFDADA', text: '#C0392B' };
-    if (p.includes('vrbo') || p.includes('homeaway')) return { bg: '#D5D8F0', text: '#3B5998' };
-    if (p.includes('booking')) return { bg: '#C8D8F0', text: '#1A3B6E' };
-    return { bg: '#C8E6C9', text: '#2D5A3D' };
+    if (p.includes('airbnb')) return { bg: '#FFDADA', dot: '#E04E52', text: '#C0392B' };
+    if (p.includes('vrbo') || p.includes('homeaway')) return { bg: '#D5D8F0', dot: '#6B73B5', text: '#3B5998' };
+    if (p.includes('booking')) return { bg: '#C8D8F0', dot: '#4A78B0', text: '#1A3B6E' };
+    return { bg: '#C8E6C9', dot: '#4A9A6A', text: '#2D5A3D' };
   };
 
   const selDate = selectedDay != null ? new Date(todayStart.getFullYear(), todayStart.getMonth(), todayStart.getDate() + selectedDay) : null;
   const selYmd = selDate ? _ymd(selDate) : null;
 
-  const barH = 16;
-  const barGap = 1;
-  const barTopBase = 24;
+  const barH = 18;
+  const barGap = 2;
+  const pillH = 16;
+  const pillGap = 1;
+  const barTopBase = 22;
 
   // Assign booking lanes for vertical stacking
   const sortedBookings = activeBookings
@@ -1228,7 +1230,21 @@ function buildStayopsUnifiedTodayCalendarHtml({
     bookingLanes.set(b, lane);
   });
   const maxLanes = laneEnds.length || 1;
-  const dynamicCellH = barTopBase + maxLanes * (barH + barGap) + 14;
+
+  // Count max per-cell pills (cleans+maintenance) to size cells
+  let maxCellPills = 0;
+  for (let c = 0; c < 42; c++) {
+    const cellDate = new Date(gridStart);
+    cellDate.setDate(gridStart.getDate() + c);
+    if (cellDate.getMonth() !== calMonth || cellDate.getFullYear() !== calYear) continue;
+    const ymd = _ymd(cellDate);
+    let count = 0;
+    if (cleanForPropertyOnDate(ymd)) count++;
+    count += maintListForDate(ymd).length;
+    if (count > maxCellPills) maxCellPills = count;
+  }
+  const pillZoneH = maxCellPills > 0 ? maxCellPills * (pillH + pillGap) + 2 : 0;
+  const dynamicCellH = barTopBase + maxLanes * (barH + barGap) + pillZoneH + 6;
 
   let calCells = '';
   for (let c = 0; c < 42; c++) {
@@ -1246,25 +1262,32 @@ function buildStayopsUnifiedTodayCalendarHtml({
         ? `width:22px;height:22px;border-radius:50%;background:#E6F1FB;color:#0C447C;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700`
         : `font-size:11px;color:${numColor};font-weight:500;opacity:${inMonth ? 1 : 0.4}`;
 
-    let dots = '';
+    // Build per-cell event pills for cleans & maintenance (positioned below booking bars)
+    let cellPills = '';
     if (inMonth) {
+      const pillTop = barTopBase + maxLanes * (barH + barGap);
+      const pills = [];
       const cl = cleanForPropertyOnDate(ymdStr);
-      const ml = maintListForDate(ymdStr);
-      const dotItems = [];
-      if (cl) dotItems.push(cl.done ? '#00695C' : '#0D47A1');
-      ml.forEach(() => dotItems.push('#E65100'));
-      if (dotItems.length) {
-        dots = `<div style="display:flex;justify-content:center;gap:3px;position:absolute;bottom:2px;left:0;right:0">${dotItems.map(dc => `<span style="width:5px;height:5px;border-radius:50%;background:${dc}"></span>`).join('')}</div>`;
+      if (cl) {
+        const clLabel = cl.done ? 'Done' : (cl.cleaner ? escHtml(cl.cleaner.split(' ')[0]) : 'Clean');
+        const clDot = cl.done ? '#00897B' : '#1565C0';
+        const clBg = cl.done ? '#E0F2F1' : '#E3F2FD';
+        const clText = cl.done ? '#00695C' : '#0D47A1';
+        pills.push(`<div style="position:absolute;top:${pillTop + pills.length * (pillH + pillGap)}px;left:1px;right:1px;height:${pillH}px;background:${clBg};border-radius:3px;display:flex;align-items:center;gap:3px;padding:0 3px;overflow:hidden;z-index:2"><span style="width:6px;height:6px;border-radius:50%;background:${clDot};flex-shrink:0"></span><span style="font-size:8px;font-weight:600;color:${clText};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${clLabel}</span></div>`);
       }
+      maintListForDate(ymdStr).forEach(mt => {
+        pills.push(`<div style="position:absolute;top:${pillTop + pills.length * (pillH + pillGap)}px;left:1px;right:1px;height:${pillH}px;background:#FFF3E0;border-radius:3px;display:flex;align-items:center;gap:3px;padding:0 3px;overflow:hidden;z-index:2"><span style="width:6px;height:6px;border-radius:50%;background:#EF6C00;flex-shrink:0"></span><span style="font-size:8px;font-weight:600;color:#E65100;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml((mt.description || 'Maint.').slice(0, 10))}</span></div>`);
+      });
+      cellPills = pills.join('');
     }
 
     const dayClickOffset = Math.round((cellDate.getTime() - todayStart.getTime()) / 86400000);
     calCells += `<div onclick="_stayopsOpenDayView(${dayClickOffset})" style="position:relative;text-align:center;padding:2px 0 0;height:${dynamicCellH}px;box-sizing:border-box;cursor:pointer;border-top:0.5px solid rgba(0,0,0,0.06)">
-      <span style="${numStyle}">${dayNum}</span>${dots}
+      <span style="${numStyle}">${dayNum}</span>${cellPills}
     </div>`;
   }
 
-  // Continuous booking bars as absolute overlays
+  // Continuous booking bars as absolute overlays (iOS-style with dot prefix)
   const gridStartMs = gridStart.getTime();
   const dayMs = 86400000;
   const colW = 100 / 7;
@@ -1296,7 +1319,8 @@ function buildStayopsUnifiedTodayCalendarHtml({
       const rLeft = isStart ? '4px' : '0';
       const rRight = isEnd ? '4px' : '0';
       bars.push(
-        `<div onclick="event.stopPropagation();showDetail('${bidEsc}')" style="position:absolute;top:${top}px;left:calc(${left}% + 1px);width:calc(${width}% - 2px);height:${barH}px;background:${pc.bg};border-radius:${rLeft} ${rRight} ${rRight} ${rLeft};display:flex;align-items:center;padding:0 4px;cursor:pointer;z-index:2;box-sizing:border-box;overflow:hidden">` +
+        `<div onclick="event.stopPropagation();showDetail('${bidEsc}')" style="position:absolute;top:${top}px;left:calc(${left}% + 1px);width:calc(${width}% - 2px);height:${barH}px;background:${pc.bg};border-radius:${rLeft} ${rRight} ${rRight} ${rLeft};display:flex;align-items:center;gap:3px;padding:0 4px;cursor:pointer;z-index:2;box-sizing:border-box;overflow:hidden">` +
+        (isStart ? `<span style="width:7px;height:7px;border-radius:50%;background:${pc.dot};flex-shrink:0"></span>` : '') +
         (isStart ? `<span style="font-size:9px;font-weight:700;color:${pc.text};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${guestLabel}</span>` : '') +
         `</div>`
       );
