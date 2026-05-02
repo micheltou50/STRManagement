@@ -616,45 +616,89 @@ window.dismissCancelPrompt = function () {
   }
 };
 
-window.notifyCancelledCleaner = async function (btn, bookingId, cleanId) {
-  try {
-    btn.disabled = true;
-    btn.textContent = 'Sending…';
-    const b = bookings.find(x => String(x._cloudId || x.id) === bookingId);
-    const clean = findMatchingCleanForBooking(b);
-    if (!clean || !clean.cleaner) { btn.textContent = 'No cleaner'; return; }
+window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
+  const b = bookings.find(x => String(x._cloudId || x.id) === bookingId);
+  if (!b) { btn.textContent = 'Booking not found'; return; }
+  const clean = findMatchingCleanForBooking(b);
+  if (!clean || !clean.cleaner) { btn.textContent = 'No cleaner'; return; }
 
-    const cleaners = (typeof loadCleaners === 'function' ? loadCleaners() : window._cleaners) || [];
-    const cObj = cleaners.find(cl => cl.name === clean.cleaner || String(cl.id) === String(clean.cleanerId));
-    const email = cObj && cObj.email ? cObj.email.trim() : '';
-    if (!email) { btn.textContent = 'No email'; return; }
+  const cleaners = (typeof loadCleaners === 'function' ? loadCleaners() : window._cleaners) || [];
+  const cObj = cleaners.find(cl => cl.name === clean.cleaner || String(cl.id) === String(clean.cleanerId));
+  const email = cObj && cObj.email ? cObj.email.trim() : '';
+  if (!email) { btn.textContent = 'No email on file'; return; }
 
-    const fmtD = d => { if (!d) return ''; try { return new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }); } catch (_) { return d; } };
+  const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const fmtD = d => { if (!d) return ''; try { return new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }); } catch (_e) { return d; } };
+  const propName = typeof getPropertyNameById === 'function' && b._propertyId ? getPropertyNameById(b._propertyId) : '';
 
-    await sendCleanerEmail({
-      cleanerName: clean.cleaner,
-      cleanerEmail: email,
-      guestName: b.name || 'Guest',
-      checkin: b.checkin ? fmtD(b.checkin) : '',
-      checkout: b.checkout ? fmtD(b.checkout) : '',
-      cleanDate: clean.date || (b.checkout ? fmtD(b.checkout) : ''),
-      type: 'cancellation',
-    });
+  // Build confirmation overlay
+  const overlay = document.createElement('div');
+  overlay.id = 'cancel-notify-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;transition:opacity 0.2s';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:16px;max-width:400px;width:100%;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.2)">
+      <div style="font-size:17px;font-weight:700;color:#1a1a1a;margin-bottom:16px">Notify cleaner of cancellation</div>
+      <div style="background:#FEF2F2;border-radius:10px;padding:14px;margin-bottom:16px">
+        <div style="font-size:13px;color:#6B6560;margin-bottom:6px">This will email <strong style="color:#1a1a1a">${esc(clean.cleaner)}</strong> at:</div>
+        <div style="font-size:14px;font-weight:600;color:#1a1a1a">${esc(email)}</div>
+      </div>
+      <div style="font-size:12px;color:#6B6560;margin-bottom:14px;line-height:1.5">
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Property</span><strong style="color:#1a1a1a">${esc(propName || 'N/A')}</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Guest</span><strong style="color:#1a1a1a">${esc(b.name || 'Guest')}</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Check-in</span><strong style="color:#1a1a1a">${esc(fmtD(b.checkin))}</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0"><span>Check-out</span><strong style="color:#1a1a1a">${esc(fmtD(b.checkout))}</strong></div>
+      </div>
+      <div style="background:#FFF8E1;border-radius:8px;padding:10px 12px;margin-bottom:18px;font-size:12px;color:#7A5A00;line-height:1.4">
+        The email will inform ${esc(clean.cleaner)} that this booking has been cancelled and their clean is no longer required.
+      </div>
+      <div style="display:flex;gap:10px">
+        <button id="cancel-notify-dismiss" style="flex:1;padding:12px;border:1px solid rgba(0,0,0,0.15);border-radius:10px;background:white;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;color:#1a1a1a">Cancel</button>
+        <button id="cancel-notify-send" style="flex:1;padding:12px;border:none;border-radius:10px;background:#C0392B;color:white;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Send Email</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => requestAnimationFrame(() => { overlay.style.opacity = '1'; }));
 
-    // Mark as notified in memory + cloud
-    clean.cleanerCancelNotified = true;
-    if (window._sb && clean._cloudId) {
-      await window._sb.from('cleans').update({ cleaner_cancel_notified: true, updated_at: new Date().toISOString() }).eq('id', clean._cloudId);
+  const dismiss = () => {
+    overlay.style.opacity = '0';
+    setTimeout(() => overlay.remove(), 200);
+  };
+
+  overlay.querySelector('#cancel-notify-dismiss').onclick = dismiss;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
+
+  overlay.querySelector('#cancel-notify-send').onclick = async function () {
+    const sendBtn = this;
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Sending…';
+    try {
+      await sendCleanerEmail({
+        cleanerName: clean.cleaner,
+        cleanerEmail: email,
+        guestName: b.name || 'Guest',
+        checkin: b.checkin ? fmtD(b.checkin) : '',
+        checkout: b.checkout ? fmtD(b.checkout) : '',
+        cleanDate: clean.date || (b.checkout ? fmtD(b.checkout) : ''),
+        type: 'cancellation',
+      });
+
+      clean.cleanerCancelNotified = true;
+      if (window._sb && clean._cloudId) {
+        await window._sb.from('cleans').update({ cleaner_cancel_notified: true, updated_at: new Date().toISOString() }).eq('id', clean._cloudId);
+      }
+
+      sendBtn.textContent = '✓ Sent';
+      sendBtn.style.background = '#2D5A3D';
+      setTimeout(() => {
+        dismiss();
+        if (typeof renderDashboard === 'function') renderDashboard();
+      }, 1200);
+    } catch (e) {
+      console.warn('[StayOps] notifyCancelledCleaner failed', e);
+      sendBtn.textContent = 'Failed — try again';
+      sendBtn.disabled = false;
     }
-
-    // Update button to confirmed state
-    btn.outerHTML = '<div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:#3B6D11">' +
-      '<span>✓</span><span>' + clean.cleaner + ' was notified</span></div>';
-  } catch (e) {
-    console.warn('[StayOps] notifyCancelledCleaner failed', e);
-    btn.textContent = 'Failed — try again';
-    btn.disabled = false;
-  }
+  };
 };
 
 // Init on load
