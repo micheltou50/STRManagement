@@ -1,12 +1,17 @@
 /**
  * StayOps — Admin module
- * Only accessible to micheltou50@gmail.com (hardcoded owner check).
+ * Admin access is controlled via Supabase Auth app_metadata: { "role": "admin" }
+ * Set this in Supabase Dashboard → Auth → Users → edit user → app_metadata.
  * Provides notification toggles, email template previews, notification logs, and push device management.
  */
 import { saveAppConfigToCloud, getCurrentSupabaseUser } from './supabase.js';
 import { getActivePropertyConfig } from './config.js';
 
-const ADMIN_EMAILS = ['micheltoubia@outlook.com', 'micheltou50@gmail.com'];
+function _hasAdminRole(user) {
+  if (!user) return false;
+  const meta = user.app_metadata || {};
+  return meta.role === 'admin';
+}
 
 /* ── Default notification_config ─────────────────────────────────────────── */
 const DEFAULT_CONFIG = {
@@ -48,20 +53,20 @@ async function persistConfig() {
   await saveAppConfigToCloud({ notification_config: notifConfig });
 }
 
-/* ── Access guard ────────────────────────────────────────────────────────── */
+/* ── Access guard (reads role from Supabase Auth app_metadata) ───────── */
 export async function isAdmin() {
   try {
     const user = await getCurrentSupabaseUser();
-    return user && ADMIN_EMAILS.includes(user.email);
+    return _hasAdminRole(user);
   } catch { return false; }
 }
 
 export function isAdminSync() {
   try {
-    if (window._supabaseUser && ADMIN_EMAILS.includes(window._supabaseUser.email)) return true;
+    if (_hasAdminRole(window._supabaseUser)) return true;
     if (window._sb && window._sb.auth) {
       const session = window._sb.auth.session && window._sb.auth.session();
-      if (session && session.user && ADMIN_EMAILS.includes(session.user.email)) return true;
+      if (session && session.user && _hasAdminRole(session.user)) return true;
     }
   } catch { /* ignore */ }
   return false;
@@ -582,7 +587,7 @@ export async function adminSendTestEmail(templateId) {
       return;
     }
 
-    const adminEmail = (window._supabaseUser && window._supabaseUser.email) || ADMIN_EMAILS[0];
+    const adminEmail = (window._supabaseUser && window._supabaseUser.email) || '';
     const data = await DB.sendEmail(adminEmail, subject, html, subject);
     if (data && (data.success || data.status === 'ok')) {
       globalThis.showBanner('✉️ Test email sent to ' + adminEmail, 'ok');
