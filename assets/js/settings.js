@@ -1445,6 +1445,8 @@ async function populateICalFeedsPanel() {
   }
 
   const platformOptions = ICAL_PLATFORMS.map(p => `<option value="${p.value}">${p.label}</option>`).join('');
+  const fieldStyle = 'width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--card-bg);box-sizing:border-box';
+  const labelStyle = 'font-size:11px;color:var(--text-soft);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px;display:block';
   let html = '';
   allProps.forEach(prop => {
     const propId = prop.supabaseId || prop.id;
@@ -1457,11 +1459,14 @@ async function populateICalFeedsPanel() {
     } else {
       propFeeds.forEach(f => {
         const platLabel = (ICAL_PLATFORMS.find(p => p.value === f.platform) || {}).label || f.platform;
+        const customName = (f.label || '').trim();
+        const primary = customName || platLabel;
+        const chip = customName ? `<span style="display:inline-block;font-size:10px;font-weight:600;color:var(--forest);background:var(--sage);padding:2px 8px;border-radius:10px;margin-left:6px;vertical-align:middle">${escHtml(platLabel)}</span>` : '';
         const lastSync = f.last_synced_at ? new Date(f.last_synced_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : 'never';
         const err = f.last_error ? '<div style="font-size:11px;color:var(--red);margin-top:4px">⚠ ' + escHtml(f.last_error) + '</div>' : '';
         html += `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px;background:var(--mist);border-radius:8px;margin-bottom:6px">
           <div style="flex:1;min-width:0">
-            <div style="font-size:12px;font-weight:600">${escHtml(platLabel)}</div>
+            <div style="font-size:12px;font-weight:600">${escHtml(primary)}${chip}</div>
             <div style="font-size:10px;color:var(--text-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(f.ical_url)}</div>
             <div style="font-size:10px;color:var(--text-soft)">Last sync: ${escHtml(lastSync)}</div>
             ${err}
@@ -1470,10 +1475,21 @@ async function populateICalFeedsPanel() {
         </div>`;
       });
     }
-    html += `<div style="display:flex;gap:6px;margin-top:8px">
-        <select id="ical-add-platform-${escHtml(propId)}" style="padding:8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--card-bg)">${platformOptions}</select>
-        <input type="text" id="ical-add-url-${escHtml(propId)}" placeholder="Paste iCal URL" style="flex:1;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:12px;min-width:0">
-        <button onclick="addICalFeed('${escHtml(propId)}')" class="btn-primary" style="padding:8px 12px;font-size:12px">Add</button>
+    html += `<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
+        <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px">You can add multiple feeds per property — one per platform.</div>
+        <div style="margin-bottom:8px">
+          <label style="${labelStyle}">Platform</label>
+          <select id="ical-add-platform-${escHtml(propId)}" style="${fieldStyle}">${platformOptions}</select>
+        </div>
+        <div style="margin-bottom:8px">
+          <label style="${labelStyle}">Name (optional)</label>
+          <input type="text" id="ical-add-name-${escHtml(propId)}" placeholder="e.g. ${escHtml(propName)} – Booking.com" style="${fieldStyle}">
+        </div>
+        <div style="margin-bottom:8px">
+          <label style="${labelStyle}">iCal URL</label>
+          <input type="text" id="ical-add-url-${escHtml(propId)}" placeholder="https://… or webcal://…" style="${fieldStyle}">
+        </div>
+        <button onclick="addICalFeed('${escHtml(propId)}')" class="btn-primary" style="width:100%;padding:10px;font-size:13px">+ Add feed</button>
       </div>
     </div>`;
   });
@@ -1485,7 +1501,9 @@ async function addICalFeed(propertyId) {
   if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
   const platform = document.getElementById('ical-add-platform-' + propertyId)?.value || 'other';
   const urlInput = document.getElementById('ical-add-url-' + propertyId);
+  const nameInput = document.getElementById('ical-add-name-' + propertyId);
   const url = (urlInput?.value || '').trim();
+  const name = (nameInput?.value || '').trim();
   const statusEl = document.getElementById('ical-feeds-status');
   if (!url) { if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = '⚠ Paste an iCal URL first'; } return; }
   if (!/^https?:\/\//i.test(url) && !/^webcal:\/\//i.test(url)) {
@@ -1498,11 +1516,13 @@ async function addICalFeed(propertyId) {
       property_id: propertyId,
       platform,
       ical_url: url.replace(/^webcal:/i, 'https:'),
+      label: name || null,
       active: true,
     });
     if (error) throw new Error(error.message);
     if (statusEl) { statusEl.style.color = 'var(--moss)'; statusEl.textContent = '✓ Feed added — first sync runs in the background'; }
     if (urlInput) urlInput.value = '';
+    if (nameInput) nameInput.value = '';
     await populateICalFeedsPanel();
     syncICalFeedsNow();
   } catch (e) {
