@@ -1573,6 +1573,10 @@ export async function hydrateFromCloud() {
                 window._appConfig.gmail_email = conn.email;
               } else if (conn.provider === 'microsoft' && conn.email) {
                 window._appConfig.outlook_email = conn.email;
+              } else if (conn.provider === 'google_calendar' && conn.email) {
+                window._appConfig.gcal_email = conn.email;
+              } else if (conn.provider === 'outlook_calendar' && conn.email) {
+                window._appConfig.outlook_calendar_email = conn.email;
               }
             }
           }

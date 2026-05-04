@@ -61,8 +61,10 @@ import {
   openSettingsPanel, closeSettingsPanel, closeSettingsCat, renderSettings, clearCacheAndResync, saveSMSTemplate, saveGeminiKey, saveApiKey, getApiKey, getHostProfile, saveHostProfile, saveHostProfilePanel,
   handleLogoUpload, removeHostLogo, renderHostProfileRow, loadCleaners, saveCleaners, addCleaner, deleteCleaner, renderTeamList, openCleanerProfile, saveCleanerContact, populateContractorSelect, renderStorageViewer, getFx, saveFxSetting,
   initFxSettings, initSettingsSwipeBack, toggleAutoAssignCleaner, resetConnectionCheckerResults, openCleanerSettings, renderCleanerAccessList, saveCleanerPinById, clearCleanerPinById, saveCleanerPerm, copyCleanerLinkById,
-  populateICalFeedsPanel, addICalFeed, removeICalFeed, syncICalFeedsNow, maybeAutoSyncICal
+  populateICalFeedsPanel, addICalFeed, removeICalFeed, syncICalFeedsNow, maybeAutoSyncICal,
+  connectGoogleCalendar, disconnectGoogleCalendar, syncCalendarNow, renderCalendarInbox, classifyInboxEvent
 } from './settings.js';
+import { installCalendarSyncOutbound, triggerCalendarReconcileNow } from './calendar-sync-outbound.js';
 import {
   calPrev, calNext, openCalPreview, closeCalPreview, addNote, showDetail, showEditModal, saveEdit, editCalcNights, editCalcNet, filterBookings, addBooking,
   deleteBooking, importAirbnbCSV, importCSV, switchModalTab, saveCleaningFee, saveCleanCost, renderBookings, switchBookingsView, renderBookingsCalendarView
@@ -416,6 +418,11 @@ window.syncICalFeedsNow         = syncICalFeedsNow;
 window.addICalFeed              = addICalFeed;
 window.removeICalFeed           = removeICalFeed;
 window.populateICalFeedsPanel   = populateICalFeedsPanel;
+window.connectGoogleCalendar    = connectGoogleCalendar;
+window.disconnectGoogleCalendar = disconnectGoogleCalendar;
+window.syncCalendarNow          = syncCalendarNow;
+window.renderCalendarInbox      = renderCalendarInbox;
+window.classifyInboxEvent       = classifyInboxEvent;
 window._obGoToStep              = _obGoToStep;
 
 // Internal reference used by calendar navigation
@@ -746,6 +753,19 @@ window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
     window._oauthError = decodeURIComponent(oauthError);
   }
 
+  // Calendar OAuth round-trip (separate from email OAuth above).
+  const calOauthSuccess = urlParams.get('cal_oauth_success');
+  const calEmail = urlParams.get('cal_email');
+  const calOauthError = urlParams.get('cal_oauth_error');
+  if (calOauthSuccess) {
+    window.history.replaceState({}, '', window.location.pathname);
+    window._calOauthConnected = { provider: calOauthSuccess, email: calEmail ? decodeURIComponent(calEmail) : '' };
+  }
+  if (calOauthError) {
+    window.history.replaceState({}, '', window.location.pathname);
+    window._calOauthError = decodeURIComponent(calOauthError);
+  }
+
   if (typeof showLoadingScreen === 'function') showLoadingScreen('Checking your session…');
 
   // Check for active Supabase session (recover from invalid/expired refresh tokens)
@@ -905,10 +925,28 @@ window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
     // Auto-sync iCal feeds (per-property calendar imports) — fire early so
     // bookings are fresh by the time the user looks at the calendar.
     setTimeout(maybeAutoSyncICal, 1500);
+    // Wire outbound calendar sync hooks (after globals are exposed above)
+    installCalendarSyncOutbound();
+    // Pull inbound calendar changes shortly after boot
+    setTimeout(triggerCalendarReconcileNow, 5000);
+    // Show banner after calendar OAuth round-trip
+    if (window._calOauthConnected) {
+      const e = window._calOauthConnected.email || 'your account';
+      window._appConfig = window._appConfig || {};
+      if (window._calOauthConnected.provider === 'google') window._appConfig.gcal_email = e;
+      try { globalThis.showBanner && globalThis.showBanner('✓ Calendar connected: ' + e, 'ok'); } catch (_) { void 0; }
+      delete window._calOauthConnected;
+      try { renderConnectionSummary(); } catch (_) { void 0; }
+    }
+    if (window._calOauthError) {
+      try { globalThis.showBanner && globalThis.showBanner('⚠ Calendar connect failed: ' + window._calOauthError, 'warn'); } catch (_) { void 0; }
+      delete window._calOauthError;
+    }
     // Periodic re-scan every 15 minutes while app is open
     setInterval(maybeAutoScanGmail, 15 * 60 * 1000);
     setInterval(maybeAutoScanOutlook, 15 * 60 * 1000 + 1500);
     setInterval(maybeAutoSyncICal, 15 * 60 * 1000 + 3000);
+    setInterval(triggerCalendarReconcileNow, 15 * 60 * 1000 + 5000);
     // Re-sync when the app returns to the foreground (PWA reopen / tab switch
     // back). Throttle to once per 60s so rapid focus changes don't hammer it.
     let _lastForegroundSync = 0;
@@ -920,6 +958,7 @@ window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
       maybeAutoSyncICal();
       maybeAutoScanGmail();
       maybeAutoScanOutlook();
+      triggerCalendarReconcileNow();
     });
   } catch (e) {
     console.error('[StayOps] Boot failed:', e);

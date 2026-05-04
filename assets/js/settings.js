@@ -87,8 +87,190 @@ function renderConnectionSummary() {
       `}
     </div>
 
-    ${_renderICalFeedsCard()}`
+    ${_renderICalFeedsCard()}
+
+    ${_renderCalendarSyncCard()}`
   ;
+  // Render the inbox row immediately after summary repaints (lightweight).
+  setTimeout(() => { try { renderCalendarInbox(); } catch (_) { void 0; } }, 0);
+}
+
+function _renderCalendarSyncCard() {
+  const cfg = window._appConfig || {};
+  const gcalEmail = cfg.gcal_email || '';
+  const gcalConnected = !!gcalEmail;
+  return `
+    <div style="padding:12px;background:var(--mist);border-radius:10px;margin-top:8px">
+      <div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:6px">📅 Two-way Calendar Sync</div>
+      ${gcalConnected ? `
+        <div style="font-size:12px;color:var(--moss);margin-bottom:8px">✓ Google Calendar connected: ${escHtml(gcalEmail)}</div>
+        <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.4">A calendar named "StayOps" in your Google account holds bookings, cleans, and maintenance. Add events titled "Clean: ..." or "Maintenance: ..." on your phone — they appear in the app within ~10 seconds. Untitled events land in the Inbox below for you to triage.</div>
+        <div style="display:flex;gap:6px">
+          <button onclick="syncCalendarNow()" id="cal-sync-btn"
+            style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">🔄 Sync now</button>
+          <button onclick="disconnectGoogleCalendar()"
+            style="background:var(--warm);color:var(--forest);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">Disconnect</button>
+        </div>
+        <div id="cal-sync-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;line-height:1.5"></div>
+        <div id="cal-inbox" style="margin-top:10px"></div>
+      ` : `
+        <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.5">Sync StayOps with your phone calendar. Your phone shows app events; your phone-side edits flow back to the app. We create a dedicated "StayOps" calendar in your account — your personal calendar stays untouched.</div>
+        <button onclick="connectGoogleCalendar()"
+          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
+          <img src="https://www.google.com/favicon.ico" width="18" height="18" style="border-radius:3px"> Connect Google Calendar
+        </button>
+        <div style="font-size:11px;color:var(--text-soft);margin-top:8px;text-align:center">Outlook & Apple calendars — coming soon.</div>
+      `}
+    </div>`;
+}
+
+async function connectGoogleCalendar() {
+  const user = await getCurrentSupabaseUser();
+  if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
+  window.location.href = '/.netlify/functions/gcal-oauth-start?state=' + encodeURIComponent(user.id);
+}
+
+async function disconnectGoogleCalendar() {
+  if (!confirm('Disconnect Google Calendar? Your StayOps calendar in Google stays in place; we just stop syncing.')) return;
+  const user = await getCurrentSupabaseUser();
+  if (!user || !window._sb) return;
+  try {
+    await window._sb.from('email_connections')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('provider', 'google_calendar');
+    if (window._appConfig) {
+      delete window._appConfig.gcal_email;
+      delete window._appConfig.gcal_calendar_id;
+    }
+    globalThis.showBanner('✓ Google Calendar disconnected', 'ok');
+    renderConnectionSummary();
+  } catch (e) {
+    globalThis.showBanner('⚠ Disconnect failed: ' + (e && e.message), 'warn');
+  }
+}
+
+async function syncCalendarNow() {
+  const btn = document.getElementById('cal-sync-btn');
+  const statusEl = document.getElementById('cal-sync-status');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing…'; }
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.style.background = '#FFF8E1';
+    statusEl.style.color = '#E65100';
+    statusEl.textContent = 'Reconciling with Google Calendar…';
+  }
+  try {
+    const user = window._supabaseUser;
+    const res = await fetch('/.netlify/functions/calendar-sync-reconcile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: user && user.id }),
+    });
+    const data = await res.json();
+    if (statusEl) {
+      statusEl.style.background = '#EDF7ED';
+      statusEl.style.color = 'var(--forest)';
+      const r = (data.results && data.results[0] && data.results[0].reconcile) || {};
+      statusEl.textContent = '✓ Synced — ' + (r.applied || 0) + ' applied, ' + (r.deleted || 0) + ' removed, ' + (r.skipped || 0) + ' skipped';
+    }
+    if (typeof window.hydrateFromCloud === 'function') await window.hydrateFromCloud();
+    if (typeof window.reloadInMemoryData === 'function') window.reloadInMemoryData();
+    if (typeof window.renderAll === 'function') window.renderAll();
+    renderCalendarInbox();
+  } catch (e) {
+    if (statusEl) {
+      statusEl.style.background = '#FEF2F2';
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '⚠ ' + (e && e.message);
+    }
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync now'; }
+}
+
+async function renderCalendarInbox() {
+  const wrap = document.getElementById('cal-inbox');
+  if (!wrap || !window._sb) return;
+  const user = window._supabaseUser;
+  if (!user) { wrap.innerHTML = ''; return; }
+  try {
+    const { data, error } = await window._sb
+      .from('calendar_sync_state')
+      .select('id,provider,provider_event_id,inbox_payload,created_at')
+      .eq('user_id', user.id)
+      .eq('local_table', 'inbox')
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (error || !Array.isArray(data) || !data.length) { wrap.innerHTML = ''; return; }
+    const rows = data.map(r => {
+      const ev = r.inbox_payload || {};
+      const title = escHtml(ev.summary || '(no title)');
+      const start = (ev.start && (ev.start.date || ev.start.dateTime)) || '';
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px;background:white;border:1px solid var(--stone);border-radius:8px;margin-top:6px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:600;color:var(--forest);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${title}</div>
+            <div style="font-size:11px;color:var(--text-soft)">${escHtml(String(start).slice(0,10))}</div>
+          </div>
+          <select onchange="classifyInboxEvent('${r.id}', this.value)" style="font-size:11px;padding:4px 6px;border-radius:6px;border:1px solid var(--stone)">
+            <option value="">Triage…</option>
+            <option value="cleans">→ Clean</option>
+            <option value="maintenance">→ Maintenance</option>
+            <option value="bookings">→ Booking</option>
+            <option value="ignore">Ignore</option>
+          </select>
+        </div>`;
+    }).join('');
+    wrap.innerHTML = `<div style="font-size:11px;font-weight:700;color:var(--forest);margin-top:6px;margin-bottom:2px">📥 Inbox — phone events to triage</div>${rows}`;
+  } catch (_) { wrap.innerHTML = ''; }
+}
+
+async function classifyInboxEvent(syncStateId, choice) {
+  if (!choice || !window._sb) return;
+  const user = window._supabaseUser;
+  if (!user) return;
+  try {
+    if (choice === 'ignore') {
+      await window._sb.from('calendar_sync_state').delete().eq('id', syncStateId);
+      renderCalendarInbox();
+      return;
+    }
+    const { data: rows } = await window._sb
+      .from('calendar_sync_state').select('*').eq('id', syncStateId).limit(1);
+    const row = Array.isArray(rows) && rows[0];
+    if (!row) return;
+    const ev = row.inbox_payload || {};
+    const start = (ev.start && (ev.start.date || (ev.start.dateTime || '').slice(0,10))) || '';
+    const localId = 'gcal-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    const title = String(ev.summary || '').replace(/^(Clean(ing)?|Maintenance|Repair|Booking)\s*[:\-—]\s*/i,'').trim();
+
+    if (choice === 'cleans') {
+      await window._sb.from('cleans').insert({
+        user_id: user.id, local_id: localId, clean_date: start, guest_name: '', cleaner: '', cleaner_id: '',
+        done: false, cleaner_confirmed: false, cleaner_declined: false, notes: title || ev.description || '',
+      });
+    } else if (choice === 'maintenance') {
+      await window._sb.from('maintenance').insert({
+        user_id: user.id, local_id: localId, date: start, description: title || 'Untitled', status: 'open', cost: 0,
+      });
+    } else if (choice === 'bookings') {
+      await window._sb.from('bookings').insert({
+        user_id: user.id, local_id: localId, checkin: start, checkout: start, guest_name: title || 'Guest',
+        guests: 1, status: 'confirmed', source: 'gcal',
+      });
+    }
+
+    await window._sb.from('calendar_sync_state').update({
+      local_table: choice, local_id: localId,
+    }).eq('id', syncStateId);
+
+    if (typeof window.hydrateFromCloud === 'function') await window.hydrateFromCloud();
+    if (typeof window.reloadInMemoryData === 'function') window.reloadInMemoryData();
+    if (typeof window.renderAll === 'function') window.renderAll();
+    renderCalendarInbox();
+  } catch (e) {
+    globalThis.showBanner('⚠ Triage failed: ' + (e && e.message), 'warn');
+  }
 }
 async function connectGmail() {
   const user = await getCurrentSupabaseUser();
@@ -1434,4 +1616,9 @@ export {
   removeICalFeed,
   syncICalFeedsNow,
   maybeAutoSyncICal,
+  connectGoogleCalendar,
+  disconnectGoogleCalendar,
+  syncCalendarNow,
+  renderCalendarInbox,
+  classifyInboxEvent,
 };

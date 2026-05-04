@@ -20,6 +20,12 @@
 [functions."ical-sync"]
   schedule = "*/15 * * * *"
 
+# calendar-sync-reconcile: every 15 minutes — incremental pull from connected
+# calendars (Google in PR 1, Outlook later), renews push channels, retries
+# pending outbound rows. Webhooks normally beat this, but it's the safety net.
+[functions."calendar-sync-reconcile"]
+  schedule = "*/15 * * * *"
+
 # Smart Pricing v2 scheduled functions register their cron via the
 # `@netlify/functions` schedule() wrapper in the function source itself
 # (scheduled-pricing-weekly.js, close-rate-outcomes.js). Declaring them here
