@@ -73,11 +73,15 @@ create policy "users can read own calendar sync log"
 --    - sync_token:  Google Calendar incremental sync token
 --    - watch_*:     Google push channel registration
 alter table public.email_connections
-  add column if not exists calendar_id           text,
-  add column if not exists sync_token            text,
-  add column if not exists watch_channel_id      text,
-  add column if not exists watch_resource_id     text,
-  add column if not exists watch_expires_at      timestamptz;
+  add column if not exists calendar_id              text,
+  add column if not exists sync_token               text,
+  add column if not exists watch_channel_id         text,
+  add column if not exists watch_resource_id        text,
+  add column if not exists watch_expires_at         timestamptz,
+  -- Outlook-specific (PR 2): Graph subscription + delta link
+  add column if not exists outlook_subscription_id  text,
+  add column if not exists outlook_client_state     text,
+  add column if not exists outlook_delta_link       text;
 
 -- 4. Bookings: add notes column for phone-side title/notes round-trip
 alter table public.bookings

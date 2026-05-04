@@ -62,7 +62,8 @@ import {
   handleLogoUpload, removeHostLogo, renderHostProfileRow, loadCleaners, saveCleaners, addCleaner, deleteCleaner, renderTeamList, openCleanerProfile, saveCleanerContact, populateContractorSelect, renderStorageViewer, getFx, saveFxSetting,
   initFxSettings, initSettingsSwipeBack, toggleAutoAssignCleaner, resetConnectionCheckerResults, openCleanerSettings, renderCleanerAccessList, saveCleanerPinById, clearCleanerPinById, saveCleanerPerm, copyCleanerLinkById,
   populateICalFeedsPanel, addICalFeed, removeICalFeed, syncICalFeedsNow, maybeAutoSyncICal,
-  connectGoogleCalendar, disconnectGoogleCalendar, syncCalendarNow, renderCalendarInbox, classifyInboxEvent
+  connectGoogleCalendar, disconnectGoogleCalendar, connectOutlookCalendar, disconnectOutlookCalendar,
+  syncCalendarNow, renderCalendarInbox, classifyInboxEvent
 } from './settings.js';
 import { installCalendarSyncOutbound, triggerCalendarReconcileNow } from './calendar-sync-outbound.js';
 import {
@@ -420,6 +421,8 @@ window.removeICalFeed           = removeICalFeed;
 window.populateICalFeedsPanel   = populateICalFeedsPanel;
 window.connectGoogleCalendar    = connectGoogleCalendar;
 window.disconnectGoogleCalendar = disconnectGoogleCalendar;
+window.connectOutlookCalendar   = connectOutlookCalendar;
+window.disconnectOutlookCalendar = disconnectOutlookCalendar;
 window.syncCalendarNow          = syncCalendarNow;
 window.renderCalendarInbox      = renderCalendarInbox;
 window.classifyInboxEvent       = classifyInboxEvent;
@@ -933,7 +936,8 @@ window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
     if (window._calOauthConnected) {
       const e = window._calOauthConnected.email || 'your account';
       window._appConfig = window._appConfig || {};
-      if (window._calOauthConnected.provider === 'google') window._appConfig.gcal_email = e;
+      if (window._calOauthConnected.provider === 'google')    window._appConfig.gcal_email = e;
+      if (window._calOauthConnected.provider === 'microsoft') window._appConfig.outlook_calendar_email = e;
       try { globalThis.showBanner && globalThis.showBanner('✓ Calendar connected: ' + e, 'ok'); } catch (_) { void 0; }
       delete window._calOauthConnected;
       try { renderConnectionSummary(); } catch (_) { void 0; }

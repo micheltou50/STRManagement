@@ -15,6 +15,7 @@
 const { verifyAuth } = require('./utils/auth');
 const { getFreshAccessToken, sbHeaders } = require('./utils/calendar-token');
 const gcal = require('./utils/gcal-client');
+const ocal = require('./utils/outlook-cal-client');
 const mapper = require('./utils/calendar-mapper');
 
 function json(status, body) {
@@ -30,7 +31,7 @@ function json(status, body) {
   };
 }
 
-const PROVIDERS = ['google_calendar']; // PR 2 adds 'outlook_calendar'
+const PROVIDERS = ['google_calendar', 'outlook_calendar'];
 
 async function loadLocalRow(userId, table, localId) {
   const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -105,17 +106,41 @@ function shouldSkip(table, row) {
   return false;
 }
 
-async function pushToGoogle(userId, table, localId, op) {
-  const { accessToken, connection } = await getFreshAccessToken(userId, 'google_calendar');
-  if (!connection.calendar_id) throw new Error('No StayOps calendar id stored');
+// Provider-agnostic facade: each adapter exposes the same 4 methods so
+// pushToProvider can stay generic.
+const ADAPTERS = {
+  google_calendar: {
+    delete:  (accessToken, calId, eventId, etag) => gcal.deleteEvent(accessToken, calId, eventId, etag),
+    insert:  (accessToken, calId, event)         => gcal.insertEvent(accessToken, calId, event),
+    patch:   (accessToken, calId, eventId, etag, event) => gcal.patchEvent(accessToken, calId, eventId, etag, event),
+    extractMeta: (result) => ({ id: result.id, etag: result.etag || null, updated: result.updated || null }),
+  },
+  outlook_calendar: {
+    delete:  (accessToken, _calId, eventId, etag) => ocal.deleteEvent(accessToken, eventId, etag),
+    insert:  (accessToken, calId, event)          => ocal.insertEvent(accessToken, calId, event),
+    patch:   (accessToken, _calId, eventId, etag, event) => ocal.patchEvent(accessToken, eventId, etag, event),
+    extractMeta: (result) => ({
+      id: result.id,
+      etag: result['@odata.etag'] || null,
+      updated: result.lastModifiedDateTime || null,
+    }),
+  },
+};
+
+async function pushToProvider(userId, provider, table, localId, op) {
+  const adapter = ADAPTERS[provider];
+  if (!adapter) throw new Error('Unknown provider: ' + provider);
+
+  const { accessToken, connection } = await getFreshAccessToken(userId, provider);
+  if (!connection.calendar_id) throw new Error('No StayOps calendar id stored for ' + provider);
   const calendarId = connection.calendar_id;
 
-  const state = await loadSyncState(userId, 'google_calendar', table, localId);
+  const state = await loadSyncState(userId, provider, table, localId);
 
   if (op === 'delete') {
     if (state && state.provider_event_id) {
-      await gcal.deleteEvent(accessToken, calendarId, state.provider_event_id, state.provider_etag);
-      await deleteSyncState(userId, 'google_calendar', table, localId);
+      await adapter.delete(accessToken, calendarId, state.provider_event_id, state.provider_etag);
+      await deleteSyncState(userId, provider, table, localId);
     }
     return { op: 'delete' };
   }
@@ -124,11 +149,10 @@ async function pushToGoogle(userId, table, localId, op) {
   if (!row) return { op: 'skip', reason: 'row not found' };
   if (shouldSkip(table, row)) return { op: 'skip', reason: 'pending enrichment' };
 
-  // Soft-cancelled bookings → delete the calendar event
   if (table === 'bookings' && row.status === 'cancelled') {
     if (state && state.provider_event_id) {
-      await gcal.deleteEvent(accessToken, calendarId, state.provider_event_id, state.provider_etag);
-      await deleteSyncState(userId, 'google_calendar', table, localId);
+      await adapter.delete(accessToken, calendarId, state.provider_event_id, state.provider_etag);
+      await deleteSyncState(userId, provider, table, localId);
     }
     return { op: 'delete' };
   }
@@ -142,37 +166,36 @@ async function pushToGoogle(userId, table, localId, op) {
   let result;
   if (state && state.provider_event_id) {
     try {
-      result = await gcal.patchEvent(accessToken, calendarId, state.provider_event_id, state.provider_etag, event);
+      result = await adapter.patch(accessToken, calendarId, state.provider_event_id, state.provider_etag, event);
     } catch (e) {
-      // 404 → event was deleted on phone; recreate.
-      // 412 (precondition) → etag stale; refetch & retry without etag.
-      if (e.statusCode === 404) {
-        result = await gcal.insertEvent(accessToken, calendarId, event);
+      if (e.statusCode === 404 || e.statusCode === 410) {
+        result = await adapter.insert(accessToken, calendarId, event);
       } else if (e.statusCode === 412) {
-        result = await gcal.patchEvent(accessToken, calendarId, state.provider_event_id, null, event);
+        result = await adapter.patch(accessToken, calendarId, state.provider_event_id, null, event);
       } else {
         throw e;
       }
     }
   } else {
-    result = await gcal.insertEvent(accessToken, calendarId, event);
+    result = await adapter.insert(accessToken, calendarId, event);
   }
 
+  const meta = adapter.extractMeta(result);
   await upsertSyncState({
     user_id: userId,
-    provider: 'google_calendar',
+    provider,
     local_table: table,
     local_id: String(localId),
-    provider_event_id: result.id,
+    provider_event_id: meta.id,
     provider_calendar_id: calendarId,
-    provider_etag: result.etag || null,
+    provider_etag: meta.etag,
     local_updated_at: row.updated_at || new Date().toISOString(),
-    provider_updated_at: result.updated || new Date().toISOString(),
+    provider_updated_at: meta.updated || new Date().toISOString(),
     last_synced_at: new Date().toISOString(),
     pending_direction: null,
   });
 
-  return { op: state ? 'update' : 'insert', eventId: result.id };
+  return { op: state ? 'update' : 'insert', eventId: meta.id };
 }
 
 exports.handler = async (event) => {
@@ -203,9 +226,7 @@ exports.handler = async (event) => {
       const rows = await probe.json();
       if (!Array.isArray(rows) || !rows[0]) { results[provider] = { skipped: 'not connected' }; continue; }
 
-      if (provider === 'google_calendar') {
-        results[provider] = await pushToGoogle(auth.id, table, id, op);
-      }
+      results[provider] = await pushToProvider(auth.id, provider, table, id, op);
     } catch (e) {
       console.warn('[calendar-push]', provider, 'failed:', e.message);
       results[provider] = { error: e.message };

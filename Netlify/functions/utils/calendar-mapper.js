@@ -16,6 +16,16 @@ const TITLE_PREFIX = {
   maintenance: 'Maintenance — ',
 };
 
+// A trailing marker we embed in event descriptions so we can recover the
+// (table, local_id) pairing on providers (e.g. Microsoft Graph) where the
+// equivalent of Google's extendedProperties.private isn't trivial to read.
+const MARKER_RE = /\[stayops:(bookings|cleans|maintenance):([^\]]+)\]/i;
+function withMarker(description, table, id) {
+  const tag = '[stayops:' + table + ':' + String(id) + ']';
+  if (!description) return tag;
+  return description.replace(/\s*\[stayops:[^\]]+\]\s*$/i, '').trimEnd() + '\n\n' + tag;
+}
+
 function bookingToEvent(b) {
   const guests = b.guests ? ' (' + b.guests + ')' : '';
   const platform = b.platform ? ' [' + b.platform + ']' : '';
@@ -26,7 +36,7 @@ function bookingToEvent(b) {
   if (b.notes) lines.push('', b.notes);
   return {
     summary: TITLE_PREFIX.bookings + (b.guest_name || 'Guest') + guests + platform,
-    description: lines.join('\n'),
+    description: withMarker(lines.join('\n'), 'bookings', b.id),
     start: { date: b.checkin },
     end: { date: b.checkout },
     extendedProperties: { private: { stayops_table: 'bookings', stayops_id: String(b.id) } },
@@ -46,7 +56,7 @@ function cleanToEvent(c, propertyName) {
   if (c.notes) lines.push('', c.notes);
   return {
     summary: TITLE_PREFIX.cleans + (propertyName || c.property_name || 'Property'),
-    description: lines.join('\n'),
+    description: withMarker(lines.join('\n'), 'cleans', c.id),
     start: { dateTime: startDateTime, timeZone: 'UTC' },
     end:   { dateTime: endDateTime,   timeZone: 'UTC' },
     extendedProperties: { private: { stayops_table: 'cleans', stayops_id: String(c.id) } },
@@ -60,7 +70,7 @@ function maintenanceToEvent(m) {
   if (m.status) lines.push('Status: ' + m.status);
   return {
     summary: TITLE_PREFIX.maintenance + (m.description || 'Task').slice(0, 80),
-    description: lines.join('\n'),
+    description: withMarker(lines.join('\n'), 'maintenance', m.id),
     start: { date: m.date },
     end:   { date: m.date },
     extendedProperties: { private: { stayops_table: 'maintenance', stayops_id: String(m.id) } },
@@ -79,6 +89,10 @@ function classifyEvent(event) {
   if (ext && ext.stayops_table) {
     return { table: ext.stayops_table, localId: ext.stayops_id || null };
   }
+  const desc = String((event && event.description) || '');
+  const m = desc.match(MARKER_RE);
+  if (m) return { table: m[1].toLowerCase(), localId: m[2] };
+
   const title = String((event && event.summary) || '').trim();
   if (/^clean(ing)?\s*[:\-—]/i.test(title)) return { table: 'cleans', localId: null };
   if (/^(maintenance|repair)\s*[:\-—]/i.test(title)) return { table: 'maintenance', localId: null };
@@ -98,7 +112,7 @@ function eventToLocal(table, event) {
   void end;
 
   const title = String(event.summary || '').replace(/^(Clean(ing)?|Maintenance|Repair|Booking)\s*[:\-—]\s*/i, '').trim();
-  const notes = String(event.description || '').trim();
+  const notes = String(event.description || '').replace(MARKER_RE, '').trim();
 
   if (table === 'cleans') {
     return { clean_date: startDate, notes };

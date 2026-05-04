@@ -98,28 +98,58 @@ function renderConnectionSummary() {
 function _renderCalendarSyncCard() {
   const cfg = window._appConfig || {};
   const gcalEmail = cfg.gcal_email || '';
+  const ocalEmail = cfg.outlook_calendar_email || '';
   const gcalConnected = !!gcalEmail;
+  const ocalConnected = !!ocalEmail;
+  const anyConnected = gcalConnected || ocalConnected;
   return `
     <div style="padding:12px;background:var(--mist);border-radius:10px;margin-top:8px">
       <div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:6px">📅 Two-way Calendar Sync</div>
-      ${gcalConnected ? `
-        <div style="font-size:12px;color:var(--moss);margin-bottom:8px">✓ Google Calendar connected: ${escHtml(gcalEmail)}</div>
-        <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.4">A calendar named "StayOps" in your Google account holds bookings, cleans, and maintenance. Add events titled "Clean: ..." or "Maintenance: ..." on your phone — they appear in the app within ~10 seconds. Untitled events land in the Inbox below for you to triage.</div>
-        <div style="display:flex;gap:6px">
+      ${anyConnected ? `
+        <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.4">A calendar named "StayOps" in your account holds bookings, cleans, and maintenance. Add events titled "Clean: ..." or "Maintenance: ..." on your phone — they appear in the app within ~10 seconds. Untitled events land in the Inbox below for you to triage.</div>
+        ${gcalConnected ? `
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px;background:white;border:1px solid var(--stone);border-radius:8px;margin-bottom:6px">
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--moss)">
+              <img src="https://www.google.com/favicon.ico" width="14" height="14" style="border-radius:2px">
+              ✓ Google: ${escHtml(gcalEmail)}
+            </div>
+            <button onclick="disconnectGoogleCalendar()" style="background:var(--warm);color:var(--forest);border:none;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Disconnect</button>
+          </div>
+        ` : `
+          <button onclick="connectGoogleCalendar()" style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px">
+            <img src="https://www.google.com/favicon.ico" width="14" height="14" style="border-radius:2px"> Connect Google Calendar
+          </button>
+        `}
+        ${ocalConnected ? `
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px;background:white;border:1px solid var(--stone);border-radius:8px;margin-bottom:6px">
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--moss)">
+              <img src="https://www.microsoft.com/favicon.ico" width="14" height="14" style="border-radius:2px">
+              ✓ Outlook: ${escHtml(ocalEmail)}
+            </div>
+            <button onclick="disconnectOutlookCalendar()" style="background:var(--warm);color:var(--forest);border:none;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Disconnect</button>
+          </div>
+        ` : `
+          <button onclick="connectOutlookCalendar()" style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px">
+            <img src="https://www.microsoft.com/favicon.ico" width="14" height="14" style="border-radius:2px"> Connect Outlook Calendar
+          </button>
+        `}
+        <div style="display:flex;gap:6px;margin-top:8px">
           <button onclick="syncCalendarNow()" id="cal-sync-btn"
             style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">🔄 Sync now</button>
-          <button onclick="disconnectGoogleCalendar()"
-            style="background:var(--warm);color:var(--forest);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">Disconnect</button>
         </div>
         <div id="cal-sync-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;line-height:1.5"></div>
         <div id="cal-inbox" style="margin-top:10px"></div>
       ` : `
         <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.5">Sync StayOps with your phone calendar. Your phone shows app events; your phone-side edits flow back to the app. We create a dedicated "StayOps" calendar in your account — your personal calendar stays untouched.</div>
         <button onclick="connectGoogleCalendar()"
-          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
+          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:6px">
           <img src="https://www.google.com/favicon.ico" width="18" height="18" style="border-radius:3px"> Connect Google Calendar
         </button>
-        <div style="font-size:11px;color:var(--text-soft);margin-top:8px;text-align:center">Outlook & Apple calendars — coming soon.</div>
+        <button onclick="connectOutlookCalendar()"
+          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
+          <img src="https://www.microsoft.com/favicon.ico" width="18" height="18" style="border-radius:3px"> Connect Outlook Calendar
+        </button>
+        <div style="font-size:11px;color:var(--text-soft);margin-top:8px;text-align:center">Apple Calendar — coming soon.</div>
       `}
     </div>`;
 }
@@ -144,6 +174,31 @@ async function disconnectGoogleCalendar() {
       delete window._appConfig.gcal_calendar_id;
     }
     globalThis.showBanner('✓ Google Calendar disconnected', 'ok');
+    renderConnectionSummary();
+  } catch (e) {
+    globalThis.showBanner('⚠ Disconnect failed: ' + (e && e.message), 'warn');
+  }
+}
+
+async function connectOutlookCalendar() {
+  const user = await getCurrentSupabaseUser();
+  if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
+  window.location.href = '/.netlify/functions/outlook-cal-oauth-start?state=' + encodeURIComponent(user.id);
+}
+
+async function disconnectOutlookCalendar() {
+  if (!confirm('Disconnect Outlook Calendar? Your StayOps calendar in Outlook stays in place; we just stop syncing.')) return;
+  const user = await getCurrentSupabaseUser();
+  if (!user || !window._sb) return;
+  try {
+    await window._sb.from('email_connections')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('provider', 'outlook_calendar');
+    if (window._appConfig) {
+      delete window._appConfig.outlook_calendar_email;
+    }
+    globalThis.showBanner('✓ Outlook Calendar disconnected', 'ok');
     renderConnectionSummary();
   } catch (e) {
     globalThis.showBanner('⚠ Disconnect failed: ' + (e && e.message), 'warn');
@@ -1618,6 +1673,8 @@ export {
   maybeAutoSyncICal,
   connectGoogleCalendar,
   disconnectGoogleCalendar,
+  connectOutlookCalendar,
+  disconnectOutlookCalendar,
   syncCalendarNow,
   renderCalendarInbox,
   classifyInboxEvent,
