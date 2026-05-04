@@ -676,14 +676,28 @@ export function toggleCleanAction(index, cleanId, bookingId, status) {
         'Decline</button>' +
       '<button onclick="event.stopPropagation();openNotifyModal(\'' + cleanId + '\')" ' +
         'style="flex:1;padding:10px;background:var(--mist,#F0EDE8);color:var(--text,#1A1A1A);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
-        'SMS</button>';
+        'SMS</button>' +
+      '<button onclick="event.stopPropagation();renotifyClean(\'' + cleanId + '\')" ' +
+        'style="flex:1;padding:10px;background:var(--mist,#F0EDE8);color:var(--text,#1A1A1A);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'Re-notify</button>';
   } else if (status === 'confirmed') {
     buttons =
       '<button onclick="event.stopPropagation();openNotifyModal(\'' + cleanId + '\')" ' +
         'style="flex:1;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
         'Send SMS</button>' +
+      '<button onclick="event.stopPropagation();renotifyClean(\'' + cleanId + '\')" ' +
+        'style="flex:1;padding:10px;background:var(--mist,#F0EDE8);color:var(--text,#1A1A1A);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'Re-notify</button>' +
       '<button onclick="event.stopPropagation();reassignClean(\'' + cleanId + '\')" ' +
         'style="flex:1;padding:10px;background:var(--mist,#F0EDE8);color:var(--text,#1A1A1A);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'Reassign</button>';
+  } else if (status === 'declined') {
+    buttons =
+      '<button onclick="event.stopPropagation();openNotifyModal(\'' + cleanId + '\')" ' +
+        'style="flex:1;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'Send SMS</button>' +
+      '<button onclick="event.stopPropagation();reassignClean(\'' + cleanId + '\')" ' +
+        'style="flex:1;padding:10px;background:#FCEBEB;color:#A32D2D;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
         'Reassign</button>';
   }
 
@@ -1518,5 +1532,56 @@ export async function assignCleanerToBooking(bookingIdParam) {
     releaseCleaningLock(lockKey);
   }
 }
+
+export async function renotifyClean(cleanId) {
+  const c = cleans.find(cl => String(cl.id) === String(cleanId));
+  if (!c) {
+    globalThis.showBanner('Cannot re-notify — clean not found', 'warn');
+    return;
+  }
+  if (!c.cleanerId) {
+    globalThis.showBanner('Cannot re-notify — no cleaner assigned', 'warn');
+    return;
+  }
+  const cleaner = loadCleaners().find(cl =>
+    String(cl.id) === String(c.cleanerId) ||
+    String(cl._cloudId || '') === String(c.cleanerId)
+  );
+  if (!cleaner) {
+    globalThis.showBanner('Cannot re-notify — cleaner not found', 'warn');
+    return;
+  }
+  const booking = bookings.find(b =>
+    String(b.id) === String(c.bookingId) ||
+    (b._cloudId && String(b._cloudId) === String(c.bookingId)) ||
+    _normName(b.name) === _normName(c.guestName)
+  );
+  if (!booking) {
+    globalThis.showBanner('Cannot re-notify — booking not found', 'warn');
+    return;
+  }
+  globalThis.showBanner('Re-notifying ' + cleaner.name + '…', 'ok');
+  try {
+    const res = await _sendCleanerAssignmentNotifications(
+      booking,
+      cleaner,
+      c.date || booking.checkout,
+      'renotify-' + String(booking.id || Date.now())
+    );
+    const parts = [];
+    if (res.pushSent) parts.push('push ✓');
+    else parts.push('push ✗');
+    if (res.emailAttempted) parts.push(res.emailSent ? 'email ✓' : 'email ✗');
+    if (!res.pushSent && !res.emailSent) {
+      globalThis.showBanner('Re-notify failed — try SMS (' + parts.join(' · ') + ')', 'warn');
+    } else {
+      globalThis.showBanner('Re-notified ' + cleaner.name + ' — ' + parts.join(' · '), 'ok');
+    }
+  } catch (e) {
+    console.warn('[StayOps] renotifyClean failed', e);
+    globalThis.showBanner('⚠ Re-notify failed — try SMS', 'warn');
+  }
+}
+globalThis.renotifyClean = renotifyClean;
 
 window.populateSelects = populateSelects;
