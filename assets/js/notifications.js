@@ -55,12 +55,11 @@ function parsePushSubscriptionsArray(raw) {
  * Add this device's host subscription to app_config.push_subscriptions (dedup by endpoint).
  */
 async function mergeHostPushSubscriptionToCloud(subJson) {
-  if (!subJson || !subJson.endpoint) return;
+  if (!subJson || !subJson.endpoint) throw new Error('mergeHostPush: no endpoint in subJson');
   const sb = getSupabaseClient();
   const user = await getCurrentSupabaseUser();
   if (!sb || !user) {
-    console.log('[StayOps] push_subscriptions sync skipped — no Supabase client or signed-in user');
-    return;
+    throw new Error('mergeHostPush: no Supabase client or signed-in user');
   }
   const { data: row, error: readErr } = await sb
     .from('app_config')
@@ -68,8 +67,7 @@ async function mergeHostPushSubscriptionToCloud(subJson) {
     .eq('user_id', user.id)
     .maybeSingle();
   if (readErr) {
-    console.warn('[StayOps] push_subscriptions read failed', readErr.message);
-    return;
+    throw new Error('mergeHostPush: push_subscriptions read failed — ' + readErr.message);
   }
   const existing = parsePushSubscriptionsArray(row && row.push_subscriptions);
   if (existing.some(e => e && e.endpoint === subJson.endpoint)) {
@@ -92,7 +90,7 @@ async function mergeHostPushSubscriptionToCloud(subJson) {
       .from('app_config')
       .update({ push_subscriptions: updatedArray, updated_at: ts })
       .eq('user_id', user.id);
-    if (upErr) console.warn('[StayOps] push_subscriptions update failed', upErr.message);
+    if (upErr) throw new Error('mergeHostPush: update failed — ' + upErr.message);
   } else {
     const { error: upErr } = await sb
       .from('app_config')
@@ -100,7 +98,37 @@ async function mergeHostPushSubscriptionToCloud(subJson) {
         { user_id: user.id, push_subscriptions: updatedArray, updated_at: ts },
         { onConflict: 'user_id' }
       );
-    if (upErr) console.warn('[StayOps] push_subscriptions upsert failed', upErr.message);
+    if (upErr) throw new Error('mergeHostPush: upsert failed — ' + upErr.message);
+  }
+  console.log('[StayOps] push_subscriptions: added new endpoint successfully');
+}
+
+/**
+ * Fallback: directly write a single push subscription to push_subscriptions
+ * when the read-modify-write in mergeHostPushSubscriptionToCloud fails.
+ */
+async function directWriteHostPushSubscription(subJson) {
+  if (!subJson || !subJson.endpoint) return;
+  const sb = getSupabaseClient();
+  const user = await getCurrentSupabaseUser();
+  if (!sb || !user) return;
+  const newEntry = {
+    endpoint: subJson.endpoint,
+    keys: { p256dh: subJson.keys && subJson.keys.p256dh, auth: subJson.keys && subJson.keys.auth },
+    user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+    subscribed_at: new Date().toISOString(),
+  };
+  // Overwrite with just this single subscription — better than having none
+  const { error } = await sb
+    .from('app_config')
+    .upsert(
+      { user_id: user.id, push_subscriptions: [newEntry], updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    );
+  if (error) {
+    console.error('[Push] directWriteHostPushSubscription failed:', error.message);
+  } else {
+    console.log('[Push] directWriteHostPushSubscription: saved endpoint via fallback');
   }
 }
 
@@ -271,8 +299,10 @@ export async function subscribeToPush(role, cleanerId) {
     console.log('SW ready, getting push subscription...');
     let sub = await reg.pushManager.getSubscription();
     console.log('[Push] existing subscription found:', !!sub);
+    let oldEndpoint = null;
     if (sub) {
-      console.log('[Push] unsubscribing old subscription to refresh VAPID key');
+      try { oldEndpoint = sub.toJSON().endpoint; } catch (_e) { /* ignore */ }
+      console.log('[Push] unsubscribing old subscription to refresh VAPID key, old endpoint:', oldEndpoint ? oldEndpoint.substring(0, 60) + '...' : null);
       await sub.unsubscribe();
       sub = null;
     }
@@ -305,7 +335,24 @@ export async function subscribeToPush(role, cleanerId) {
     console.log('[Push] before saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
     savePushSubsLocal(subs);
     if (role === 'host') {
-      await mergeHostPushSubscriptionToCloud(subJson);
+      // Remove the old (just-killed) endpoint from push_subscriptions so dead entries don't accumulate
+      if (oldEndpoint && oldEndpoint !== subJson.endpoint) {
+        await removeHostPushSubscriptionFromCloudByEndpoint(oldEndpoint).catch(e =>
+          console.warn('[Push] old endpoint cleanup failed (non-fatal):', e)
+        );
+      }
+      // Add the new endpoint to push_subscriptions (the field the server reads to send pushes)
+      try {
+        await mergeHostPushSubscriptionToCloud(subJson);
+      } catch (mergeErr) {
+        console.error('[Push] CRITICAL: mergeHostPushSubscriptionToCloud threw — new endpoint NOT saved to push_subscriptions!', mergeErr);
+        // Retry once with a direct write as fallback
+        try {
+          await directWriteHostPushSubscription(subJson);
+        } catch (retryErr) {
+          console.error('[Push] Retry also failed:', retryErr);
+        }
+      }
     }
     console.log('[Push] after saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
     console.log('Subscription saved for role:', role, cleanerId || '');
