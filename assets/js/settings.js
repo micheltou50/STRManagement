@@ -713,7 +713,6 @@ function openSettingsPanel(panelId, returnSection) {
   }
   if (panelId === 'backup') {
     const el = document.getElementById('backup-last-time');
-    // TODO: migrate backup metadata to Supabase
     if (el) el.textContent = (window._appConfig && window._appConfig.last_backup) || 'Never';
   }
   if (panelId === 'ai-import') {
