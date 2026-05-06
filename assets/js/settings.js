@@ -560,7 +560,7 @@ async function scanOutlookBookings() {
 
   if (btn) { btn.disabled = false; btn.textContent = '📥 Scan for Bookings'; }
 }
-const CALENDAR_FEED_PUBLIC_URL = 'https://app.stayops.com.au/.netlify/functions/calendar-feed';
+const CALENDAR_FEED_PUBLIC_URL = window.location.origin + '/.netlify/functions/calendar-feed';
 
 async function populateCalendarFeedPanel() {
   const input = document.getElementById('settings-calendar-feed-url');
