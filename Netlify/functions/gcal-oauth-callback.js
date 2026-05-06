@@ -106,22 +106,27 @@ exports.handler = async (event) => {
       ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
       : null;
 
+    // Only include refresh_token if Google actually sent one — avoid overwriting a valid token with null
+    const upsertPayload = {
+      user_id:           state,
+      email,
+      provider:          'google_calendar',
+      access_token:      tokens.access_token,
+      token_expiry:      expiry,
+      calendar_id:       calendarId,
+      watch_channel_id:  watchChannelId,
+      watch_resource_id: watchResourceId,
+      watch_expires_at:  watchExpiresAt,
+      sync_token:        null,
+      updated_at:        new Date().toISOString(),
+    };
+    if (tokens.refresh_token) {
+      upsertPayload.refresh_token = tokens.refresh_token;
+    }
+
     const { error: dbError } = await sb
       .from('email_connections')
-      .upsert({
-        user_id:           state,
-        email,
-        provider:          'google_calendar',
-        access_token:      tokens.access_token,
-        refresh_token:     tokens.refresh_token || null,
-        token_expiry:      expiry,
-        calendar_id:       calendarId,
-        watch_channel_id:  watchChannelId,
-        watch_resource_id: watchResourceId,
-        watch_expires_at:  watchExpiresAt,
-        sync_token:        null,
-        updated_at:        new Date().toISOString(),
-      }, { onConflict: 'user_id,provider' });
+      .upsert(upsertPayload, { onConflict: 'user_id,provider' });
 
     if (dbError) {
       console.error('[gcal-oauth-callback] Upsert failed:', dbError.message);

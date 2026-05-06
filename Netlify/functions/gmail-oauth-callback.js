@@ -70,15 +70,22 @@ exports.handler = async (event) => {
     // 3. Store refresh token + email in Supabase email_connections
     const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
+    // Only include refresh_token in the upsert if Google actually sent one.
+    // Google only returns refresh_token on the first consent or when prompt=consent is used.
+    // If we blindly write null, we destroy the existing valid refresh_token on reconnect.
+    const upsertPayload = {
+      user_id:       state,
+      email,
+      provider:      'google',
+      updated_at:    new Date().toISOString(),
+    };
+    if (tokens.refresh_token) {
+      upsertPayload.refresh_token = tokens.refresh_token;
+    }
+
     const { error: dbError } = await sb
       .from('email_connections')
-      .upsert({
-        user_id:       state,
-        email,
-        provider:      'google',
-        refresh_token: tokens.refresh_token || null,
-        updated_at:    new Date().toISOString(),
-      }, { onConflict: 'user_id,provider' });
+      .upsert(upsertPayload, { onConflict: 'user_id,provider' });
 
     if (dbError) {
       console.error('[gmail-oauth-callback] Upsert failed:', dbError.message);

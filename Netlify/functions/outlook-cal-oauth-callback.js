@@ -105,22 +105,27 @@ exports.handler = async (event) => {
       ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
       : null;
 
+    // Only include refresh_token if provider actually sent one — avoid overwriting a valid token with null
+    const upsertPayload = {
+      user_id: state,
+      email,
+      provider: 'outlook_calendar',
+      access_token: tokens.access_token,
+      token_expiry: expiry,
+      calendar_id: calendarId,
+      outlook_subscription_id: subscriptionId,
+      outlook_client_state: clientState,
+      watch_expires_at: subscriptionExpiresAt,
+      outlook_delta_link: null,
+      updated_at: new Date().toISOString(),
+    };
+    if (tokens.refresh_token) {
+      upsertPayload.refresh_token = tokens.refresh_token;
+    }
+
     const { error: dbError } = await sb
       .from('email_connections')
-      .upsert({
-        user_id: state,
-        email,
-        provider: 'outlook_calendar',
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token || null,
-        token_expiry: expiry,
-        calendar_id: calendarId,
-        outlook_subscription_id: subscriptionId,
-        outlook_client_state: clientState,
-        watch_expires_at: subscriptionExpiresAt,
-        outlook_delta_link: null,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,provider' });
+      .upsert(upsertPayload, { onConflict: 'user_id,provider' });
 
     if (dbError) {
       console.error('[outlook-cal-oauth-callback] Upsert failed:', dbError.message);
