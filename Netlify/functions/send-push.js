@@ -22,7 +22,7 @@ function buildNotificationEmailHtml(title, body) {
     <div style="font-size:14px;color:#6B6B6B;line-height:1.6">${body || ''}</div>
   </td></tr>
   <tr><td style="padding:12px 24px 28px">
-    <a href="https://strmanagement.netlify.app" style="display:inline-block;background:#1E3A2F;color:#fff;text-decoration:none;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:600">Open StayOps</a>
+    <a href="https://app.stayops.com.au" style="display:inline-block;background:#1E3A2F;color:#fff;text-decoration:none;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:600">Open StayOps</a>
   </td></tr>
   <tr><td style="padding:16px 24px;border-top:1px solid #E8E0D5;font-size:11px;color:#999">
     Sent by StayOps &middot; You received this because a notification was triggered in your account.
@@ -60,7 +60,7 @@ async function sendEmailAlongside(recipientEmail, title, body) {
   // Fallback: Resend
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) { console.log('[send-push] No RESEND_API_KEY — skipping email'); return; }
-  const from = process.env.RESEND_FROM || 'StayOps <noreply@strmanagement.netlify.app>';
+  const from = process.env.RESEND_FROM || 'StayOps <noreply@app.stayops.com.au>';
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -159,7 +159,7 @@ exports.handler = async (event) => {
     }
 
     webpush.setVapidDetails(
-      process.env.VAPID_SUBJECT || 'mailto:noreply@strmanagement.netlify.app',
+      process.env.VAPID_SUBJECT || 'mailto:noreply@app.stayops.com.au',
       process.env.VAPID_PUBLIC_KEY,
       process.env.VAPID_PRIVATE_KEY
     );

@@ -121,7 +121,7 @@ exports.handler = async (_event) => {
   const supabaseUrl        = process.env.SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
   const resendApiKey       = process.env.RESEND_API_KEY;
-  const resendFrom         = process.env.RESEND_FROM || 'StayOps <noreply@strmanagement.netlify.app>';
+  const resendFrom         = process.env.RESEND_FROM || 'StayOps <noreply@app.stayops.com.au>';
 
   if (!supabaseUrl || !supabaseServiceKey) {
     console.error('[send-clean-reminders] Missing SUPABASE_URL or SUPABASE_SERVICE_KEY');

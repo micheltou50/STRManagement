@@ -19,7 +19,7 @@ select cron.schedule(
   '0 21 * * *',
   $$
   select net.http_post(
-    url := 'https://strmanagement.netlify.app/.netlify/functions/daily-notifications',
+    url := 'https://app.stayops.com.au/.netlify/functions/daily-notifications',
     headers := '{"Content-Type": "application/json", "x-cron-secret": "cbabd28acf79ec84a2f33dde4dae50aaea9cb0025514272a73677b41531593ef"}'::jsonb,
     body := '{}'::jsonb
   ) as request_id;

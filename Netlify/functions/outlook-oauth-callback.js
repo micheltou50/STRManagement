@@ -17,7 +17,7 @@ exports.handler = async (event) => {
   const state  = event.queryStringParameters?.state || '';
   const error  = event.queryStringParameters?.error;
 
-  const appUrl   = process.env.URL || 'https://strmanagement.netlify.app';
+  const appUrl   = process.env.URL || 'https://app.stayops.com.au';
   const tenantId = process.env.MICROSOFT_TENANT_ID || 'common';
 
   if (error) {

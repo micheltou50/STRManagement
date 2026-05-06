@@ -5,7 +5,7 @@
 
 const webpush = require('web-push');
 
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:noreply@strmanagement.netlify.app';
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:noreply@app.stayops.com.au';
 
 let _vapidConfigured = false;
 
@@ -201,7 +201,7 @@ async function sendPushToHost({
           '<div style="background:#fff;border:1px solid #e5e5e5;border-top:none;padding:20px;border-radius:0 0 12px 12px">' +
             '<div style="font-size:16px;font-weight:700;color:#1E3A2F;margin-bottom:8px">' + (title || '') + '</div>' +
             '<div style="font-size:14px;color:#666;line-height:1.5">' + (body || '') + '</div>' +
-            '<div style="margin-top:16px"><a href="https://strmanagement.netlify.app" style="display:inline-block;background:#1E3A2F;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600">Open StayOps</a></div>' +
+            '<div style="margin-top:16px"><a href="https://app.stayops.com.au" style="display:inline-block;background:#1E3A2F;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600">Open StayOps</a></div>' +
           '</div>' +
         '</div>';
 
@@ -230,7 +230,7 @@ async function sendPushToHost({
 
         // Fallback: Resend
         if (resendKey && !emailSent) {
-          const from = process.env.RESEND_FROM || 'StayOps <noreply@strmanagement.netlify.app>';
+          const from = process.env.RESEND_FROM || 'StayOps <noreply@app.stayops.com.au>';
           const emailRes = await fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },

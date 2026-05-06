@@ -4,14 +4,14 @@
 //
 // Required environment variables:
 //   MICROSOFT_CLIENT_ID    — from Azure Portal → App registrations
-//   MICROSOFT_REDIRECT_URI — e.g. https://strmanagement.netlify.app/.netlify/functions/outlook-oauth-callback
+//   MICROSOFT_REDIRECT_URI — e.g. https://app.stayops.com.au/.netlify/functions/outlook-oauth-callback
 //   MICROSOFT_TENANT_ID    — use 'common' to support personal + work accounts
 
 exports.handler = async (event) => {
   const clientId    = process.env.MICROSOFT_CLIENT_ID;
   const tenantId    = process.env.MICROSOFT_TENANT_ID || 'common';
   const redirectUri = process.env.MICROSOFT_REDIRECT_URI
-    || 'https://strmanagement.netlify.app/.netlify/functions/outlook-oauth-callback';
+    || 'https://app.stayops.com.au/.netlify/functions/outlook-oauth-callback';
 
   if (!clientId) {
     return { statusCode: 500, body: JSON.stringify({ error: 'MICROSOFT_CLIENT_ID not set' }) };

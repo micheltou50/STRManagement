@@ -80,7 +80,7 @@ exports.handler = async (event) => {
 
   // ── Fallback: Resend API ──
   const resendKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM || 'StayOps <noreply@strmanagement.netlify.app>';
+  const from = process.env.RESEND_FROM || 'StayOps <noreply@app.stayops.com.au>';
 
   if (!resendKey) {
     console.error('[send-email] No email provider configured (set GMAIL_APP_PASSWORD or RESEND_API_KEY)');

@@ -6,7 +6,7 @@
    Required Netlify env vars:
      GOOGLE_CLIENT_ID
      GOOGLE_CLIENT_SECRET
-     SITE_URL               — e.g. https://strmanagement.netlify.app
+     SITE_URL               — e.g. https://app.stayops.com.au
    ═══════════════════════════════════════════════════════════════════════════ */
 
 exports.handler = async (event) => {

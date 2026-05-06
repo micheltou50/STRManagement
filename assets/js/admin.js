@@ -616,7 +616,7 @@ function buildTestEmailHtml(propName, color, badge, name, message, details) {
     <p style="margin:0 0 10px">Hi <strong>${esc(name)}</strong>,</p>
     <p style="margin:0 0 12px;font-size:13px;color:#555">${esc(message)}</p>
     ${rows}
-    <a href="https://strmanagement.netlify.app" style="display:block;text-align:center;padding:10px;border-radius:8px;color:white;font-weight:700;font-size:13px;margin-top:12px;text-decoration:none;background:${color}">View in StayOps</a>
+    <a href="https://app.stayops.com.au" style="display:block;text-align:center;padding:10px;border-radius:8px;color:white;font-weight:700;font-size:13px;margin-top:12px;text-decoration:none;background:${color}">View in StayOps</a>
   </td></tr>
   <tr><td style="padding:12px 24px;border-top:1px solid #f0f0f0;text-align:center;font-size:10px;color:#aaa">Test email sent by StayOps Admin</td></tr>
 </table></td></tr></table></body></html>`;
