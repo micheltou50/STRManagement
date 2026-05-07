@@ -2700,44 +2700,77 @@ label {
 .bookings-view-tab.active { background: #fff; color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
 
 #bookings-calendar .bk-cal-card {
-  background: #fff;
-  border-radius: 12px;
-  border: 0.5px solid rgba(0,0,0,0.1);
-  padding: 14px;
+  background: var(--surface2,#fbf8f2);
+  border-radius: 18px;
+  border: 1px solid var(--hairline-1,#e8e1d3);
+  padding: 16px;
   margin-bottom: 14px;
 }
 #bookings-calendar .bk-cal-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: 14px;
 }
 #bookings-calendar .bk-cal-nav {
-  background: var(--hairline-2);
-  border: none;
-  border-radius: 8px;
-  width: 32px;
-  height: 32px;
+  background: #fff;
+  border: 1px solid var(--hairline-1,#e8e1d3);
+  border-radius: 10px;
+  width: 34px;
+  height: 34px;
   font-size: 16px;
   cursor: pointer;
-  color: var(--text);
+  color: var(--ink-2,#4a5751);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 #bookings-calendar .bk-cal-title {
-  font-size: 14px;
+  font-size: 18px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--ink-1,#1c2620);
+  font-family: 'Newsreader', serif;
+}
+#bookings-calendar .bk-cal-props {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+#bookings-calendar .bk-cal-props::-webkit-scrollbar { display: none; }
+#bookings-calendar .bk-cal-prop-pill {
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  border: 1px solid var(--hairline-1,#e8e1d3);
+  background: #fff;
+  color: var(--ink-2,#4a5751);
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+#bookings-calendar .bk-cal-prop-pill.active {
+  background: var(--ink-1,#1c2620);
+  color: #fff;
+  border-color: var(--ink-1,#1c2620);
 }
 #bookings-calendar .bk-cal-dow {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
-  margin-bottom: 4px;
+  gap: 4px;
+  margin-bottom: 6px;
 }
 #bookings-calendar .bk-cal-dow div {
   text-align: center;
   font-size: 10px;
-  font-weight: 600;
-  color: var(--muted-2);
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 500;
+  color: var(--muted-2,#8a958f);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
   padding: 4px 0;
 }
 #bookings-calendar .bk-cal-grid {
@@ -2745,95 +2778,143 @@ label {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   grid-auto-rows: 78px;
-  gap: 2px;
+  gap: 4px;
 }
 #bookings-calendar .bk-cal-cell {
   position: relative;
-  padding: 4px 3px 0;
-  border-radius: 6px;
-  background: transparent;
+  padding: 6px 4px 0;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid var(--hairline-2,#efe9dc);
+  overflow: hidden;
+}
+#bookings-calendar .bk-cal-cell.bk-today {
+  border-color: var(--primary,#2f5d4e);
+  box-shadow: 0 0 0 2px var(--primary-soft,#dde8e1);
 }
 #bookings-calendar .bk-cal-cell .bk-daynum {
-  font-size: 11px;
-  color: var(--muted-2);
-  font-weight: 500;
-}
-#bookings-calendar .bk-cal-cell.bk-dim .bk-daynum { opacity: 0.35; }
-#bookings-calendar .bk-cal-cell.bk-today .bk-daynum {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--primary);
-  color: #fff;
+  font-size: 12px;
+  color: var(--ink-1,#1c2620);
   font-weight: 600;
+  font-family: 'Newsreader', serif;
+}
+#bookings-calendar .bk-cal-cell.bk-dim { opacity: 0.35; }
+#bookings-calendar .bk-cal-cell.bk-dim .bk-daynum { opacity: 1; }
+#bookings-calendar .bk-cal-cell.bk-today .bk-daynum {
+  color: var(--primary,#2f5d4e);
+  font-weight: 700;
 }
 #bookings-calendar .bk-cal-bar {
   position: absolute;
-  height: 20px;
+  height: 9px;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 6px;
+  gap: 3px;
+  padding: 0 4px;
   cursor: pointer;
   z-index: 2;
   overflow: hidden;
-  border: 1px solid transparent;
+  border: none;
+  opacity: 0.85;
 }
 #bookings-calendar .bk-cal-bar .bk-bar-initial {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  font-size: 9px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  display: none;
 }
 #bookings-calendar .bk-cal-bar .bk-bar-name {
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 7px;
+  font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: #fff;
 }
 #bookings-calendar .bk-cal-more {
   position: absolute;
-  height: 18px;
-  font-size: 10px;
+  height: 14px;
+  font-size: 9px;
   font-weight: 600;
-  color: var(--muted-2);
+  color: var(--muted-2,#8a958f);
+  font-family: 'JetBrains Mono', monospace;
   padding: 0 4px;
   z-index: 2;
 }
 #bookings-calendar .bk-cal-legend {
   display: flex;
-  gap: 12px;
+  gap: 14px;
   flex-wrap: wrap;
-  padding-top: 10px;
-  margin-top: 10px;
-  border-top: 0.5px solid rgba(0,0,0,0.08);
+  padding-top: 12px;
+  margin-top: 14px;
 }
 #bookings-calendar .bk-cal-legend-item {
   display: flex;
   align-items: center;
-  gap: 5px;
-  font-size: 10px;
-  color: var(--muted-2);
+  gap: 6px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--muted-2,#8a958f);
+  letter-spacing: 0.4px;
 }
 #bookings-calendar .bk-cal-legend-dot {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 8px;
   border-radius: 2px;
 }
 #bookings-calendar .bk-cal-empty {
   text-align: center;
   font-size: 13px;
-  color: var(--muted-2);
+  color: var(--muted-2,#8a958f);
+  font-family: 'Plus Jakarta Sans', sans-serif;
   padding: 24px 12px;
+}
+#bookings-calendar .bk-cal-detail {
+  margin-top: 18px;
+}
+#bookings-calendar .bk-cal-detail-label {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--muted-2,#8a958f);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+#bookings-calendar .bk-cal-detail-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 14px;
+  border: 1px solid var(--hairline-1,#e8e1d3);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+#bookings-calendar .bk-cal-detail-rail {
+  width: 6px;
+  align-self: stretch;
+  border-radius: 3px;
+}
+#bookings-calendar .bk-cal-detail-body {
+  flex: 1;
+  min-width: 0;
+}
+#bookings-calendar .bk-cal-detail-pill {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: 'JetBrains Mono', monospace;
+}
+#bookings-calendar .bk-cal-detail-name {
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink-1,#1c2620);
+  font-family: 'Newsreader', serif;
+}
+#bookings-calendar .bk-cal-detail-meta {
+  font-size: 12px;
+  color: var(--muted-2,#8a958f);
+  margin-top: 2px;
 }
 
 /* ── Mobile nav: fixed bottom bar ──────────────────────────────────────────── */

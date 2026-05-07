@@ -35,10 +35,10 @@ let _bkCalMonth = new Date().getMonth();
 
 function _bkCalPlatformStyle(platform) {
   const p = String(platform || '').toLowerCase();
-  if (p.includes('airbnb'))  return { bg: '#FFF0F0', border: '#FFDADA', text: '#E04E52', chip: '#FFD5D5', label: 'Airbnb' };
-  if (p.includes('vrbo') || p.includes('homeaway')) return { bg: '#EEF0FF', border: '#D5D8F0', text: '#3B5998', chip: '#D5D8F0', label: 'VRBO' };
-  if (p.includes('booking')) return { bg: '#F3EEFF', border: '#E0D2FF', text: '#5846AC', chip: '#E0D2FF', label: 'Booking.com' };
-  return { bg: '#E8F5E9', border: '#C8E6C9', text: '#2D5A3D', chip: '#C8E6C9', label: 'Direct' };
+  if (p.includes('airbnb'))  return { bg: 'var(--src-airbnb-soft,#fbe1e7)', border: 'var(--src-airbnb,#a8324c)', text: 'var(--src-airbnb,#a8324c)', chip: 'var(--src-airbnb-soft,#fbe1e7)', label: 'Airbnb' };
+  if (p.includes('vrbo') || p.includes('homeaway')) return { bg: 'var(--src-vrbo-soft,#d6ecf3)', border: 'var(--src-vrbo,#1d6b88)', text: 'var(--src-vrbo,#1d6b88)', chip: 'var(--src-vrbo-soft,#d6ecf3)', label: 'VRBO' };
+  if (p.includes('booking')) return { bg: 'var(--src-booking-soft,#dbe6f6)', border: 'var(--src-booking,#1a4f9c)', text: 'var(--src-booking,#1a4f9c)', chip: 'var(--src-booking-soft,#dbe6f6)', label: 'Booking.com' };
+  return { bg: 'var(--src-direct-soft,#dde8e1)', border: 'var(--src-direct,#1f3f35)', text: 'var(--src-direct,#1f3f35)', chip: 'var(--src-direct-soft,#dde8e1)', label: 'Direct' };
 }
 
 function _bkCalMondayIndex(dow) {
@@ -152,7 +152,7 @@ function renderBookingsCalendarView() {
   }
 
   // ── Render HTML ──
-  const dowHdr = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+  const dowHdr = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
     .map(d => `<div>${d}</div>`).join('');
 
   let cellsHtml = '';
@@ -161,16 +161,16 @@ function renderBookingsCalendarView() {
     const cls = 'bk-cal-cell'
       + (cd.inMonth ? '' : ' bk-dim')
       + (ds === todayYmd ? ' bk-today' : '');
-    cellsHtml += `<div class="${cls}" data-col="${idx % 7}" data-row="${Math.floor(idx / 7)}">
+    cellsHtml += `<div class="${cls}" data-col="${idx % 7}" data-row="${Math.floor(idx / 7)}" data-ymd="${ds}">
       <span class="bk-daynum">${cd.date.getDate()}</span>
     </div>`;
   });
 
   // Build overlay bars with absolute positioning inside the grid.
-  // Each week row is 78px + 2px gap. First row starts at 0.
-  const ROW_H = 80;    // grid-auto-rows + gap
+  // Each week row is 78px + 4px gap. First row starts at 0.
+  const ROW_H = 82;    // grid-auto-rows + gap
   const TOP_OFFSET = 22; // space for day number
-  const SLOT_H = 22;   // bar height + small gap
+  const SLOT_H = 12;   // bar height (9px) + gap
 
   let barsHtml = '';
   for (let w = 0; w < rows; w++) {
@@ -178,7 +178,6 @@ function renderBookingsCalendarView() {
       const { b, startCol, endCol, slot, ci, co, isCheckoutSeg } = seg;
       const style = _bkCalPlatformStyle(b.platform);
       const widthCols = endCol - startCol + 1;
-      // Offset first cell to ~63% for 3pm check-in, shrink last cell to ~42% for 10am checkout
       const segStartsAtCi = seg.segStart.getTime() === ci.getTime();
       const checkinOffset = segStartsAtCi ? (0.63 / 7) * 100 : 0;
       const leftPct = (startCol / 7) * 100 + checkinOffset;
@@ -188,14 +187,12 @@ function renderBookingsCalendarView() {
       }
       const top = w * ROW_H + TOP_OFFSET + slot * SLOT_H;
       const segEndsAtCo = seg.segEnd.getTime() === co.getTime();
-      const radius = `${segStartsAtCi ? '11px' : '2px'} ${segEndsAtCo ? '11px' : '2px'} ${segEndsAtCo ? '11px' : '2px'} ${segStartsAtCi ? '11px' : '2px'}`;
-      const initial = (b.name || '?').trim().charAt(0).toUpperCase();
+      const radius = `${segStartsAtCi ? '4px' : '0'} ${segEndsAtCo ? '4px' : '0'} ${segEndsAtCo ? '4px' : '0'} ${segStartsAtCi ? '4px' : '0'}`;
       const nameLabel = (b.name || 'Guest').split(/\s+/)[0];
       const idAttr = b._cloudId || b.id;
       barsHtml += `<div class="bk-cal-bar" data-id="${escHtml(String(idAttr))}" title="${escHtml(b.name || 'Guest')} · ${escHtml(b.checkin)} → ${escHtml(b.checkout)}"
-        style="left:calc(${leftPct}% + 2px);width:calc(${widthPct}% - 4px);top:${top}px;border-radius:${radius};background:${style.bg};border-color:${style.border};">
-        ${segStartsAtCi ? `<span class="bk-bar-initial" style="background:${style.chip};color:${style.text}">${escHtml(initial)}</span>` : ''}
-        <span class="bk-bar-name" style="color:${style.text}">${escHtml(nameLabel)}</span>
+        style="left:calc(${leftPct}% + 4px);width:calc(${widthPct}% - 8px);top:${top}px;border-radius:${radius};background:${style.border};">
+        <span class="bk-bar-name">${segStartsAtCi ? escHtml(nameLabel) : ''}</span>
       </div>`;
     }
     if (weekOverflow[w].length) {
@@ -208,27 +205,48 @@ function renderBookingsCalendarView() {
     ? `<div class="bk-cal-empty">No bookings in ${escHtml(title)}</div>`
     : '';
 
+  // Property switcher pills
+  let propsHtml = '';
+  const allProps = typeof globalThis.getAllProperties === 'function' ? globalThis.getAllProperties() : [];
+  if (allProps.length > 1) {
+    const activeId = typeof globalThis.getActivePropertyId === 'function' ? globalThis.getActivePropertyId() : null;
+    propsHtml = '<div class="bk-cal-props">' +
+      allProps.map(p => {
+        const isActive = String(p.id) === String(activeId);
+        return `<div class="bk-cal-prop-pill${isActive ? ' active' : ''}" data-prop-id="${escHtml(String(p.id))}">${escHtml(p.name || 'Property')}</div>`;
+      }).join('') + '</div>';
+  }
+
+  // Legend with source-rail colors
   const legend = [
-    { color: '#FFF0F0', border: '#FFDADA', label: 'Airbnb' },
-    { color: '#EEF0FF', border: '#D5D8F0', label: 'VRBO' },
-    { color: '#F3EEFF', border: '#E0D2FF', label: 'Booking.com' },
-    { color: '#E8F5E9', border: '#C8E6C9', label: 'Direct' },
-  ].map(l => `<div class="bk-cal-legend-item"><div class="bk-cal-legend-dot" style="background:${l.color};border:1px solid ${l.border}"></div>${l.label}</div>`).join('');
+    { bg: 'var(--src-direct,#1f3f35)', label: 'Direct' },
+    { bg: 'var(--src-airbnb,#a8324c)', label: 'Airbnb' },
+    { bg: 'var(--src-booking,#1a4f9c)', label: 'Booking' },
+    { bg: 'var(--src-vrbo,#1d6b88)', label: 'VRBO' },
+  ].map(l => `<div class="bk-cal-legend-item"><div class="bk-cal-legend-dot" style="background:${l.bg}"></div>${l.label}</div>`).join('');
 
   root.innerHTML = `
     <div class="bk-cal-card">
       <div class="bk-cal-head">
-        <button type="button" class="bk-cal-nav" id="bk-cal-prev">‹</button>
         <div class="bk-cal-title">${escHtml(title)}</div>
-        <button type="button" class="bk-cal-nav" id="bk-cal-next">›</button>
+        <div style="display:flex;gap:6px">
+          <button type="button" class="bk-cal-nav" id="bk-cal-prev">
+            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M9 2L3 7l6 5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="bk-cal-nav" id="bk-cal-next">
+            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M5 2l6 5-6 5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
       </div>
+      ${propsHtml}
       <div class="bk-cal-dow">${dowHdr}</div>
-      <div class="bk-cal-grid" style="height:${rows * ROW_H - 2}px">
+      <div class="bk-cal-grid" style="height:${rows * ROW_H - 4}px">
         ${cellsHtml}
         ${barsHtml}
       </div>
       <div class="bk-cal-legend">${legend}</div>
       ${emptyHtml}
+      <div id="bk-cal-day-detail"></div>
     </div>
   `;
 
@@ -248,6 +266,67 @@ function renderBookingsCalendarView() {
       if (typeof globalThis.openDetailModal === 'function') globalThis.openDetailModal(id);
     };
   });
+  // Day cell tap → show detail strip
+  root.querySelectorAll('.bk-cal-cell').forEach(cell => {
+    cell.onclick = () => {
+      const ymd = cell.getAttribute('data-ymd');
+      if (!ymd) return;
+      _renderCalDayDetail(ymd, monthBookings);
+    };
+  });
+  // Property switcher pill clicks
+  root.querySelectorAll('.bk-cal-prop-pill').forEach(pill => {
+    pill.onclick = () => {
+      const propId = pill.getAttribute('data-prop-id');
+      if (typeof globalThis.switchActiveProperty === 'function') {
+        globalThis.switchActiveProperty(propId);
+      }
+    };
+  });
+}
+
+function _renderCalDayDetail(ymd, monthBookings) {
+  const detail = document.getElementById('bk-cal-day-detail');
+  if (!detail) return;
+  const dayDate = _bkCalParseYmd(ymd);
+  if (!dayDate) { detail.innerHTML = ''; return; }
+  const dayBookings = monthBookings.filter(b => {
+    const ci = _bkCalParseYmd(b.checkin);
+    const co = _bkCalParseYmd(b.checkout);
+    return ci && co && dayDate >= ci && dayDate <= co;
+  });
+  if (!dayBookings.length) {
+    detail.innerHTML = '';
+    return;
+  }
+  const dayLabel = dayDate.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
+  const cards = dayBookings.map(b => {
+    const ci = _bkCalParseYmd(b.checkin);
+    const co = _bkCalParseYmd(b.checkout);
+    const style = _bkCalPlatformStyle(b.platform);
+    const isCheckin = ci && ci.getTime() === dayDate.getTime();
+    const isCheckout = co && co.getTime() === dayDate.getTime();
+    const eventLabel = isCheckin ? 'Check-in · 15:00' : isCheckout ? 'Check-out · 10:00' : 'In stay';
+    const pillBg = isCheckin ? 'var(--primary-soft,#dde8e1)' : isCheckout ? 'var(--accent-soft,#f4e7cf)' : 'var(--hairline-2,#efe9dc)';
+    const pillColor = isCheckin ? 'var(--primary,#2f5d4e)' : isCheckout ? 'var(--warn,#b56a3a)' : 'var(--ink-2,#4a5751)';
+    const nights = ci && co ? Math.round((co - ci) / 86400000) : 0;
+    const payout = Number(b.hostPayout || 0);
+    const plat = normalizePlatformLabel(b.platform) || 'Direct';
+    const meta = [nights ? nights + ' night' + (nights !== 1 ? 's' : '') : '', payout ? '$' + payout.toLocaleString() : '', plat].filter(Boolean).join(' · ');
+    const idAttr = b._cloudId || b.id;
+    return `<div class="bk-cal-detail-card" onclick="if(typeof openDetailModal==='function')openDetailModal('${escapeJsSingleQuotedHtmlAttr(String(idAttr))}')">
+      <div class="bk-cal-detail-rail" style="background:${style.border}"></div>
+      <div class="bk-cal-detail-body">
+        <div class="bk-cal-detail-pill" style="background:${pillBg};color:${pillColor}">${eventLabel}</div>
+        <div class="bk-cal-detail-name">${escHtml(b.name || 'Guest')} · ${escHtml(String(b.guests || '?'))} guest${(b.guests || 0) !== 1 ? 's' : ''}</div>
+        <div class="bk-cal-detail-meta">${escHtml(meta)}</div>
+      </div>
+    </div>`;
+  }).join('');
+  detail.innerHTML = `<div class="bk-cal-detail">
+    <div class="bk-cal-detail-label">${escHtml(dayLabel)}</div>
+    ${cards}
+  </div>`;
 }
 
 function switchBookingsView(view) {
