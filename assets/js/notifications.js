@@ -741,7 +741,7 @@ export function insertTemplateVar(tag) {
 export function openEmailTemplatePanel(type) {
   const tpl = loadEmailTemplate(type);
   const isAssignment = type === 'assignment';
-  const title = isAssignment ? '📋 Assignment Email' : '⏰ Reminder Email';
+  const title = isAssignment ? 'Assignment Email' : 'Reminder Email';
   const desc  = isAssignment ? 'Sent when you assign a clean.' : 'Sent 24 hours before the clean.';
 
   let mount = document.getElementById('email-template-content');
@@ -757,58 +757,58 @@ export function openEmailTemplatePanel(type) {
 
       <!-- EDITOR PANE -->
       <div style="padding:0">
-        <div class="card" style="margin-bottom:10px">
+        <div style="background:#fff;border-radius:18px;border:1px solid var(--hairline-1);padding:16px;margin-bottom:10px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-            <div class="card-title" style="margin-bottom:0">${title}</div>
+            <div style="font-family:'Newsreader',serif;font-size:18px;font-weight:600;color:var(--ink-1)">${title}</div>
             <div style="display:flex;gap:6px">
-              <button onclick="resetEmailTemplate('${type}')" style="font-size:11px;background:none;border:1px solid var(--stone);border-radius:20px;padding:4px 10px;cursor:pointer;color:var(--text-soft);font-family:'Plus Jakarta Sans',sans-serif">Reset</button>
-              <button onclick="saveEmailTemplate('${type}')" class="btn-primary" style="font-size:12px;padding:6px 14px">Save</button>
+              <button onclick="resetEmailTemplate('${type}')" style="font-size:11px;background:none;border:1px solid var(--hairline-1);border-radius:20px;padding:4px 10px;cursor:pointer;color:var(--muted-2);font-family:'Plus Jakarta Sans',sans-serif">Reset</button>
+              <button onclick="saveEmailTemplate('${type}')" style="font-size:12px;padding:6px 14px;background:var(--primary);color:#fff;border:none;border-radius:12px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer">Save</button>
             </div>
           </div>
-          <div id="etpl-save-confirm" style="font-size:12px;color:var(--moss);margin-bottom:6px;display:none">✓ Saved</div>
-          <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">${desc}</div>
+          <div id="etpl-save-confirm" style="font-size:12px;color:var(--primary);margin-bottom:6px;display:none">✓ Saved</div>
+          <div style="font-size:12px;color:var(--muted-2);margin-bottom:12px">${desc}</div>
 
-          <label>Presets</label>
+          <label style="font-size:13px;font-weight:600;color:var(--ink-2)">Presets</label>
           <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
             ${(EMAIL_TEMPLATE_PRESETS[type]||[]).map((p,i) => `<button class="etpl-preset-btn" onclick="applyPreset('${type}',${i})"
-              style="font-size:12px;background:var(--mist);border:1px solid var(--stone);border-radius:20px;padding:6px 14px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;color:var(--forest);font-weight:500">${p.label}</button>`).join('')}
+              style="font-size:12px;background:var(--surface2);border:1px solid var(--hairline-1);border-radius:20px;padding:6px 14px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;color:var(--primary);font-weight:600">${p.label}</button>`).join('')}
           </div>
 
-          <label>Subject</label>
+          <label style="font-size:13px;font-weight:600;color:var(--ink-2)">Subject</label>
           <input type="text" id="etpl-subject" value="${(tpl.subject||'').replace(/"/g,'&quot;')}"
-            style="font-size:14px;margin-bottom:10px"
+            style="font-size:14px;margin-bottom:10px;border:1px solid var(--hairline-1);border-radius:12px;padding:10px 14px;background:#fff"
             oninput="updateEmailPreview('${type}')">
 
-          <label>Accent Colour</label>
+          <label style="font-size:13px;font-weight:600;color:var(--ink-2)">Accent Colour</label>
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-            <input type="color" id="etpl-color" value="${tpl.color||'#1E3A2F'}"
-              style="width:44px;height:44px;border:none;border-radius:8px;cursor:pointer;padding:2px;flex-shrink:0"
+            <input type="color" id="etpl-color" value="${tpl.color||'#2f5d4e'}"
+              style="width:44px;height:44px;border:none;border-radius:12px;cursor:pointer;padding:2px;flex-shrink:0"
               oninput="document.getElementById('etpl-color-preview').style.background=this.value;updateEmailPreview('${type}')">
-            <div id="etpl-color-preview" style="flex:1;height:44px;border-radius:8px;background:${tpl.color||'#1E3A2F'}"></div>
+            <div id="etpl-color-preview" style="flex:1;height:44px;border-radius:12px;background:${tpl.color||'#2f5d4e'}"></div>
           </div>
 
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-            <label style="margin:0">Body</label>
+            <label style="margin:0;font-size:13px;font-weight:600;color:var(--ink-2)">Body</label>
             <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;max-width:65%">
               ${EMAIL_TEMPLATE_VARS.map(v => `<button onclick="insertTemplateVar('${v.tag}')"
-                style="font-size:10px;background:var(--mist);border:1px solid var(--stone);border-radius:20px;padding:3px 8px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;color:var(--forest);white-space:nowrap">${v.label}</button>`).join('')}
+                style="font-size:10px;background:var(--surface2);border:1px solid var(--hairline-1);border-radius:20px;padding:3px 8px;cursor:pointer;font-family:'JetBrains Mono',monospace;color:var(--primary);white-space:nowrap">${v.label}</button>`).join('')}
             </div>
           </div>
           <textarea id="etpl-body" rows="7"
-            style="font-size:13px;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;resize:vertical;margin-bottom:0"
+            style="font-size:13px;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;resize:vertical;margin-bottom:0;border:1px solid var(--hairline-1);border-radius:12px;padding:10px 14px;background:#fff"
             oninput="updateEmailPreview('${type}')">${tpl.body||''}</textarea>
         </div>
       </div>
 
       <!-- PREVIEW PANE -->
       <div>
-        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Preview</div>
-        <div style="border-radius:12px;overflow:hidden;border:1px solid var(--warm);background:white">
-          <div style="background:#e8e8e8;padding:8px 12px;display:flex;align-items:center;gap:6px">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted-2);padding:4px 4px 8px;font-family:'JetBrains Mono',monospace">Preview</div>
+        <div style="border-radius:14px;overflow:hidden;border:1px solid var(--hairline-1);background:white">
+          <div style="background:var(--surface2);padding:8px 12px;display:flex;align-items:center;gap:6px">
             <div style="width:10px;height:10px;border-radius:50%;background:#FF5F57"></div>
             <div style="width:10px;height:10px;border-radius:50%;background:#FEBC2E"></div>
             <div style="width:10px;height:10px;border-radius:50%;background:#28C840"></div>
-            <div style="flex:1;background:white;border-radius:4px;padding:3px 8px;font-size:11px;color:#666;margin-left:4px" id="etpl-preview-subject">Subject preview</div>
+            <div style="flex:1;background:white;border-radius:8px;padding:3px 8px;font-size:11px;color:var(--muted-2);margin-left:4px" id="etpl-preview-subject">Subject preview</div>
           </div>
           <div id="etpl-preview-body" style="padding:16px;font-size:13px"></div>
         </div>
@@ -825,7 +825,7 @@ export function openEmailTemplatePanel(type) {
 export function updateEmailPreview(_type) {
   const subject  = document.getElementById('etpl-subject')?.value || '';
   const body     = document.getElementById('etpl-body')?.value    || '';
-  const color    = document.getElementById('etpl-color')?.value   || '#1E3A2F';
+  const color    = document.getElementById('etpl-color')?.value   || '#2f5d4e';
 
   function fillSample(str) {
     return str
@@ -847,13 +847,13 @@ export function updateEmailPreview(_type) {
 
   const previewEl = document.getElementById('etpl-preview-body');
   if (previewEl) previewEl.innerHTML = `
-    <div style="font-family:sans-serif;color:#1a1a1a">
-      <div style="background:${color};padding:16px 20px;border-radius:8px 8px 0 0;margin:-16px -16px 16px">
-        <div style="color:white;font-size:16px;font-weight:700">🏡 ${getCurrentPropertyName()}</div>
+    <div style="font-family:'Plus Jakarta Sans',sans-serif;color:var(--ink-1,#1c2620)">
+      <div style="background:${color};padding:16px 20px;border-radius:12px 12px 0 0;margin:-16px -16px 16px">
+        <div style="color:white;font-size:16px;font-weight:700;font-family:'Newsreader',serif">${getCurrentPropertyName()}</div>
       </div>
       ${bodyHtml}
       <div style="margin-top:16px">
-        <div style="background:${color};color:white;text-align:center;padding:12px;border-radius:8px;font-weight:600;font-size:13px">Open My Cleaner App →</div>
+        <div style="background:${color};color:white;text-align:center;padding:12px;border-radius:12px;font-weight:600;font-size:13px">Open My Cleaner App →</div>
       </div>
     </div>`;
 }

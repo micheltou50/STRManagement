@@ -108,7 +108,7 @@ const TOGGLE_GROUPS = [
 
 /* ── TEMPLATE DEFINITIONS ─────────────────────────────────────────────── */
 const TEMPLATES = [
-  { id: 'assignment',    name: 'Assignment',         color: '#1E3A2F', subject: 'New clean assigned — {{guest_name}}' },
+  { id: 'assignment',    name: 'Assignment',         color: '#2f5d4e', subject: 'New clean assigned — {{guest_name}}' },
   { id: 'reminder',      name: 'Reminder',           color: '#E65100', subject: '⏰ Reminder: Clean tomorrow — {{guest_name}}' },
   { id: 'cancellation',  name: 'Cancellation',       color: '#C0392B', subject: '❌ Booking cancelled — {{guest_name}}' },
   { id: 'owner_push',    name: 'Push + Email (Owner)', color: '#8FAF85', subject: 'Auto-generated from push notification content', readonly: true },
@@ -289,10 +289,10 @@ function renderTemplatesTab() {
   // Template Variables reference
   html += `
     <div class="card" style="margin-top:12px">
-      <div style="font-family:'Newsreader',serif;font-size:15px;color:var(--forest);margin-bottom:4px">Template Variables</div>
-      <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Available placeholders for cleaner emails</div>
+      <div style="font-family:'Newsreader',serif;font-size:15px;color:var(--ink-1);margin-bottom:4px">Template Variables</div>
+      <div style="font-size:12px;color:var(--muted-2);margin-bottom:12px">Available placeholders for cleaner emails</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
-        ${TEMPLATE_VARS.map(v => `<code style="background:var(--mist);padding:4px 8px;border-radius:6px;font-size:11px;color:var(--forest)">${esc(v)}</code>`).join('')}
+        ${TEMPLATE_VARS.map(v => `<code style="background:var(--surface2);padding:4px 8px;border-radius:6px;font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--primary)">${esc(v)}</code>`).join('')}
       </div>
     </div>`;
 
@@ -343,11 +343,11 @@ function renderEmailPreview(t, propName) {
   }
   if (t.id === 'owner_push') {
     return `<div class="admin-ep-frame">
-      <div class="admin-ep-header" style="background:#1E3A2F">Stay<span style="color:#8FAF85;font-style:italic">Ops</span><div class="admin-ep-pill">Notification</div></div>
+      <div class="admin-ep-header" style="background:#2f5d4e">Stay<span style="color:#8FAF85;font-style:italic">Ops</span><div class="admin-ep-pill">Notification</div></div>
       <div class="admin-ep-body">
         <p style="margin-bottom:10px"><strong>🏠 Check-in Today — ${esc(propName)}</strong></p>
         <p style="margin-bottom:12px">James Wilson checks in today (3 guests, 3 nights). Checkout time is 10:00 AM.</p>
-        <a class="admin-ep-cta" style="background:#1E3A2F" href="#">Open StayOps</a>
+        <a class="admin-ep-cta" style="background:#2f5d4e" href="#">Open StayOps</a>
       </div>
       <div class="admin-ep-footer">You're receiving this because push + email fallback is enabled</div>
     </div>`;
@@ -368,7 +368,7 @@ async function renderLogTab() {
         Pulled from the <code style="background:rgba(255,255,255,0.2);padding:1px 4px;border-radius:3px;font-size:11px">notification_log</code> table. Shows the last 7 days.
       </div>
     </div>
-    <div style="text-align:center;padding:24px;color:var(--text-soft);font-size:13px">Loading...</div>
+    <div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px">Loading...</div>
   `;
 
   try {
@@ -391,7 +391,7 @@ async function renderLogTab() {
           <div class="admin-info-icon">📋</div>
           <div class="admin-info-text"><strong>Recent notification activity.</strong><br>Shows the last 7 days.</div>
         </div>
-        <div class="card" style="text-align:center;padding:24px;color:var(--text-soft)">No notifications logged in the last 7 days.</div>`;
+        <div class="card" style="text-align:center;padding:24px;color:var(--muted-2)">No notifications logged in the last 7 days.</div>`;
       return;
     }
 
@@ -422,7 +422,7 @@ async function renderLogTab() {
       review_cleaning_cost: 'var(--sage)',
       monthly_summary:      '#7b1fa2',
       clean_reminder:       '#E65100',
-      assignment:           'var(--forest)',
+      assignment:           'var(--primary)',
       cancellation:         'var(--red)',
       cleaner_confirmed:    'var(--moss)',
       cleaner_declined:     'var(--red)',
@@ -430,10 +430,10 @@ async function renderLogTab() {
     };
 
     for (const [label, entries] of Object.entries(groups)) {
-      html += `<div class="card"><div style="font-family:'Newsreader',serif;font-size:15px;color:var(--forest);margin-bottom:8px">${esc(label)}</div>`;
+      html += `<div class="card"><div style="font-family:'Newsreader',serif;font-size:15px;color:var(--primary);margin-bottom:8px">${esc(label)}</div>`;
       entries.forEach(log => {
         const time = new Date(log.sent_at).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true }).toUpperCase();
-        const dotColor = LOG_DOT_COLORS[log.type] || 'var(--stone)';
+        const dotColor = LOG_DOT_COLORS[log.type] || 'var(--hairline-1)';
         html += `
           <div class="admin-log-entry">
             <div class="admin-log-dot" style="background:${dotColor}"></div>
@@ -463,7 +463,7 @@ async function renderDevicesTab() {
         Stale devices are auto-removed when push delivery fails.
       </div>
     </div>
-    <div style="text-align:center;padding:24px;color:var(--text-soft);font-size:13px">Loading...</div>
+    <div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px">Loading...</div>
   `;
 
   try {
@@ -499,11 +499,11 @@ async function renderDevicesTab() {
       <div class="admin-section-header">Owner Email Fallback</div>
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px">
-          <span style="color:var(--text-soft)">Fallback email</span>
+          <span style="color:var(--muted-2)">Fallback email</span>
           <strong>${esc(ownerEmail)}</strong>
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-top:8px;padding-top:8px;border-top:1px solid var(--mist)">
-          <span style="color:var(--text-soft)">Send-push endpoint</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-top:8px;padding-top:8px;border-top:1px solid var(--hairline-2)">
+          <span style="color:var(--muted-2)">Send-push endpoint</span>
           <span class="admin-pill ${resendStatus === 'Reachable' ? 'admin-pill-on' : 'admin-pill-off'}">${esc(resendStatus)}</span>
         </div>
       </div>
@@ -511,7 +511,7 @@ async function renderDevicesTab() {
     `;
 
     if (!subs.length) {
-      html += '<div class="card" style="text-align:center;padding:20px;color:var(--text-soft);font-size:13px">No push subscriptions registered. Enable notifications from the app to add a device.</div>';
+      html += '<div class="card" style="text-align:center;padding:20px;color:var(--muted-2);font-size:13px">No push subscriptions registered. Enable notifications from the app to add a device.</div>';
     } else {
       html += '<div class="card">';
       subs.forEach((sub, i) => {
@@ -521,10 +521,10 @@ async function renderDevicesTab() {
         const short = endpoint.length > 50 ? endpoint.substring(0, 50) + '...' : endpoint;
         const isStale = sub && sub.subscribed_at && (Date.now() - new Date(sub.subscribed_at).getTime() > 90 * 86400000);
         html += `
-          <div style="padding:10px 0;${i > 0 ? 'border-top:1px solid var(--mist)' : ''}">
-            <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px">${ua ? esc(ua.substring(0, 40)) : 'Device ' + (i + 1)} ${isStale ? '<span class="admin-pill admin-pill-off" style="font-size:9px">Stale?</span>' : ''}</div>
-            <div style="font-size:10px;color:var(--text-soft);word-break:break-all">${esc(short)}</div>
-            <div style="font-size:10px;color:var(--text-soft);margin-top:2px">Subscribed: ${esc(subscribed)}</div>
+          <div style="padding:10px 0;${i > 0 ? 'border-top:1px solid var(--hairline-2)' : ''}">
+            <div style="font-size:12px;font-weight:600;color:var(--ink-1);margin-bottom:4px">${ua ? esc(ua.substring(0, 40)) : 'Device ' + (i + 1)} ${isStale ? '<span class="admin-pill admin-pill-off" style="font-size:9px">Stale?</span>' : ''}</div>
+            <div style="font-size:10px;color:var(--muted-2);word-break:break-all">${esc(short)}</div>
+            <div style="font-size:10px;color:var(--muted-2);margin-top:2px">Subscribed: ${esc(subscribed)}</div>
           </div>`;
       });
       html += '</div>';
@@ -578,7 +578,7 @@ export async function adminSendTestEmail(templateId) {
     let subject, html;
     if (templateId === 'assignment') {
       subject = 'Test: New clean assigned — Test Guest';
-      html = buildTestEmailHtml(propName, '#1E3A2F', 'Clean assignment', 'Maria', 'A new clean has been scheduled for you.', { Guest: 'Test Guest', 'Check-in': '15 Apr 2026', Checkout: '18 Apr 2026', 'Clean Date': '15 Apr 2026' });
+      html = buildTestEmailHtml(propName, '#2f5d4e', 'Clean assignment', 'Maria', 'A new clean has been scheduled for you.', { Guest: 'Test Guest', 'Check-in': '15 Apr 2026', Checkout: '18 Apr 2026', 'Clean Date': '15 Apr 2026' });
     } else if (templateId === 'reminder') {
       subject = 'Test: Reminder — Clean tomorrow';
       html = buildTestEmailHtml(propName, '#E65100', 'Reminder', 'Maria', 'Just a reminder — you have a clean scheduled for tomorrow.', { Guest: 'Test Guest', 'Clean Date': '16 Apr 2026' });
