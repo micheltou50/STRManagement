@@ -178,14 +178,15 @@ function renderBookingsCalendarView() {
       const { b, startCol, endCol, slot, ci, co, isCheckoutSeg } = seg;
       const style = _bkCalPlatformStyle(b.platform);
       const widthCols = endCol - startCol + 1;
-      const leftPct = (startCol / 7) * 100;
-      // Shrink last cell to ~42% on checkout day (10am checkout)
-      const widthPct = isCheckoutSeg && widthCols > 0
-        ? ((widthCols - 1) / 7) * 100 + (0.42 / 7) * 100
-        : (widthCols / 7) * 100;
-      const top = w * ROW_H + TOP_OFFSET + slot * SLOT_H;
-      // Rounding: if segment starts on first visible day (continuation), flat left edge.
+      // Offset first cell to ~63% for 3pm check-in, shrink last cell to ~42% for 10am checkout
       const segStartsAtCi = seg.segStart.getTime() === ci.getTime();
+      const checkinOffset = segStartsAtCi ? (0.63 / 7) * 100 : 0;
+      const leftPct = (startCol / 7) * 100 + checkinOffset;
+      let widthPct = (widthCols / 7) * 100 - checkinOffset;
+      if (isCheckoutSeg && widthCols > 0) {
+        widthPct = (widthCols / 7) * 100 - checkinOffset - ((1 - 0.42) / 7) * 100;
+      }
+      const top = w * ROW_H + TOP_OFFSET + slot * SLOT_H;
       const segEndsAtCo = seg.segEnd.getTime() === co.getTime();
       const radius = `${segStartsAtCi ? '11px' : '2px'} ${segEndsAtCo ? '11px' : '2px'} ${segEndsAtCo ? '11px' : '2px'} ${segStartsAtCi ? '11px' : '2px'}`;
       const initial = (b.name || '?').trim().charAt(0).toUpperCase();

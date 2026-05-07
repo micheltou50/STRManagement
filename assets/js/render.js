@@ -1371,13 +1371,17 @@ function buildStayopsUnifiedTodayCalendarHtml({
       const colStart = idx % 7;
       const colEnd = Math.min(7, colStart + (endIdx - idx));
       const span = colEnd - colStart;
-      const left = colStart * colW;
-      // Shrink the last cell to ~42% to show checkout is at 10am, not end of day
+      // Offset first cell to ~63% for 3pm check-in, shrink last cell to ~42% for 10am checkout
+      const isFirstSegment = idx === startIdx;
       const isLastSegment = (idx + span) >= endIdx;
+      const checkinFraction = 0.63;
       const lastCellFraction = 0.42;
-      const width = isLastSegment && span > 0
-        ? (span - 1) * colW + colW * lastCellFraction
-        : span * colW;
+      const leftOffset = (isFirstSegment && idx === startIdx) ? colW * checkinFraction : 0;
+      const left = colStart * colW + leftOffset;
+      let width = span * colW - leftOffset;
+      if (isLastSegment && span > 0) {
+        width = span * colW - leftOffset - colW * (1 - lastCellFraction);
+      }
       const top = row * dynamicCellH + barTopBase + lane * (barH + barGap);
       const isStart = idx === startIdx;
       const isEnd = isLastSegment;
