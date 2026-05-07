@@ -1574,9 +1574,9 @@ function buildSinglePropertyTodayDashboardMarkup() {
   });
   if (currentGuest) {
     statusHtml =
-      `<div style="background:#E6F1FB;border-radius:8px;padding:8px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">` +
-      `<span style="color:#0C447C;font-weight:500">Occupied</span>` +
-      `<span style="color:#185FA5;font-size:12px;text-align:right">${escHtml(currentGuest.name)} · checkout ${escHtml(fmtShort(currentGuest.checkout))}</span>` +
+      `<div style="background:var(--primary-soft);border-radius:12px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">` +
+      `<span style="color:var(--primary);font-weight:600;font-size:13px">Occupied</span>` +
+      `<span style="color:var(--ink-2);font-size:12px;text-align:right">${escHtml(currentGuest.name)} · checkout ${escHtml(fmtShort(currentGuest.checkout))}</span>` +
       `</div>`;
   } else {
     const upcoming = [...activeBookings]
@@ -1586,15 +1586,15 @@ function buildSinglePropertyTodayDashboardMarkup() {
       const u = upcoming[0];
       const days = Math.ceil((parseLocalDayStart(u.checkin) - todayStart) / 86400000);
       statusHtml =
-        `<div style="background:#E6F1FB;border-radius:8px;padding:8px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">` +
-        `<span style="color:#0C447C;font-weight:500">Vacant</span>` +
-        `<span style="color:#185FA5;font-size:12px;text-align:right">Next guest in ${days} day${days === 1 ? '' : 's'} · ${escHtml(u.name)}</span>` +
+        `<div style="background:var(--surface2);border-radius:12px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid var(--hairline-1)">` +
+        `<span style="color:var(--ink-2);font-weight:600;font-size:13px">Vacant</span>` +
+        `<span style="color:var(--muted-2);font-size:12px;text-align:right">Next guest in ${days} day${days === 1 ? '' : 's'} · ${escHtml(u.name)}</span>` +
         `</div>`;
     } else {
       statusHtml =
-        `<div style="background:#E6F1FB;border-radius:8px;padding:8px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">` +
-        `<span style="color:#0C447C;font-weight:500">Vacant</span>` +
-        `<span style="color:#185FA5;font-size:12px">No upcoming bookings</span>` +
+        `<div style="background:var(--surface2);border-radius:12px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid var(--hairline-1)">` +
+        `<span style="color:var(--ink-2);font-weight:600;font-size:13px">Vacant</span>` +
+        `<span style="color:var(--muted-2);font-size:12px">No upcoming bookings</span>` +
         `</div>`;
     }
   }
@@ -1610,18 +1610,29 @@ function buildSinglePropertyTodayDashboardMarkup() {
     primary,
   });
 
-  const statsHtml = `<div class="dashboard-stat-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
-    <div style="background:white;border-radius:10px;border:0.5px solid rgba(0,0,0,0.1);padding:12px 10px;text-align:center">
-      <div style="font-size:18px;font-weight:500;color:${primary}">${occupancyThisMonth}%</div>
-      <div style="font-size:11px;color:${tertiary};margin-top:3px">Occupancy</div>
+  const statsHtml = `
+  <div style="margin-top:18px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">
+      <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase">Performance</div>
+      <div style="font-size:12px;color:var(--primary);font-weight:600">This month</div>
     </div>
-    <div style="background:white;border-radius:10px;border:0.5px solid rgba(0,0,0,0.1);padding:12px 10px;text-align:center">
-      <div style="font-size:18px;font-weight:500;color:${primary}">$${Math.round(revenueThisMonth).toLocaleString()}</div>
-      <div style="font-size:11px;color:${tertiary};margin-top:3px">Revenue this month</div>
-    </div>
-    <div style="background:white;border-radius:10px;border:0.5px solid rgba(0,0,0,0.1);padding:12px 10px;text-align:center">
-      <div style="font-size:18px;font-weight:500;color:${primary}">$${Math.round(revenueNext30).toLocaleString()}</div>
-      <div style="font-size:11px;color:${tertiary};margin-top:3px">Revenue next 30 days</div>
+    <div class="dashboard-stat-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+      <div style="background:white;border-radius:16px;padding:14px;border:1px solid var(--hairline-1)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--primary-soft);border:1.5px solid var(--hairline-1)"></div>
+          <div style="font-size:11px;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px;color:var(--muted-2);text-transform:uppercase">Occupancy</div>
+        </div>
+        <div style="margin-top:8px;font-size:24px;font-weight:600;font-family:'Newsreader',serif;color:var(--ink-1);letter-spacing:-0.5px">${occupancyThisMonth}%</div>
+        <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${bookedNightsMonth}/${daysThisMonth} nights booked</div>
+      </div>
+      <div style="background:white;border-radius:16px;padding:14px;border:1px solid var(--hairline-1)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--accent-soft);border:1.5px solid var(--hairline-1)"></div>
+          <div style="font-size:11px;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px;color:var(--muted-2);text-transform:uppercase">Revenue</div>
+        </div>
+        <div style="margin-top:8px;font-size:24px;font-weight:600;font-family:'Newsreader',serif;color:var(--ink-1);letter-spacing:-0.5px">$${Math.round(revenueThisMonth).toLocaleString()}</div>
+        <div style="font-size:11px;color:var(--muted-2);margin-top:2px">Net of fees</div>
+      </div>
     </div>
   </div>`;
 
@@ -1642,37 +1653,32 @@ function buildSinglePropertyTodayDashboardMarkup() {
     return true;
   });
 
-  const quickRow = (label, right, danger, onclk) =>
-    `<div onclick="${onclk}" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:0.5px solid rgba(0,0,0,0.06);cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,0,0,0.06)">
-      <span style="font-size:14px;color:${primary}">${label}</span>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span style="font-size:13px;font-weight:600;color:${danger ? '#A32D2D' : tertiary}">${right}</span>
-        <span style="color:${tertiary};font-size:16px">›</span>
-      </div>
+  const quickActionIcon = (svgPath) =>
+    `<div style="width:36px;height:36px;border-radius:10px;background:var(--primary-soft);margin:0 auto;display:flex;align-items:center;justify-content:center">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">${svgPath}</svg>
     </div>`;
 
   const quickHtml =
-    `<div style="font-size:12px;font-weight:500;color:${tertiary};margin:0 0 6px 2px">Quick links</div>` +
-    `<div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.12);overflow:hidden;margin-bottom:8px">` +
-    quickRow(
-      'Expenses this month',
-      '$' + Math.round(expSum).toLocaleString(),
-      false,
-      "showSection('finance');showFinanceSub('expenses')"
-    ) +
-    quickRow(
-      'Maintenance',
-      openMaint.length + ' open',
-      false,
-      "showSection('property');showPropertySub('maintenance')"
-    ) +
-    quickRow(
-      'Low stock',
-      lowStock.length ? lowStock.length + ' items' : '0 items',
-      lowStock.length > 0,
-      "showSection('property');showPropertySub('inventory');setTimeout(function(){var el=document.getElementById('inv-tab-low');if(window.setInvView&&el)window.setInvView('low',el);},50)"
-    ) +
-    `</div>`;
+    `<div style="margin-top:18px">` +
+    `<div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">Quick actions</div>` +
+    `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:8px">` +
+    `<div onclick="showSection('bookings');setTimeout(function(){var b=document.getElementById('add-booking-btn');if(b)b.click()},100)" style="background:white;border-radius:14px;padding:12px 6px;border:1px solid var(--hairline-1);text-align:center;cursor:pointer">` +
+      quickActionIcon('<path d="M11 5v12M5 11h12" stroke="var(--primary)" stroke-width="2" stroke-linecap="round"/>') +
+      `<div style="margin-top:6px;font-size:11.5px;font-weight:600;color:var(--ink-1)">Booking</div>` +
+    `</div>` +
+    `<div onclick="showSection('cleaning')" style="background:white;border-radius:14px;padding:12px 6px;border:1px solid var(--hairline-1);text-align:center;cursor:pointer">` +
+      quickActionIcon('<path d="M6 6l5 11 5-11M11 6v6" stroke="var(--primary)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>') +
+      `<div style="margin-top:6px;font-size:11.5px;font-weight:600;color:var(--ink-1)">Clean</div>` +
+    `</div>` +
+    `<div onclick="showSection('finance');showFinanceSub('expenses')" style="background:white;border-radius:14px;padding:12px 6px;border:1px solid var(--hairline-1);text-align:center;cursor:pointer">` +
+      quickActionIcon('<path d="M14 6h-4a2 2 0 000 4h2a2 2 0 010 4H8M11 4v2m0 10v2" stroke="var(--primary)" stroke-width="1.8" stroke-linecap="round" fill="none"/>') +
+      `<div style="margin-top:6px;font-size:11.5px;font-weight:600;color:var(--ink-1)">Expense</div>` +
+    `</div>` +
+    `<div onclick="showSection('messaging')" style="background:white;border-radius:14px;padding:12px 6px;border:1px solid var(--hairline-1);text-align:center;cursor:pointer">` +
+      quickActionIcon('<path d="M5 7a2 2 0 012-2h8a2 2 0 012 2v6a2 2 0 01-2 2H10l-3 2v-2H7a2 2 0 01-2-2V7z" stroke="var(--primary)" stroke-width="1.7" fill="none" stroke-linejoin="round"/>') +
+      `<div style="margin-top:6px;font-size:11.5px;font-weight:600;color:var(--ink-1)">Message</div>` +
+    `</div>` +
+    `</div></div>`;
 
   // Desktop: 2-column grid layout
   if (window.innerWidth >= 1024) {
@@ -1742,10 +1748,10 @@ function buildSinglePropertyTodayDashboardMarkup() {
   let upcomingCardsHtml = '';
   if (upcomingMobile.length) {
     upcomingCardsHtml =
-      `<div style="margin-top:14px">` +
-      `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">` +
-      `<span style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:${tertiary}">Upcoming Bookings</span>` +
-      `<span onclick="showSection('bookings')" style="font-size:12px;color:var(--moss);cursor:pointer;font-weight:500">View all &rarr;</span>` +
+      `<div style="margin-top:18px">` +
+      `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">` +
+      `<div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase">Upcoming</div>` +
+      `<span onclick="showSection('bookings')" style="font-size:12px;color:var(--primary);cursor:pointer;font-weight:600">Calendar</span>` +
       `</div>` +
       upcomingMobile.map(b => buildBookingListCardFromBooking(b)).join('') +
       `</div>`;
@@ -1979,18 +1985,22 @@ function buildPortfolioTodayDashboardMarkup() {
     }
   });
 
-  const statsHtml = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:4px">
-    <div style="background:white;border-radius:10px;border:0.5px solid rgba(0,0,0,0.1);padding:12px 10px;text-align:center">
-      <div style="font-size:18px;font-weight:500;color:${primary}">${occupancyThisMonth}%</div>
-      <div style="font-size:11px;color:${tertiary};margin-top:3px">Occupancy</div>
+  const statsHtml = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px">
+    <div style="background:white;border-radius:16px;padding:14px;border:1px solid var(--hairline-1)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="width:8px;height:8px;border-radius:50%;background:var(--primary-soft);border:1.5px solid var(--hairline-1)"></div>
+        <div style="font-size:11px;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px;color:var(--muted-2);text-transform:uppercase">Occupancy</div>
+      </div>
+      <div style="margin-top:8px;font-size:24px;font-weight:600;font-family:'Newsreader',serif;color:var(--ink-1);letter-spacing:-0.5px">${occupancyThisMonth}%</div>
+      <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${bookedNightsMonth}/${denomDays} nights booked</div>
     </div>
-    <div style="background:white;border-radius:10px;border:0.5px solid rgba(0,0,0,0.1);padding:12px 10px;text-align:center">
-      <div style="font-size:18px;font-weight:500;color:${primary}">$${Math.round(revenueThisMonth).toLocaleString()}</div>
-      <div style="font-size:11px;color:${tertiary};margin-top:3px">Revenue this month</div>
-    </div>
-    <div style="background:white;border-radius:10px;border:0.5px solid rgba(0,0,0,0.1);padding:12px 10px;text-align:center">
-      <div style="font-size:18px;font-weight:500;color:${primary}">$${Math.round(revenueNext30).toLocaleString()}</div>
-      <div style="font-size:11px;color:${tertiary};margin-top:3px">Revenue next 30 days</div>
+    <div style="background:white;border-radius:16px;padding:14px;border:1px solid var(--hairline-1)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="width:8px;height:8px;border-radius:50%;background:var(--accent-soft);border:1.5px solid var(--hairline-1)"></div>
+        <div style="font-size:11px;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px;color:var(--muted-2);text-transform:uppercase">Revenue</div>
+      </div>
+      <div style="margin-top:8px;font-size:24px;font-weight:600;font-family:'Newsreader',serif;color:var(--ink-1);letter-spacing:-0.5px">$${Math.round(revenueThisMonth).toLocaleString()}</div>
+      <div style="font-size:11px;color:var(--muted-2);margin-top:2px">Net of fees</div>
     </div>
   </div>`;
 
