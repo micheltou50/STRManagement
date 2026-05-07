@@ -490,7 +490,7 @@ export function renderCleanFilterPills(counts) {
     return '<div onclick="setCleanStatusFilter(\'' + key + '\')" ' +
       'style="flex:0 0 auto;background:' + (isActive ? '#2f5d4e' : bg) +
       ';color:' + (isActive ? '#fff' : color) +
-      ';font-size:12px;font-weight:700;padding:6px 12px;border-radius:20px;cursor:pointer;white-space:nowrap">' +
+      ';font-size:12px;font-weight:600;padding:6px 14px;border-radius:999px;cursor:pointer;white-space:nowrap">' +
       label + (count > 0 ? ' · ' + count : '') + '</div>';
   };
 
@@ -508,17 +508,18 @@ export function renderCleanRow(item, showProperty, index) {
   const propName = showProperty && item.propertyId
     ? getPropertyNameById(item.propertyId) : '';
 
+  const _pill = (bg, color, label) => '<div style="background:' + bg + ';color:' + color + ';font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px">' + label + '</div>';
   const statusPill = item.status === 'cancelled'
-    ? '<div style="background:#FCEBEB;color:#A32D2D;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px">Cancelled</div>'
+    ? _pill('#FCEBEB', '#A32D2D', 'Cancelled')
     : item.status === 'cancelled_pending'
-    ? '<div style="background:#FEF3E2;color:#854F0B;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px">Awaiting ack</div>'
+    ? _pill('#FEF3E2', '#854F0B', 'Awaiting ack')
     : item.status === 'cancelled_acked'
-    ? '<div style="background:#EAF3DE;color:#3B6D11;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px">Acknowledged</div>'
+    ? _pill('#EAF3DE', '#3B6D11', 'Acknowledged')
     : item.status === 'unassigned'
-    ? '<div style="background:#FCEBEB;color:#A32D2D;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px">Unassigned</div>'
+    ? _pill('#FCEBEB', '#A32D2D', 'Unassigned')
     : item.status === 'awaiting'
-      ? '<div style="background:#FEF3E2;color:#854F0B;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px">Awaiting</div>'
-      : '<div style="background:#EAF3DE;color:#3B6D11;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px">Confirmed</div>';
+      ? _pill('#FEF3E2', '#854F0B', 'Awaiting')
+      : _pill('#EAF3DE', '#3B6D11', 'Confirmed');
 
   const cleanerText = item.cleaner
     ? escHtml(item.cleaner)
@@ -536,20 +537,18 @@ export function renderCleanRow(item, showProperty, index) {
     ? escapeJsSingleQuotedHtmlAttr(String(item.booking._cloudId || item.booking.id || ''))
     : '';
 
-  return '<div>' +
+  return '<div style="background:#fff;border-radius:16px;border:1px solid var(--hairline-1);margin-bottom:8px;overflow:hidden">' +
     '<div onclick="toggleCleanAction(' + index + ',\'' + cleanId + '\',\'' + bookingId + '\',\'' + escapeJsSingleQuotedHtmlAttr(item.status) + '\')" ' +
-      'style="padding:12px 14px;border-bottom:1px solid var(--hairline-2);display:flex;align-items:center;gap:12px;cursor:pointer" id="' + rowId + '">' +
-      '<div style="width:4px;height:36px;border-radius:2px;background:' + colour + ';flex-shrink:0"></div>' +
+      'style="padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer" id="' + rowId + '">' +
+      '<div style="width:8px;align-self:stretch;border-radius:4px;background:' + colour + ';flex-shrink:0"></div>' +
       '<div style="flex:1;min-width:0">' +
-        '<div style="font-weight:700;font-size:14px;color:var(--ink-1)">' + escHtml(item.guest) + '</div>' +
-        '<div style="font-size:12px;color:var(--muted-2);margin-top:2px">' + propLabel + cleanerText + '</div>' +
+        '<div style="font-weight:700;font-size:14px;color:var(--ink-1);font-family:\'Newsreader\',serif">' + escHtml(item.guest) + '</div>' +
+        '<div style="font-size:12px;color:var(--muted-2);margin-top:3px">' + escHtml(fmtShort(item.date)) + '</div>' +
+        '<div style="font-size:12px;color:var(--ink-2);margin-top:3px">' + propLabel + cleanerText + '</div>' +
       '</div>' +
-      '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">' +
-        statusPill +
-        '<div style="font-size:11px;color:var(--muted-2)">' + escHtml(fmtShort(item.date)) + '</div>' +
-      '</div>' +
+      statusPill +
     '</div>' +
-    '<div id="' + actionId + '" style="display:none;padding:0 14px 12px;border-bottom:1px solid var(--hairline-2);background:var(--surface2)"></div>' +
+    '<div id="' + actionId + '" style="display:none;padding:0 16px 14px;background:var(--surface2)"></div>' +
   '</div>';
 }
 
@@ -565,21 +564,21 @@ export function renderCleanTimeline(data, showProperty) {
   ].filter(g => g.items.length > 0);
 
   if (!timeGroups.length) {
-    list.innerHTML = '<div style="text-align:center;padding:28px 16px">' +
-      '<div style="font-size:36px;margin-bottom:10px;opacity:0.4">&#10003;</div>' +
-      '<div style="font-weight:600;font-size:14px;margin-bottom:4px">All clear</div>' +
+    list.innerHTML = '<div style="text-align:center;padding:40px 16px">' +
+      '<div style="font-size:36px;margin-bottom:10px;opacity:0.35">&#10003;</div>' +
+      '<div style="font-weight:700;font-size:15px;color:var(--ink-1);margin-bottom:4px;font-family:\'Newsreader\',serif">All clear</div>' +
       '<div style="font-size:12px;color:var(--muted-2)">No cleans match this filter</div></div>';
     return;
   }
 
   let cleanRowIdx = 0;
   list.innerHTML = timeGroups.map(g =>
-    '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:' + g.colour +
-      ';margin-bottom:8px;display:flex;align-items:center;gap:6px">' +
+    '<div style="font-size:11px;font-family:\'JetBrains Mono\',monospace;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:' + g.colour +
+      ';margin-bottom:10px;display:flex;align-items:center;gap:6px">' +
       '<div style="width:6px;height:6px;border-radius:50%;background:' + g.colour + '"></div>' +
       g.label +
     '</div>' +
-    '<div style="background:#fff;border-radius:14px;padding:2px 0;margin-bottom:14px">' +
+    '<div style="display:flex;flex-direction:column;gap:0;margin-bottom:16px">' +
       g.items.map(item => renderCleanRow(item, showProperty, cleanRowIdx++)).join('') +
     '</div>'
   ).join('');
@@ -603,12 +602,12 @@ export function renderCleanPipeline(data, showProperty) {
   let pipelineRowIdx = 0;
   list.innerHTML = columns.map(col => {
     if (!col.items.length) return '';
-    return '<div style="margin-bottom:14px">' +
-      '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:' +
-        col.colour + ';margin-bottom:8px;display:flex;justify-content:space-between">' +
+    return '<div style="margin-bottom:16px">' +
+      '<div style="font-size:11px;font-family:\'JetBrains Mono\',monospace;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:' +
+        col.colour + ';margin-bottom:10px;display:flex;justify-content:space-between">' +
         '<span>' + col.label + '</span><span>' + col.items.length + '</span></div>' +
-      '<div style="background:' + col.bg + ';border-radius:14px;padding:8px">' +
-        '<div style="display:flex;flex-direction:column;gap:6px">' +
+      '<div style="background:' + col.bg + ';border-radius:16px;padding:8px">' +
+        '<div style="display:flex;flex-direction:column;gap:0">' +
           col.items.map(item => renderCleanRow(item, showProperty, pipelineRowIdx++)).join('') +
         '</div>' +
       '</div>' +
@@ -640,20 +639,20 @@ export function renderCleanByProperty(data) {
       ? getPropertyColourById(propData.propertyId) : 'var(--primary)';
     const unassignedCount = propData.items.filter(i => i.status === 'unassigned').length;
 
-    return '<div style="background:#fff;border-radius:14px;border-left:4px solid ' + colour +
-      ';border-top-left-radius:0;border-bottom-left-radius:0;padding:14px 16px;margin-bottom:10px">' +
+    return '<div style="background:var(--surface2);border-radius:16px;border-left:4px solid ' + colour +
+      ';border-top-left-radius:0;border-bottom-left-radius:0;padding:14px 16px;margin-bottom:12px">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
         '<div>' +
-          '<div style="font-weight:700;font-size:16px;color:var(--text)">' + escHtml(propName) + '</div>' +
+          '<div style="font-weight:700;font-size:16px;color:var(--ink-1);font-family:\'Newsreader\',serif">' + escHtml(propName) + '</div>' +
           '<div style="font-size:12px;color:var(--muted-2)">' + propData.items.length + ' upcoming clean' +
             (propData.items.length !== 1 ? 's' : '') + '</div>' +
         '</div>' +
         (unassignedCount > 0
-          ? '<div style="background:#FCEBEB;color:#A32D2D;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px">' +
+          ? '<div style="background:#FCEBEB;color:#A32D2D;font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px">' +
               unassignedCount + ' unassigned</div>'
           : '') +
       '</div>' +
-      '<div style="position:relative;padding-left:0;border-left:none">' +
+      '<div style="display:flex;flex-direction:column;gap:0">' +
         propData.items.map(item => renderCleanRow(item, false, byPropRowIdx++)).join('') +
       '</div>' +
     '</div>';
