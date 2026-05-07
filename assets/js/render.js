@@ -805,10 +805,34 @@ function _getTodayCalMonthStart() {
 }
 
 globalThis._todayCalNav = (delta) => {
-  _dashSlideTransition(delta > 0 ? 'next' : 'prev', () => {
+  const card = document.getElementById('today-cal-card');
+  if (!card) {
     const d = _getTodayCalMonthStart();
     d.setMonth(d.getMonth() + delta);
-  });
+    globalThis.renderDashboard?.();
+    return;
+  }
+  const outX = delta > 0 ? '-40px' : '40px';
+  const inX = delta > 0 ? '40px' : '-40px';
+  card.style.transition = 'opacity 0.14s ease, transform 0.14s ease';
+  card.style.opacity = '0';
+  card.style.transform = 'translateX(' + outX + ')';
+  setTimeout(() => {
+    const d = _getTodayCalMonthStart();
+    d.setMonth(d.getMonth() + delta);
+    globalThis.renderDashboard?.();
+    const newCard = document.getElementById('today-cal-card');
+    if (newCard) {
+      newCard.style.transition = 'none';
+      newCard.style.transform = 'translateX(' + inX + ')';
+      newCard.style.opacity = '0';
+      requestAnimationFrame(() => {
+        newCard.style.transition = 'opacity 0.18s ease, transform 0.18s ease';
+        newCard.style.opacity = '1';
+        newCard.style.transform = 'translateX(0)';
+      });
+    }
+  }, 140);
 };
 
 globalThis._stayopsSetTodayCalView = (v) => {
@@ -1457,7 +1481,7 @@ function buildStayopsUnifiedTodayCalendarHtml({
   }
 
   return (
-    `<div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);padding:10px 12px;margin-bottom:14px;box-sizing:border-box">` +
+    `<div id="today-cal-card" style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);padding:10px 12px;margin-bottom:14px;box-sizing:border-box">` +
     `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">` +
     `<span style="font-size:16px;font-weight:700;color:${primary}">${escHtml(calMonthName)}</span>` +
     `<div style="display:flex;align-items:center;gap:4px">` +
@@ -1766,6 +1790,19 @@ function renderDashboard() {
 
   const mount = document.getElementById('dashboard-today-mount');
   if (mount) mount.innerHTML = buildTodayDashboardMarkup({ portfolio: false });
+
+  // Attach swipe to dashboard calendar card
+  const _calCard = document.getElementById('today-cal-card');
+  if (_calCard) {
+    let _sx = 0, _sy = 0;
+    _calCard.addEventListener('touchstart', (e) => { _sx = e.touches[0].clientX; _sy = e.touches[0].clientY; }, { passive: true });
+    _calCard.addEventListener('touchend', (e) => {
+      const dx = e.changedTouches[0].clientX - _sx;
+      const dy = e.changedTouches[0].clientY - _sy;
+      if (Math.abs(dx) < 44 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+      globalThis._todayCalNav(dx < 0 ? 1 : -1);
+    }, { passive: true });
+  }
 
   const usageSnapshot = getUsageSnapshotLite();
   renderOnboardingGuidance(usageSnapshot);
@@ -4116,6 +4153,7 @@ function renderNewCleanerView(data) {
     cancelled.forEach(c => {
       const prop = c.properties || {};
       const guestLine = (c.guest_name || 'Guest');
+      const acked = c.cleaner_cancel_acknowledged;
 
       html += '<div style="background:white;border:0.5px solid #eee;border-left:3px solid #C0392B;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px">';
       html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
@@ -4129,6 +4167,11 @@ function renderNewCleanerView(data) {
       html += '<div style="font-size:13px;font-weight:500;color:#333">' + (prop.name || 'Property') + '</div>';
       html += '<div style="font-size:12px;color:#888;margin-top:1px">' + (prop.address || '') + '</div>';
       html += '</div>';
+      if (acked) {
+        html += '<div style="margin-top:10px;font-size:12px;color:#0F6E56;font-weight:500">✓ Acknowledged</div>';
+      } else {
+        html += '<button type="button" data-action="acknowledge_cancel" data-clean-id="' + String(c.id) + '" style="width:100%;margin-top:10px;padding:10px;background:#1E3A2F;color:white;border:none;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Acknowledge Cancellation</button>';
+      }
       html += '</div>';
     });
   }
@@ -4249,11 +4292,12 @@ function renderNewCleanerView(data) {
       const action = btn.getAttribute('data-action');
       const cleanId = btn.getAttribute('data-clean-id');
       if (!cleanId) return;
-      const labels = { accept: 'Accepting…', decline: 'Declining…', done: 'Completing…' };
+      const labels = { accept: 'Accepting…', decline: 'Declining…', done: 'Completing…', acknowledge_cancel: 'Acknowledging…' };
       await globalThis.withButtonLoading(btn, async () => {
         if (action === 'accept') await cleanerAcceptClean(cleanId);
         else if (action === 'decline') await cleanerDeclineClean(cleanId);
         else if (action === 'done') await cleanerMarkDone(cleanId);
+        else if (action === 'acknowledge_cancel') await cleanerAcknowledgeCancel(cleanId);
       }, labels[action] || 'Working…');
     }, true);
     container._cleanerDelegated = true;
@@ -4380,6 +4424,44 @@ async function cleanerMarkDone(cleanId) {
   }
 }
 window.cleanerMarkDone = cleanerMarkDone;
+
+async function cleanerAcknowledgeCancel(cleanId) {
+  if (!window._sb) return;
+  const { error } = await window._sb
+    .from('cleans')
+    .update({ cleaner_cancel_acknowledged: true, cleaner_cancel_acknowledged_at: new Date().toISOString() })
+    .eq('id', cleanId);
+  if (error) { globalThis.showBanner('Failed to acknowledge: ' + error.message, 'error'); return; }
+  const data = typeof globalThis.loadCleanerDashboard === 'function'
+    ? await globalThis.loadCleanerDashboard()
+    : null;
+  if (data) {
+    try {
+      const cleanData = data.myCleans?.find((c) => String(c.id) === String(cleanId));
+      const cleanerName = data.cleanerRecord?.name || 'Cleaner';
+      const uid = cleanData?.user_id || getCleanerParams().uid;
+      if (uid) {
+        await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
+          method: 'POST',
+          body: JSON.stringify({
+            user_id: uid,
+            title: '✓ Cancellation acknowledged',
+            body: cleanerName + ' acknowledged the booking cancellation',
+            url: '/',
+            tag: 'ack-cancel-' + cleanId
+          })
+        });
+      }
+    } catch (e) {
+      console.warn('[StayOps] Push notify failed:', e);
+    }
+    window._cleanerData = data;
+    renderNewCleanerView(data);
+    renderCleanerCalendar();
+    renderCleanerProfile();
+  }
+}
+window.cleanerAcknowledgeCancel = cleanerAcknowledgeCancel;
 
 function renderCleanerCalendar() {
   const container = document.getElementById('cleaner-section-calendar');

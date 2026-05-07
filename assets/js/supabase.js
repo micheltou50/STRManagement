@@ -698,6 +698,8 @@ export async function loadCleansFromCloud() {
       notes:            c.notes        || '',
       cost:             c.cost != null ? Number(c.cost) : null,
       cleanerCancelNotified: c.cleaner_cancel_notified || false,
+      cleanerCancelAcknowledged: c.cleaner_cancel_acknowledged || false,
+      cleanerCancelAcknowledgedAt: c.cleaner_cancel_acknowledged_at || null,
     }));
   } catch (e) {
     console.warn('[StayOps] loadCleansFromCloud failed', e);
@@ -732,6 +734,8 @@ export async function saveCleanToCloud(clean) {
       notes:            clean.notes       || '',
       cost:             clean.cost != null ? Number(clean.cost) : null,
       cleaner_cancel_notified: clean.cleanerCancelNotified || false,
+      cleaner_cancel_acknowledged: clean.cleanerCancelAcknowledged || false,
+      cleaner_cancel_acknowledged_at: clean.cleanerCancelAcknowledgedAt || null,
       updated_at:       new Date().toISOString()
     };
     if (clean._cloudId) {

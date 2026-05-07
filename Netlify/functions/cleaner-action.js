@@ -35,8 +35,8 @@ exports.handler = async (event) => {
   if (!uid || !cleanerId || !cleanId || !action) {
     return json(400, { error: 'Missing uid, cleanerId, cleanId, or action' });
   }
-  if (!['accept', 'decline', 'done'].includes(action)) {
-    return json(400, { error: 'Invalid action — must be accept, decline, or done' });
+  if (!['accept', 'decline', 'done', 'acknowledge_cancel'].includes(action)) {
+    return json(400, { error: 'Invalid action — must be accept, decline, done, or acknowledge_cancel' });
   }
 
   const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -74,6 +74,8 @@ exports.handler = async (event) => {
       patch = { cleaner_declined: true, cleaner_confirmed: false };
     } else if (action === 'done') {
       patch = { done: true, cleaner_confirmed: true, cleaner_declined: false };
+    } else if (action === 'acknowledge_cancel') {
+      patch = { cleaner_cancel_acknowledged: true, cleaner_cancel_acknowledged_at: new Date().toISOString() };
     }
 
     // 3. Update the clean
@@ -95,8 +97,8 @@ exports.handler = async (event) => {
 
     // Auto-message for the chat
     try {
-      const cardTypes = { accept: 'clean_confirmed', decline: 'clean_declined', done: 'clean_complete' };
-      const cardTitles = { accept: 'Cleaner confirmed', decline: 'Cleaner declined', done: 'Clean complete' };
+      const cardTypes = { accept: 'clean_confirmed', decline: 'clean_declined', done: 'clean_complete', acknowledge_cancel: 'cancel_acknowledged' };
+      const cardTitles = { accept: 'Cleaner confirmed', decline: 'Cleaner declined', done: 'Clean complete', acknowledge_cancel: 'Cancellation acknowledged' };
       const cardType = cardTypes[action];
       if (cardType && cleanerUuid) {
         await fetch(
@@ -136,11 +138,13 @@ exports.handler = async (event) => {
           accept: '✅ ' + cleanerName + ' confirmed',
           decline: '❌ ' + cleanerName + ' declined',
           done: '🏠 Clean complete',
+          acknowledge_cancel: '✓ ' + cleanerName + ' acknowledged cancellation',
         };
         const bodies = {
           accept: 'Confirmed for ' + (clean.clean_date || 'upcoming clean'),
           decline: 'Declined clean on ' + (clean.clean_date || 'upcoming') + ' — needs reassignment',
           done: cleanerName + ' finished cleaning' + (clean.guest_name ? ' for ' + clean.guest_name : ''),
+          acknowledge_cancel: cleanerName + ' confirmed they saw the cancellation' + (clean.guest_name ? ' for ' + clean.guest_name : ''),
         };
         const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
         await sendPushToHost({

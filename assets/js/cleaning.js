@@ -92,6 +92,12 @@ export function getBookingCleanerState(booking) {
     if (clean && clean.cleaner && !clean.cleanerCancelNotified) {
       return { key: 'cancel_notify', label: 'Cancelled — notify cleaner', tone: 'bad', clean };
     }
+    if (clean && clean.cleaner && clean.cleanerCancelNotified && !clean.cleanerCancelAcknowledged) {
+      return { key: 'cancel_notified_pending', label: 'Cancelled — awaiting cleaner acknowledgment', tone: 'warn', clean };
+    }
+    if (clean && clean.cleaner && clean.cleanerCancelAcknowledged) {
+      return { key: 'cancel_acknowledged', label: 'Cancelled — cleaner acknowledged', tone: 'ok', clean };
+    }
     return { key: 'cancelled', label: 'Cancelled — no cleaner required', tone: 'ok' };
   }
   const clean = findMatchingCleanForBooking(booking);
@@ -385,7 +391,12 @@ export function prepareCleaningData() {
     );
     const isCancelled = b && b.status === 'cancelled';
     let itemStatus;
-    if (isCancelled) itemStatus = 'cancelled';
+    if (isCancelled) {
+      if (c.cleaner && !c.cleanerCancelNotified) itemStatus = 'cancelled';
+      else if (c.cleaner && c.cleanerCancelNotified && !c.cleanerCancelAcknowledged) itemStatus = 'cancelled_pending';
+      else if (c.cleaner && c.cleanerCancelAcknowledged) itemStatus = 'cancelled_acked';
+      else itemStatus = 'cancelled';
+    }
     else if (c.cleanerConfirmed) itemStatus = 'confirmed';
     else itemStatus = 'awaiting';
     allItems.push({
@@ -425,7 +436,9 @@ export function prepareCleaningData() {
 
   const filtered = cleanStatusFilter === 'all'
     ? allItems
-    : allItems.filter(item => item.status === cleanStatusFilter);
+    : cleanStatusFilter === 'cancelled'
+      ? allItems.filter(item => item.status === 'cancelled' || item.status === 'cancelled_pending' || item.status === 'cancelled_acked')
+      : allItems.filter(item => item.status === cleanStatusFilter);
 
   const groups = { tomorrow: [], thisWeek: [], nextWeek: [], later: [] };
   const tomorrow = new Date(todayStart);
@@ -462,7 +475,7 @@ export function prepareCleaningData() {
     unassigned: allItems.filter(i => i.status === 'unassigned').length,
     awaiting: allItems.filter(i => i.status === 'awaiting').length,
     confirmed: allItems.filter(i => i.status === 'confirmed').length,
-    cancelled: allItems.filter(i => i.status === 'cancelled').length,
+    cancelled: allItems.filter(i => i.status === 'cancelled' || i.status === 'cancelled_pending' || i.status === 'cancelled_acked').length,
   };
 
   return { allItems, filtered, groups, byProperty, counts, now, todayStart };
@@ -497,6 +510,10 @@ export function renderCleanRow(item, showProperty, index) {
 
   const statusPill = item.status === 'cancelled'
     ? '<div style="background:#FCEBEB;color:#A32D2D;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px">Cancelled</div>'
+    : item.status === 'cancelled_pending'
+    ? '<div style="background:#FEF3E2;color:#854F0B;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px">Awaiting ack</div>'
+    : item.status === 'cancelled_acked'
+    ? '<div style="background:#EAF3DE;color:#3B6D11;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px">Acknowledged</div>'
     : item.status === 'unassigned'
     ? '<div style="background:#FCEBEB;color:#A32D2D;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px">Unassigned</div>'
     : item.status === 'awaiting'
@@ -574,7 +591,7 @@ export function renderCleanPipeline(data, showProperty) {
 
   const columns = [
     { key: 'cancelled', label: 'Cancelled', bg: '#FCEBEB', colour: '#A32D2D',
-      items: data.filtered.filter(i => i.status === 'cancelled') },
+      items: data.filtered.filter(i => i.status === 'cancelled' || i.status === 'cancelled_pending' || i.status === 'cancelled_acked') },
     { key: 'unassigned', label: 'Needs assignment', bg: '#FCEBEB', colour: '#A32D2D',
       items: data.filtered.filter(i => i.status === 'unassigned') },
     { key: 'awaiting', label: 'Awaiting', bg: '#FEF3E2', colour: '#854F0B',
@@ -699,6 +716,14 @@ export function toggleCleanAction(index, cleanId, bookingId, status) {
       '<button onclick="event.stopPropagation();reassignClean(\'' + cleanId + '\')" ' +
         'style="flex:1;padding:10px;background:#FCEBEB;color:#A32D2D;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
         'Reassign</button>';
+  } else if (status === 'cancelled_pending') {
+    buttons =
+      '<button onclick="event.stopPropagation();renotifyClean(\'' + cleanId + '\')" ' +
+        'style="flex:1;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'Re-notify</button>';
+  } else if (status === 'cancelled_acked') {
+    buttons =
+      '<div style="font-size:12px;color:#0F6E56;font-weight:500;padding:10px 0">✓ Cleaner acknowledged</div>';
   }
 
   const viewBookingBtn = bookingId
