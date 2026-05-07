@@ -43,7 +43,8 @@ import {
   getAtoField, getAtoFieldLabel, checkReceiptNudge,
   showReconciliationView, renderReconciliationView, filterReconciliation,
   showDepreciationView,
-  exportTaxPDF, exportTaxCSV, taxExportFYPrev, taxExportFYNext
+  exportTaxPDF, exportTaxCSV, taxExportFYPrev, taxExportFYNext,
+  showStatementView
 } from './finance.js';
 import {
   getRecurringTemplates, addRecurringTemplate, deleteRecurringTemplate,
@@ -317,6 +318,7 @@ window.exportTaxPDF             = exportTaxPDF;
 window.exportTaxCSV             = exportTaxCSV;
 window.taxExportFYPrev          = taxExportFYPrev;
 window.taxExportFYNext          = taxExportFYNext;
+window.showStatementView        = showStatementView;
 
 // Called from dynamically generated HTML (onclick strings in template literals)
 window.adjustStock              = adjustStock;

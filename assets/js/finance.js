@@ -1054,10 +1054,11 @@ function showFinanceSub(sub) {
   else if (sub === 'recurring') financeSubView = 'recurring';
   else if (sub === 'depreciation') financeSubView = 'depreciation';
   else if (sub === 'tax-export') financeSubView = 'tax-export';
+  else if (sub === 'statement') financeSubView = 'statement';
   _financeTab = sub;
   const hub = document.getElementById('finance-hub');
   if (hub) hub.style.display = 'none';
-  ['finance-expenses-view', 'finance-reports-view', 'finance-reconciliation-view', 'finance-recurring-view', 'finance-depreciation-view', 'finance-tax-export-view'].forEach(id => {
+  ['finance-expenses-view', 'finance-reports-view', 'finance-reconciliation-view', 'finance-recurring-view', 'finance-depreciation-view', 'finance-tax-export-view', 'finance-statement-view'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
@@ -1074,6 +1075,10 @@ function showFinanceSub(sub) {
     showDepreciationView();
   } else if (sub === 'tax-export') {
     showTaxExportView();
+  } else if (sub === 'statement') {
+    const sEl = document.getElementById('finance-statement-view');
+    if (sEl) fadeTransition(sEl, true);
+    _renderStatement();
   } else if (sub === 'reports') {
     const el = document.getElementById('finance-reports-view');
     if (el) fadeTransition(el, true);
@@ -4624,6 +4629,113 @@ async function _autoLinkPendingReconTxn(expenseId) {
 }
 globalThis._autoLinkPendingReconTxn = _autoLinkPendingReconTxn;
 
+// ── MONTHLY STATEMENT VIEW ──────────────────────────────────────────────────
+let _statementYear = new Date().getFullYear();
+let _statementMonth = new Date().getMonth();
+
+function showStatementView() {
+  showFinanceSub('statement');
+}
+
+function _renderStatement() {
+  const el = document.getElementById('finance-statement-content');
+  if (!el) return;
+  const y = _statementYear;
+  const m = _statementMonth;
+  const monthName = new Date(y, m, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+  const propName = typeof getCurrentPropertyName === 'function' ? getCurrentPropertyName() : 'Property';
+  const now = new Date();
+  const prepared = now.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+
+  const monthStart = new Date(y, m, 1);
+  const monthEnd = new Date(y, m + 1, 0);
+  const bk = (globalThis.bookings || []).filter(b => {
+    if (b.status === 'cancelled') return false;
+    const ci = new Date(b.checkin);
+    return ci >= monthStart && ci <= monthEnd;
+  });
+  const exp = (globalThis.expenses || []).filter(e => {
+    const d = new Date(e.date);
+    return d >= monthStart && d <= monthEnd;
+  });
+
+  const totalRevenue = bk.reduce((s, b) => s + Number(b.hostPayout || 0), 0);
+  const cleaningCollected = bk.reduce((s, b) => s + Number(b.cleaningFee || 0), 0);
+  const platformFees = bk.reduce((s, b) => s + Number(b.platformFee || 0), 0);
+  const cleanerPay = exp.filter(e => (e.category || '').toLowerCase().includes('clean')).reduce((s, e) => s + Number(e.amount || 0), 0);
+  const otherExpenses = exp.filter(e => !(e.category || '').toLowerCase().includes('clean')).reduce((s, e) => s + Number(e.amount || 0), 0);
+  const net = totalRevenue + cleaningCollected - platformFees - cleanerPay - otherExpenses;
+
+  const lineItems = [
+    ['Bookings (' + bk.length + ')', '$' + totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+    ['Cleaning fees collected', '$' + cleaningCollected.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+    ['Platform fees', '−$' + platformFees.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+    ['Cleaner pay', '−$' + cleanerPay.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+    ['Other expenses', '−$' + otherExpenses.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+  ].map(([k, v]) =>
+    `<div style="display:flex;justify-content:space-between;padding:8px 0;font-size:13px">
+      <span style="color:var(--ink-2,#4a5751)">${k}</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:${v.startsWith('−') ? 'var(--warn,#b56a3a)' : 'var(--ink-1,#1c2620)'}">${v}</span>
+    </div>`
+  ).join('');
+
+  const payouts = bk.map(b => {
+    const plat = b.platform || 'Direct';
+    const d = new Date(b.checkin).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+    const paid = new Date(b.checkout) < now;
+    return `<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--hairline-2,#efe9dc)">
+      <div style="width:8px;height:8px;border-radius:50%;background:${paid ? 'var(--primary,#2f5d4e)' : 'var(--accent,#d8a657)'}"></div>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600;color:var(--ink-1,#1c2620)">${plat}</div>
+        <div style="font-size:11px;color:var(--muted-2,#8a958f);font-family:'JetBrains Mono',monospace">${d} · ${paid ? 'Settled' : 'Pending'}</div>
+      </div>
+      <div style="font-family:'Newsreader',serif;font-size:15px;font-weight:600;color:var(--ink-1,#1c2620)">$${Number(b.hostPayout || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="display:inline-block;font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--primary-soft,#dde8e1);color:var(--primary,#2f5d4e);font-family:'JetBrains Mono',monospace;letter-spacing:0.3px">MONTHLY STATEMENT</div>
+      <div style="font-size:13px;color:var(--primary,#2f5d4e);font-weight:600;cursor:pointer" onclick="exportReportPDF()">Share</div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <button onclick="_statementPrev()" style="background:none;border:none;cursor:pointer;padding:4px">
+        <svg width="14" height="14" viewBox="0 0 14 14"><path d="M9 2L3 7l6 5" stroke="var(--ink-2)" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div style="font-family:'Newsreader',serif;font-size:26px;font-weight:600;color:var(--ink-1,#1c2620);letter-spacing:-0.5px">${monthName}</div>
+      <button onclick="_statementNext()" style="background:none;border:none;cursor:pointer;padding:4px">
+        <svg width="14" height="14" viewBox="0 0 14 14"><path d="M5 2l6 5-6 5" stroke="var(--ink-2)" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <div style="font-size:13px;color:var(--ink-2,#4a5751);margin-bottom:22px">${propName} · prepared ${prepared}</div>
+    <div style="background:#fff;border-radius:20px;padding:20px;border:1px solid var(--hairline-1,#e8e1d3)">
+      <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2,#8a958f);letter-spacing:0.6px;text-transform:uppercase">YOU EARNED</div>
+      <div style="margin-top:4px;font-family:'Newsreader',serif;font-size:38px;font-weight:600;color:var(--primary,#2f5d4e);letter-spacing:-0.8px">$${net.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+      <div style="height:1px;background:var(--hairline-2,#efe9dc);margin:18px 0"></div>
+      ${lineItems}
+    </div>
+    ${payouts ? `<div style="margin-top:18px">
+      <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2,#8a958f);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">PAYOUTS</div>
+      <div style="background:#fff;border-radius:16px;padding:14px;border:1px solid var(--hairline-1,#e8e1d3)">${payouts}</div>
+    </div>` : ''}
+    <button onclick="exportReportPDF()" style="margin-top:18px;width:100%;padding:14px;border-radius:14px;border:none;background:var(--primary,#2f5d4e);color:#fff;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Download PDF</button>
+  `;
+}
+
+function _statementPrev() {
+  _statementMonth--;
+  if (_statementMonth < 0) { _statementMonth = 11; _statementYear--; }
+  _renderStatement();
+}
+function _statementNext() {
+  _statementMonth++;
+  if (_statementMonth > 11) { _statementMonth = 0; _statementYear++; }
+  _renderStatement();
+}
+globalThis._statementPrev = _statementPrev;
+globalThis._statementNext = _statementNext;
+globalThis.showStatementView = showStatementView;
+
 export {
   backToFinanceHub,
   toggleExpenseAddForm,
@@ -4704,6 +4816,7 @@ export {
   exportTaxCSV,
   taxExportFYPrev,
   taxExportFYNext,
+  showStatementView,
 };
 
 globalThis.reconCreateExpense = reconCreateExpense;
