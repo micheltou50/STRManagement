@@ -512,7 +512,7 @@ export function renderCleanRow(item, showProperty, index) {
   const statusPill = item.status === 'cancelled'
     ? _pill('#FCEBEB', '#A32D2D', 'Cancelled')
     : item.status === 'cancelled_pending'
-    ? _pill('#FEF3E2', '#854F0B', 'Awaiting ack')
+    ? _pill('#FEF3E2', '#854F0B', 'Awaiting response')
     : item.status === 'cancelled_acked'
     ? _pill('#EAF3DE', '#3B6D11', 'Acknowledged')
     : item.status === 'unassigned'

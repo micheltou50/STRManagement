@@ -651,7 +651,11 @@ window.dismissCancelPrompt = function () {
 };
 
 window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
-  const b = bookings.find(x => String(x._cloudId || x.id) === bookingId);
+  let b = bookingId ? bookings.find(x => String(x._cloudId || x.id) === bookingId) : null;
+  if (!b && _cleanId) {
+    const cl = cleans.find(c => String(c.id) === String(_cleanId) || String(c._cloudId) === String(_cleanId));
+    if (cl && cl.bookingId) b = bookings.find(x => String(x.id) === String(cl.bookingId) || String(x._cloudId) === String(cl.bookingId));
+  }
   if (!b) { btn.textContent = 'Booking not found'; return; }
   const clean = findMatchingCleanForBooking(b);
   if (!clean || !clean.cleaner) { btn.textContent = 'No cleaner'; return; }

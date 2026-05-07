@@ -503,7 +503,7 @@ function showSection(name) {
   if (fab) fab.style.display = name === 'today' ? 'flex' : 'none';
   // Slide chat bubble down when FAB is hidden
   const chatFab = document.getElementById('chat-fab');
-  if (chatFab) chatFab.style.bottom = name === 'today' ? '160px' : '90px';
+  if (chatFab) chatFab.style.bottom = name === 'today' ? '180px' : '100px';
   // Only render what's needed for this section
   if (name === 'today') {
     renderDashboard();
@@ -1098,7 +1098,7 @@ function buildNeedsAttentionHtmlFromDeduped(deduped) {
       }
       // Action button for cancellation alerts
       let actionBtn = '';
-      if (a.type === 'f' && a.bookingCloudId) {
+      if (a.type === 'f') {
         const bIdEsc = escapeJsSingleQuotedHtmlAttr(a.bookingCloudId);
         const cIdEsc = a.cleanId != null ? escapeJsSingleQuotedHtmlAttr(String(a.cleanId)) : '';
         actionBtn = `<button onclick="event.stopPropagation();notifyCancelledCleaner(this,'${bIdEsc}','${cIdEsc}')" style="flex-shrink:0;background:#C0392B;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;touch-action:manipulation">Notify</button>`;

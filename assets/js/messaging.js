@@ -455,7 +455,7 @@ export function renderChatBubble() {
   }
 
   container.innerHTML = `
-    <div id="chat-fab" onclick="window._stayOpsOpenChat()" class="fab fab-chat" style="bottom:160px;transition:bottom 0.25s ease">
+    <div id="chat-fab" onclick="window._stayOpsOpenChat()" class="fab fab-chat" style="bottom:180px;transition:bottom 0.25s ease">
       <svg width="24" height="24" fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2v10z" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <div id="chat-badge" style="display:none;position:absolute;top:-3px;right:-3px;min-width:20px;height:20px;border-radius:10px;background:#FF3B30;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 5px;border:2px solid #f5f5f3"></div>
     </div>
