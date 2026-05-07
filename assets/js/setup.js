@@ -668,7 +668,7 @@ function _setupInjectStyles() {
       border-radius: 20px;
       overflow: hidden;
       box-shadow: 0 28px 64px rgba(0, 0, 0, 0.30);
-      font-family: 'DM Sans', sans-serif;
+      font-family: 'Plus Jakarta Sans', sans-serif;
       margin-top: 12px;
     }
 
@@ -687,7 +687,7 @@ function _setupInjectStyles() {
       margin-top: 3px;
     }
     #setup-title {
-      font-family: 'DM Serif Display', serif;
+      font-family: 'Newsreader', serif;
       font-size: 19px;
       color: #fff;
       line-height: 1.25;
@@ -755,7 +755,7 @@ function _setupInjectStyles() {
       border: 1.5px solid var(--stone, #C4BDB5);
       border-radius: 10px;
       padding: 10px 12px;
-      font-family: 'DM Sans', sans-serif;
+      font-family: 'Plus Jakarta Sans', sans-serif;
       font-size: 14px;
       color: var(--text, #1A1A1A);
       -webkit-appearance: none;
@@ -813,7 +813,7 @@ function _setupInjectStyles() {
       border: none;
       border-radius: 12px;
       padding: 14px;
-      font-family: 'DM Sans', sans-serif;
+      font-family: 'Plus Jakarta Sans', sans-serif;
       font-size: 15px;
       font-weight: 700;
       cursor: pointer;
@@ -828,7 +828,7 @@ function _setupInjectStyles() {
       border: none;
       border-radius: 12px;
       padding: 14px 20px;
-      font-family: 'DM Sans', sans-serif;
+      font-family: 'Plus Jakarta Sans', sans-serif;
       font-size: 14px;
       font-weight: 600;
       cursor: pointer;

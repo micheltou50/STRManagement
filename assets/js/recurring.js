@@ -150,7 +150,7 @@ export function renderRecurringPanel() {
   const filtered = templates.filter(t => !t.propertyId || t.propertyId === activePid);
 
   if (!filtered.length) {
-    container.innerHTML = '<div style="text-align:center;padding:32px 16px;color:var(--text-soft);font-family:\'DM Sans\',sans-serif;font-size:14px">' +
+    container.innerHTML = '<div style="text-align:center;padding:32px 16px;color:var(--text-soft);font-family:\'Plus Jakarta Sans\',sans-serif;font-size:14px">' +
       '<div style="font-size:28px;margin-bottom:8px">\u{1F504}</div>' +
       'No recurring expenses yet.<br>Add one below for things like insurance, rates, or subscriptions.' +
       '</div>';
@@ -165,11 +165,11 @@ export function renderRecurringPanel() {
 
     html += '<div style="padding:14px 16px;border-bottom:1px solid #F0ECE6;display:flex;align-items:center;justify-content:space-between;' + enabledClass + '" data-rec-id="' + t.id + '">' +
       '<div style="flex:1;min-width:0">' +
-        '<div style="font-weight:500;font-size:14px;color:#1a1a1a;font-family:\'DM Sans\',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + _escHtml(t.merchant) + '</div>' +
-        '<div style="font-size:12px;color:var(--text-soft);font-family:\'DM Sans\',sans-serif;margin-top:2px">' +
+        '<div style="font-weight:500;font-size:14px;color:#1a1a1a;font-family:\'Plus Jakarta Sans\',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + _escHtml(t.merchant) + '</div>' +
+        '<div style="font-size:12px;color:var(--text-soft);font-family:\'Plus Jakarta Sans\',sans-serif;margin-top:2px">' +
           '$' + Number(t.amount).toFixed(2) + ' \u00B7 ' + freqLabel + ' \u00B7 Next: ' + nextDue +
         '</div>' +
-        '<div style="font-size:11px;color:var(--text-soft);font-family:\'DM Sans\',sans-serif;margin-top:1px">' + _escHtml(t.category || '') + '</div>' +
+        '<div style="font-size:11px;color:var(--text-soft);font-family:\'Plus Jakarta Sans\',sans-serif;margin-top:1px">' + _escHtml(t.category || '') + '</div>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">' +
         '<button onclick="toggleRecurringEnabled(\'' + t.id + '\')" style="background:none;border:none;font-size:18px;cursor:pointer;padding:4px" title="' + (t.enabled ? 'Pause' : 'Resume') + '">' + (t.enabled ? '\u23F8' : '\u25B6\uFE0F') + '</button>' +

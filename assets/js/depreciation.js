@@ -226,7 +226,7 @@ export function renderDepreciationPanel() {
   const totalDep = filtered.reduce((s, a) => s + getAssetDepreciationForFY(a, currentFY), 0);
 
   if (!filtered.length) {
-    container.innerHTML = '<div style="text-align:center;padding:32px 16px;color:var(--text-soft);font-family:\'DM Sans\',sans-serif;font-size:14px">' +
+    container.innerHTML = '<div style="text-align:center;padding:32px 16px;color:var(--text-soft);font-family:\'Plus Jakarta Sans\',sans-serif;font-size:14px">' +
       '<div style="font-size:28px;margin-bottom:8px">📉</div>' +
       'No depreciating assets yet.<br>Add furniture, appliances, or equipment below.' +
       '</div>';
@@ -235,8 +235,8 @@ export function renderDepreciationPanel() {
 
   // Summary
   let html = '<div style="background:#E8F5E9;border-radius:10px;padding:14px 16px;margin-bottom:12px;text-align:center">' +
-    '<div style="font-size:11px;color:#388E3C;font-family:\'DM Sans\',sans-serif;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">FY' + currentFY + ' Total Deduction</div>' +
-    '<div style="font-size:22px;font-weight:600;color:#2E7D32;font-family:\'DM Serif Display\',serif">$' + totalDep.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</div>' +
+    '<div style="font-size:11px;color:#388E3C;font-family:\'Plus Jakarta Sans\',sans-serif;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">FY' + currentFY + ' Total Deduction</div>' +
+    '<div style="font-size:22px;font-weight:600;color:#2E7D32;font-family:\'Newsreader\',serif">$' + totalDep.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</div>' +
     '</div>';
 
   // Asset list
@@ -247,8 +247,8 @@ export function renderDepreciationPanel() {
 
     html += '<div style="padding:14px 16px;border-bottom:1px solid #F0ECE6;display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="showDepreciationDetail(\'' + a.id + '\')">' +
       '<div style="flex:1;min-width:0">' +
-        '<div style="font-weight:500;font-size:14px;color:#1a1a1a;font-family:\'DM Sans\',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + _escHtml(a.name) + '</div>' +
-        '<div style="font-size:12px;color:var(--text-soft);font-family:\'DM Sans\',sans-serif;margin-top:2px">' +
+        '<div style="font-weight:500;font-size:14px;color:#1a1a1a;font-family:\'Plus Jakarta Sans\',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + _escHtml(a.name) + '</div>' +
+        '<div style="font-size:12px;color:var(--text-soft);font-family:\'Plus Jakarta Sans\',sans-serif;margin-top:2px">' +
           '$' + Number(a.cost).toLocaleString() + ' · ' + a.usefulLife + 'yr ' + methodLabel + ' · FY' + currentFY + ': $' + fyDep.toFixed(2) +
         '</div>' +
       '</div>' +
@@ -275,8 +275,8 @@ export function showDepreciationDetail(id) {
   let html = '<div class="settings-back" onclick="renderDepreciationPanel()" style="color:#185FA5;margin-bottom:8px">‹ Back to assets</div>';
 
   html += '<div class="card" style="padding:16px;margin-bottom:12px">' +
-    '<div style="font-weight:600;font-size:16px;color:#1a1a1a;font-family:\'DM Sans\',sans-serif;margin-bottom:8px">' + _escHtml(asset.name) + '</div>' +
-    '<div style="font-size:13px;color:var(--text-soft);font-family:\'DM Sans\',sans-serif;line-height:1.6">' +
+    '<div style="font-weight:600;font-size:16px;color:#1a1a1a;font-family:\'Plus Jakarta Sans\',sans-serif;margin-bottom:8px">' + _escHtml(asset.name) + '</div>' +
+    '<div style="font-size:13px;color:var(--text-soft);font-family:\'Plus Jakarta Sans\',sans-serif;line-height:1.6">' +
       'Cost: $' + Number(asset.cost).toLocaleString(undefined, {minimumFractionDigits:2}) + '<br>' +
       'Purchased: ' + asset.purchaseDate + '<br>' +
       'Useful life: ' + asset.usefulLife + ' years<br>' +
@@ -287,7 +287,7 @@ export function showDepreciationDetail(id) {
 
   // Schedule table
   html += '<div class="card" style="padding:0;overflow:hidden">' +
-    '<table style="width:100%;border-collapse:collapse;font-family:\'DM Sans\',sans-serif;font-size:13px">' +
+    '<table style="width:100%;border-collapse:collapse;font-family:\'Plus Jakarta Sans\',sans-serif;font-size:13px">' +
     '<thead><tr style="background:#F5F3EF">' +
       '<th style="padding:10px 12px;text-align:left;font-weight:500;color:var(--text-soft)">Year</th>' +
       '<th style="padding:10px 12px;text-align:right;font-weight:500;color:var(--text-soft)">Opening</th>' +

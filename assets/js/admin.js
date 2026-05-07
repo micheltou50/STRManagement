@@ -289,7 +289,7 @@ function renderTemplatesTab() {
   // Template Variables reference
   html += `
     <div class="card" style="margin-top:12px">
-      <div style="font-family:'DM Serif Display',serif;font-size:15px;color:var(--forest);margin-bottom:4px">Template Variables</div>
+      <div style="font-family:'Newsreader',serif;font-size:15px;color:var(--forest);margin-bottom:4px">Template Variables</div>
       <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px">Available placeholders for cleaner emails</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
         ${TEMPLATE_VARS.map(v => `<code style="background:var(--mist);padding:4px 8px;border-radius:6px;font-size:11px;color:var(--forest)">${esc(v)}</code>`).join('')}
@@ -430,7 +430,7 @@ async function renderLogTab() {
     };
 
     for (const [label, entries] of Object.entries(groups)) {
-      html += `<div class="card"><div style="font-family:'DM Serif Display',serif;font-size:15px;color:var(--forest);margin-bottom:8px">${esc(label)}</div>`;
+      html += `<div class="card"><div style="font-family:'Newsreader',serif;font-size:15px;color:var(--forest);margin-bottom:8px">${esc(label)}</div>`;
       entries.forEach(log => {
         const time = new Date(log.sent_at).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true }).toUpperCase();
         const dotColor = LOG_DOT_COLORS[log.type] || 'var(--stone)';

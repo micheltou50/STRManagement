@@ -486,7 +486,7 @@ export async function renderConversationList() {
   panel.innerHTML = `
     <div style="background:#1E3A2F;padding:48px 18px 14px;flex-shrink:0">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <span style="font-family:'DM Serif Display',serif;font-size:22px;color:#fff">Messages</span>
+        <span style="font-family:'Newsreader',serif;font-size:22px;color:#fff">Messages</span>
         <span onclick="window._stayOpsCloseChat()" style="color:rgba(255,255,255,0.5);font-size:22px;cursor:pointer;padding:4px 8px">&times;</span>
       </div>
     </div>
@@ -527,7 +527,7 @@ export async function renderConversationList() {
   panel.innerHTML = `
     <div style="background:#1E3A2F;padding:48px 18px 14px;flex-shrink:0">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <span style="font-family:'DM Serif Display',serif;font-size:22px;color:#fff">Messages</span>
+        <span style="font-family:'Newsreader',serif;font-size:22px;color:#fff">Messages</span>
         <span onclick="window._stayOpsCloseChat()" style="color:rgba(255,255,255,0.5);font-size:22px;cursor:pointer;padding:4px 8px">&times;</span>
       </div>
     </div>

@@ -48,20 +48,20 @@ function renderConnectionSummary() {
         <div style="font-size:12px;color:var(--red);margin-bottom:8px">⚠ Disconnected — token expired for ${escHtml(gmailEmail)}</div>
         <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.4">Your Gmail access has expired. Reconnect to resume automatic booking imports.</div>
         <button onclick="connectGmail()"
-          style="width:100%;background:var(--forest);color:white;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">🔄 Reconnect Gmail</button>
+          style="width:100%;background:var(--forest);color:white;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">🔄 Reconnect Gmail</button>
       ` : gmailConnected ? `
         <div style="font-size:12px;color:var(--moss);margin-bottom:8px">✓ Connected: ${escHtml(gmailEmail)}</div>
         <div style="display:flex;gap:6px">
           <button onclick="scanGmailBookings()" id="gmail-scan-btn"
-            style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">📥 Scan for Bookings</button>
+            style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">📥 Scan for Bookings</button>
           <button onclick="connectGmail()"
-            style="background:var(--warm);color:var(--forest);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">Reconnect</button>
+            style="background:var(--warm);color:var(--forest);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Reconnect</button>
         </div>
         <div id="gmail-scan-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;line-height:1.5"></div>
       ` : `
         <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.5">Connect your Gmail to automatically import bookings from Airbnb, VRBO, Booking.com, and other platforms.</div>
         <button onclick="connectGmail()"
-          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
+          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
           <img src="https://www.google.com/favicon.ico" width="18" height="18" style="border-radius:3px"> Connect Gmail
         </button>
       `}
@@ -73,15 +73,15 @@ function renderConnectionSummary() {
         <div style="font-size:12px;color:var(--moss);margin-bottom:8px">✓ Connected: ${escHtml(outlookEmail)}</div>
         <div style="display:flex;gap:6px">
           <button onclick="scanOutlookBookings()" id="outlook-scan-btn"
-            style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">📥 Scan for Bookings</button>
+            style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">📥 Scan for Bookings</button>
           <button onclick="connectOutlook()"
-            style="background:var(--warm);color:var(--forest);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">Reconnect</button>
+            style="background:var(--warm);color:var(--forest);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Reconnect</button>
         </div>
         <div id="outlook-scan-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;line-height:1.5"></div>
       ` : `
         <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.5">Connect your Outlook / Hotmail account to automatically import bookings from Airbnb, VRBO, Booking.com, and other platforms.</div>
         <button onclick="connectOutlook()"
-          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
+          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
           <img src="https://www.microsoft.com/favicon.ico" width="18" height="18" style="border-radius:3px"> Connect Outlook
         </button>
       `}
@@ -113,10 +113,10 @@ function _renderCalendarSyncCard() {
               <img src="https://www.google.com/favicon.ico" width="14" height="14" style="border-radius:2px">
               ✓ Google: ${escHtml(gcalEmail)}
             </div>
-            <button onclick="disconnectGoogleCalendar()" style="background:var(--warm);color:var(--forest);border:none;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Disconnect</button>
+            <button onclick="disconnectGoogleCalendar()" style="background:var(--warm);color:var(--forest);border:none;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Disconnect</button>
           </div>
         ` : `
-          <button onclick="connectGoogleCalendar()" style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px">
+          <button onclick="connectGoogleCalendar()" style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px">
             <img src="https://www.google.com/favicon.ico" width="14" height="14" style="border-radius:2px"> Connect Google Calendar
           </button>
         `}
@@ -126,27 +126,27 @@ function _renderCalendarSyncCard() {
               <img src="https://www.microsoft.com/favicon.ico" width="14" height="14" style="border-radius:2px">
               ✓ Outlook: ${escHtml(ocalEmail)}
             </div>
-            <button onclick="disconnectOutlookCalendar()" style="background:var(--warm);color:var(--forest);border:none;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Disconnect</button>
+            <button onclick="disconnectOutlookCalendar()" style="background:var(--warm);color:var(--forest);border:none;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Disconnect</button>
           </div>
         ` : `
-          <button onclick="connectOutlookCalendar()" style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px">
+          <button onclick="connectOutlookCalendar()" style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px">
             <img src="https://www.microsoft.com/favicon.ico" width="14" height="14" style="border-radius:2px"> Connect Outlook Calendar
           </button>
         `}
         <div style="display:flex;gap:6px;margin-top:8px">
           <button onclick="syncCalendarNow()" id="cal-sync-btn"
-            style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">🔄 Sync now</button>
+            style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">🔄 Sync now</button>
         </div>
         <div id="cal-sync-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;line-height:1.5"></div>
         <div id="cal-inbox" style="margin-top:10px"></div>
       ` : `
         <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.5">Sync StayOps with your phone calendar. Your phone shows app events; your phone-side edits flow back to the app. We create a dedicated "StayOps" calendar in your account — your personal calendar stays untouched.</div>
         <button onclick="connectGoogleCalendar()"
-          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:6px">
+          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:6px">
           <img src="https://www.google.com/favicon.ico" width="18" height="18" style="border-radius:3px"> Connect Google Calendar
         </button>
         <button onclick="connectOutlookCalendar()"
-          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
+          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
           <img src="https://www.microsoft.com/favicon.ico" width="18" height="18" style="border-radius:3px"> Connect Outlook Calendar
         </button>
         <div style="font-size:11px;color:var(--text-soft);margin-top:8px;text-align:center">Apple Calendar — coming soon.</div>
@@ -1204,7 +1204,7 @@ function renderStorageViewer() {
           <div style="font-weight:600;font-size:14px;color:var(--forest)">${label}</div>
           <div style="font-size:12px;color:var(--text-soft);margin-top:2px">${count} record${count!==1?'s':''} stored locally</div>
         </div>
-        <button onclick="globalThis.showAppModal({title:'Clear ${label}?',msg:'This removes all locally saved data. Sheet data is unaffected.',confirmText:'Clear',confirmColor:'var(--red)'}).then(ok=>{if(ok){localStorage.removeItem('${k}');renderStorageViewer();globalThis.showBanner('Cleared ${label.replace(/[^a-zA-Z ]/g,'')}','ok');}})" style="font-size:12px;color:var(--red);background:#FEF2F2;border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600">Clear</button>
+        <button onclick="globalThis.showAppModal({title:'Clear ${label}?',msg:'This removes all locally saved data. Sheet data is unaffected.',confirmText:'Clear',confirmColor:'var(--red)'}).then(ok=>{if(ok){localStorage.removeItem('${k}');renderStorageViewer();globalThis.showBanner('Cleared ${label.replace(/[^a-zA-Z ]/g,'')}','ok');}})" style="font-size:12px;color:var(--red);background:#FEF2F2;border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600">Clear</button>
       </div>
       ${count > 0 ? `<div style="font-size:11px;color:var(--text-soft);font-family:monospace;margin-top:6px;white-space:pre-wrap;word-break:break-all">${JSON.stringify(items.slice(0,1), null, 1).substring(0, 100)}${count > 1 ? '\n...' : ''}</div>` : ''}
     </div>`;

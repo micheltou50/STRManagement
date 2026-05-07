@@ -281,7 +281,7 @@ function ensureFinanceReconciliationSummaryEl() {
   el = document.createElement('div');
   el.id = 'finance-reconciliation-summary';
   el.style.cssText =
-    'margin:10px 0 0;padding:0 16px 8px;font-size:13px;color:var(--text-soft);line-height:1.45;display:none;font-family:\'DM Sans\',sans-serif';
+    'margin:10px 0 0;padding:0 16px 8px;font-size:13px;color:var(--text-soft);line-height:1.45;display:none;font-family:\'Plus Jakarta Sans\',sans-serif';
   if (anchor && anchor.parentNode === parent) {
     anchor.insertAdjacentElement('afterend', el);
   } else {
@@ -348,7 +348,7 @@ function ensureBankImportToolbar() {
   btn.id = 'bank-import-trigger-btn';
   btn.textContent = 'Import Bank Statement';
   btn.style.cssText =
-    "font-size:12px;color:var(--forest);background:transparent;border:1px solid var(--forest);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;white-space:nowrap";
+    "font-size:12px;color:var(--forest);background:transparent;border:1px solid var(--forest);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;white-space:nowrap";
   btn.onclick = () => getOrCreateBankCsvFileInput().click();
   titleRow.appendChild(btn);
   getOrCreateBankCsvFileInput();
@@ -367,7 +367,7 @@ function ensureBankImportToolbarPortfolio() {
   btn.id = 'bank-import-trigger-btn-portfolio';
   btn.textContent = 'Import Bank Statement';
   btn.style.cssText =
-    "font-size:12px;color:var(--forest);background:transparent;border:1px solid var(--forest);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;white-space:nowrap";
+    "font-size:12px;color:var(--forest);background:transparent;border:1px solid var(--forest);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;white-space:nowrap";
   btn.onclick = () => getOrCreateBankCsvFileInput().click();
   wrap.appendChild(btn);
   root.insertBefore(wrap, root.firstChild);
@@ -510,7 +510,7 @@ function renderBankImportReview() {
           <strong>${ready}</strong> ready to import · <strong>${skipped}</strong> skipped · <strong>${dups}</strong> duplicates
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:8px">
-          <button type="button" id="bank-import-run-btn" onclick="globalThis.bankImportRunImport()" style="font-size:12px;padding:8px 14px;border-radius:8px;border:none;background:var(--forest);color:white;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Import All</button>
+          <button type="button" id="bank-import-run-btn" onclick="globalThis.bankImportRunImport()" style="font-size:12px;padding:8px 14px;border-radius:8px;border:none;background:var(--forest);color:white;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Import All</button>
         </div>
       </div>
     </div>`;
@@ -556,15 +556,15 @@ function renderBankImportReview() {
             <div style="flex:1;min-width:140px">
               <div style="font-size:13px;font-weight:600;color:var(--text)">${bankImportFmtDayMon(row.date)}</div>
               <div style="font-size:13px;color:var(--text);margin-top:4px;word-break:break-word;line-height:1.4">${escHtml(row.description || '')}</div>
-              <div style="font-size:16px;font-weight:700;margin-top:8px;font-family:'DM Serif Display',serif">${amountStr}</div>
+              <div style="font-size:16px;font-weight:700;margin-top:8px;font-family:'Newsreader',serif">${amountStr}</div>
             </div>
             <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:8px">
               <select id="bank-import-prop-${i}" onchange="globalThis.bankImportOnPropChange(${i})" ${isPersonal || matchLocked ? 'disabled' : ''}
-                style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--stone);border-radius:8px;background:${matchLocked ? 'var(--warm)' : 'var(--mist)'};font-family:'DM Sans',sans-serif;color:${matchLocked ? 'var(--text-soft)' : 'inherit'}">
+                style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--stone);border-radius:8px;background:${matchLocked ? 'var(--warm)' : 'var(--mist)'};font-family:'Plus Jakarta Sans',sans-serif;color:${matchLocked ? 'var(--text-soft)' : 'inherit'}">
                 ${propOptions}
               </select>
               <select id="bank-import-cat-${i}" onchange="globalThis.bankImportOnCatChange(${i})" ${isPersonal || matchLocked ? 'disabled' : ''}
-                style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--stone);border-radius:8px;background:${matchLocked ? 'var(--warm)' : 'var(--mist)'};font-family:'DM Sans',sans-serif;color:${matchLocked ? 'var(--text-soft)' : 'inherit'}">
+                style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--stone);border-radius:8px;background:${matchLocked ? 'var(--warm)' : 'var(--mist)'};font-family:'Plus Jakarta Sans',sans-serif;color:${matchLocked ? 'var(--text-soft)' : 'inherit'}">
                 <option value="">— Category —</option>
                 ${catOptions}
               </select>
@@ -573,8 +573,8 @@ function renderBankImportReview() {
                 <span>${confLabel}</span>
               </div>
               <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
-                ${isPersonal || row.userMarkedSkip ? `<button type="button" onclick="globalThis.bankImportUndoSkip(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--moss);color:var(--moss);background:#f0faf4;cursor:pointer;font-family:'DM Sans',sans-serif">Undo</button>` : `<button type="button" onclick="globalThis.bankImportSkipRow(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--stone);background:white;cursor:pointer;font-family:'DM Sans',sans-serif">Skip</button>
-                <button type="button" onclick="globalThis.bankImportPersonalRow(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--red);color:var(--red);background:#fff5f5;cursor:pointer;font-family:'DM Sans',sans-serif">Personal</button>`}
+                ${isPersonal || row.userMarkedSkip ? `<button type="button" onclick="globalThis.bankImportUndoSkip(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--moss);color:var(--moss);background:#f0faf4;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Undo</button>` : `<button type="button" onclick="globalThis.bankImportSkipRow(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--stone);background:white;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Skip</button>
+                <button type="button" onclick="globalThis.bankImportPersonalRow(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--red);color:var(--red);background:#fff5f5;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Personal</button>`}
               </div>
             </div>
           </div>
@@ -866,7 +866,7 @@ function _showBankImportReceiptPrompt() {
         <div style="font-size:13px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml((e.description || '').slice(0, 40))}</div>
         <div style="font-size:11px;color:var(--text-soft);margin-top:2px">${e.date ? fmt(e.date) : ''} · ${fmtAmt(e.amount)}</div>
       </div>
-      <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow='';openExpenseEdit('${e.id}')" style="flex-shrink:0;margin-left:10px;padding:6px 12px;border-radius:8px;border:1.5px solid var(--forest);background:white;color:var(--forest);font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Add Receipt</button>
+      <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow='';openExpenseEdit('${e.id}')" style="flex-shrink:0;margin-left:10px;padding:6px 12px;border-radius:8px;border:1.5px solid var(--forest);background:white;color:var(--forest);font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Add Receipt</button>
     </div>`).join('');
 
   let overlay = document.getElementById('bank-receipt-prompt-overlay');
@@ -886,7 +886,7 @@ function _showBankImportReceiptPrompt() {
         <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow=''" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--mist);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-soft)">×</button>
       </div>
       ${list}
-      <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow='';if(typeof showReconciliationView==='function')showReconciliationView()" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--forest);color:white;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">View Transaction Map →</button>
+      <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow='';if(typeof showReconciliationView==='function')showReconciliationView()" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--forest);color:white;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">View Transaction Map →</button>
     </div>`;
   document.body.style.overflow = 'hidden';
 }
@@ -1183,13 +1183,13 @@ function renderMgmtFY() {
   const fyTotal = mdata.reduce((s,m)=>s+m.total, 0);
   el.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-      <button type="button" onclick="fyPrev();renderMgmtFY()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;font-family:'DM Sans',sans-serif">‹</button>
-      <div style="font-size:15px;font-weight:500;color:#1a1a1a;font-family:'DM Sans',sans-serif">${fyLabel(reportFY)}</div>
-      <button type="button" onclick="fyNext();renderMgmtFY()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;font-family:'DM Sans',sans-serif">›</button>
+      <button type="button" onclick="fyPrev();renderMgmtFY()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">‹</button>
+      <div style="font-size:15px;font-weight:500;color:#1a1a1a;font-family:'Plus Jakarta Sans',sans-serif">${fyLabel(reportFY)}</div>
+      <button type="button" onclick="fyNext();renderMgmtFY()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">›</button>
     </div>
     <div style="text-align:center;padding:16px;background:#fff;border-radius:12px;margin-bottom:12px;border:0.5px solid rgba(0,0,0,0.08)">
       <div style="font-size:11px;color:var(--text-soft)">Total management payout</div>
-      <div style="font-family:'DM Sans',sans-serif;font-size:28px;font-weight:500;color:#1a1a1a;margin-top:6px">$${fyTotal.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
+      <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:28px;font-weight:500;color:#1a1a1a;margin-top:6px">$${fyTotal.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
     </div>
     <div style="background:#fff;border-radius:12px;padding:0 16px;border:0.5px solid rgba(0,0,0,0.08)">
       ${mdata.map(m=>`<div class="fin-rev-row"><div><div style="font-size:14px;font-weight:500">${m.label}</div><div style="font-size:11px;color:var(--text-soft);margin-top:2px">${m.count} booking${m.count!==1?'s':''}</div></div><div style="font-size:14px;font-weight:500;color:#1D9E75">$${m.total.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>`).join('')}
@@ -1365,8 +1365,8 @@ function renderReport() {
         <div class="report-kpi"><div class="report-kpi-val">${fyOccupancy.toFixed(0)}%</div><div class="report-kpi-label">Occupancy</div></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
-        <button onclick="exportReportPDF()" class="no-print" style="background:var(--forest);color:white;border:none;border-radius:var(--radius-sm);padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">⬇ Export PDF</button>
-        <button onclick="exportReportCSV()" class="no-print" style="background:var(--mist);color:var(--forest);border:1.5px solid var(--forest);border-radius:var(--radius-sm);padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">⬇ Export CSV</button>
+        <button onclick="exportReportPDF()" class="no-print" style="background:var(--forest);color:white;border:none;border-radius:var(--radius-sm);padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">⬇ Export PDF</button>
+        <button onclick="exportReportCSV()" class="no-print" style="background:var(--mist);color:var(--forest);border:1.5px solid var(--forest);border-radius:var(--radius-sm);padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">⬇ Export CSV</button>
       </div>
     </div>
 
@@ -1621,8 +1621,8 @@ function renderRevenue() {
     <div class="fin-rev-row">
       <div style="min-width:0"><div style="font-weight:500;font-size:14px;color:#1a1a1a">${escHtml(b.name||'')}</div><div style="font-size:11px;color:var(--text-soft);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n</div></div>
       <div style="text-align:right;flex-shrink:0">
-        <div style="font-size:14px;font-weight:500;color:#1a1a1a;font-family:'DM Sans',sans-serif">$${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-        <div style="font-size:11px;color:#1D9E75;margin-top:2px;font-family:'DM Sans',sans-serif">$${Number(b.netPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+        <div style="font-size:14px;font-weight:500;color:#1a1a1a;font-family:'Plus Jakarta Sans',sans-serif">$${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+        <div style="font-size:11px;color:#1D9E75;margin-top:2px;font-family:'Plus Jakarta Sans',sans-serif">$${Number(b.netPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
       </div>
     </div>`).join('') : '<div style="color:var(--text-soft);font-size:13px;padding:14px 0">No bookings this month.</div>';
 }
@@ -1739,7 +1739,7 @@ function renderManagement() {
           <div style="font-weight:500;font-size:14px;color:#1a1a1a;text-transform:none">${escHtml(b.name||'')}</div>
           <div style="font-size:11px;color:var(--text-soft);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n · Host $${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
         </div>
-        <div style="font-size:14px;font-weight:500;color:#1D9E75;font-family:'DM Sans',sans-serif;flex-shrink:0">$${Number(b.mgmtPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+        <div style="font-size:14px;font-weight:500;color:#1D9E75;font-family:'Plus Jakarta Sans',sans-serif;flex-shrink:0">$${Number(b.mgmtPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
       </label>`;
     }).join('') : '<div style="color:var(--text-soft);font-size:13px;padding:14px 0">No bookings this month.</div>';
   }
@@ -2138,7 +2138,7 @@ function bindExpenseCatRowHandlers(i, name) {
     inp.type = 'text';
     inp.value = name;
     inp.style.cssText =
-      "flex:1;min-width:0;font-size:14px;padding:6px 8px;border-radius:8px;border:0.5px solid rgba(0,0,0,0.15);font-family:'DM Sans',sans-serif";
+      "flex:1;min-width:0;font-size:14px;padding:6px 8px;border-radius:8px;border:0.5px solid rgba(0,0,0,0.15);font-family:'Plus Jakarta Sans',sans-serif";
     sp.replaceWith(inp);
     inp.focus();
     inp.select();
@@ -2168,10 +2168,10 @@ function renderExpenseCatSettings() {
         (c, i) => `
       <div class="expcat-swipe-wrap" data-expcat-idx="${i}" style="position:relative;overflow:hidden;touch-action:pan-y">
         <button type="button" data-expcat-del="${i}" onclick="event.stopPropagation();deleteExpenseCat(${i})"
-          style="position:absolute;right:0;top:0;bottom:0;width:64px;border:none;background:#FEE2E2;color:#991B1B;font-weight:600;font-size:12px;font-family:'DM Sans',sans-serif;transform:translateX(100%);transition:transform 0.2s ease;cursor:pointer">Delete</button>
+          style="position:absolute;right:0;top:0;bottom:0;width:64px;border:none;background:#FEE2E2;color:#991B1B;font-weight:600;font-size:12px;font-family:'Plus Jakarta Sans',sans-serif;transform:translateX(100%);transition:transform 0.2s ease;cursor:pointer">Delete</button>
         <div data-expcat-inner="${i}" style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:0.5px solid rgba(0,0,0,0.08);background:#fff;transition:transform 0.2s ease;cursor:pointer">
-          <span data-expcat-txt="${i}" style="font-size:14px;color:#1a1a1a;font-family:'DM Sans',sans-serif">${escHtml(c)}</span>
-          <span style="font-size:12px;color:var(--text-soft);font-family:'DM Sans',sans-serif">${counts[c] != null ? counts[c] : 0} expenses</span>
+          <span data-expcat-txt="${i}" style="font-size:14px;color:#1a1a1a;font-family:'Plus Jakarta Sans',sans-serif">${escHtml(c)}</span>
+          <span style="font-size:12px;color:var(--text-soft);font-family:'Plus Jakarta Sans',sans-serif">${counts[c] != null ? counts[c] : 0} expenses</span>
         </div>
       </div>`
       )
@@ -2471,7 +2471,7 @@ function openExpFilterDropdown(kind) {
       btn.type = 'button';
       btn.textContent = lab;
       btn.style.cssText =
-        'display:block;width:100%;text-align:left;padding:8px 4px;border:none;border-bottom:0.5px solid rgba(0,0,0,0.08);background:none;font-size:13px;cursor:pointer;font-family:\'DM Sans\',sans-serif;color:#1a1a1a';
+        'display:block;width:100%;text-align:left;padding:8px 4px;border:none;border-bottom:0.5px solid rgba(0,0,0,0.08);background:none;font-size:13px;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif;color:#1a1a1a';
       btn.onclick = () => {
         const sel = document.getElementById('expense-filter-cat');
         if (sel) sel.value = val;
@@ -2492,7 +2492,7 @@ function openExpFilterDropdown(kind) {
     dd.innerHTML = opts
       .map(
         ([val, lab]) =>
-          `<button type="button" class="exp-dd-rec" data-rec="${val}" style="display:block;width:100%;text-align:left;padding:8px 4px;border:none;border-bottom:0.5px solid rgba(0,0,0,0.08);background:none;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;color:#1a1a1a">${lab}</button>`
+          `<button type="button" class="exp-dd-rec" data-rec="${val}" style="display:block;width:100%;text-align:left;padding:8px 4px;border:none;border-bottom:0.5px solid rgba(0,0,0,0.08);background:none;font-size:13px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;color:#1a1a1a">${lab}</button>`
       )
       .join('');
     dd.querySelectorAll('.exp-dd-rec').forEach((btn) => {
@@ -2638,7 +2638,7 @@ function renderExpenses() {
 
   if (!propertyExpenses.length) {
     listEl.innerHTML =
-      '<div style="text-align:center;padding:28px 16px;font-family:\'DM Sans\',sans-serif"><div style="font-weight:500;font-size:14px;margin-bottom:4px;color:#1a1a1a">No expenses yet</div><div style="font-size:12px;color:var(--text-soft)">Add your first expense above</div></div>';
+      '<div style="text-align:center;padding:28px 16px;font-family:\'Plus Jakarta Sans\',sans-serif"><div style="font-weight:500;font-size:14px;margin-bottom:4px;color:#1a1a1a">No expenses yet</div><div style="font-size:12px;color:var(--text-soft)">Add your first expense above</div></div>';
     syncExpensePillStyles();
     refreshReconciliationFooter();
     return;
@@ -2692,7 +2692,7 @@ function renderExpenses() {
 
   if (!filtered.length) {
     listEl.innerHTML =
-      '<div style="padding:16px 0;color:var(--text-soft);font-size:13px;text-align:center;font-family:\'DM Sans\',sans-serif">No results match your filters</div>';
+      '<div style="padding:16px 0;color:var(--text-soft);font-size:13px;text-align:center;font-family:\'Plus Jakarta Sans\',sans-serif">No results match your filters</div>';
     const sm = document.getElementById('expenses-show-more');
     if (sm) sm.style.display = 'none';
     syncExpensePillStyles();
@@ -2707,8 +2707,8 @@ function renderExpenses() {
       + '<div style="display:flex;align-items:center;gap:10px">'
       + '<span style="font-size:18px">\u{1F4CE}</span>'
       + '<div>'
-      + '<div style="font-weight:500;font-size:14px;color:#1a1a1a;font-family:\'DM Sans\',sans-serif">' + _missingReceiptCount + ' expense' + (_missingReceiptCount === 1 ? '' : 's') + ' missing receipts</div>'
-      + '<div style="font-size:12px;color:var(--text-soft);font-family:\'DM Sans\',sans-serif">Tap to view</div>'
+      + '<div style="font-weight:500;font-size:14px;color:#1a1a1a;font-family:\'Plus Jakarta Sans\',sans-serif">' + _missingReceiptCount + ' expense' + (_missingReceiptCount === 1 ? '' : 's') + ' missing receipts</div>'
+      + '<div style="font-size:12px;color:var(--text-soft);font-family:\'Plus Jakarta Sans\',sans-serif">Tap to view</div>'
       + '</div></div>'
       + '<div style="color:#C7C7CC;font-size:20px;font-weight:300">\u203A</div></div>'
     : '';
@@ -2725,15 +2725,15 @@ function renderExpenses() {
     const descPart = (e.description || '').trim();
     const line2 = `${descPart ? `${escHtml(descPart)} · ` : ''}${fmt(e.date)}`;
     const recBlock = hasRec
-      ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#185FA5;font-family:'DM Sans',sans-serif">${svgClip}Receipt</span>`
-      : `<span style="font-size:11px;color:#A32D2D;font-family:'DM Sans',sans-serif">No receipt</span>`;
+      ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#185FA5;font-family:'Plus Jakarta Sans',sans-serif">${svgClip}Receipt</span>`
+      : `<span style="font-size:11px;color:#A32D2D;font-family:'Plus Jakarta Sans',sans-serif">No receipt</span>`;
     const bankBlock = isBankVerified
-      ? `<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;color:#1D9E75;font-family:'DM Sans',sans-serif">${svgBank} Bank verified</span>`
+      ? `<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;color:#1D9E75;font-family:'Plus Jakarta Sans',sans-serif">${svgBank} Bank verified</span>`
       : '';
     return `<div class="expense-item" data-expense-id="${e.id}" onclick="openExpenseView('${e.id}')"
       style="background:#fff;border-radius:10px;padding:12px 14px;display:flex;gap:12px;align-items:flex-start;cursor:pointer;border:0.5px solid rgba(0,0,0,0.06);
       box-shadow:0 1px 2px rgba(0,0,0,0.02);border-left:3px solid ${catCol};border-top-left-radius:0;border-bottom-left-radius:0;
-      -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;font-family:'DM Sans',sans-serif">
+      -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;font-family:'Plus Jakarta Sans',sans-serif">
       <div style="flex:1;min-width:0">
         <div style="font-weight:500;font-size:14px;color:#1a1a1a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(e.merchant || 'Unknown')}</div>
         <div style="font-size:12px;color:var(--text-soft);margin-top:2px">${line2}</div>
@@ -2743,7 +2743,7 @@ function renderExpenses() {
           ${bankBlock}
         </div>
       </div>
-      <div style="font-size:15px;font-weight:500;color:${amtColor};flex-shrink:0;font-family:'DM Sans',sans-serif">${prefix}$${Math.abs(Number(e.amount)).toFixed(2)}</div>
+      <div style="font-size:15px;font-weight:500;color:${amtColor};flex-shrink:0;font-family:'Plus Jakarta Sans',sans-serif">${prefix}$${Math.abs(Number(e.amount)).toFixed(2)}</div>
     </div>`;
   };
 
@@ -2799,7 +2799,7 @@ function renderExpenses() {
       '<div class="card" style="padding:0;overflow:hidden;overflow-x:auto"><table class="desktop-table"><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Receipt</th><th style="text-align:right">Amount</th></tr></thead><tbody>' + tblRows + '</tbody></table></div>' +
       '<div style="display:flex;flex-direction:column;gap:16px">' +
         '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">This Month</div>' +
-          '<div style="font-family:\'DM Serif Display\',serif;font-size:28px;color:var(--forest)">$' + Math.abs(monthSum).toFixed(0) + '</div>' +
+          '<div style="font-family:\'Newsreader\',serif;font-size:28px;color:var(--forest)">$' + Math.abs(monthSum).toFixed(0) + '</div>' +
           '<div style="font-size:12px;color:var(--text-soft);margin-top:4px">' + monthCnt + ' expenses</div></div>' +
         '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">By Category</div>' + catBreakdown + '</div>' +
       '</div></div>';
@@ -3078,7 +3078,7 @@ function openExpenseView(id) {
                 width:100%;padding:11px;box-sizing:border-box;
                 background:var(--mist);border:1.5px solid var(--moss);border-radius:10px;
                 color:var(--moss);font-weight:600;font-size:13px;cursor:pointer;
-                font-family:'DM Sans',sans-serif">
+                font-family:'Plus Jakarta Sans',sans-serif">
         📎 View Receipt
       </button>`;
   } else if (e.awaitingReceipt) {
@@ -3099,7 +3099,7 @@ function openExpenseView(id) {
           ${e.description ? `<div style="font-size:13px;font-weight:400;color:#999;margin-top:4px">${escHtml(e.description)}</div>` : ''}
         </div>
         <div style="flex-shrink:0;text-align:right">
-          <div style="font-family:'DM Serif Display',serif;font-size:26px;font-weight:700;
+          <div style="font-family:'Newsreader',serif;font-size:26px;font-weight:700;
                       color:${amtColor};line-height:1">${amtDisplay}</div>
           ${isRefund ? `<div style="font-size:10px;font-weight:600;color:#27AE60;letter-spacing:0.3px;margin-top:2px;text-transform:uppercase">Refund</div>` : ''}
         </div>
@@ -3309,8 +3309,8 @@ function _renderExpenseCatToggles() {
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)">
       <span style="font-size:13px;font-weight:500;color:var(--text)">${escHtml(label)}</span>
       <div style="display:flex;gap:0;border-radius:6px;overflow:hidden;border:1px solid var(--stone)">
-        <button onclick="toggleExpenseCatMode('${cat}','deduct')" id="ecat-${cat}-deduct" style="padding:5px 10px;font-size:11px;font-weight:600;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background 0.15s;background:${!isOwner ? 'var(--forest)' : 'white'};color:${!isOwner ? 'white' : 'var(--text-soft)'}">Deduct</button>
-        <button onclick="toggleExpenseCatMode('${cat}','owner')" id="ecat-${cat}-owner" style="padding:5px 10px;font-size:11px;font-weight:600;border:none;border-left:1px solid var(--stone);cursor:pointer;font-family:'DM Sans',sans-serif;transition:background 0.15s;background:${isOwner ? '#E24B4A' : 'white'};color:${isOwner ? 'white' : 'var(--text-soft)'}">Owner pays</button>
+        <button onclick="toggleExpenseCatMode('${cat}','deduct')" id="ecat-${cat}-deduct" style="padding:5px 10px;font-size:11px;font-weight:600;border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:background 0.15s;background:${!isOwner ? 'var(--forest)' : 'white'};color:${!isOwner ? 'white' : 'var(--text-soft)'}">Deduct</button>
+        <button onclick="toggleExpenseCatMode('${cat}','owner')" id="ecat-${cat}-owner" style="padding:5px 10px;font-size:11px;font-weight:600;border:none;border-left:1px solid var(--stone);cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:background 0.15s;background:${isOwner ? '#E24B4A' : 'white'};color:${isOwner ? 'white' : 'var(--text-soft)'}">Owner pays</button>
       </div>
     </div>`;
   }).join('');
@@ -3824,7 +3824,7 @@ function showTaxExportView() {
   if (!hostEl) {
     hostEl = document.createElement('div');
     hostEl.id = 'tax-export-host-income';
-    hostEl.style.fontFamily = "'DM Sans',sans-serif";
+    hostEl.style.fontFamily = "'Plus Jakarta Sans',sans-serif";
     const previewContainer = document.getElementById('tax-export-preview');
     if (previewContainer) previewContainer.parentNode.insertBefore(hostEl, previewContainer.nextSibling);
   }
@@ -4176,7 +4176,7 @@ async function renderReconciliationView() {
   if (!summaryBar || !filtersEl || !listEl) return;
 
   // Show loading state
-  listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-soft);font-size:13px;font-family:\'DM Sans\',sans-serif">Loading transactions...</div>';
+  listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-soft);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">Loading transactions...</div>';
 
   const user = await getCurrentSupabaseUser();
   if (!user) {
@@ -4192,7 +4192,7 @@ async function renderReconciliationView() {
   if (_reconTxns.length === 0) {
     summaryBar.innerHTML = '';
     filtersEl.innerHTML = '';
-    listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-soft);font-size:13px;font-family:\'DM Sans\',sans-serif">No bank transactions imported yet. Use <b>Import bank CSV</b> in the Expenses view to get started.</div>';
+    listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-soft);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">No bank transactions imported yet. Use <b>Import bank CSV</b> in the Expenses view to get started.</div>';
     return;
   }
 
@@ -4240,7 +4240,7 @@ function renderReconciliationFilters(container) {
     const bg    = isActive ? '#1E3A2F' : '#F5F3EF';
     const color = isActive ? '#fff'    : '#555';
     const bdr   = isActive ? '#1E3A2F' : '#E0DCD5';
-    return `<button onclick="filterReconciliation('${p.key}')" style="background:${bg};border:1px solid ${bdr};border-radius:20px;padding:6px 14px;font-size:12px;font-family:'DM Sans',sans-serif;cursor:pointer;color:${color}">${p.label}</button>`;
+    return `<button onclick="filterReconciliation('${p.key}')" style="background:${bg};border:1px solid ${bdr};border-radius:20px;padding:6px 14px;font-size:12px;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer;color:${color}">${p.label}</button>`;
   }).join('')}</div>`;
 }
 
@@ -4258,7 +4258,7 @@ function renderReconciliationList(container) {
     : _reconTxns.filter(t => t.status === _reconFilter);
 
   if (filtered.length === 0) {
-    container.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-soft);font-size:13px;font-family:\'DM Sans\',sans-serif">No transactions in this category.</div>';
+    container.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-soft);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">No transactions in this category.</div>';
     return;
   }
 
@@ -4286,14 +4286,14 @@ function renderReconciliationList(container) {
       const rawAmt = Math.abs(t.amount).toFixed(2);
       const rawDate = t.date || '';
       rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badge}
-        <button onclick="reconMatchExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}')" style="font-size:11px;color:#1D9E75;background:none;border:1px solid #1D9E75;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">Match Expense</button>
-        <button onclick="reconCreateExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}','${safeDesc}')" style="font-size:11px;color:#185FA5;background:none;border:1px solid #185FA5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">Create New</button></div>`;
+        <button onclick="reconMatchExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}')" style="font-size:11px;color:#1D9E75;background:none;border:1px solid #1D9E75;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Match Expense</button>
+        <button onclick="reconCreateExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}','${safeDesc}')" style="font-size:11px;color:#185FA5;background:none;border:1px solid #185FA5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Create New</button></div>`;
     }
 
     return `<div style="background:#fff;border-radius:10px;padding:12px 14px;margin-bottom:8px;border:0.5px solid rgba(0,0,0,0.06);display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
       <div style="flex:1;min-width:0">
         <div style="font-size:11px;color:var(--text-soft);margin-bottom:2px">${dateStr}</div>
-        <div style="font-size:14px;font-weight:500;color:#1a1a1a;font-family:'DM Sans',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${desc}</div>
+        <div style="font-size:14px;font-weight:500;color:#1a1a1a;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${desc}</div>
         <div style="font-size:15px;font-weight:600;color:#1a1a1a;margin-top:2px">$${amt}</div>
       </div>
       <div style="flex-shrink:0;text-align:right">${rightInfo}</div>
@@ -4363,7 +4363,7 @@ async function reconMatchExpense(txnId, date, amount) {
       </div>
       <div style="font-size:12px;color:var(--text-soft);margin-bottom:10px">${nearby.length} similar expense${nearby.length !== 1 ? 's' : ''} found — tap to link</div>
       ${list}
-      <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--mist);color:var(--text-soft);font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Cancel</button>
+      <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--mist);color:var(--text-soft);font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Cancel</button>
     </div>`;
   document.body.style.overflow = 'hidden';
 }

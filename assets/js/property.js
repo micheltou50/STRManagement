@@ -81,7 +81,7 @@ function viewPropertyBtn(cloudPid) {
   return '<div style="margin-top:12px">' +
     '<button type="button" onclick="event.stopPropagation();switchPropertyFromSheet(\'' + escapeJsSingleQuotedHtmlAttr(localId ?? '') + '\')" ' +
       'style="width:100%;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;' +
-      'border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+      'border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
       'View property &#8594;' +
     '</button>' +
   '</div>';
@@ -967,7 +967,7 @@ function showPropertyPicker({ guest, checkin, checkout, platform, properties }) 
       '<button id="prop-picker-skip" style="width:100%;margin-top:12px;padding:12px;' +
         'border:1.5px solid var(--stone,#C4BDB5);border-radius:12px;background:white;' +
         'font-size:14px;font-weight:600;color:var(--text-soft);cursor:pointer;' +
-        'font-family:\'DM Sans\',sans-serif">Skip — assign later</button>';
+        'font-family:\'Plus Jakarta Sans\',sans-serif">Skip — assign later</button>';
 
     overlay.appendChild(sheet);
 
@@ -984,7 +984,7 @@ function showPropertyPicker({ guest, checkin, checkout, platform, properties }) 
       btn.style.cssText = 'width:100%;text-align:left;padding:14px 16px;' +
         'border:1.5px solid var(--warm,#F0EDE8);border-radius:12px;' +
         'background:var(--mist,#F8F6F3);cursor:pointer;' +
-        'font-family:\'DM Sans\',sans-serif;transition:border-color 0.15s';
+        'font-family:\'Plus Jakarta Sans\',sans-serif;transition:border-color 0.15s';
       btn.innerHTML =
         '<div style="font-weight:700;font-size:14px;color:var(--forest,#1E3A2F)">' +
           escHtml(p.name) + '</div>' +

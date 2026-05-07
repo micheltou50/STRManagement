@@ -760,7 +760,7 @@ export function openEmailTemplatePanel(type) {
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
             <div class="card-title" style="margin-bottom:0">${title}</div>
             <div style="display:flex;gap:6px">
-              <button onclick="resetEmailTemplate('${type}')" style="font-size:11px;background:none;border:1px solid var(--stone);border-radius:20px;padding:4px 10px;cursor:pointer;color:var(--text-soft);font-family:'DM Sans',sans-serif">Reset</button>
+              <button onclick="resetEmailTemplate('${type}')" style="font-size:11px;background:none;border:1px solid var(--stone);border-radius:20px;padding:4px 10px;cursor:pointer;color:var(--text-soft);font-family:'Plus Jakarta Sans',sans-serif">Reset</button>
               <button onclick="saveEmailTemplate('${type}')" class="btn-primary" style="font-size:12px;padding:6px 14px">Save</button>
             </div>
           </div>
@@ -770,7 +770,7 @@ export function openEmailTemplatePanel(type) {
           <label>Presets</label>
           <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
             ${(EMAIL_TEMPLATE_PRESETS[type]||[]).map((p,i) => `<button class="etpl-preset-btn" onclick="applyPreset('${type}',${i})"
-              style="font-size:12px;background:var(--mist);border:1px solid var(--stone);border-radius:20px;padding:6px 14px;cursor:pointer;font-family:'DM Sans',sans-serif;color:var(--forest);font-weight:500">${p.label}</button>`).join('')}
+              style="font-size:12px;background:var(--mist);border:1px solid var(--stone);border-radius:20px;padding:6px 14px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;color:var(--forest);font-weight:500">${p.label}</button>`).join('')}
           </div>
 
           <label>Subject</label>
@@ -790,11 +790,11 @@ export function openEmailTemplatePanel(type) {
             <label style="margin:0">Body</label>
             <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;max-width:65%">
               ${EMAIL_TEMPLATE_VARS.map(v => `<button onclick="insertTemplateVar('${v.tag}')"
-                style="font-size:10px;background:var(--mist);border:1px solid var(--stone);border-radius:20px;padding:3px 8px;cursor:pointer;font-family:'DM Sans',sans-serif;color:var(--forest);white-space:nowrap">${v.label}</button>`).join('')}
+                style="font-size:10px;background:var(--mist);border:1px solid var(--stone);border-radius:20px;padding:3px 8px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;color:var(--forest);white-space:nowrap">${v.label}</button>`).join('')}
             </div>
           </div>
           <textarea id="etpl-body" rows="7"
-            style="font-size:13px;line-height:1.6;font-family:'DM Sans',sans-serif;resize:vertical;margin-bottom:0"
+            style="font-size:13px;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;resize:vertical;margin-bottom:0"
             oninput="updateEmailPreview('${type}')">${tpl.body||''}</textarea>
         </div>
       </div>

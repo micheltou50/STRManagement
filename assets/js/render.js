@@ -1707,7 +1707,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
     const occCard = `<div class="card">
       <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Monthly Occupancy</div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-        <span style="font-family:'DM Serif Display',serif;font-size:32px;color:var(--forest)">${occupancyThisMonth}%</span>
+        <span style="font-family:'Newsreader',serif;font-size:32px;color:var(--forest)">${occupancyThisMonth}%</span>
         <span style="font-size:12px;color:var(--moss)">${bookedNightsMonth}/${daysThisMonth} nights</span>
       </div>
       <div style="height:8px;background:#e8e0d5;border-radius:4px;overflow:hidden"><div style="height:100%;background:var(--moss);border-radius:4px;width:${occupancyThisMonth}%"></div></div>
@@ -1715,10 +1715,10 @@ function buildSinglePropertyTodayDashboardMarkup() {
 
     setTimeout(animateNumbers, 100);
     return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:20px">
-      <div class="card" style="text-align:center"><div data-animate-number="${occupancyThisMonth}" data-num-suffix="%" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">0%</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Occupancy</div></div>
-      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueThisMonth)}" data-num-prefix="$" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Revenue</div></div>
-      <div class="card" style="text-align:center"><div data-animate-number="${activeBookings.length}" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
-      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueNext30)}" data-num-prefix="$" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${occupancyThisMonth}" data-num-suffix="%" style="font-family:'Newsreader',serif;font-size:28px;color:var(--forest)">0%</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Occupancy</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueThisMonth)}" data-num-prefix="$" style="font-family:'Newsreader',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Revenue</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${activeBookings.length}" style="font-family:'Newsreader',serif;font-size:28px;color:var(--forest)">0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueNext30)}" data-num-prefix="$" style="font-family:'Newsreader',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
     </div>
     <div style="display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:20px">
       <div style="display:flex;flex-direction:column;gap:16px">
@@ -2047,10 +2047,10 @@ function buildPortfolioTodayDashboardMarkup() {
 
     setTimeout(animateNumbers, 100);
     return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:20px">
-      <div class="card" style="text-align:center"><div data-animate-number="${occupancyThisMonth}" data-num-suffix="%" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">0%</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Occupancy</div></div>
-      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueThisMonth)}" data-num-prefix="$" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Revenue</div></div>
-      <div class="card" style="text-align:center"><div data-animate-number="${activeBookings.length}" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
-      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueNext30)}" data-num-prefix="$" style="font-family:'DM Serif Display',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${occupancyThisMonth}" data-num-suffix="%" style="font-family:'Newsreader',serif;font-size:28px;color:var(--forest)">0%</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Occupancy</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueThisMonth)}" data-num-prefix="$" style="font-family:'Newsreader',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Revenue</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${activeBookings.length}" style="font-family:'Newsreader',serif;font-size:28px;color:var(--forest)">0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueNext30)}" data-num-prefix="$" style="font-family:'Newsreader',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr minmax(300px,380px);gap:20px">
       <div style="display:flex;flex-direction:column;gap:16px">
@@ -2062,7 +2062,7 @@ function buildPortfolioTodayDashboardMarkup() {
         <div class="card">
           <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Occupancy by Property</div>
           <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-            <span style="font-family:'DM Serif Display',serif;font-size:32px;color:var(--forest)">${occupancyThisMonth}%</span>
+            <span style="font-family:'Newsreader',serif;font-size:32px;color:var(--forest)">${occupancyThisMonth}%</span>
             <span style="font-size:12px;color:var(--moss)">${bookedNightsMonth}/${denomDays} nights</span>
           </div>
           <div style="height:8px;background:#e8e0d5;border-radius:4px;overflow:hidden;margin-bottom:12px"><div style="height:100%;background:var(--moss);border-radius:4px;width:${occupancyThisMonth}%"></div></div>
@@ -2241,8 +2241,8 @@ function renderMaintenance() {
         <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0">
           <button onclick="deleteMaintenance('${m.id}')" style="font-size:10px;color:var(--text-soft);background:none;border:none;cursor:pointer">✕</button>
           ${m.status !== 'resolved' ? `
-          <button onclick="resolveIssue('${m.id}')" style="font-size:11px;background:var(--moss);color:white;border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'DM Sans',sans-serif">Mark Resolved</button>
-          <button onclick="setMaintInProgress('${m.id}')" style="font-size:11px;background:var(--forest-light);color:var(--sage);border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'DM Sans',sans-serif">In Progress</button>
+          <button onclick="resolveIssue('${m.id}')" style="font-size:11px;background:var(--moss);color:white;border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Mark Resolved</button>
+          <button onclick="setMaintInProgress('${m.id}')" style="font-size:11px;background:var(--forest-light);color:var(--sage);border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">In Progress</button>
           ` : ''}
         </div>
       </div>
@@ -3265,8 +3265,8 @@ function renderCleanerCleans() {
     } else {
       newEl.innerHTML = newCleans.map(c => {
         const buttons = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <button onclick="cleanerDecline('${c.id}')" style="background:#FDECEA;color:var(--red);border:none;border-radius:var(--radius-sm);padding:13px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">✗ Decline</button>
-          <button onclick="cleanerAccept('${c.id}')" style="background:var(--forest);color:white;border:none;border-radius:var(--radius-sm);padding:13px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">✓ Accept</button>
+          <button onclick="cleanerDecline('${c.id}')" style="background:#FDECEA;color:var(--red);border:none;border-radius:var(--radius-sm);padding:13px;font-size:13px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer">✗ Decline</button>
+          <button onclick="cleanerAccept('${c.id}')" style="background:var(--forest);color:white;border:none;border-radius:var(--radius-sm);padding:13px;font-size:13px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer">✓ Accept</button>
         </div>`;
         return buildCard(c).replace('BUTTONS_PLACEHOLDER', buttons);
       }).join('');
@@ -3286,7 +3286,7 @@ function renderCleanerCleans() {
       </div>`;
     } else {
       upcomingEl.innerHTML = upcomingCleans.map(c => {
-        const buttons = `<button onclick="cleanerMarkDone('${c.id}')" style="width:100%;background:var(--forest);color:white;border:none;border-radius:var(--radius-sm);padding:13px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">✓ Mark as Complete</button>`;
+        const buttons = `<button onclick="cleanerMarkDone('${c.id}')" style="width:100%;background:var(--forest);color:white;border:none;border-radius:var(--radius-sm);padding:13px;font-size:14px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer">✓ Mark as Complete</button>`;
         return buildCard(c).replace('BUTTONS_PLACEHOLDER', buttons);
       }).join('');
     }
@@ -3364,7 +3364,7 @@ function renderCleanerChat() {
   const messages = window._cleanerMessages || [];
   const cleanerId = cleaner ? String(cleaner.id) : '';
 
-  let html = '<div style="font-family:\'DM Serif Display\',serif;font-size:16px;color:var(--forest);margin-bottom:12px">Messages</div>';
+  let html = '<div style="font-family:\'Newsreader\',serif;font-size:16px;color:var(--forest);margin-bottom:12px">Messages</div>';
   html += '<div id="cleaner-chat-messages" style="flex:1;overflow-y:auto;max-height:55vh;padding:8px 0;display:flex;flex-direction:column;gap:6px">';
 
   if (messages.length === 0) {
@@ -3397,7 +3397,7 @@ function renderCleanerChat() {
 
   // Input bar
   html += '<div style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #eee">';
-  html += '<input id="cleaner-chat-input" type="text" placeholder="Type a message..." style="flex:1;padding:10px 14px;border:1.5px solid #E5E5EA;border-radius:20px;font-family:\'DM Sans\',sans-serif;font-size:14px;outline:none" onkeydown="if(event.key===\'Enter\')window._sendCleanerChatMessage()">';
+  html += '<input id="cleaner-chat-input" type="text" placeholder="Type a message..." style="flex:1;padding:10px 14px;border:1.5px solid #E5E5EA;border-radius:20px;font-family:\'Plus Jakarta Sans\',sans-serif;font-size:14px;outline:none" onkeydown="if(event.key===\'Enter\')window._sendCleanerChatMessage()">';
   html += '<button onclick="window._sendCleanerChatMessage()" style="background:var(--forest,#1E3A2F);color:white;border:none;border-radius:50%;width:40px;height:40px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center">&#9654;</button>';
   html += '</div>';
 
@@ -3918,7 +3918,7 @@ function renderQuickStartList() {
       </div>
       <div style="flex:1;min-width:0">
         <div style="font-size:14px;font-weight:600;color:var(--ink,#1B2A24);${item.done ? 'text-decoration:line-through;color:var(--ink-muted,#6F7568);' : ''}">${item.label}</div>
-        <div style="font-family:'DM Mono','SF Mono',monospace;font-size:11px;color:var(--ink-muted,#6F7568);margin-top:2px">${item.meta}</div>
+        <div style="font-family:'JetBrains Mono','SF Mono',monospace;font-size:11px;color:var(--ink-muted,#6F7568);margin-top:2px">${item.meta}</div>
       </div>
       ${item.optional ? '<span class="so-pill optional">Optional</span>' : ''}
       ${item.done ? '' : '<span style="color:var(--ink-muted,#6F7568);font-size:18px;line-height:1">›</span>'}
@@ -4628,7 +4628,7 @@ function renderCleanerProfile() {
   html += '<div style="background:white;border-radius:12px;padding:16px;border:1.5px solid #EAF3DE">';
   html += '<div style="font-weight:700;font-size:14px;color:var(--forest,#1E3A2F);margin-bottom:4px">Also manage your own property?</div>';
   html += '<div style="font-size:12px;color:#888;margin-bottom:12px;line-height:1.4">Add host mode to manage bookings, finances, and cleaning schedules for your own properties.</div>';
-  html += '<button onclick="becomeHost()" id="become-host-btn" style="width:100%;padding:12px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;font-family:\'DM Sans\',sans-serif">Enable Host Mode</button>';
+  html += '<button onclick="becomeHost()" id="become-host-btn" style="width:100%;padding:12px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">Enable Host Mode</button>';
   html += '</div></div>';
 
   html += '<button onclick="cleanerSignOut()" style="width:100%;margin-top:20px;padding:14px;background:white;color:#C0392B;border:1.5px solid #C0392B;border-radius:12px;font-weight:700;font-size:14px;cursor:pointer">Sign Out</button>';

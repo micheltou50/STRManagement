@@ -511,7 +511,7 @@ window.switchToCleanerMode = function () {
       const btn = document.createElement('button');
       btn.id = 'back-to-host-btn';
       btn.onclick = window.switchToHostMode;
-      btn.style.cssText = 'display:flex;align-items:center;gap:6px;background:rgba(30,58,47,0.1);border:1.5px solid var(--forest,#1E3A2F);border-radius:20px;color:var(--forest,#1E3A2F);font-family:"DM Sans",sans-serif;font-size:12px;font-weight:600;padding:7px 14px;cursor:pointer;margin-top:12px';
+      btn.style.cssText = 'display:flex;align-items:center;gap:6px;background:rgba(30,58,47,0.1);border:1.5px solid var(--forest,#1E3A2F);border-radius:20px;color:var(--forest,#1E3A2F);font-family:"Plus Jakarta Sans",sans-serif;font-size:12px;font-weight:600;padding:7px 14px;cursor:pointer;margin-top:12px';
       btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg> Back to Host';
       cleanerHeader.appendChild(btn);
     }
@@ -593,7 +593,7 @@ function checkCancelledBookings() {
           const cId = clean._cloudId || String(clean.id);
           if (cleanerEmail) {
             cards += '<button onclick="notifyCancelledCleaner(this,\'' + bId.replace(/'/g, '') + '\',\'' + cId.replace(/'/g, '') + '\')" ' +
-              'style="margin-top:10px;width:100%;padding:10px;background:#C0392B;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+              'style="margin-top:10px;width:100%;padding:10px;background:#C0392B;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
               'Notify ' + cleanerName + '</button>';
           } else {
             cards += '<div style="margin-top:10px;font-size:12px;color:#854F0B">' + cleanerName + ' has no email on file</div>';

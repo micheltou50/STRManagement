@@ -681,45 +681,45 @@ export function toggleCleanAction(index, cleanId, bookingId, status) {
   if (status === 'unassigned') {
     buttons =
       '<button onclick="event.stopPropagation();jumpToAssignClean(\'' + bookingId + '\')" ' +
-        'style="flex:1;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Assign cleaner</button>';
   } else if (status === 'awaiting') {
     buttons =
       '<button onclick="event.stopPropagation();markCleanerConfirmed(\'' + cleanId + '\');renderCleaning()" ' +
-        'style="flex:1;padding:10px;background:var(--moss,#4A7C59);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--moss,#4A7C59);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Confirm</button>' +
       '<button onclick="event.stopPropagation();markCleanDeclined(\'' + cleanId + '\');renderCleaning()" ' +
-        'style="flex:1;padding:10px;background:#FCEBEB;color:#A32D2D;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:#FCEBEB;color:#A32D2D;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Decline</button>' +
       '<button onclick="event.stopPropagation();openNotifyModal(\'' + cleanId + '\')" ' +
-        'style="flex:1;padding:10px;background:var(--mist,#F0EDE8);color:var(--text,#1A1A1A);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--mist,#F0EDE8);color:var(--text,#1A1A1A);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'SMS</button>' +
       '<button onclick="event.stopPropagation();renotifyClean(\'' + cleanId + '\')" ' +
-        'style="flex:1;padding:10px;background:var(--mist,#F0EDE8);color:var(--text,#1A1A1A);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--mist,#F0EDE8);color:var(--text,#1A1A1A);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Re-notify</button>';
   } else if (status === 'confirmed') {
     buttons =
       '<button onclick="event.stopPropagation();openNotifyModal(\'' + cleanId + '\')" ' +
-        'style="flex:1;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Send SMS</button>' +
       '<button onclick="event.stopPropagation();renotifyClean(\'' + cleanId + '\')" ' +
-        'style="flex:1;padding:10px;background:var(--mist,#F0EDE8);color:var(--text,#1A1A1A);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--mist,#F0EDE8);color:var(--text,#1A1A1A);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Re-notify</button>' +
       '<button onclick="event.stopPropagation();reassignClean(\'' + cleanId + '\')" ' +
-        'style="flex:1;padding:10px;background:var(--mist,#F0EDE8);color:var(--text,#1A1A1A);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--mist,#F0EDE8);color:var(--text,#1A1A1A);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Reassign</button>';
   } else if (status === 'declined') {
     buttons =
       '<button onclick="event.stopPropagation();openNotifyModal(\'' + cleanId + '\')" ' +
-        'style="flex:1;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Send SMS</button>' +
       '<button onclick="event.stopPropagation();reassignClean(\'' + cleanId + '\')" ' +
-        'style="flex:1;padding:10px;background:#FCEBEB;color:#A32D2D;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:#FCEBEB;color:#A32D2D;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Reassign</button>';
   } else if (status === 'cancelled_pending') {
     buttons =
       '<button onclick="event.stopPropagation();renotifyClean(\'' + cleanId + '\')" ' +
-        'style="flex:1;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Re-notify</button>';
   } else if (status === 'cancelled_acked') {
     buttons =
@@ -728,7 +728,7 @@ export function toggleCleanAction(index, cleanId, bookingId, status) {
 
   const viewBookingBtn = bookingId
     ? '<button onclick="event.stopPropagation();globalThis.showDetail(\'' + bookingId + '\')" ' +
-        'style="flex:1;padding:10px;background:transparent;color:var(--forest,#1E3A2F);border:1.5px solid var(--warm,#E8E0D5);border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:transparent;color:var(--forest,#1E3A2F);border:1.5px solid var(--warm,#E8E0D5);border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'View booking</button>'
     : '';
 
@@ -904,7 +904,7 @@ function _renderCleanDesktopTable(data, showProperty) {
     '<div style="display:flex;flex-direction:column;gap:16px">' +
       '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Cleaner Summary</div>' + cleanerSummary + '</div>' +
       '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Overview</div>' +
-        '<div style="font-family:\'DM Serif Display\',serif;font-size:28px;color:var(--forest)">' + items.length + ' cleans</div>' +
+        '<div style="font-family:\'Newsreader\',serif;font-size:28px;color:var(--forest)">' + items.length + ' cleans</div>' +
         '<div style="font-size:12px;color:var(--text-soft);margin-top:4px">' + confirmed + ' confirmed · ' + awaiting + ' awaiting · ' + unassigned + ' unassigned</div>' +
       '</div>' +
     '</div>' +

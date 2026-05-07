@@ -139,7 +139,7 @@ export function renderAIIgnoreList() {
         ${item.reason ? `<div style="font-size:11px;color:var(--text-soft);margin-top:2px;font-style:italic">${item.reason}</div>` : ''}
         <div style="font-size:11px;color:var(--text-soft);margin-top:2px">Added ${item.addedDate}</div>
       </div>
-      <button onclick="removeAIIgnoreItem('${item.id}')" style="font-size:11px;color:var(--red);background:none;border:1px solid var(--red);border-radius:20px;padding:4px 10px;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;flex-shrink:0">Remove</button>
+      <button onclick="removeAIIgnoreItem('${item.id}')" style="font-size:11px;color:var(--red);background:none;border:1px solid var(--red);border-radius:20px;padding:4px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap;flex-shrink:0">Remove</button>
     </div>`).join('');
 }
 export function promptIgnore(type, key, label) {
@@ -163,7 +163,7 @@ function renderExpenseAnalysis(data) {
 
   const ignoreBtn = (type, key, label) =>
     `<button onclick="promptIgnore('${type}','${key.replace(/'/g,"\\'")}','${label.replace(/'/g,"\\'")}');event.stopPropagation()"
-      style="font-size:10px;color:var(--text-soft);background:var(--warm);border:none;border-radius:12px;padding:3px 8px;cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:6px;display:inline-block">
+      style="font-size:10px;color:var(--text-soft);background:var(--warm);border:none;border-radius:12px;padding:3px 8px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;margin-top:6px;display:inline-block">
       🚫 Ignore this
     </button>`;
 
