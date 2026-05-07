@@ -3333,46 +3333,35 @@ const EXPENSE_SUBCATS = {
 
 function renderExpenseCatPickerFor(prefix) {
   prefix = prefix || 'exp';
-  const picker = document.getElementById(prefix + '-category-picker');
-  if (!picker) return;
+  const sel = document.getElementById(prefix + '-category');
+  if (!sel || sel.tagName !== 'SELECT') return;
   const cats = getExpenseCats();
-  const hiddenInput = document.getElementById(prefix + '-category');
-  const currentVal = hiddenInput ? hiddenInput.value : '';
-  const pfx = prefix;
+  const currentVal = sel.value || '';
 
-  picker.innerHTML = cats.map((c, i) => {
+  sel.innerHTML = '<option value="">Select a category…</option>';
+  cats.forEach(c => {
     const subs = EXPENSE_SUBCATS[c] || [];
-    const isSelected = currentVal === c || currentVal.startsWith(c + ' > ');
-    const selectedSub = isSelected && currentVal.includes(' > ') ? currentVal.split(' > ')[1] : '';
-    const subCount = subs.length ? subs.length + ' subcategories' : '';
-    const borderTop = i ? 'border-top:1px solid var(--hairline-1);' : '';
-    let html = `<div data-cat="${c}">
-      <div onclick="toggleExpenseCat('${c.replace(/'/g, "\\'")}','${pfx}')" style="display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer;${borderTop}background:${isSelected ? 'var(--primary-soft)' : '#fff'}">
-        <div style="flex:1;min-width:0">
-          <div style="font-size:14px;font-weight:600;color:var(--ink-1)">${c}</div>
-          ${subCount ? `<div style="font-size:11.5px;color:var(--muted-2);margin-top:1px">${subCount}</div>` : ''}
-        </div>
-        ${isSelected
-          ? '<svg width="18" height="18" viewBox="0 0 18 18"><path d="M4 9.5l3 3 7-8" stroke="var(--primary)" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-          : '<div style="width:18px;height:18px;border-radius:50%;border:1.5px solid var(--hairline-2);flex-shrink:0"></div>'}
-      </div>`;
-    if (isSelected && subs.length > 0) {
-      html += `<div style="background:var(--surface2);border-top:1px solid var(--hairline-1)">`;
-      subs.forEach((s, si) => {
-        const subSel = selectedSub === s;
-        const subBorder = si ? 'border-top:1px solid var(--hairline-1);' : '';
-        html += `<div onclick="selectExpenseSubcat('${c.replace(/'/g, "\\'")}','${s.replace(/'/g, "\\'")}','${pfx}')" style="display:flex;align-items:center;gap:10px;padding:10px 14px 10px 38px;cursor:pointer;${subBorder}">
-          <div style="width:16px;height:16px;border-radius:5px;border:1.5px solid ${subSel ? 'var(--primary)' : 'var(--hairline-2)'};background:${subSel ? 'var(--primary)' : '#fff'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
-            ${subSel ? '<svg width="9" height="9" viewBox="0 0 9 9"><path d="M1.5 4.5l2 2 4-5" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}
-          </div>
-          <span style="font-size:13px;color:${subSel ? 'var(--ink-1)' : 'var(--ink-2)'};font-weight:${subSel ? '600' : '400'}">${s}</span>
-        </div>`;
+    if (subs.length) {
+      const og = document.createElement('optgroup');
+      og.label = c;
+      const top = document.createElement('option');
+      top.value = c; top.textContent = c + ' (general)';
+      if (currentVal === c) top.selected = true;
+      og.appendChild(top);
+      subs.forEach(s => {
+        const o = document.createElement('option');
+        o.value = c + ' > ' + s; o.textContent = s;
+        if (currentVal === c + ' > ' + s) o.selected = true;
+        og.appendChild(o);
       });
-      html += '</div>';
+      sel.appendChild(og);
+    } else {
+      const o = document.createElement('option');
+      o.value = c; o.textContent = c;
+      if (currentVal === c) o.selected = true;
+      sel.appendChild(o);
     }
-    html += '</div>';
-    return html;
-  }).join('');
+  });
 }
 globalThis.renderExpenseCatPickerFor = renderExpenseCatPickerFor;
 
@@ -3381,32 +3370,23 @@ globalThis.renderExpenseCatPicker = renderExpenseCatPicker;
 
 function toggleExpenseCat(cat, prefix) {
   prefix = prefix || 'exp';
-  const hiddenInput = document.getElementById(prefix + '-category');
-  if (!hiddenInput) return;
-  const currentVal = hiddenInput.value;
-  if (currentVal === cat || currentVal.startsWith(cat + ' > ')) {
-    hiddenInput.value = '';
-  } else {
-    hiddenInput.value = cat;
-  }
-  renderExpenseCatPickerFor(prefix);
+  const sel = document.getElementById(prefix + '-category');
+  if (!sel) return;
+  sel.value = sel.value === cat ? '' : cat;
 }
 globalThis.toggleExpenseCat = toggleExpenseCat;
 
 function selectExpenseSubcat(cat, sub, prefix) {
   prefix = prefix || 'exp';
-  const hiddenInput = document.getElementById(prefix + '-category');
-  if (!hiddenInput) return;
-  const full = cat + ' > ' + sub;
-  hiddenInput.value = hiddenInput.value === full ? cat : full;
-  renderExpenseCatPickerFor(prefix);
+  const sel = document.getElementById(prefix + '-category');
+  if (!sel) return;
+  sel.value = cat + ' > ' + sub;
 }
 globalThis.selectExpenseSubcat = selectExpenseSubcat;
 
 function resetExpenseCatPicker() {
-  const hiddenInput = document.getElementById('exp-category');
-  if (hiddenInput) hiddenInput.value = '';
-  renderExpenseCatPicker();
+  const sel = document.getElementById('exp-category');
+  if (sel) sel.value = '';
 }
 globalThis.resetExpenseCatPicker = resetExpenseCatPicker;
 
