@@ -8,6 +8,7 @@ import {
   getActivePropertyConfig,
   getPropertyConfig,
   getCurrentHostEmail,
+  getCurrentHostName,
 } from './config.js';
 import { saveAppConfigToCloud, getCurrentSupabaseUser } from './supabase.js';
 import { bookings, cleans } from './state.js';
@@ -964,7 +965,7 @@ export async function sendCleanerEmail({ cleanerName, cleanerEmail, guestName, c
   const propName = (typeof getCurrentPropertyName === 'function') ? getCurrentPropertyName() : '';
   const propConfig = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : ((typeof getPropertyConfig === 'function') ? getPropertyConfig() : {});
   const addressLine = propConfig.address || [propConfig.suburb, propConfig.state].filter(Boolean).join(', ') || '';
-  const hostName = (typeof getCurrentHostName === 'function') ? getCurrentHostName() : '';
+  const hostName = getCurrentHostName();
   const cleanerFirst = String(cleanerName || 'Cleaner').split(' ')[0];
   const cleanDateStr = cleanDate || checkout || '';
 

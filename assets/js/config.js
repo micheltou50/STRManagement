@@ -397,8 +397,14 @@ export function getCurrentPropertyTagline() {
   return [[c.suburb, c.state].filter(Boolean).join(', '), c.region].filter(Boolean).join(' · ');
 }
 
-// getCurrentHostEmail — YOUR email as the host/manager (from host_config).
-// Use this for notifications, test emails, anything sent to/about you.
+export function getCurrentHostName() {
+  try {
+    const profile = JSON.parse(localStorage.getItem('gh-host-profile') || 'null');
+    if (profile && profile.name) return profile.name;
+  } catch (_e) { /* ignore */ }
+  return '';
+}
+
 export function getCurrentHostEmail() {
   try {
     const profile = JSON.parse(localStorage.getItem('gh-host-profile') || 'null');

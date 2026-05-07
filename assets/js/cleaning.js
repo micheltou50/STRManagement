@@ -10,7 +10,7 @@ import {
   escapeJsSingleQuotedHtmlAttr,
   fadeTransition,
 } from './utils.js';
-import { getAllProperties, getActivePropertyId, initPropertyUI, getCurrentPropertyName } from './config.js';
+import { getAllProperties, getActivePropertyId, initPropertyUI, getCurrentPropertyName, getCurrentHostName } from './config.js';
 import {
   getPropertyNameById,
   getPropertyColourById,
@@ -1071,7 +1071,7 @@ async function inviteCleaner(cleanerId) {
   if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
 
   const appUrl = window.location.origin;
-  const hostName = (typeof getCurrentHostName === 'function') ? getCurrentHostName() : '';
+  const hostName = getCurrentHostName();
   const properties = (window._properties || []).map(p => p.name).filter(Boolean).join(', ');
 
   try {
