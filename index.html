@@ -295,10 +295,10 @@
 <!-- ══════════════════════════════════════════════════════════
      STAYOPS ONBOARDING FLOW
 ══════════════════════════════════════════════════════════ -->
-<div id="stayops-onboarding" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9998;background:var(--cream,#F4EEE3);flex-direction:column;overflow-y:auto;">
+<div id="stayops-onboarding" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9998;background:var(--bg,#f5f1ea);flex-direction:column;overflow-y:auto;">
 
   <!-- Top bar: back + progress -->
-  <div style="position:sticky;top:0;z-index:2;background:var(--cream,#F4EEE3);padding:20px 24px 12px">
+  <div style="position:sticky;top:0;z-index:2;background:var(--bg,#f5f1ea);padding:20px 24px 12px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <button class="so-back" onclick="onboardBack()" id="ob-back-btn" aria-label="Back">‹</button>
       <span id="ob-progress-label" class="so-progress-text">3 / 4</span>
@@ -307,6 +307,34 @@
   </div>
 
   <div style="padding:24px 24px 48px;flex:1;max-width:430px;margin:0 auto;width:100%;box-sizing:border-box">
+
+    <!-- STEP SETUP (05): Setting up workspace — dark sage celebratory bootstrap -->
+    <div id="onboard-step-setup" style="display:none;position:fixed;inset:0;background:var(--primary-ink,#1f3f35);z-index:1;display:none;flex-direction:column;align-items:center;justify-content:center;padding:24px;color:#fff">
+      <svg width="88" height="88" viewBox="0 0 88 88" style="margin-bottom:24px">
+        <path d="M22 78V44a22 22 0 0 1 44 0v34Z" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"/>
+        <circle cx="44" cy="48" r="3.4" fill="#fff"/>
+      </svg>
+      <h1 style="font-family:'Newsreader',serif;font-size:30px;font-weight:500;color:#fff;margin-bottom:24px;text-align:center;letter-spacing:-0.01em">Setting up your workspace</h1>
+      <div id="ob-setup-list" style="display:flex;flex-direction:column;gap:14px;width:100%;max-width:340px;margin-bottom:32px">
+        <div class="ob-setup-row" data-i="0" style="display:flex;align-items:center;gap:14px;opacity:0.4;transition:opacity .4s">
+          <div class="ob-setup-tick" style="width:22px;height:22px;border-radius:50%;border:1.5px solid rgba(255,255,255,0.45);display:flex;align-items:center;justify-content:center;flex-shrink:0"></div>
+          <div style="font-size:15px;color:rgba(255,255,255,0.95)">Creating your account</div>
+        </div>
+        <div class="ob-setup-row" data-i="1" style="display:flex;align-items:center;gap:14px;opacity:0.4;transition:opacity .4s">
+          <div class="ob-setup-tick" style="width:22px;height:22px;border-radius:50%;border:1.5px solid rgba(255,255,255,0.45);display:flex;align-items:center;justify-content:center;flex-shrink:0"></div>
+          <div style="font-size:15px;color:rgba(255,255,255,0.95)">Loading regional tax rules</div>
+        </div>
+        <div class="ob-setup-row" data-i="2" style="display:flex;align-items:center;gap:14px;opacity:0.4;transition:opacity .4s">
+          <div class="ob-setup-tick" style="width:22px;height:22px;border-radius:50%;border:1.5px solid rgba(255,255,255,0.45);display:flex;align-items:center;justify-content:center;flex-shrink:0"></div>
+          <div style="font-size:15px;color:rgba(255,255,255,0.95)">Adding cleaning templates</div>
+        </div>
+        <div class="ob-setup-row" data-i="3" style="display:flex;align-items:center;gap:14px;opacity:0.4;transition:opacity .4s">
+          <div class="ob-setup-tick" style="width:22px;height:22px;border-radius:50%;border:1.5px solid rgba(255,255,255,0.45);display:flex;align-items:center;justify-content:center;flex-shrink:0"></div>
+          <div style="font-size:15px;color:rgba(255,255,255,0.95)">Generating sample report</div>
+        </div>
+      </div>
+      <div style="font-family:'JetBrains Mono','SF Mono',monospace;font-size:11px;color:rgba(207,225,217,0.55);letter-spacing:0.08em;text-align:center">Just a moment — preparing your dashboard.</div>
+    </div>
 
     <!-- STEP 0: Property type -->
     <div id="onboard-step-0" style="display:none">
@@ -318,8 +346,8 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12L12 4l9 8"/><path d="M5 10v10h14V10"/></svg>
           </div>
           <div style="flex:1">
-            <div style="font-weight:600;font-size:15px;color:var(--ink,#1B2A24)">Whole place</div>
-            <div style="font-size:13px;color:var(--ink-muted,#6F7568);margin-top:2px">House, apartment, cabin</div>
+            <div style="font-weight:600;font-size:15px;color:var(--ink-1,#1c2620)">Whole place</div>
+            <div style="font-size:13px;color:var(--muted-2,#8a958f);margin-top:2px">House, apartment, cabin</div>
           </div>
           <div id="ob-ptype-check-whole" class="so-radio"></div>
         </div>
@@ -328,8 +356,8 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18V8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10"/><path d="M3 14h18"/><path d="M3 18h18"/></svg>
           </div>
           <div style="flex:1">
-            <div style="font-weight:600;font-size:15px;color:var(--ink,#1B2A24)">Private room</div>
-            <div style="font-size:13px;color:var(--ink-muted,#6F7568);margin-top:2px">Guests share common areas</div>
+            <div style="font-weight:600;font-size:15px;color:var(--ink-1,#1c2620)">Private room</div>
+            <div style="font-size:13px;color:var(--muted-2,#8a958f);margin-top:2px">Guests share common areas</div>
           </div>
           <div id="ob-ptype-check-room" class="so-radio"></div>
         </div>
@@ -338,8 +366,8 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14"/><path d="M7 10h2M7 14h2M11 10h2M11 14h2M15 10h2M15 14h2"/></svg>
           </div>
           <div style="flex:1">
-            <div style="font-weight:600;font-size:15px;color:var(--ink,#1B2A24)">Multi-unit</div>
-            <div style="font-size:13px;color:var(--ink-muted,#6F7568);margin-top:2px">Building or guesthouse</div>
+            <div style="font-weight:600;font-size:15px;color:var(--ink-1,#1c2620)">Multi-unit</div>
+            <div style="font-size:13px;color:var(--muted-2,#8a958f);margin-top:2px">Building or guesthouse</div>
           </div>
           <div id="ob-ptype-check-multi" class="so-radio"></div>
         </div>
@@ -348,8 +376,8 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l9 16H3z"/><path d="M12 10v4"/><circle cx="12" cy="17" r="0.6" fill="currentColor"/></svg>
           </div>
           <div style="flex:1">
-            <div style="font-weight:600;font-size:15px;color:var(--ink,#1B2A24)">Something else</div>
-            <div style="font-size:13px;color:var(--ink-muted,#6F7568);margin-top:2px">Boat, tiny home, glamping</div>
+            <div style="font-weight:600;font-size:15px;color:var(--ink-1,#1c2620)">Something else</div>
+            <div style="font-size:13px;color:var(--muted-2,#8a958f);margin-top:2px">Boat, tiny home, glamping</div>
           </div>
           <div id="ob-ptype-check-other" class="so-radio"></div>
         </div>
@@ -366,13 +394,13 @@
       <div style="margin-bottom:16px">
         <label class="so-input-label">Property name</label>
         <input id="ob-prop-name" type="text" placeholder="Dune Cottage" class="so-input">
-        <div style="font-size:12px;color:var(--ink-muted,#6F7568);margin-top:6px">Guests and your cleaner will see this.</div>
+        <div style="font-size:12px;color:var(--muted-2,#8a958f);margin-top:6px">Guests and your cleaner will see this.</div>
       </div>
 
       <div style="margin-bottom:16px">
-        <label class="so-input-label">Address <span style="color:var(--ink-muted,#6F7568);font-weight:400">(suburb is fine)</span></label>
+        <label class="so-input-label">Address <span style="color:var(--muted-2,#8a958f);font-weight:400">(suburb is fine)</span></label>
         <div style="position:relative">
-          <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--ink-muted,#6F7568)">
+          <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted-2,#8a958f)">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
           </span>
           <input id="ob-suburb" type="text" placeholder="Byron Bay" class="so-input" style="padding-left:38px">
@@ -437,7 +465,7 @@
     <div id="onboard-step-2" style="display:none">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
         <span class="so-pill optional">Optional</span>
-        <button onclick="onboardSkipStep(2)" style="background:none;border:none;color:var(--ink-muted,#6F7568);font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;padding:0">Skip</button>
+        <button onclick="onboardSkipStep(2)" style="background:none;border:none;color:var(--muted-2,#8a958f);font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;padding:0">Skip</button>
       </div>
       <h1 class="so-h1" style="margin:0 0 8px">Who keeps your place tidy?</h1>
       <p class="so-sub" style="margin:0 0 22px">Add your cleaner now and we'll auto-create cleans from your bookings. You can also do this later.</p>
@@ -449,7 +477,7 @@
       <div style="margin-bottom:16px">
         <label class="so-input-label">Phone</label>
         <div style="position:relative">
-          <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--ink-muted,#6F7568)">
+          <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted-2,#8a958f)">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.72 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.35 1.85.59 2.81.72A2 2 0 0 1 22 16.92z"/></svg>
           </span>
           <input id="ob-cleaner-phone" type="tel" placeholder="+31 6 1234 5678" class="so-input" style="padding-left:38px">
@@ -468,7 +496,7 @@
         <div class="so-check-tile">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
-        <div style="flex:1;font-size:14px;color:var(--ink,#1B2A24);line-height:1.4">Auto-text your cleaner when a checkout is booked</div>
+        <div style="flex:1;font-size:14px;color:var(--ink-1,#1c2620);line-height:1.4">Auto-text your cleaner when a checkout is booked</div>
         <div id="ob-cleaner-autotext" class="so-toggle on" onclick="this.classList.toggle('on')"></div>
       </div>
 
@@ -488,8 +516,8 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>
           </div>
           <div style="flex:1">
-            <div style="font-weight:600;font-size:15px;color:var(--ink,#1B2A24)">Airbnb</div>
-            <div style="font-size:13px;color:var(--ink-muted,#6F7568);margin-top:2px">Short-term rental platform</div>
+            <div style="font-weight:600;font-size:15px;color:var(--ink-1,#1c2620)">Airbnb</div>
+            <div style="font-size:13px;color:var(--muted-2,#8a958f);margin-top:2px">Short-term rental platform</div>
           </div>
           <div id="ob-check-airbnb" class="so-radio"></div>
         </div>
@@ -498,8 +526,8 @@
             <span style="font-family:'Newsreader',serif;font-weight:700">B.</span>
           </div>
           <div style="flex:1">
-            <div style="font-weight:600;font-size:15px;color:var(--ink,#1B2A24)">Booking.com</div>
-            <div style="font-size:13px;color:var(--ink-muted,#6F7568);margin-top:2px">Hotel &amp; vacation rentals</div>
+            <div style="font-weight:600;font-size:15px;color:var(--ink-1,#1c2620)">Booking.com</div>
+            <div style="font-size:13px;color:var(--muted-2,#8a958f);margin-top:2px">Hotel &amp; vacation rentals</div>
           </div>
           <div id="ob-check-booking" class="so-radio"></div>
         </div>
@@ -508,8 +536,8 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12c2-3 5-3 7 0s5 3 7 0 4-3 4 0"/><path d="M3 17c2-3 5-3 7 0s5 3 7 0 4-3 4 0"/></svg>
           </div>
           <div style="flex:1">
-            <div style="font-weight:600;font-size:15px;color:var(--ink,#1B2A24)">Stayz</div>
-            <div style="font-size:13px;color:var(--ink-muted,#6F7568);margin-top:2px">Australian vacation rentals</div>
+            <div style="font-weight:600;font-size:15px;color:var(--ink-1,#1c2620)">Stayz</div>
+            <div style="font-size:13px;color:var(--muted-2,#8a958f);margin-top:2px">Australian vacation rentals</div>
           </div>
           <div id="ob-check-stayz" class="so-radio"></div>
         </div>
@@ -518,8 +546,8 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12L12 4l9 8"/><path d="M5 10v10h14V10"/></svg>
           </div>
           <div style="flex:1">
-            <div style="font-weight:600;font-size:15px;color:var(--ink,#1B2A24)">VRBO</div>
-            <div style="font-size:13px;color:var(--ink-muted,#6F7568);margin-top:2px">Vacation rental platform</div>
+            <div style="font-weight:600;font-size:15px;color:var(--ink-1,#1c2620)">VRBO</div>
+            <div style="font-size:13px;color:var(--muted-2,#8a958f);margin-top:2px">Vacation rental platform</div>
           </div>
           <div id="ob-check-vrbo" class="so-radio"></div>
         </div>
@@ -528,8 +556,8 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/></svg>
           </div>
           <div style="flex:1">
-            <div style="font-weight:600;font-size:15px;color:var(--ink,#1B2A24)">Direct booking</div>
-            <div style="font-size:13px;color:var(--ink-muted,#6F7568);margin-top:2px">From your own website or clients</div>
+            <div style="font-weight:600;font-size:15px;color:var(--ink-1,#1c2620)">Direct booking</div>
+            <div style="font-size:13px;color:var(--muted-2,#8a958f);margin-top:2px">From your own website or clients</div>
           </div>
           <div id="ob-check-direct" class="so-radio"></div>
         </div>
@@ -542,7 +570,7 @@
     <!-- STEP LIVE: Property is live (success state, between platforms and integrations) -->
     <div id="onboard-step-live" style="display:none">
       <div style="margin-top:12px;position:relative;display:inline-block">
-        <div style="width:72px;height:72px;border-radius:18px;background:var(--forest,#1E3A2F);color:#fff;display:flex;align-items:center;justify-content:center">
+        <div style="width:72px;height:72px;border-radius:18px;background:var(--primary-ink,#1f3f35);color:#fff;display:flex;align-items:center;justify-content:center">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none"><path d="M5 12L10 17L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <span class="so-confetti c1"></span>
@@ -553,10 +581,10 @@
       <p class="so-sub" style="margin:0 0 20px">Your first property is set up. Next, we'll see if you want to plug in any of your existing tools — totally optional.</p>
 
       <div class="so-card" style="display:flex;align-items:center;gap:14px;margin-bottom:32px">
-        <div style="width:52px;height:52px;border-radius:12px;background:repeating-linear-gradient(135deg, var(--sage-tint,#EAF1E6) 0 6px, var(--sage-soft,#D6E3D2) 6px 12px);flex-shrink:0"></div>
+        <div style="width:52px;height:52px;border-radius:12px;background:repeating-linear-gradient(135deg, var(--primary-soft,#dde8e1) 0 6px, var(--primary-soft,#dde8e1) 6px 12px);flex-shrink:0"></div>
         <div style="flex:1">
-          <div id="ob-live-name" style="font-family:'Newsreader',serif;font-size:18px;color:var(--ink,#1B2A24);line-height:1.1">Your property</div>
-          <div id="ob-live-meta" style="font-size:13px;color:var(--ink-muted,#6F7568);margin-top:4px">2 bd · 1 ba · sleeps 4</div>
+          <div id="ob-live-name" style="font-family:'Newsreader',serif;font-size:18px;color:var(--ink-1,#1c2620);line-height:1.1">Your property</div>
+          <div id="ob-live-meta" style="font-size:13px;color:var(--muted-2,#8a958f);margin-top:4px">2 bd · 1 ba · sleeps 4</div>
         </div>
         <span class="so-pill active">Active</span>
       </div>
@@ -576,50 +604,50 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
           </div>
           <div style="flex:1;min-width:0">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:600;font-size:14px;color:var(--ink,#1B2A24)">Airbnb calendar</span><span class="so-pill popular">Popular</span></div>
-            <div style="font-size:12px;color:var(--ink-muted,#6F7568);margin-top:2px">Pull bookings from your iCal feed</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:600;font-size:14px;color:var(--ink-1,#1c2620)">Airbnb calendar</span><span class="so-pill popular">Popular</span></div>
+            <div style="font-size:12px;color:var(--muted-2,#8a958f);margin-top:2px">Pull bookings from your iCal feed</div>
           </div>
-          <button class="ob-int-btn" onclick="onboardToggleIntegration('ical')" style="background:var(--sage-tint,#EAF1E6);color:var(--forest,#1E3A2F);border:none;padding:8px 14px;border-radius:10px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer">Connect</button>
+          <button class="ob-int-btn" onclick="onboardToggleIntegration('ical')" style="background:var(--primary-soft,#dde8e1);color:var(--primary-ink,#1f3f35);border:none;padding:8px 14px;border-radius:10px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer">Connect</button>
         </div>
         <div class="so-card" id="ob-int-calendar" style="display:flex;align-items:center;gap:12px">
           <div class="so-icon-tile">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/></svg>
           </div>
           <div style="flex:1;min-width:0">
-            <div style="font-weight:600;font-size:14px;color:var(--ink,#1B2A24)">Google Calendar</div>
-            <div style="font-size:12px;color:var(--ink-muted,#6F7568);margin-top:2px">Sync stays to your personal calendar</div>
+            <div style="font-weight:600;font-size:14px;color:var(--ink-1,#1c2620)">Google Calendar</div>
+            <div style="font-size:12px;color:var(--muted-2,#8a958f);margin-top:2px">Sync stays to your personal calendar</div>
           </div>
-          <button class="ob-int-btn" onclick="onboardToggleIntegration('calendar')" style="background:var(--sage-tint,#EAF1E6);color:var(--forest,#1E3A2F);border:none;padding:8px 14px;border-radius:10px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer">Connect</button>
+          <button class="ob-int-btn" onclick="onboardToggleIntegration('calendar')" style="background:var(--primary-soft,#dde8e1);color:var(--primary-ink,#1f3f35);border:none;padding:8px 14px;border-radius:10px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer">Connect</button>
         </div>
         <div class="so-card" id="ob-int-sheet" style="display:flex;align-items:center;gap:12px">
           <div class="so-icon-tile">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
           </div>
           <div style="flex:1;min-width:0">
-            <div style="font-weight:600;font-size:14px;color:var(--ink,#1B2A24)">Google Sheets</div>
-            <div style="font-size:12px;color:var(--ink-muted,#6F7568);margin-top:2px">Import past bookings from a spreadsheet</div>
+            <div style="font-weight:600;font-size:14px;color:var(--ink-1,#1c2620)">Google Sheets</div>
+            <div style="font-size:12px;color:var(--muted-2,#8a958f);margin-top:2px">Import past bookings from a spreadsheet</div>
           </div>
-          <button class="ob-int-btn" onclick="onboardToggleIntegration('sheet')" style="background:var(--sage-tint,#EAF1E6);color:var(--forest,#1E3A2F);border:none;padding:8px 14px;border-radius:10px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer">Connect</button>
+          <button class="ob-int-btn" onclick="onboardToggleIntegration('sheet')" style="background:var(--primary-soft,#dde8e1);color:var(--primary-ink,#1f3f35);border:none;padding:8px 14px;border-radius:10px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer">Connect</button>
         </div>
         <div class="so-card" id="ob-int-email" style="display:flex;align-items:center;gap:12px">
           <div class="so-icon-tile" style="background:var(--butter-soft,#F5E6C7);color:#7A5A1F">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
           </div>
           <div style="flex:1;min-width:0">
-            <div style="font-weight:600;font-size:14px;color:var(--ink,#1B2A24)">Email parser</div>
-            <div style="font-size:12px;color:var(--ink-muted,#6F7568);margin-top:2px">Forward booking emails — we'll read them</div>
+            <div style="font-weight:600;font-size:14px;color:var(--ink-1,#1c2620)">Email parser</div>
+            <div style="font-size:12px;color:var(--muted-2,#8a958f);margin-top:2px">Forward booking emails — we'll read them</div>
           </div>
-          <button class="ob-int-btn" onclick="onboardToggleIntegration('email')" style="background:var(--sage-tint,#EAF1E6);color:var(--forest,#1E3A2F);border:none;padding:8px 14px;border-radius:10px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer">Connect</button>
+          <button class="ob-int-btn" onclick="onboardToggleIntegration('email')" style="background:var(--primary-soft,#dde8e1);color:var(--primary-ink,#1f3f35);border:none;padding:8px 14px;border-radius:10px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer">Connect</button>
         </div>
         <div class="so-card" id="ob-int-receipts" style="display:flex;align-items:center;gap:12px">
           <div class="so-icon-tile" style="background:#EFE0F4;color:#6E4992">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           </div>
           <div style="flex:1;min-width:0">
-            <div style="font-weight:600;font-size:14px;color:var(--ink,#1B2A24)">Cleaner texts</div>
-            <div style="font-size:12px;color:var(--ink-muted,#6F7568);margin-top:2px">Auto-message your cleaner on checkouts</div>
+            <div style="font-weight:600;font-size:14px;color:var(--ink-1,#1c2620)">Cleaner texts</div>
+            <div style="font-size:12px;color:var(--muted-2,#8a958f);margin-top:2px">Auto-message your cleaner on checkouts</div>
           </div>
-          <button class="ob-int-btn" onclick="onboardToggleIntegration('receipts')" style="background:var(--sage-tint,#EAF1E6);color:var(--forest,#1E3A2F);border:none;padding:8px 14px;border-radius:10px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer">Connect</button>
+          <button class="ob-int-btn" onclick="onboardToggleIntegration('receipts')" style="background:var(--primary-soft,#dde8e1);color:var(--primary-ink,#1f3f35);border:none;padding:8px 14px;border-radius:10px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer">Connect</button>
         </div>
       </div>
 
@@ -630,27 +658,27 @@
     <!-- STEP 5: Notifications (optional) -->
     <div id="onboard-step-5" style="display:none">
       <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
-        <button onclick="onboardSkipStep(5)" style="background:none;border:none;color:var(--ink-muted,#6F7568);font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;padding:0">Skip</button>
+        <button onclick="onboardSkipStep(5)" style="background:none;border:none;color:var(--muted-2,#8a958f);font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;padding:0">Skip</button>
       </div>
 
       <!-- Bell illustration -->
       <div class="so-bell-illu" style="margin-bottom:12px">
-        <div style="position:absolute;top:18%;left:18%;width:64%;height:64%;border-radius:50%;background:var(--sage-tint,#EAF1E6)"></div>
+        <div style="position:absolute;top:18%;left:18%;width:64%;height:64%;border-radius:50%;background:var(--primary-soft,#dde8e1)"></div>
         <svg viewBox="0 0 120 120" style="position:absolute;inset:0;width:100%;height:100%">
           <g transform="translate(60 62)">
-            <path d="M-20 -10 Q-20 -32 0 -32 Q20 -32 20 -10 L24 8 L-24 8 Z" fill="var(--forest,#1E3A2F)"/>
-            <path d="M-8 8 Q0 18 8 8" fill="none" stroke="var(--forest,#1E3A2F)" stroke-width="3" stroke-linecap="round"/>
+            <path d="M-20 -10 Q-20 -32 0 -32 Q20 -32 20 -10 L24 8 L-24 8 Z" fill="var(--primary-ink,#1f3f35)"/>
+            <path d="M-8 8 Q0 18 8 8" fill="none" stroke="var(--primary-ink,#1f3f35)" stroke-width="3" stroke-linecap="round"/>
             <circle cx="18" cy="-26" r="5" fill="var(--amber,#C17F3E)"/>
           </g>
         </svg>
-        <div style="position:absolute;top:14%;right:-4%;background:#fff;border:1px solid var(--line,#E4DCC9);border-radius:14px;padding:8px 12px;font-size:11px;font-weight:600;color:var(--ink,#1B2A24);box-shadow:0 4px 14px rgba(0,0,0,0.06);white-space:nowrap">New booking · €420</div>
-        <div style="position:absolute;bottom:8%;left:-8%;background:#fff;border:1px solid var(--line,#E4DCC9);border-radius:14px;padding:8px 12px;font-size:11px;font-weight:600;color:var(--ink,#1B2A24);box-shadow:0 4px 14px rgba(0,0,0,0.06);white-space:nowrap">Mara finished cleaning</div>
+        <div style="position:absolute;top:14%;right:-4%;background:#fff;border:1px solid var(--hairline-1,#e8e1d3);border-radius:14px;padding:8px 12px;font-size:11px;font-weight:600;color:var(--ink-1,#1c2620);box-shadow:0 4px 14px rgba(0,0,0,0.06);white-space:nowrap">New booking · €420</div>
+        <div style="position:absolute;bottom:8%;left:-8%;background:#fff;border:1px solid var(--hairline-1,#e8e1d3);border-radius:14px;padding:8px 12px;font-size:11px;font-weight:600;color:var(--ink-1,#1c2620);box-shadow:0 4px 14px rgba(0,0,0,0.06);white-space:nowrap">Mara finished cleaning</div>
       </div>
 
       <h1 class="so-h1" style="margin:8px 0 12px">Stay in the loop.</h1>
       <p class="so-sub" style="margin:0 0 28px">We'll only ping you for new bookings, cancellations, and finished cleans. <strong>No marketing — promise.</strong></p>
 
-      <div id="ob-notif-result" style="font-size:13px;color:var(--moss,#4A7C59);font-weight:600;margin-bottom:12px;display:none"></div>
+      <div id="ob-notif-result" style="font-size:13px;color:var(--primary,#2f5d4e);font-weight:600;margin-bottom:12px;display:none"></div>
       <button id="ob-notif-enable-btn" onclick="onboardEnableNotifications()" class="so-btn-primary">Turn on notifications</button>
       <button onclick="onboardSkipStep(5)" class="so-btn-skip">Maybe later</button>
     </div>
@@ -659,7 +687,7 @@
     <div id="onboard-step-6" style="display:none">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
         <span class="so-pill required" id="ob-qs-count">2 OF 6 DONE</span>
-        <button onclick="onboardFinish()" style="background:none;border:none;color:var(--ink-muted,#6F7568);font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;padding:0">Skip</button>
+        <button onclick="onboardFinish()" style="background:none;border:none;color:var(--muted-2,#8a958f);font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;padding:0">Skip</button>
       </div>
       <h1 class="so-h1" style="margin:0 0 8px">You're nearly there.</h1>
       <p class="so-sub" style="margin:0 0 18px">Finish these whenever — they'll stay on your dashboard until done.</p>
@@ -672,19 +700,33 @@
 </div>
 
 <!-- ══════════════════════════════════════════════════════════
-     STAYOPS LOADING SCREEN
+     STAYOPS LOADING / SPLASH SCREEN (00)
 ══════════════════════════════════════════════════════════ -->
-<div id="stayops-loading-screen" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:var(--forest,#1E3A2F);flex-direction:column;align-items:center;justify-content:center;">
-  <div style="text-align:center">
-    <div style="font-family:'Newsreader',serif;font-size:38px;color:white;line-height:1">Stay<span style="color:#8FAF85;font-style:italic">Ops</span></div>
-    <div style="font-size:12px;color:rgba(255,255,255,0.45);letter-spacing:1.2px;text-transform:uppercase;margin-top:8px;margin-bottom:32px">Property Management</div>
-    <div style="display:flex;gap:8px;justify-content:center">
-      <div style="width:8px;height:8px;border-radius:50%;background:#8FAF85;animation:so-pulse 1.2s ease-in-out infinite"></div>
-      <div style="width:8px;height:8px;border-radius:50%;background:#8FAF85;animation:so-pulse 1.2s ease-in-out 0.2s infinite"></div>
-      <div style="width:8px;height:8px;border-radius:50%;background:#8FAF85;animation:so-pulse 1.2s ease-in-out 0.4s infinite"></div>
-    </div>
-    <div id="loading-status" style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:16px;font-family:'Plus Jakarta Sans',sans-serif">Loading…</div>
+<div id="stayops-loading-screen" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:var(--primary-ink,#1f3f35);flex-direction:column;align-items:center;justify-content:center;overflow:hidden;">
+  <!-- Faint hospitality glyph backdrop -->
+  <div aria-hidden="true" style="position:absolute;inset:0;color:rgba(207,225,217,0.06);pointer-events:none;font-family:'Newsreader',serif;font-size:24px;line-height:1.6">
+    <span style="position:absolute;top:9%;left:8%">✦</span>
+    <span style="position:absolute;top:19%;right:12%">⌂</span>
+    <span style="position:absolute;top:38%;left:14%">☽</span>
+    <span style="position:absolute;top:64%;right:8%">✦</span>
+    <span style="position:absolute;top:78%;left:18%">⌂</span>
+    <span style="position:absolute;top:88%;right:16%">☽</span>
   </div>
+  <div style="text-align:center;position:relative;z-index:1">
+    <!-- Arch mark -->
+    <svg width="56" height="56" viewBox="0 0 56 56" style="margin:0 auto 14px;display:block">
+      <path d="M14 50V28a14 14 0 0 1 28 0v22Z" fill="none" stroke="#a8c5b5" stroke-width="2.4" stroke-linejoin="round"/>
+      <circle cx="28" cy="30" r="2.4" fill="#a8c5b5"/>
+    </svg>
+    <div style="font-family:'Newsreader',serif;font-size:42px;color:#fff;line-height:1;font-weight:500;letter-spacing:-0.02em">Stay<span style="color:#a8c5b5;font-style:italic">Ops</span></div>
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:24px">
+      <div style="width:7px;height:7px;border-radius:50%;background:rgba(207,225,217,0.5);animation:so-blink 1.2s infinite"></div>
+      <div style="width:7px;height:7px;border-radius:50%;background:rgba(207,225,217,0.5);animation:so-blink 1.2s 0.25s infinite"></div>
+      <div style="width:7px;height:7px;border-radius:50%;background:rgba(207,225,217,0.5);animation:so-blink 1.2s 0.5s infinite"></div>
+    </div>
+    <div id="loading-status" style="font-size:12px;color:rgba(207,225,217,0.65);margin-top:18px;font-family:'JetBrains Mono','SF Mono',monospace;letter-spacing:0.04em">Checking your session…</div>
+  </div>
+  <div style="position:absolute;bottom:32px;left:0;right:0;text-align:center;font-family:'JetBrains Mono','SF Mono',monospace;font-size:9px;color:rgba(207,225,217,0.45);letter-spacing:0.2em">SHORT-STAY PROPERTY MANAGEMENT</div>
   <style>
     @keyframes so-pulse {
       0%, 100% { opacity: 0.3; transform: scale(0.8); }
