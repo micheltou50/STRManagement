@@ -1536,12 +1536,6 @@ function buildSinglePropertyTodayDashboardMarkup() {
   const daysThisMonth = new Date(thisYear, thisMonth + 1, 0).getDate();
   const monthStart = new Date(thisYear, thisMonth, 1);
   const monthEnd = new Date(thisYear, thisMonth + 1, 1);
-  const pad = n => String(n).padStart(2, '0');
-  const monthStartStr = `${thisYear}-${pad(thisMonth + 1)}-01`;
-  const nextM = thisMonth === 11 ? 0 : thisMonth + 1;
-  const nextY = thisMonth === 11 ? thisYear + 1 : thisYear;
-  const monthEndStr = `${nextY}-${pad(nextM + 1)}-01`;
-
   let bookedNightsMonth = 0;
   activeBookings.forEach(b => {
     if (!b.checkin || !b.checkout) return;
