@@ -95,6 +95,7 @@ import {
 import {
   showCleanerHome, showCleanerOffer, showCleanerActive, completeCleanerClean, hideCleanerV2
 } from './cleaner-ui.js';
+import { runOnboarding, hideOnboarding as hideOnboardingV2 } from './onboarding-v2.js';
 /* eslint-enable no-unused-vars */
 
 // ── GLOBAL SCOPE ASSIGNMENTS ───────────────────────────────────────────────────
@@ -302,6 +303,8 @@ window.showCleanerOffer         = showCleanerOffer;
 window.showCleanerActive        = showCleanerActive;
 window.completeCleanerClean     = completeCleanerClean;
 window.hideCleanerV2            = hideCleanerV2;
+window.runOnboarding            = runOnboarding;
+window.hideOnboardingV2         = hideOnboardingV2;
 window.switchMgmtSubTab         = switchMgmtSubTab;
 window.switchModalTab           = switchModalTab;
 window.switchPayoutsSubTab      = switchPayoutsSubTab;
