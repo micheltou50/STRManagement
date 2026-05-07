@@ -974,6 +974,50 @@ function renderFinanceHubCounts() {
       recentMount.innerHTML = '';
     }
   }
+
+  const heroNet = document.getElementById('finance-hero-net');
+  const heroSub = document.getElementById('finance-hero-sub');
+  if (heroNet) {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const activeBookings = (bookings || []).filter(b => b.status !== 'cancelled');
+    const revenueThisMonth = activeBookings
+      .filter(b => {
+        const ci = new Date(b.checkin + 'T00:00:00');
+        return !Number.isNaN(ci.getTime()) && ci >= monthStart && ci < monthEnd;
+      })
+      .reduce((s, b) => s + (Number(b.hostPayout) || 0), 0);
+    const expensesThisMonth = (expenses || [])
+      .filter(e => {
+        const d = new Date((e.date || '') + 'T00:00:00');
+        return !Number.isNaN(d.getTime()) && d >= monthStart && d < monthEnd;
+      })
+      .reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    const net = revenueThisMonth - expensesThisMonth;
+    heroNet.textContent = '$' + Math.round(net).toLocaleString();
+  }
+  if (heroSub) {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const activeBookings = (bookings || []).filter(b => b.status !== 'cancelled');
+    const revenueThisMonth = activeBookings
+      .filter(b => {
+        const ci = new Date(b.checkin + 'T00:00:00');
+        return !Number.isNaN(ci.getTime()) && ci >= monthStart && ci < monthEnd;
+      })
+      .reduce((s, b) => s + (Number(b.hostPayout) || 0), 0);
+    const expensesThisMonth = (expenses || [])
+      .filter(e => {
+        const d = new Date((e.date || '') + 'T00:00:00');
+        return !Number.isNaN(d.getTime()) && d >= monthStart && d < monthEnd;
+      })
+      .reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    heroSub.innerHTML =
+      `<span>↑ $${Math.round(revenueThisMonth).toLocaleString()} earned</span>` +
+      `<span>↓ $${Math.round(expensesThisMonth).toLocaleString()} spent</span>`;
+  }
 }
 
 /** Toggle the Add Expense form panel open/closed. */
