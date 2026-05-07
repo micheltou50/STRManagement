@@ -944,6 +944,36 @@ function renderFinanceHubCounts() {
       recEl.textContent = 'Auto-generated expenses';
     }
   }
+
+  const recentMount = document.getElementById('finance-hub-recent');
+  if (recentMount) {
+    const sorted = [...(expenses || [])].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 3);
+    if (sorted.length) {
+      const fmtDate = d => { if (!d) return ''; const dt = new Date(d + 'T00:00:00'); return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
+      const cards = sorted.map(e => {
+        const amt = Number(e.amount) || 0;
+        const cat = e.category || 'Uncategorized';
+        return `<div style="background:#fff;border-radius:14px;padding:12px;border:1px solid var(--hairline-1);display:flex;align-items:center;gap:12px">
+          <div style="width:38px;height:38px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center">
+            <div style="width:8px;height:8px;border-radius:50%;background:var(--warn)"></div>
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13.5px;font-weight:600;color:var(--ink-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(e.description || e.merchant || 'Expense')}</div>
+            <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${escHtml(cat)} · ${fmtDate(e.date)}</div>
+          </div>
+          <div style="font-family:'Newsreader',serif;font-size:16px;font-weight:600;color:var(--warn);white-space:nowrap">−$${amt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+        </div>`;
+      }).join('');
+      recentMount.innerHTML =
+        `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">` +
+        `<div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase">Recent</div>` +
+        `<div onclick="showFinanceSub('expenses')" style="font-size:12px;color:var(--primary);font-weight:600;cursor:pointer">See all</div>` +
+        `</div>` +
+        `<div style="display:flex;flex-direction:column;gap:8px">${cards}</div>`;
+    } else {
+      recentMount.innerHTML = '';
+    }
+  }
 }
 
 /** Toggle the Add Expense form panel open/closed. */
