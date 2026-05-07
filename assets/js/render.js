@@ -582,8 +582,6 @@ function renderAll() {
   renderHeaderDateBadge()
   renderDashboard();
   renderBookings(); // always refresh booking list after sync
-  // First-booking "aha" toast (spec screen 14): fires once when bookings array has its first entry post-onboarding.
-  try { maybeShowFirstBookingToast(globalThis.bookings || []); } catch (_) { /* non-fatal */ }
   populateSelects();
   populateExpenseCatSelect();
   const expDate = document.getElementById('exp-date');
@@ -3537,56 +3535,7 @@ function showOnboarding() {
   if (app) app.style.display = 'none';
   if (nav) nav.style.display = 'none';
   if (hdr) hdr.style.display = 'none';
-  // Run "Setting up workspace" animation once per session (signup path), then advance.
-  const seen = sessionStorage.getItem('stayops.setupAnimSeen');
-  if (!seen) {
-    sessionStorage.setItem('stayops.setupAnimSeen', '1');
-    _obGoToStep('setup');
-    _runSetupAnimation();
-  } else {
-    _obGoToStep(0);
-  }
-}
-
-// ── First-booking "aha" toast (spec screen 14) ─────────────────────────────
-// Fires once when bookings.length goes 0 -> 1 post-onboarding. Persisted via localStorage.
-export function maybeShowFirstBookingToast(bookingsArr) {
-  try {
-    if (localStorage.getItem('stayops.firstBookingToastShown')) return;
-    if (!Array.isArray(bookingsArr) || bookingsArr.length === 0) return;
-    // Only fire post-onboarding (host_config exists)
-    const cfg = globalThis.appConfig || globalThis.config;
-    if (!cfg) return;
-    localStorage.setItem('stayops.firstBookingToastShown', '1');
-    const cleaner = (globalThis._cleaners && globalThis._cleaners[0]?.name) || 'your cleaner';
-    let toast = document.getElementById('so-first-booking-toast');
-    if (!toast) {
-      toast = document.createElement('div');
-      toast.id = 'so-first-booking-toast';
-      toast.className = 'so-toast';
-      document.body.appendChild(toast);
-    }
-    toast.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg><span>Booking saved · ${cleaner} notified</span>`;
-    requestAnimationFrame(() => toast.classList.add('show'));
-    setTimeout(() => toast.classList.remove('show'), 4200);
-  } catch (_) { /* non-fatal */ }
-}
-
-function _runSetupAnimation() {
-  const rows = document.querySelectorAll('#onboard-step-setup .ob-setup-row');
-  // Stagger checkmarks ~600ms apart, then advance to step 0.
-  rows.forEach((row, i) => {
-    setTimeout(() => {
-      row.style.opacity = '1';
-      const tick = row.querySelector('.ob-setup-tick');
-      if (tick) {
-        tick.style.background = '#a8c5b5';
-        tick.style.borderColor = '#a8c5b5';
-        tick.innerHTML = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3.5" stroke="#1f3f35" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      }
-    }, 350 + i * 600);
-  });
-  setTimeout(() => _obGoToStep(0), 350 + rows.length * 600 + 500);
+  _obGoToStep(0);
 }
 
 function hideOnboarding() {
@@ -3601,11 +3550,10 @@ function hideOnboarding() {
   if (hdr) hdr.style.display = '';
 }
 
-// Step IDs (some are strings, like 'live' or 'setup')
-const _OB_STEP_ORDER = ['setup', 0, 1, 2, 3, 'live', 4, 5, 6];
+// Step IDs (some are strings, like 'live')
+const _OB_STEP_ORDER = [0, 1, 2, 3, 'live', 4, 5, 6];
 // Progress label for the X / 4 indicator (PDF treats setup as 4 sections)
 const _OB_PROGRESS_LABELS = {
-  setup: null,
   0: '3 / 4', 1: '3 / 4', 2: null,    // cleaner is OPTIONAL — no counter
   3: '4 / 4', live: null,
   4: '4 / 4', 5: null, 6: null
@@ -3631,10 +3579,7 @@ function _obGoToStep(step) {
   }
   // Hide back button on first step
   const back = document.getElementById('ob-back-btn');
-  if (back) back.style.visibility = (step === 0 || step === 'setup') ? 'hidden' : 'visible';
-  // Hide entire top bar (progress + back) on the setup splash
-  const wrapTop = document.querySelector('#stayops-onboarding > div[style*="position:sticky"]');
-  if (wrapTop) wrapTop.style.display = step === 'setup' ? 'none' : '';
+  if (back) back.style.visibility = step === 0 ? 'hidden' : 'visible';
   // Build quick-start list when arriving at step 6
   if (step === 6) renderQuickStartList();
   // Populate property summary when arriving at live
