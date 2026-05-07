@@ -68,7 +68,8 @@ import {
 import { installCalendarSyncOutbound, triggerCalendarReconcileNow } from './calendar-sync-outbound.js';
 import {
   calPrev, calNext, openCalPreview, closeCalPreview, addNote, showDetail, showEditModal, saveEdit, editCalcNights, editCalcNet, filterBookings, addBooking,
-  deleteBooking, importAirbnbCSV, importCSV, switchModalTab, saveCleaningFee, saveCleanCost, renderBookings, switchBookingsView, renderBookingsCalendarView
+  deleteBooking, importAirbnbCSV, importCSV, switchModalTab, saveCleaningFee, saveCleanCost, renderBookings, switchBookingsView, renderBookingsCalendarView,
+  openBookingFilterSheet, closeBookingFilterSheet, cycleBookingFilterDateRange, resetBookingFilters, applyBookingFilters
 } from './bookings.js';
 import {
   renderAdmin, switchAdminTab, adminHandleToggle, adminToggleTemplate, adminSendTestEmail,
@@ -209,6 +210,11 @@ window.extractExpenseFromReceipt = extractExpenseFromReceipt;
 window.filterBookings           = filterBookings;
 window.switchBookingsView       = switchBookingsView;
 window.renderBookingsCalendarView = renderBookingsCalendarView;
+window.openBookingFilterSheet   = openBookingFilterSheet;
+window.closeBookingFilterSheet  = closeBookingFilterSheet;
+window.cycleBookingFilterDateRange = cycleBookingFilterDateRange;
+window.resetBookingFilters      = resetBookingFilters;
+window.applyBookingFilters      = applyBookingFilters;
 window.fyNext                   = fyNext;
 window.fyPrev                   = fyPrev;
 window.generateInvoice          = generateInvoice;

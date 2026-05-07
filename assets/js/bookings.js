@@ -1587,6 +1587,148 @@ async function saveCleanCost(cleanId, bookingId) {
 const editBooking = showEditModal;
 const saveBookingEdit = saveEdit;
 
+// ── BOOKING FILTER SHEET ────────────────────────────────────────────────────
+const _bkFilterState = { sources: [], statuses: [], dateRange: 'all' };
+const _BK_SOURCES = ['Direct', 'Airbnb', 'Booking.com', 'VRBO'];
+const _BK_STATUSES = ['Confirmed', 'Pending', 'Cancelled', 'Past'];
+const _BK_DATE_RANGES = [
+  { key: 'all', label: 'All time', sub: '' },
+  { key: 'this-month', label: 'This month', sub: () => { const n = new Date(); return `1 – ${new Date(n.getFullYear(), n.getMonth() + 1, 0).getDate()} ${n.toLocaleDateString('en-AU', { month: 'short' })}`; } },
+  { key: 'next-30', label: 'Next 30 days', sub: () => { const s = new Date(); const e = new Date(s.getTime() + 30 * 86400000); return `${s.getDate()} ${s.toLocaleDateString('en-AU', { month: 'short' })} – ${e.getDate()} ${e.toLocaleDateString('en-AU', { month: 'short' })}`; } },
+  { key: 'last-90', label: 'Last 90 days', sub: () => { const e = new Date(); const s = new Date(e.getTime() - 90 * 86400000); return `${s.getDate()} ${s.toLocaleDateString('en-AU', { month: 'short' })} – ${e.getDate()} ${e.toLocaleDateString('en-AU', { month: 'short' })}`; } },
+];
+
+function _bkFilterPill(label, active) {
+  const bg = active ? 'var(--primary-soft,#dde8e1)' : '#fff';
+  const color = active ? 'var(--primary-ink,#1f3f35)' : 'var(--ink-2,#4a5751)';
+  const border = active ? 'var(--primary,#2f5d4e)' : 'var(--hairline-1,#e8e1d3)';
+  return `<div style="padding:8px 14px;border-radius:999px;font-size:13px;font-weight:600;background:${bg};color:${color};border:1px solid ${border};cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif" data-val="${escHtml(label)}">${escHtml(label)}</div>`;
+}
+
+function _renderFilterPills() {
+  const srcEl = document.getElementById('bk-filter-source-pills');
+  const statEl = document.getElementById('bk-filter-status-pills');
+  if (srcEl) {
+    srcEl.innerHTML = _BK_SOURCES.map(s => _bkFilterPill(s, _bkFilterState.sources.includes(s))).join('');
+    srcEl.querySelectorAll('[data-val]').forEach(el => {
+      el.onclick = () => {
+        const v = el.getAttribute('data-val');
+        const idx = _bkFilterState.sources.indexOf(v);
+        if (idx >= 0) _bkFilterState.sources.splice(idx, 1);
+        else _bkFilterState.sources.push(v);
+        _renderFilterPills();
+      };
+    });
+  }
+  if (statEl) {
+    statEl.innerHTML = _BK_STATUSES.map(s => _bkFilterPill(s, _bkFilterState.statuses.includes(s))).join('');
+    statEl.querySelectorAll('[data-val]').forEach(el => {
+      el.onclick = () => {
+        const v = el.getAttribute('data-val');
+        const idx = _bkFilterState.statuses.indexOf(v);
+        if (idx >= 0) _bkFilterState.statuses.splice(idx, 1);
+        else _bkFilterState.statuses.push(v);
+        _renderFilterPills();
+      };
+    });
+  }
+  _updateFilterDateDisplay();
+  _updateFilterCount();
+}
+
+function _updateFilterDateDisplay() {
+  const range = _BK_DATE_RANGES.find(r => r.key === _bkFilterState.dateRange) || _BK_DATE_RANGES[0];
+  const label = document.getElementById('bk-filter-date-label');
+  const sub = document.getElementById('bk-filter-date-sub');
+  if (label) label.textContent = range.label;
+  if (sub) sub.textContent = typeof range.sub === 'function' ? range.sub() : (range.sub || '');
+}
+
+function _updateFilterCount() {
+  const btn = document.getElementById('bk-filter-apply-btn');
+  if (!btn) return;
+  const count = _countFilteredBookings();
+  btn.textContent = `Show ${count} booking${count !== 1 ? 's' : ''}`;
+}
+
+function _countFilteredBookings() {
+  return _applyAdvancedFilters(bookings).length;
+}
+
+function _applyAdvancedFilters(list) {
+  let filtered = [...list];
+  if (_bkFilterState.sources.length) {
+    filtered = filtered.filter(b => {
+      const plat = normalizePlatformLabel(b.platform) || 'Direct';
+      return _bkFilterState.sources.some(s => plat.toLowerCase().includes(s.toLowerCase()));
+    });
+  }
+  if (_bkFilterState.statuses.length) {
+    const now = new Date();
+    filtered = filtered.filter(b => {
+      for (const s of _bkFilterState.statuses) {
+        if (s === 'Cancelled' && b.status === 'cancelled') return true;
+        if (s === 'Confirmed' && b.status !== 'cancelled' && new Date(b.checkout) >= now) return true;
+        if (s === 'Pending' && b.enrichment_status === 'pending') return true;
+        if (s === 'Past' && b.status !== 'cancelled' && new Date(b.checkout) < now) return true;
+      }
+      return false;
+    });
+  }
+  if (_bkFilterState.dateRange !== 'all') {
+    const now = new Date();
+    let start, end;
+    if (_bkFilterState.dateRange === 'this-month') {
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    } else if (_bkFilterState.dateRange === 'next-30') {
+      start = now;
+      end = new Date(now.getTime() + 30 * 86400000);
+    } else if (_bkFilterState.dateRange === 'last-90') {
+      start = new Date(now.getTime() - 90 * 86400000);
+      end = now;
+    }
+    if (start && end) {
+      filtered = filtered.filter(b => {
+        const ci = new Date(b.checkin);
+        const co = new Date(b.checkout);
+        return ci <= end && co >= start;
+      });
+    }
+  }
+  return filtered;
+}
+
+function openBookingFilterSheet() {
+  _renderFilterPills();
+  const overlay = document.getElementById('booking-filter-overlay');
+  if (overlay) overlay.classList.add('open');
+}
+
+function closeBookingFilterSheet() {
+  const overlay = document.getElementById('booking-filter-overlay');
+  if (overlay) overlay.classList.remove('open');
+}
+
+function cycleBookingFilterDateRange() {
+  const idx = _BK_DATE_RANGES.findIndex(r => r.key === _bkFilterState.dateRange);
+  _bkFilterState.dateRange = _BK_DATE_RANGES[(idx + 1) % _BK_DATE_RANGES.length].key;
+  _updateFilterDateDisplay();
+  _updateFilterCount();
+}
+
+function resetBookingFilters() {
+  _bkFilterState.sources = [];
+  _bkFilterState.statuses = [];
+  _bkFilterState.dateRange = 'all';
+  _renderFilterPills();
+}
+
+function applyBookingFilters() {
+  closeBookingFilterSheet();
+  renderBookings();
+}
+
 export {
   calPrev,
   calNext,
@@ -1619,4 +1761,9 @@ export {
   saveCleanCost,
   switchBookingsView,
   renderBookingsCalendarView,
+  openBookingFilterSheet,
+  closeBookingFilterSheet,
+  cycleBookingFilterDateRange,
+  resetBookingFilters,
+  applyBookingFilters,
 };
