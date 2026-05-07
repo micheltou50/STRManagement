@@ -1354,7 +1354,9 @@ function buildStayopsUnifiedTodayCalendarHtml({
     const co = parseLocalDayStart(b.checkout);
     if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) return '';
     let startIdx = Math.round((ci.getTime() - gridStartMs) / dayMs);
-    let endIdx = Math.round((co.getTime() - gridStartMs) / dayMs);
+    const rawEndIdx = Math.round((co.getTime() - gridStartMs) / dayMs);
+    // Include checkout day as partial (10am checkout ≈ 42% of cell)
+    let endIdx = rawEndIdx + 1;
     if (endIdx <= 0 || startIdx >= 42) return '';
     startIdx = Math.max(0, startIdx);
     endIdx = Math.min(42, endIdx);
@@ -1370,10 +1372,15 @@ function buildStayopsUnifiedTodayCalendarHtml({
       const colEnd = Math.min(7, colStart + (endIdx - idx));
       const span = colEnd - colStart;
       const left = colStart * colW;
-      const width = span * colW;
+      // Shrink the last cell to ~42% to show checkout is at 10am, not end of day
+      const isLastSegment = (idx + span) >= endIdx;
+      const lastCellFraction = 0.42;
+      const width = isLastSegment && span > 0
+        ? (span - 1) * colW + colW * lastCellFraction
+        : span * colW;
       const top = row * dynamicCellH + barTopBase + lane * (barH + barGap);
       const isStart = idx === startIdx;
-      const isEnd = (idx + span) >= endIdx;
+      const isEnd = isLastSegment;
       const rLeft = isStart ? '4px' : '0';
       const rRight = isEnd ? '4px' : '0';
       bars.push(

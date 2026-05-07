@@ -116,17 +116,17 @@ function renderBookingsCalendarView() {
 
   for (const b of monthBookings) {
     const ci = _bkCalParseYmd(b.checkin);
-    const co = _bkCalParseYmd(b.checkout); // exclusive — bar occupies ci .. co-1
-    const lastNight = new Date(co.getFullYear(), co.getMonth(), co.getDate() - 1);
+    const co = _bkCalParseYmd(b.checkout); // checkout day shown as partial bar (10am checkout)
     for (let w = 0; w < rows; w++) {
       const ws = weekStart(w);
       const we = weekEnd(w);
-      if (lastNight < ws || ci > we) continue;
+      if (co < ws || ci > we) continue;
       const segStart = ci < ws ? ws : ci;
-      const segEnd = lastNight > we ? we : lastNight;
+      const segEnd = co > we ? we : co;
       const startCol = _bkCalMondayIndex(segStart.getDay());
       const endCol = _bkCalMondayIndex(segEnd.getDay());
-      weekBookings[w].push({ b, startCol, endCol, segStart, segEnd, ci, co: lastNight });
+      const isCheckoutSeg = segEnd.getTime() === co.getTime();
+      weekBookings[w].push({ b, startCol, endCol, segStart, segEnd, ci, co, isCheckoutSeg });
     }
   }
 
@@ -175,11 +175,14 @@ function renderBookingsCalendarView() {
   let barsHtml = '';
   for (let w = 0; w < rows; w++) {
     for (const seg of weekSlots[w]) {
-      const { b, startCol, endCol, slot, ci, co } = seg;
+      const { b, startCol, endCol, slot, ci, co, isCheckoutSeg } = seg;
       const style = _bkCalPlatformStyle(b.platform);
       const widthCols = endCol - startCol + 1;
       const leftPct = (startCol / 7) * 100;
-      const widthPct = (widthCols / 7) * 100;
+      // Shrink last cell to ~42% on checkout day (10am checkout)
+      const widthPct = isCheckoutSeg && widthCols > 0
+        ? ((widthCols - 1) / 7) * 100 + (0.42 / 7) * 100
+        : (widthCols / 7) * 100;
       const top = w * ROW_H + TOP_OFFSET + slot * SLOT_H;
       // Rounding: if segment starts on first visible day (continuation), flat left edge.
       const segStartsAtCi = seg.segStart.getTime() === ci.getTime();
