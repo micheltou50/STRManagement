@@ -795,19 +795,20 @@ function renderSettings() {
   // Profile card (host profile)
   const host = getHostProfile();
   const nameEl = document.getElementById('settings-profile-name');
-  const companyEl = document.getElementById('settings-profile-company');
-  const initialsEl = document.getElementById('settings-profile-initials');
-  if (nameEl && companyEl && initialsEl) {
+  const emailEl = document.getElementById('settings-profile-email');
+  const avatarEl = document.getElementById('settings-profile-avatar');
+  if (nameEl) {
     if (host && host.name) {
       nameEl.textContent = host.name;
-      companyEl.textContent = host.company || 'Tap to add company details';
-      const parts = String(host.name).trim().split(/\s+/).filter(Boolean);
-      const initials = (parts[0] ? parts[0][0] : '') + (parts[1] ? parts[1][0] : '');
-      initialsEl.textContent = initials.toUpperCase() || '--';
+      if (emailEl) emailEl.textContent = host.email || host.company || 'Tap to edit';
+      if (avatarEl) {
+        const parts = String(host.name).trim().split(/\s+/).filter(Boolean);
+        avatarEl.textContent = ((parts[0] ? parts[0][0] : '') + (parts[1] ? parts[1][0] : '')).toUpperCase() || '?';
+      }
     } else {
       nameEl.textContent = 'Set up your profile';
-      companyEl.textContent = 'Add your company name';
-      initialsEl.textContent = '--';
+      if (emailEl) emailEl.textContent = 'Tap to set up';
+      if (avatarEl) avatarEl.textContent = '?';
     }
   }
 
@@ -862,6 +863,95 @@ function renderSettings() {
   const chevronHeader = document.getElementById('prop-switcher-chevron-header');
   if (chevronHeader) chevronHeader.style.display = '';
   setTimeout(updateNotifStatus, 100);
+
+  // Render properties list with per-property quick links
+  const propsListEl = document.getElementById('settings-properties-list');
+  const propsEmptyEl = document.getElementById('settings-properties-empty');
+  const propsLabel = document.getElementById('settings-props-label');
+  if (propsListEl) {
+    const allProps = typeof getAllProperties === 'function' ? getAllProperties() : [];
+    if (propsLabel) propsLabel.textContent = 'Properties · ' + allProps.length;
+    if (allProps.length) {
+      if (propsEmptyEl) propsEmptyEl.style.display = 'none';
+      const PROP_COLORS = ['var(--primary-soft)', '#e8ddf3', 'var(--accent-soft)', '#d6ecf3', '#fbe1e7'];
+      const existingCards = propsListEl.querySelectorAll('.settings-prop-card');
+      existingCards.forEach(c => c.remove());
+      allProps.forEach((p, i) => {
+        const name = p.name || p.propertyId || 'Property';
+        const loc = p.location || p.address || '';
+        const beds = p.bedrooms || p.beds || '';
+        const sleeps = p.maxGuests || p.sleeps || '';
+        const sub = [loc, beds ? beds + ' bd' : '', sleeps ? 'sleeps ' + sleeps : ''].filter(Boolean).join(' · ');
+        const feedCount = (window._icalFeeds || []).filter(f => String(f.property_id) === String(p.supabaseId || p.id)).length;
+        const color = PROP_COLORS[i % PROP_COLORS.length];
+        const card = document.createElement('div');
+        card.className = 'settings-prop-card';
+        card.style.cssText = 'background:#fff;border-radius:18px;border:1px solid var(--hairline-1);overflow:hidden';
+        card.innerHTML =
+          `<div onclick="openPropertyDetailsFromHub()" style="display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer">` +
+            `<div style="width:44px;height:44px;border-radius:14px;background:${color};flex-shrink:0"></div>` +
+            `<div style="flex:1;min-width:0">` +
+              `<div style="display:flex;align-items:center;gap:8px"><span style="font-size:15px;font-weight:700;color:var(--ink-1)">${escHtml(name)}</span></div>` +
+              `<div style="font-size:12px;color:var(--muted-2);margin-top:2px">${escHtml(sub)}</div>` +
+            `</div>` +
+            `<svg width="8" height="14" viewBox="0 0 8 14"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>` +
+          `</div>` +
+          `<div style="border-top:1px solid var(--hairline-1);display:grid;grid-template-columns:1fr 1fr 1fr;gap:0">` +
+            `<div onclick="openSettingsCat('property')" style="padding:10px 0;text-align:center;cursor:pointer">` +
+              `<div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:0.4px;text-transform:uppercase">Pricing</div>` +
+              `<div style="font-size:12.5px;font-weight:600;color:var(--ink-1);margin-top:2px">${p.baseRate ? '$' + p.baseRate + '/n' : 'Set up'}</div>` +
+            `</div>` +
+            `<div onclick="openSettingsCat('property')" style="padding:10px 0;text-align:center;cursor:pointer;border-left:1px solid var(--hairline-1)">` +
+              `<div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:0.4px;text-transform:uppercase">Rules</div>` +
+              `<div style="font-size:12.5px;font-weight:600;color:var(--ink-1);margin-top:2px">${p.houseRules ? (Array.isArray(p.houseRules) ? p.houseRules.length : 0) + ' active' : 'Set up'}</div>` +
+            `</div>` +
+            `<div onclick="openSettingsPanel('integrations')" style="padding:10px 0;text-align:center;cursor:pointer;border-left:1px solid var(--hairline-1)">` +
+              `<div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:0.4px;text-transform:uppercase">iCal</div>` +
+              `<div style="font-size:12.5px;font-weight:600;color:${feedCount ? 'var(--ink-1)' : 'var(--accent)'};margin-top:2px">${feedCount ? feedCount + ' feed' + (feedCount > 1 ? 's' : '') : 'None'}</div>` +
+            `</div>` +
+          `</div>`;
+        propsListEl.appendChild(card);
+      });
+    } else {
+      if (propsEmptyEl) propsEmptyEl.style.display = '';
+    }
+  }
+
+  // Render team list
+  const teamListEl = document.getElementById('settings-team-list');
+  const teamEmptyEl = document.getElementById('settings-team-empty');
+  if (teamListEl) {
+    const cleaners = typeof loadCleaners === 'function' ? loadCleaners() : (window._cleaners || []);
+    const existingRows = teamListEl.querySelectorAll('.settings-team-row');
+    existingRows.forEach(r => r.remove());
+    const hostName = host && host.name ? host.name : 'You';
+    const hostInitials = hostName.trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    const ownerRow = document.createElement('div');
+    ownerRow.className = 'settings-team-row';
+    ownerRow.style.cssText = 'display:flex;align-items:center;gap:12px;padding:12px 16px';
+    ownerRow.innerHTML =
+      `<div style="width:34px;height:34px;border-radius:10px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-family:'Newsreader',serif;font-size:14px;font-weight:600;color:#7d4f1c;flex-shrink:0">${escHtml(hostInitials)}</div>` +
+      `<div style="flex:1;font-size:13.5px;font-weight:600;color:var(--ink-1)">${escHtml(hostName)}</div>` +
+      `<span style="font-size:11.5px;color:var(--muted-2);font-family:'JetBrains Mono',monospace">Owner</span>`;
+    teamListEl.appendChild(ownerRow);
+    if (cleaners.length) {
+      if (teamEmptyEl) teamEmptyEl.style.display = 'none';
+      cleaners.forEach(c => {
+        const cName = c.name || 'Cleaner';
+        const cInit = cName.trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+        const row = document.createElement('div');
+        row.className = 'settings-team-row';
+        row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid var(--hairline-2)';
+        row.innerHTML =
+          `<div style="width:34px;height:34px;border-radius:10px;background:var(--primary-soft);display:flex;align-items:center;justify-content:center;font-family:'Newsreader',serif;font-size:14px;font-weight:600;color:var(--primary);flex-shrink:0">${escHtml(cInit)}</div>` +
+          `<div style="flex:1;font-size:13.5px;font-weight:600;color:var(--ink-1)">${escHtml(cName)}</div>` +
+          `<span style="font-size:11.5px;color:var(--muted-2);font-family:'JetBrains Mono',monospace">Cleaner</span>`;
+        teamListEl.appendChild(row);
+      });
+    } else {
+      if (teamEmptyEl) teamEmptyEl.style.display = 'none';
+    }
+  }
 }
 function clearCacheAndResync() {
   globalThis.showAppModal({
