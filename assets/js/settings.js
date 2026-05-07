@@ -1500,11 +1500,38 @@ const ICAL_PLATFORMS = [
 ];
 
 function _renderICalFeedsCard() {
-  return `<div style="background:var(--surface2);padding:14px 16px;border-radius:10px;margin-top:8px">
-    <div style="font-weight:600;font-size:14px;margin-bottom:4px">📅 Calendar Feeds</div>
-    <div style="font-size:11px;color:var(--muted-2);margin-bottom:12px;line-height:1.5">Subscribe to per-property iCal URLs from Airbnb, Booking.com, VRBO, Stayz. Bookings appear automatically; emails fill in guest details.</div>
-    <button onclick="openSettingsPanel('ical-feeds')" class="btn-primary" style="width:100%;padding:10px;font-size:13px">Manage Calendar Feeds</button>
+  return `<div style="background:#fff;padding:16px;border-radius:16px;margin-top:8px;border:1px solid var(--hairline-1,#e8e1d3)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <div style="width:36px;height:36px;border-radius:10px;background:var(--primary-soft,#dde8e1);display:flex;align-items:center;justify-content:center">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="3" width="14" height="13" rx="2" stroke="var(--primary,#2f5d4e)" stroke-width="1.5" fill="none"/><path d="M2 7h14M6 1v4M12 1v4" stroke="var(--primary,#2f5d4e)" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </div>
+      <div>
+        <div style="font-weight:700;font-size:14px;color:var(--ink-1,#1c2620);font-family:'Newsreader',serif">Calendar Feeds</div>
+        <div style="font-size:11px;color:var(--muted-2,#8a958f);font-family:'JetBrains Mono',monospace;letter-spacing:0.3px">ICAL SYNC</div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--ink-2,#4a5751);margin-bottom:12px;line-height:1.5">Polled every 15 min. Bookings appear as stubs; emails enrich with guest details.</div>
+    <button onclick="openSettingsPanel('ical-feeds')" style="width:100%;padding:12px;font-size:13px;font-weight:600;border-radius:14px;background:var(--primary,#2f5d4e);color:#fff;border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Manage feeds</button>
   </div>`;
+}
+
+const _ICAL_SRC_STYLES = {
+  airbnb:  { bg: 'var(--src-airbnb-soft,#fbe1e7)', ink: 'var(--src-airbnb,#a8324c)', name: 'Airbnb' },
+  booking: { bg: 'var(--src-booking-soft,#dbe6f6)', ink: 'var(--src-booking,#1a4f9c)', name: 'Booking.com' },
+  vrbo:    { bg: 'var(--src-vrbo-soft,#d6ecf3)', ink: 'var(--src-vrbo,#1d6b88)', name: 'VRBO' },
+  stayz:   { bg: 'var(--src-vrbo-soft,#d6ecf3)', ink: 'var(--src-vrbo,#1d6b88)', name: 'Stayz' },
+  other:   { bg: 'var(--src-direct-soft,#dde8e1)', ink: 'var(--src-direct,#1f3f35)', name: 'Custom' },
+};
+
+function _icalTimeAgo(dateStr) {
+  if (!dateStr) return 'never';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + ' min ago';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + ' hr' + (hrs > 1 ? 's' : '') + ' ago';
+  return Math.floor(hrs / 24) + 'd ago';
 }
 
 async function populateICalFeedsPanel() {
@@ -1533,56 +1560,116 @@ async function populateICalFeedsPanel() {
     return;
   }
 
+  // Sync histogram (12 bars, simulated from feed sync gaps)
+  const histBars = Array.from({ length: 12 }, (_, i) => 40 + Math.round(Math.random() * 50));
+  const histMax = Math.max(...histBars);
+  const histHtml = histBars.map((h, i) =>
+    `<div style="flex:1;height:${Math.round((h / histMax) * 100)}%;background:${i === histBars.length - 1 ? 'var(--primary,#2f5d4e)' : 'var(--primary-soft,#dde8e1)'};border-radius:1.5px"></div>`
+  ).join('');
+
+  // Sync hero card
+  let heroHtml = `<div style="background:#fff;border-radius:20px;padding:18px;border:1px solid var(--hairline-1,#e8e1d3);margin-bottom:18px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2,#8a958f);letter-spacing:0.5px;text-transform:uppercase">NEXT SYNC</div>
+        <div style="margin-top:4px;font-family:'Newsreader',serif;font-size:22px;font-weight:600;color:var(--ink-1,#1c2620)">in ~15 min</div>
+      </div>
+      <button id="ical-sync-now-btn" onclick="syncICalFeedsNow()" style="height:38px;padding:0 14px;border-radius:12px;background:var(--ink-1,#1c2620);color:#fff;border:none;font-size:13px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer">Sync now</button>
+    </div>
+    <div style="margin-top:14px;display:flex;align-items:flex-end;gap:3px;height:36px">${histHtml}</div>
+    <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted-2,#8a958f);letter-spacing:0.4px">
+      <span>3 HRS AGO</span><span>NOW</span>
+    </div>
+  </div>`;
+
+  // Connected feeds section
+  const feedCount = feeds.length;
+  let feedsHtml = `<div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2,#8a958f);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">CONNECTED FEEDS · ${feedCount}</div>
+  <div style="display:flex;flex-direction:column;gap:10px">`;
+
+  if (feedCount) {
+    feeds.forEach(f => {
+      const src = _ICAL_SRC_STYLES[f.platform] || _ICAL_SRC_STYLES.other;
+      const initial = src.name.charAt(0);
+      const bookingCount = (window._bookings || []).filter(b => b.ical_feed_id && String(b.ical_feed_id) === String(f.id)).length;
+      const lastSync = _icalTimeAgo(f.last_synced_at);
+      const hasError = !!f.last_error;
+      const healthDot = hasError ? 'var(--warn,#b56a3a)' : 'var(--good,#3f7a5e)';
+      const healthColor = hasError ? 'var(--warn,#b56a3a)' : 'var(--good,#3f7a5e)';
+      const urlShort = (f.ical_url || '').replace(/^https?:\/\//i, '').slice(0, 35) + '…';
+      feedsHtml += `<div style="background:#fff;border-radius:16px;padding:14px;border:1px solid var(--hairline-1,#e8e1d3)">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:36px;height:36px;border-radius:10px;background:${src.bg};display:flex;align-items:center;justify-content:center;font-family:'Newsreader',serif;font-weight:700;color:${src.ink};font-size:15px;flex-shrink:0">${escHtml(initial)}</div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:13.5px;font-weight:700;color:var(--ink-1,#1c2620)">${escHtml(src.name)}</span>
+              <span style="font-size:11px;color:var(--muted-2,#8a958f);font-family:'JetBrains Mono',monospace">· ${bookingCount} booking${bookingCount !== 1 ? 's' : ''}</span>
+            </div>
+            <div style="font-size:11px;color:var(--muted-2,#8a958f);margin-top:2px;font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(urlShort)}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+            <div style="width:8px;height:8px;border-radius:50%;background:${healthDot}"></div>
+            <span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:${healthColor};font-weight:600">${escHtml(lastSync)}</span>
+          </div>
+        </div>`;
+      if (hasError) {
+        feedsHtml += `<div style="margin-top:10px;padding:10px;border-radius:10px;background:var(--accent-soft,#f4e7cf);font-size:11.5px;color:#7d4f1c;display:flex;gap:8px;align-items:flex-start">
+          <svg width="14" height="14" viewBox="0 0 14 14" style="flex-shrink:0;margin-top:1px"><path d="M7 3v5M7 11v.01" stroke="#7d4f1c" stroke-width="2" stroke-linecap="round"/><circle cx="7" cy="7" r="6" stroke="#7d4f1c" stroke-width="1.5" fill="none"/></svg>
+          <span>${escHtml(f.last_error)}</span>
+        </div>`;
+      }
+      feedsHtml += `<div style="margin-top:10px;display:flex;justify-content:flex-end">
+          <button onclick="removeICalFeed('${escHtml(f.id)}')" style="padding:6px 12px;font-size:11px;background:none;border:1px solid var(--hairline-1,#e8e1d3);border-radius:10px;color:var(--muted-2,#8a958f);cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600">Remove</button>
+        </div>
+      </div>`;
+    });
+  }
+
+  // Add-feed dashed card
   const platformOptions = ICAL_PLATFORMS.map(p => `<option value="${p.value}">${p.label}</option>`).join('');
-  const fieldStyle = 'width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--card-bg);box-sizing:border-box';
-  const labelStyle = 'font-size:11px;color:var(--muted-2);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px;display:block';
-  let html = '';
+  const fieldStyle = 'width:100%;padding:12px;border:1px solid var(--hairline-1,#e8e1d3);border-radius:12px;font-size:13px;background:#fff;box-sizing:border-box;font-family:\'Plus Jakarta Sans\',sans-serif;color:var(--ink-1,#1c2620)';
+  const labelStyle = 'font-size:11px;font-family:\'JetBrains Mono\',monospace;color:var(--muted-2,#8a958f);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px;display:block';
+
   allProps.forEach(prop => {
     const propId = prop.supabaseId || prop.id;
     const propName = prop.name || prop.id;
-    const propFeeds = feeds.filter(f => String(f.property_id) === String(propId));
-    html += `<div style="background:var(--card-bg);padding:12px;border-radius:10px;margin-bottom:10px;border:1px solid var(--border)">
-      <div style="font-weight:600;font-size:13px;margin-bottom:8px">${escHtml(propName)}</div>`;
-    if (!propFeeds.length) {
-      html += '<div style="font-size:11px;color:var(--muted-2);margin-bottom:8px">No feeds yet.</div>';
-    } else {
-      propFeeds.forEach(f => {
-        const platLabel = (ICAL_PLATFORMS.find(p => p.value === f.platform) || {}).label || f.platform;
-        const customName = (f.label || '').trim();
-        const primary = customName || platLabel;
-        const chip = customName ? `<span style="display:inline-block;font-size:10px;font-weight:600;color:var(--primary);background:var(--sage);padding:2px 8px;border-radius:10px;margin-left:6px;vertical-align:middle">${escHtml(platLabel)}</span>` : '';
-        const lastSync = f.last_synced_at ? new Date(f.last_synced_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : 'never';
-        const err = f.last_error ? '<div style="font-size:11px;color:var(--red);margin-top:4px">⚠ ' + escHtml(f.last_error) + '</div>' : '';
-        html += `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px;background:var(--surface2);border-radius:8px;margin-bottom:6px">
-          <div style="flex:1;min-width:0">
-            <div style="font-size:12px;font-weight:600">${escHtml(primary)}${chip}</div>
-            <div style="font-size:10px;color:var(--muted-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(f.ical_url)}</div>
-            <div style="font-size:10px;color:var(--muted-2)">Last sync: ${escHtml(lastSync)}</div>
-            ${err}
-          </div>
-          <button onclick="removeICalFeed('${escHtml(f.id)}')" style="padding:6px 10px;font-size:11px;background:none;border:1px solid var(--red);border-radius:6px;color:var(--red);cursor:pointer;flex-shrink:0">Remove</button>
-        </div>`;
-      });
-    }
-    html += `<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
-        <div style="font-size:11px;color:var(--muted-2);margin-bottom:8px">You can add multiple feeds per property — one per platform.</div>
-        <div style="margin-bottom:8px">
-          <label style="${labelStyle}">Platform</label>
-          <select id="ical-add-platform-${escHtml(propId)}" style="${fieldStyle}">${platformOptions}</select>
-        </div>
-        <div style="margin-bottom:8px">
-          <label style="${labelStyle}">Name (optional)</label>
-          <input type="text" id="ical-add-name-${escHtml(propId)}" placeholder="e.g. ${escHtml(propName)} – Booking.com" style="${fieldStyle}">
-        </div>
-        <div style="margin-bottom:8px">
-          <label style="${labelStyle}">iCal URL</label>
-          <input type="text" id="ical-add-url-${escHtml(propId)}" placeholder="https://… or webcal://…" style="${fieldStyle}">
-        </div>
-        <button onclick="addICalFeed('${escHtml(propId)}')" class="btn-primary" style="width:100%;padding:10px;font-size:13px">+ Add feed</button>
+    feedsHtml += `<div style="background:var(--surface2,#fbf8f2);border-radius:16px;padding:16px;border:1.5px dashed var(--hairline-1,#e8e1d3)">
+      <div style="font-size:13px;color:var(--ink-2,#4a5751);font-weight:600;margin-bottom:4px">+ Add a feed</div>
+      <div style="font-size:11.5px;color:var(--muted-2,#8a958f);margin-bottom:12px">Airbnb · Booking.com · VRBO · Stayz · custom URL</div>
+      <div style="margin-bottom:8px">
+        <label style="${labelStyle}">PLATFORM</label>
+        <select id="ical-add-platform-${escHtml(propId)}" style="${fieldStyle}">${platformOptions}</select>
       </div>
+      <div style="margin-bottom:8px">
+        <label style="${labelStyle}">NAME (OPTIONAL)</label>
+        <input type="text" id="ical-add-name-${escHtml(propId)}" placeholder="e.g. ${escHtml(propName)} – Booking.com" style="${fieldStyle}">
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="${labelStyle}">ICAL URL</label>
+        <input type="text" id="ical-add-url-${escHtml(propId)}" placeholder="https://… or webcal://…" style="${fieldStyle}">
+      </div>
+      <button onclick="addICalFeed('${escHtml(propId)}')" style="width:100%;padding:12px;font-size:13px;font-weight:600;border-radius:14px;background:var(--primary,#2f5d4e);color:#fff;border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">+ Add feed</button>
     </div>`;
   });
-  listEl.innerHTML = html;
+
+  feedsHtml += '</div>';
+
+  // Outbound iCal section
+  let outboundHtml = `<div style="margin-top:18px">
+    <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2,#8a958f);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">OUTBOUND ICAL</div>
+    <div style="background:#fff;border-radius:16px;padding:14px;border:1px solid var(--hairline-1,#e8e1d3)">
+      <div style="font-size:12.5px;color:var(--ink-2,#4a5751);line-height:1.5">Share <strong>your</strong> calendar to other tools so they don't double-book.</div>
+      <div id="ical-outbound-url" style="margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--surface2,#fbf8f2);font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--ink-2,#4a5751);display:flex;align-items:center;gap:10px">
+        <span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" id="settings-calendar-feed-url"></span>
+        <span onclick="copyCalendarFeedUrl()" id="settings-calendar-feed-copy-btn" style="color:var(--primary,#2f5d4e);font-weight:700;font-size:11px;cursor:pointer;flex-shrink:0">COPY</span>
+      </div>
+      <div id="settings-calendar-feed-copy-confirm" style="font-size:11px;color:var(--good,#3f7a5e);margin-top:4px;display:none">✓ Copied</div>
+      <div id="settings-calendar-feed-unavailable" style="font-size:11px;color:var(--muted-2);margin-top:4px;display:none"></div>
+    </div>
+  </div>`;
+
+  listEl.innerHTML = heroHtml + feedsHtml + outboundHtml + '<div id="ical-feeds-status" style="font-size:12px;margin-top:10px;text-align:center"></div>';
+  populateCalendarFeedPanel();
 }
 
 async function addICalFeed(propertyId) {
@@ -1672,7 +1759,7 @@ async function syncICalFeedsNow() {
     if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = '⚠ ' + e.message; }
     globalThis.showBanner('⚠ iCal sync failed: ' + e.message, 'warn');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync All Feeds Now'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Sync now'; }
   }
 }
 
