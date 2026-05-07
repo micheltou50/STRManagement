@@ -1982,6 +1982,7 @@ function _setLoginSection(section) {
   const signup  = document.getElementById('login-signup-section');
   const verify  = document.getElementById('login-verify-section');
   const toggle  = document.getElementById('login-toggle-row');
+  const progress = document.getElementById('login-progress-label');
   if (!wrap) return;
   if (section === 'welcome') {
     if (welcome) welcome.style.display = '';
@@ -1993,6 +1994,12 @@ function _setLoginSection(section) {
   if (signin) signin.style.display = section === 'signin' ? '' : 'none';
   if (signup) signup.style.display = section === 'signup' ? '' : 'none';
   if (verify) verify.style.display = section === 'verify' ? '' : 'none';
+  // Step counter per spec: signin = '', signup = '1/4', verify = '2/4'
+  if (progress) {
+    if (section === 'signup') progress.textContent = '1 / 4';
+    else if (section === 'verify') progress.textContent = '2 / 4';
+    else progress.textContent = '';
+  }
   // Hide the toggle row on verify step
   if (toggle) toggle.style.display = section === 'verify' ? 'none' : '';
   // Update toggle label so it always offers the *other* mode
