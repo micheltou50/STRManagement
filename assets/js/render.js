@@ -1630,6 +1630,52 @@ function buildSinglePropertyTodayDashboardMarkup() {
     </div>
   </div>`;
 
+  const sparklineHtml = (() => {
+    if (!activeBookings.length) return '';
+    const weeks = 12;
+    const counts = new Array(weeks).fill(0);
+    const weekMs = 7 * 86400000;
+    const endDate = new Date(todayStart);
+    endDate.setDate(endDate.getDate() + 7);
+    const startDate = new Date(endDate.getTime() - weeks * weekMs);
+    activeBookings.forEach(b => {
+      const ci = parseLocalDayStart(b.checkin);
+      if (Number.isNaN(ci.getTime())) return;
+      const off = ci.getTime() - startDate.getTime();
+      if (off < 0 || off >= weeks * weekMs) return;
+      counts[Math.floor(off / weekMs)]++;
+    });
+    const maxC = Math.max(...counts, 1);
+    const w = 320, h = 80, pad = 6;
+    const pts = counts.map((c, i) => {
+      const x = Math.round((i / (weeks - 1)) * w);
+      const y = Math.round(pad + (h - pad * 2) * (1 - c / maxC));
+      return [x, y];
+    });
+    const line = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0] + ' ' + p[1]).join(' ');
+    const area = line + ' L' + w + ' ' + h + ' L0 ' + h + ' Z';
+    const last = pts[pts.length - 1];
+    const startLabel = startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
+    const endLabel = todayStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
+    return `<div style="margin-top:18px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase">Bookings · 12 weeks</div>
+        <span onclick="showSection('bookings')" style="font-size:12px;color:var(--primary);cursor:pointer;font-weight:600">View report</span>
+      </div>
+      <div style="background:white;border-radius:18px;padding:18px;border:1px solid var(--hairline-1)">
+        <svg viewBox="0 0 ${w} ${h + 10}" style="width:100%;height:${h + 10}px;display:block">
+          <defs><linearGradient id="sparkG" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--primary)" stop-opacity="0.25"/><stop offset="1" stop-color="var(--primary)" stop-opacity="0"/></linearGradient></defs>
+          <path d="${area}" fill="url(#sparkG)"/>
+          <path d="${line}" stroke="var(--primary)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="${last[0]}" cy="${last[1]}" r="4" fill="var(--primary)"/>
+        </svg>
+        <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:0.4px">
+          <span>${startLabel}</span><span>${endLabel}</span>
+        </div>
+      </div>
+    </div>`;
+  })();
+
   const quickActionIcon = (svgPath) =>
     `<div style="width:36px;height:36px;border-radius:10px;background:var(--primary-soft);margin:0 auto;display:flex;align-items:center;justify-content:center">
       <svg width="22" height="22" viewBox="0 0 22 22" fill="none">${svgPath}</svg>
@@ -1707,6 +1753,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
       <div style="display:flex;flex-direction:column;gap:16px">
         ${needsHtml || ''}
         ${occCard}
+        ${sparklineHtml}
         ${quickHtml}
       </div>
       <div style="display:flex;flex-direction:column;gap:16px">
@@ -1753,6 +1800,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
     upcomingCardsHtml +
     unifiedCalHtml +
     statsHtml +
+    sparklineHtml +
     quickHtml
   );
 }
