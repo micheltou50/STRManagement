@@ -4,6 +4,7 @@
  */
 
 const webpush = require('web-push');
+const { notification: buildNotificationHtml } = require('./email-templates');
 
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:noreply@app.stayops.com.au';
 
@@ -194,16 +195,7 @@ async function sendPushToHost({
       const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(uid);
       const hostEmail = authUser && authUser.user && authUser.user.email;
       if (hostEmail) {
-        const emailHtml = '<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:20px">' +
-          '<div style="background:#1E3A2F;color:#fff;padding:16px 20px;border-radius:12px 12px 0 0">' +
-            '<div style="font-size:18px;font-weight:700">StayOps</div>' +
-          '</div>' +
-          '<div style="background:#fff;border:1px solid #e5e5e5;border-top:none;padding:20px;border-radius:0 0 12px 12px">' +
-            '<div style="font-size:16px;font-weight:700;color:#1E3A2F;margin-bottom:8px">' + (title || '') + '</div>' +
-            '<div style="font-size:14px;color:#666;line-height:1.5">' + (body || '') + '</div>' +
-            '<div style="margin-top:16px"><a href="https://app.stayops.com.au" style="display:inline-block;background:#1E3A2F;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600">Open StayOps</a></div>' +
-          '</div>' +
-        '</div>';
+        const emailHtml = buildNotificationHtml(title, body);
 
         let emailSent = false;
 

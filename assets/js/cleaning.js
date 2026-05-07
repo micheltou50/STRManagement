@@ -1071,15 +1071,8 @@ async function inviteCleaner(cleanerId) {
   if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
 
   const appUrl = window.location.origin;
-  const html = `
-    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
-      <h2 style="color:#1E3A2F">You're invited to StayOps</h2>
-      <p>Hi ${cleaner.name || 'there'},</p>
-      <p>You've been added as a cleaner on StayOps. Create your account to view and manage your assigned cleans.</p>
-      <a href="${appUrl}" style="display:inline-block;padding:14px 28px;background:#1E3A2F;color:white;text-decoration:none;border-radius:10px;font-weight:bold;margin:16px 0">Sign Up on StayOps</a>
-      <p style="color:#999;font-size:13px">Use this email address (${cleaner.email}) when signing up so your account is automatically linked.</p>
-    </div>
-  `;
+  const hostName = (typeof getCurrentHostName === 'function') ? getCurrentHostName() : '';
+  const properties = (window._properties || []).map(p => p.name).filter(Boolean).join(', ');
 
   try {
     const _af = typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch;
@@ -1087,8 +1080,14 @@ async function inviteCleaner(cleanerId) {
       method: 'POST',
       body: JSON.stringify({
         to: cleaner.email,
-        subject: 'You\'re invited to StayOps',
-        html: html
+        subject: (hostName || 'Your host') + ' invited you to StayOps',
+        template: 'cleanerInvite',
+        templateData: {
+          cleaner_name: cleaner.name || 'there',
+          host_name: hostName || 'Your host',
+          property_names: properties,
+          invite_link: appUrl,
+        }
       })
     });
 

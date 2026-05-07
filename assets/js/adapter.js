@@ -28,4 +28,26 @@ export class SupabaseAdapter extends DataAdapter {
 
     return Object.assign({ success: true, status: 'ok' }, data || {});
   }
+
+  async sendTemplateEmail(to, subject, template, templateData) {
+    const _af = typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch;
+    const res = await _af('/.netlify/functions/send-email', {
+      method: 'POST',
+      body: JSON.stringify({ to, subject, template, templateData })
+    });
+
+    let data;
+    try { data = await res.json(); } catch (_) { data = null; }
+
+    if (!res.ok) {
+      return {
+        success: false,
+        status: 'error',
+        error: (data && data.error) || ('HTTP ' + res.status),
+        detail: data || null
+      };
+    }
+
+    return Object.assign({ success: true, status: 'ok' }, data || {});
+  }
 }

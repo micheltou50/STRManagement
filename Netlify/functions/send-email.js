@@ -7,6 +7,7 @@
 const nodemailer = require('nodemailer');
 const { verifyAuth } = require('./utils/auth');
 const { captureError, flush } = require('./utils/sentry');
+const emailTemplates = require('./utils/email-templates');
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
@@ -26,12 +27,17 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
-  const { to, subject, html, attachments } = payload;
+  const { to, subject, html: rawHtml, attachments, template, templateData } = payload;
+
+  let html = rawHtml;
+  if (template && templateData && emailTemplates[template]) {
+    html = emailTemplates[template](templateData);
+  }
 
   if (!to || !subject || !html) {
     return {
       statusCode: 400,
-      body: JSON.stringify({ error: 'Missing required fields: to, subject, html' })
+      body: JSON.stringify({ error: 'Missing required fields: to, subject, html (or template + templateData)' })
     };
   }
 

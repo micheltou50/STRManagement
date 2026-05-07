@@ -1,35 +1,12 @@
 const webpush = require('web-push');
 const { captureError, flush } = require('./utils/sentry');
+const { notification: buildNotificationEmailHtml } = require('./utils/email-templates');
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS'
 };
-
-// ── Email alongside push ────────────────────────────────────────────────
-function buildNotificationEmailHtml(title, body) {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#F0EDE8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#F0EDE8;padding:24px 0">
-<tr><td align="center">
-<table width="100%" style="max-width:520px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08)">
-  <tr><td style="background:#1E3A2F;padding:20px 24px">
-    <span style="font-family:Georgia,'Times New Roman',serif;font-size:20px;color:#fff">Stay</span><span style="font-family:Georgia,'Times New Roman',serif;font-size:20px;color:#8FAF85;font-style:italic">Ops</span>
-  </td></tr>
-  <tr><td style="padding:28px 24px 12px">
-    <div style="font-size:18px;font-weight:600;color:#1A1A1A;margin-bottom:8px">${title}</div>
-    <div style="font-size:14px;color:#6B6B6B;line-height:1.6">${body || ''}</div>
-  </td></tr>
-  <tr><td style="padding:12px 24px 28px">
-    <a href="https://app.stayops.com.au" style="display:inline-block;background:#1E3A2F;color:#fff;text-decoration:none;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:600">Open StayOps</a>
-  </td></tr>
-  <tr><td style="padding:16px 24px;border-top:1px solid #E8E0D5;font-size:11px;color:#999">
-    Sent by StayOps &middot; You received this because a notification was triggered in your account.
-  </td></tr>
-</table>
-</td></tr></table></body></html>`;
-}
 
 async function sendEmailAlongside(recipientEmail, title, body) {
   if (!recipientEmail) return;

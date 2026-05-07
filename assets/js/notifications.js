@@ -960,16 +960,57 @@ export function applyEmailTemplate(type, vars) {
 export async function sendCleanerEmail({ cleanerName, cleanerEmail, guestName, checkin, checkout, cleanerLink, cleanDate, type, guests, nights, checkoutTime, checkinTime, nextGuestName, nextGuests, windowHours }) {
   if (!cleanerEmail) return { ok: false, reason: 'no-email' };
   const emailType = type || 'assignment';
-  const { subject, html, text } = applyEmailTemplate(emailType, {
-    cleanerName: String(cleanerName || 'Cleaner').split(' ')[0],
-    guestName, checkin, checkout,
-    cleanDate: cleanDate || checkout,
-    cleanerLink,
-    guests, nights, checkoutTime, checkinTime, nextGuestName, nextGuests, windowHours
-  });
+  const DB = globalThis.DB;
+  const propName = (typeof getCurrentPropertyName === 'function') ? getCurrentPropertyName() : '';
+  const propConfig = (typeof getActivePropertyConfig === 'function') ? getActivePropertyConfig() : ((typeof getPropertyConfig === 'function') ? getPropertyConfig() : {});
+  const addressLine = propConfig.address || [propConfig.suburb, propConfig.state].filter(Boolean).join(', ') || '';
+  const hostName = (typeof getCurrentHostName === 'function') ? getCurrentHostName() : '';
+  const cleanerFirst = String(cleanerName || 'Cleaner').split(' ')[0];
+  const cleanDateStr = cleanDate || checkout || '';
+
+  const templateMap = {
+    assignment: 'cleanAssignment',
+    reminder: 'cleanReminder',
+    cancellation: 'cancellation',
+  };
+  const template = templateMap[emailType];
+
+  const subjects = {
+    assignment:   `You've got a new clean — ${propName}`,
+    reminder:     `⏰ Reminder: Clean tomorrow — ${guestName || ''}`,
+    cancellation: `Clean cancelled — ${propName}, ${cleanDateStr}`
+  };
+  const subject = subjects[emailType] || subjects.assignment;
+
+  const templateData = {
+    cleaner_name: cleanerFirst,
+    host_name: hostName,
+    property_name: propName,
+    property_address: addressLine,
+    guest_name: guestName || '',
+    guest_count: guests || '',
+    checkout_date: checkout || '',
+    clean_date: cleanDateStr,
+    clean_time: checkoutTime || '',
+    clean_pay: '',
+    accept_link: cleanerLink || 'https://app.stayops.com.au',
+    decline_link: cleanerLink || 'https://app.stayops.com.au',
+    schedule_link: cleanerLink || 'https://app.stayops.com.au',
+    app_link: cleanerLink || 'https://app.stayops.com.au',
+    cancel_reason: 'Booking cancelled',
+  };
+
   try {
-    const DB = globalThis.DB;
-    const data = await DB.sendEmail(cleanerEmail, subject, html, text);
+    if (DB && typeof DB.sendTemplateEmail === 'function') {
+      const data = await DB.sendTemplateEmail(cleanerEmail, subject, template, templateData);
+      return { ok: !!(data && (data.success || data.status === 'ok')), data };
+    }
+    const { subject: s, html, text } = applyEmailTemplate(emailType, {
+      cleanerName: cleanerFirst, guestName, checkin, checkout,
+      cleanDate: cleanDateStr, cleanerLink,
+      guests, nights, checkoutTime, checkinTime, nextGuestName, nextGuests, windowHours
+    });
+    const data = await DB.sendEmail(cleanerEmail, s, html, text);
     return { ok: !!(data && (data.success || data.status === 'ok')), data };
   } catch(e) {
     return { ok: false, reason: e.message };
