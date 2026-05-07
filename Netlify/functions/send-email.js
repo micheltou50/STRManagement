@@ -1,5 +1,5 @@
 // Netlify/functions/send-email.js
-// Sends emails via Gmail SMTP (primary) or Resend API (fallback).
+// Sends emails via Resend API (primary, branded from address) or Gmail SMTP (fallback).
 //
 // Gmail SMTP: set GMAIL_USER + GMAIL_APP_PASSWORD in Netlify env vars.
 // Resend:     set RESEND_API_KEY (+ RESEND_FROM) — requires verified domain for non-self emails.
@@ -41,8 +41,43 @@ exports.handler = async (event) => {
     };
   }
 
-  // ── Primary: Gmail SMTP via Nodemailer ──
-  const gmailDiag = {};
+  // ── Primary: Resend API (branded from address) ──
+  const resendKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM || 'StayOps <noreply@app.stayops.com.au>';
+  const resendDiag = {};
+
+  if (resendKey) {
+    try {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + resendKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ from, to, subject, html, ...(attachments ? { attachments } : {}) })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error('[send-email] Resend error:', data);
+        resendDiag.error = data.message || 'Resend API error';
+      } else {
+        console.log('[send-email] Resend sent:', data.id, 'to:', to);
+        return {
+          statusCode: 200,
+          body: JSON.stringify({ success: true, id: data.id, provider: 'resend' })
+        };
+      }
+    } catch (err) {
+      console.error('[send-email] Resend failed:', err.message);
+      resendDiag.error = err.message;
+    }
+  } else {
+    resendDiag.error = 'RESEND_API_KEY not set';
+  }
+
+  // ── Fallback: Gmail SMTP via Nodemailer ──
   const gmailUser = process.env.GMAIL_USER;
   const gmailPass = process.env.GMAIL_APP_PASSWORD;
 
@@ -73,61 +108,22 @@ exports.handler = async (event) => {
       console.log('[send-email] Gmail SMTP sent:', info.messageId, 'to:', to);
       return {
         statusCode: 200,
-        body: JSON.stringify({ success: true, id: info.messageId, provider: 'gmail' })
+        body: JSON.stringify({ success: true, id: info.messageId, provider: 'gmail', resendError: resendDiag.error || null })
       };
     } catch (err) {
       console.error('[send-email] Gmail SMTP failed:', err.message);
-      // Fall through to Resend if Gmail fails — include error for diagnostics
-      gmailDiag.error = err.message;
-    }
-  } else {
-    gmailDiag.error = !gmailUser ? 'GMAIL_USER not set' : 'GMAIL_APP_PASSWORD not set';
-  }
-
-  // ── Fallback: Resend API ──
-  const resendKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM || 'StayOps <noreply@app.stayops.com.au>';
-
-  if (!resendKey) {
-    console.error('[send-email] No email provider configured (set GMAIL_APP_PASSWORD or RESEND_API_KEY)');
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: 'Email not configured — set GMAIL_APP_PASSWORD or RESEND_API_KEY' })
-    };
-  }
-
-  try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + resendKey,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ from, to, subject, html, ...(attachments ? { attachments } : {}) })
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('[send-email] Resend error:', data);
+      captureError(err, { tags: { function: 'send-email' } });
+      await flush();
       return {
-        statusCode: response.status,
-        body: JSON.stringify({ error: data.message || 'Resend API error', detail: data, gmailError: gmailDiag.error || null })
+        statusCode: 500,
+        body: JSON.stringify({ error: err.message, resendError: resendDiag.error || null })
       };
     }
-
-    console.log('[send-email] Resend sent:', data.id, 'to:', to);
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ success: true, id: data.id, provider: 'resend', gmailError: gmailDiag.error || null })
-    };
-  } catch (err) {
-    console.error('[send-email] Resend error:', err.message);
-    captureError(err, { tags: { function: 'send-email' } });
-    await flush();
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err.message })
-    };
   }
+
+  console.error('[send-email] No email provider configured');
+  return {
+    statusCode: 500,
+    body: JSON.stringify({ error: 'Email not configured — set RESEND_API_KEY or GMAIL_APP_PASSWORD', resendError: resendDiag.error || null })
+  };
 };
