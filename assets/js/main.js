@@ -92,6 +92,9 @@ import {
   onboardTogglePlatform, onboardStep3Next, onboardToggleIntegration, onboardStep4Next, onboardEnableNotifications, onboardFinish, isOnboardingComplete, checkAutoSendReport, _calNavigate, renderOnboardingGuidance,
   dismissChecklist, renderCleanerCleans
 } from './render.js';
+import {
+  showCleanerHome, showCleanerOffer, showCleanerActive, completeCleanerClean, hideCleanerV2
+} from './cleaner-ui.js';
 /* eslint-enable no-unused-vars */
 
 // ── GLOBAL SCOPE ASSIGNMENTS ───────────────────────────────────────────────────
@@ -294,6 +297,11 @@ window.showSection              = showSection;
 window.switchActiveProperty     = switchActiveProperty;
 window.switchCleanerCleanTab    = switchCleanerCleanTab;
 window.switchCleanerTab         = switchCleanerTab;
+window.showCleanerHome          = showCleanerHome;
+window.showCleanerOffer         = showCleanerOffer;
+window.showCleanerActive        = showCleanerActive;
+window.completeCleanerClean     = completeCleanerClean;
+window.hideCleanerV2            = hideCleanerV2;
 window.switchMgmtSubTab         = switchMgmtSubTab;
 window.switchModalTab           = switchModalTab;
 window.switchPayoutsSubTab      = switchPayoutsSubTab;
