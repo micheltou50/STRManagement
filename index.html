@@ -1200,8 +1200,9 @@
             <div class="field"><label>Amount ($)</label><input type="number" id="exp-amount" placeholder="0.00" step="0.01"></div>
             <div class="field"><label>Date</label><input type="date" id="exp-date"></div>
           </div>
-          <label>Category</label>
-          <select id="exp-category"></select>
+          <label style="font-size:13px;font-weight:600;color:var(--ink-2)">Category</label>
+          <input type="hidden" id="exp-category" value="">
+          <div id="exp-category-picker" style="background:#fff;border-radius:14px;border:1px solid var(--hairline-1);overflow:hidden;margin-bottom:8px"></div>
           <label>Receipt Type</label>
           <select id="exp-receipt-type">
             <option value="e-receipt">e-Receipt</option>
@@ -2294,8 +2295,9 @@
       <div class="field"><label>Amount ($)</label><input type="number" id="ee-amount" step="0.01"></div>
       <div class="field"><label>Date</label><input type="date" id="ee-date"></div>
     </div>
-    <label>Category</label>
-    <select id="ee-category"></select>
+    <label style="font-size:13px;font-weight:600;color:var(--ink-2)">Category</label>
+    <input type="hidden" id="ee-category" value="">
+    <div id="ee-category-picker" style="background:#fff;border-radius:14px;border:1px solid var(--hairline-1);overflow:hidden;margin-bottom:8px"></div>
     <label>Receipt Type</label>
     <select id="ee-receipt-type">
       <option value="e-receipt">e-Receipt</option>

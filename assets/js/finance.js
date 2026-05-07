@@ -2307,9 +2307,7 @@ function saveInvoiceDetails() {
 }
 // ── EXPENSES ──────────────────────────────────────────────────────────────
 function populateExpenseCatSelect() {
-  const cats = getExpenseCats();
-  const sel = document.getElementById('exp-category');
-  if (sel) sel.innerHTML = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+  renderExpenseCatPicker();
 }
 
 // ── MERCHANT AUTOCOMPLETE ────────────────────────────────────────────────────
@@ -2361,22 +2359,20 @@ function selectMerchantSuggest(i) {
   // Autofill description if empty
   const descEl = document.getElementById('exp-description');
   if (descEl && !descEl.value) descEl.value = m.description;
-  // Always fill category — find exact match first, then closest
   const catEl = document.getElementById('exp-category');
   if (catEl && m.category) {
-    const opts = [...catEl.options];
-    // Try exact match
-    const exact = opts.find(o => o.value === m.category);
+    const cats = getExpenseCats();
+    const exact = cats.find(c => c === m.category);
     if (exact) {
       catEl.value = m.category;
     } else {
-      // Try partial match (e.g. old "Cleaning/Repairs" → "Cleaning")
-      const partial = opts.find(o =>
-        o.value.toLowerCase().includes(m.category.toLowerCase().split(/[/& ]/)[0]) ||
-        m.category.toLowerCase().includes(o.value.toLowerCase().split(/[/& ]/)[0])
+      const partial = cats.find(c =>
+        c.toLowerCase().includes(m.category.toLowerCase().split(/[/& ]/)[0]) ||
+        m.category.toLowerCase().includes(c.toLowerCase().split(/[/& ]/)[0])
       );
-      if (partial) catEl.value = partial.value;
+      if (partial) catEl.value = partial;
     }
+    renderExpenseCatPicker();
   }
   box.style.display = 'none';
 }
@@ -2876,9 +2872,7 @@ function addExpense(opts = {}) {
       const el = document.getElementById(id); if (el) el.value = '';
     });
     document.getElementById('exp-date').value = new Date().toISOString().split('T')[0];
-    // Reset dropdowns to first option
-    const catSel = document.getElementById('exp-category');
-    if (catSel) catSel.selectedIndex = 0;
+    resetExpenseCatPicker();
     const typeSel = document.getElementById('exp-receipt-type');
     if (typeSel) typeSel.selectedIndex = 0;
     clearExpensePhoto();
@@ -3153,9 +3147,9 @@ function openExpenseEdit(id) {
   document.getElementById('ee-amount').value = e.amount || '';
   document.getElementById('ee-date').value = e.date || '';
   document.getElementById('ee-receipt-num').value = e.receiptNum || '';
-  const cats = getExpenseCats();
-  const sel = document.getElementById('ee-category');
-  sel.innerHTML = cats.map(c => `<option value="${c}" ${c===e.category?'selected':''}>${c}</option>`).join('');
+  const eeHidden = document.getElementById('ee-category');
+  if (eeHidden) eeHidden.value = e.category || '';
+  renderExpenseCatPickerFor('ee');
   document.getElementById('ee-receipt-type').value = String(e.receiptType || 'missing').toLowerCase().trim();
   // Show existing drive link if present
   const currentReceiptEl = document.getElementById('ee-current-receipt');
@@ -3246,6 +3240,97 @@ function getExpenseCats() {
   return DEFAULT_EXPENSE_CATS;
 }
 globalThis.getExpenseCats = getExpenseCats;
+
+const EXPENSE_SUBCATS = {
+  'Supplies & Consumables': ['Coffee & tea','Paper products','Cleaning products','Toiletries','Kitchen supplies','Batteries & bulbs','Welcome packs','Other supplies'],
+  'Maintenance & Repairs': ['Plumbing','Electrical','Appliances','HVAC','Painting','Locks & keys','Pest treatment','Pool & spa','General repair','Other maintenance'],
+  'Cleaning & Garden': ['Regular clean','Deep clean','End-of-lease','Window cleaning','Carpet cleaning','Garden maintenance','Lawn mowing','Hedge trimming'],
+  'Utilities & Rates': ['Electricity','Gas','Water','Internet','Council rates','Strata levies'],
+  'Insurance': ['Building','Contents','Landlord liability','Public liability'],
+  'Professional Services': ['Accountant','Property manager','Legal','Photography','Marketing'],
+  'Furnishings & Equipment': ['Furniture','Bedding','Kitchenware','Electronics','Décor','Outdoor furniture'],
+  'Linen': ['Towels','Bed sheets','Pillowcases','Duvets','Bath mats','Table linen','Cushion covers','Blankets'],
+};
+
+function renderExpenseCatPickerFor(prefix) {
+  prefix = prefix || 'exp';
+  const picker = document.getElementById(prefix + '-category-picker');
+  if (!picker) return;
+  const cats = getExpenseCats();
+  const hiddenInput = document.getElementById(prefix + '-category');
+  const currentVal = hiddenInput ? hiddenInput.value : '';
+  const pfx = prefix;
+
+  picker.innerHTML = cats.map((c, i) => {
+    const subs = EXPENSE_SUBCATS[c] || [];
+    const isSelected = currentVal === c || currentVal.startsWith(c + ' > ');
+    const selectedSub = isSelected && currentVal.includes(' > ') ? currentVal.split(' > ')[1] : '';
+    const subCount = subs.length ? subs.length + ' subcategories' : '';
+    const borderTop = i ? 'border-top:1px solid var(--hairline-1);' : '';
+    let html = `<div data-cat="${c}">
+      <div onclick="toggleExpenseCat('${c.replace(/'/g, "\\'")}','${pfx}')" style="display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer;${borderTop}background:${isSelected ? 'var(--primary-soft)' : '#fff'}">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:600;color:var(--ink-1)">${c}</div>
+          ${subCount ? `<div style="font-size:11.5px;color:var(--muted-2);margin-top:1px">${subCount}</div>` : ''}
+        </div>
+        ${isSelected
+          ? '<svg width="18" height="18" viewBox="0 0 18 18"><path d="M4 9.5l3 3 7-8" stroke="var(--primary)" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+          : '<div style="width:18px;height:18px;border-radius:50%;border:1.5px solid var(--hairline-2);flex-shrink:0"></div>'}
+      </div>`;
+    if (isSelected && subs.length > 0) {
+      html += `<div style="background:var(--surface2);border-top:1px solid var(--hairline-1)">`;
+      subs.forEach((s, si) => {
+        const subSel = selectedSub === s;
+        const subBorder = si ? 'border-top:1px solid var(--hairline-1);' : '';
+        html += `<div onclick="selectExpenseSubcat('${c.replace(/'/g, "\\'")}','${s.replace(/'/g, "\\'")}','${pfx}')" style="display:flex;align-items:center;gap:10px;padding:10px 14px 10px 38px;cursor:pointer;${subBorder}">
+          <div style="width:16px;height:16px;border-radius:5px;border:1.5px solid ${subSel ? 'var(--primary)' : 'var(--hairline-2)'};background:${subSel ? 'var(--primary)' : '#fff'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            ${subSel ? '<svg width="9" height="9" viewBox="0 0 9 9"><path d="M1.5 4.5l2 2 4-5" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}
+          </div>
+          <span style="font-size:13px;color:${subSel ? 'var(--ink-1)' : 'var(--ink-2)'};font-weight:${subSel ? '600' : '400'}">${s}</span>
+        </div>`;
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }).join('');
+}
+globalThis.renderExpenseCatPickerFor = renderExpenseCatPickerFor;
+
+function renderExpenseCatPicker() { renderExpenseCatPickerFor('exp'); }
+globalThis.renderExpenseCatPicker = renderExpenseCatPicker;
+
+function toggleExpenseCat(cat, prefix) {
+  prefix = prefix || 'exp';
+  const hiddenInput = document.getElementById(prefix + '-category');
+  if (!hiddenInput) return;
+  const currentVal = hiddenInput.value;
+  if (currentVal === cat || currentVal.startsWith(cat + ' > ')) {
+    hiddenInput.value = '';
+  } else {
+    hiddenInput.value = cat;
+  }
+  renderExpenseCatPickerFor(prefix);
+}
+globalThis.toggleExpenseCat = toggleExpenseCat;
+
+function selectExpenseSubcat(cat, sub, prefix) {
+  prefix = prefix || 'exp';
+  const hiddenInput = document.getElementById(prefix + '-category');
+  if (!hiddenInput) return;
+  const full = cat + ' > ' + sub;
+  hiddenInput.value = hiddenInput.value === full ? cat : full;
+  renderExpenseCatPickerFor(prefix);
+}
+globalThis.selectExpenseSubcat = selectExpenseSubcat;
+
+function resetExpenseCatPicker() {
+  const hiddenInput = document.getElementById('exp-category');
+  if (hiddenInput) hiddenInput.value = '';
+  renderExpenseCatPicker();
+}
+globalThis.resetExpenseCatPicker = resetExpenseCatPicker;
+
 // ── OWNER REPORT ──────────────────────────────────────────────────────────────
 
 function populateMgmtFeePanel() {
