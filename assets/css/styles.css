@@ -2889,22 +2889,24 @@ label {
 .so-pill-2.warn { background: var(--accent-soft); color: var(--warn); }
 .so-pill-2.muted { background: var(--hairline-2); color: var(--ink-2); }
 
-/* Booking source rails + states */
-.booking-card[data-source="airbnb"]   { border-left: 5px solid var(--src-airbnb); }
-.booking-card[data-source="booking"]  { border-left: 5px solid var(--src-booking); }
-.booking-card[data-source="vrbo"]     { border-left: 5px solid var(--src-vrbo); }
-.booking-card[data-source="direct"]   { border-left: 5px solid var(--src-direct); }
-.booking-card[data-source="manual"]   { border-left: 5px solid var(--src-direct); }
-.booking-card .source-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; margin-right: 6px; }
-.booking-card[data-source="airbnb"]   .source-dot { background: var(--src-airbnb); }
-.booking-card[data-source="booking"]  .source-dot { background: var(--src-booking); }
-.booking-card[data-source="vrbo"]     .source-dot { background: var(--src-vrbo); }
-.booking-card[data-source="direct"]   .source-dot,
-.booking-card[data-source="manual"]   .source-dot { background: var(--src-direct); }
-.booking-card.is-stub .guest-name { font-style: italic; color: var(--muted-2); }
-.booking-card.is-stub .stub-pulse { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: so-pulse 1.4s ease-in-out infinite; vertical-align: middle; margin-right: 6px; }
-.booking-card.is-cancelled { border-style: dashed; opacity: 0.7; }
-.booking-card.is-cancelled .guest-name { text-decoration: line-through; }
+/* Booking source rails + states.
+   Use box-shadow inset (not border-left) so that inline `border` shorthand on
+   .booking-item cards doesn't clobber the rail. */
+.booking-card[data-source="airbnb"], .booking-item[data-source="airbnb"]   { box-shadow: inset 5px 0 0 var(--src-airbnb); }
+.booking-card[data-source="booking"], .booking-item[data-source="booking"]  { box-shadow: inset 5px 0 0 var(--src-booking); }
+.booking-card[data-source="vrbo"], .booking-item[data-source="vrbo"]     { box-shadow: inset 5px 0 0 var(--src-vrbo); }
+.booking-card[data-source="direct"], .booking-item[data-source="direct"]   { box-shadow: inset 5px 0 0 var(--src-direct); }
+.booking-card[data-source="manual"], .booking-item[data-source="manual"]   { box-shadow: inset 5px 0 0 var(--src-direct); }
+.booking-card .source-dot, .booking-item .source-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; margin-right: 6px; }
+.booking-card[data-source="airbnb"]  .source-dot, .booking-item[data-source="airbnb"]  .source-dot { background: var(--src-airbnb); }
+.booking-card[data-source="booking"] .source-dot, .booking-item[data-source="booking"] .source-dot { background: var(--src-booking); }
+.booking-card[data-source="vrbo"]    .source-dot, .booking-item[data-source="vrbo"]    .source-dot { background: var(--src-vrbo); }
+.booking-card[data-source="direct"]  .source-dot, .booking-item[data-source="direct"]  .source-dot,
+.booking-card[data-source="manual"]  .source-dot, .booking-item[data-source="manual"]  .source-dot { background: var(--src-direct); }
+.booking-card.is-stub .guest-name, .booking-item.is-stub .guest-name { font-style: italic; color: var(--muted-2); }
+.booking-card.is-stub .stub-pulse, .booking-item.is-stub .stub-pulse { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: so-pulse 1.4s ease-in-out infinite; vertical-align: middle; margin-right: 6px; }
+.booking-card.is-cancelled, .booking-item.is-cancelled { border-style: dashed; opacity: 0.7; }
+.booking-card.is-cancelled .guest-name, .booking-item.is-cancelled .guest-name { text-decoration: line-through; }
 .so-source-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; font-family: var(--font-mono); }
 .so-source-badge[data-source="airbnb"]  { background: var(--src-airbnb-soft);  color: var(--src-airbnb); }
 .so-source-badge[data-source="booking"] { background: var(--src-booking-soft); color: var(--src-booking); }

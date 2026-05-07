@@ -102,11 +102,23 @@ const CARD_TOUCH = 'touch-action:manipulation;-webkit-tap-highlight-color:rgba(0
  * @param {object} b booking
  * @param {{ portfolioStripeColor?: string, portfolioPropRowHtml?: string }} [options]
  */
+// Map platform string → spec source rail token (airbnb | booking | vrbo | direct)
+function _bookingSourceKey(platformRaw) {
+  const p = String(platformRaw || '').trim().toLowerCase();
+  if (p === 'airbnb') return 'airbnb';
+  if (p === 'vrbo') return 'vrbo';
+  if (p === 'booking.com' || p.includes('booking')) return 'booking';
+  if (p === 'direct') return 'direct';
+  return 'direct';
+}
+
 export function buildBookingListCardFromBooking(b, options = {}) {
   const { portfolioStripeColor, portfolioPropRowHtml } = options;
   const matchedClean = findMatchingCleanForBookingCard(b);
   const isCancelled = b.status === 'cancelled';
   const isPast = !isCancelled && new Date(b.checkout) < new Date();
+  const isStub = String(b.enrichment_status || '').toLowerCase() === 'pending';
+  const sourceKey = _bookingSourceKey(b.platform);
   const id = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
   const payout = Number(b.hostPayout ?? b.total_price ?? 0);
 
@@ -155,18 +167,30 @@ export function buildBookingListCardFromBooking(b, options = {}) {
     ? `<div style="margin-top:8px;display:block">${portfolioPropRowHtml}</div>`
     : '';
 
+  // Source rails (5px inset shadow) live on `data-source` attr — class rule wins.
+  // If a portfolio stripe is also requested, layer it as a 2nd shadow so both show.
   const outerStyle =
-    'display:block;background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);padding:14px 16px;margin-bottom:10px;cursor:pointer;border-bottom:none;' +
+    'display:block;background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);padding:14px 16px 14px 22px;margin-bottom:10px;cursor:pointer;border-bottom:none;' +
     CARD_TOUCH +
     stripe;
 
+  const cardClasses = [
+    'booking-item', 'booking-card',
+    isStub && 'is-stub',
+    isCancelled && 'is-cancelled',
+  ].filter(Boolean).join(' ');
+  const stubBadge = isStub
+    ? `<span class="stub-pulse" aria-hidden="true"></span><span style="font-size:11px;color:var(--warn,#b56a3a);font-style:italic;margin-left:4px">Stub from iCal · enrichment pending</span>`
+    : '';
+
   return (
-    `<div class="booking-item" onclick="showDetail('${id}')" style="${outerStyle}" data-booking-id="${b.id}">` +
+    `<div class="${cardClasses}" onclick="showDetail('${id}')" style="${outerStyle}" data-booking-id="${b.id}" data-source="${sourceKey}">` +
     `<div style="display:flex;justify-content:space-between;align-items:baseline${row1WrapOpacity}">` +
-    `<span style="${nameSpanStyle}">${escHtml(b.name)}</span>` +
+    `<span class="guest-name" style="${nameSpanStyle}"><span class="source-dot" aria-hidden="true"></span>${escHtml(b.name)}</span>` +
     `<span style="${priceSpanStyle}">$${payout.toLocaleString()}</span>` +
     `</div>` +
     `<div style="${row2Style}">${dateLine}</div>` +
+    (isStub ? `<div style="margin-top:6px;display:flex;align-items:center">${stubBadge}</div>` : '') +
     propBlock +
     row3 +
     `</div>`
