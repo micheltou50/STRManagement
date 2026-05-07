@@ -43,7 +43,7 @@ exports.handler = async (event) => {
 
   // ── Primary: Resend API (branded from address) ──
   const resendKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM || 'StayOps <noreply@app.stayops.com.au>';
+  const from = process.env.RESEND_FROM || 'StayOps <noreply@stayops.com.au>';
   const resendDiag = {};
 
   if (resendKey) {
