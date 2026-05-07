@@ -140,7 +140,7 @@ export function buildBookingListCardFromBooking(b, options = {}) {
   const stripe = portfolioStripeColor ? `box-shadow:inset 4px 0 0 ${portfolioStripeColor};` : '';
 
   const row1WrapOpacity = isCancelled ? ';opacity:0.6' : '';
-  const nameSpanStyle = 'font-weight:500;font-size:15px;color:#1a1a1a';
+  const nameSpanStyle = 'font-weight:500;font-size:15px;color:var(--ink-1)';
   const priceSpanStyle = isCancelled
     ? 'font-weight:500;font-size:15px;color:#666;text-decoration:line-through'
     : 'font-weight:500;font-size:15px;color:#1D9E75';

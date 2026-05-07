@@ -488,7 +488,7 @@ export function renderCleanFilterPills(counts) {
   const pill = (key, label, count, bg, color) => {
     const isActive = cleanStatusFilter === key;
     return '<div onclick="setCleanStatusFilter(\'' + key + '\')" ' +
-      'style="flex:0 0 auto;background:' + (isActive ? '#1E3A2F' : bg) +
+      'style="flex:0 0 auto;background:' + (isActive ? '#2f5d4e' : bg) +
       ';color:' + (isActive ? '#fff' : color) +
       ';font-size:12px;font-weight:700;padding:6px 12px;border-radius:20px;cursor:pointer;white-space:nowrap">' +
       label + (count > 0 ? ' · ' + count : '') + '</div>';
@@ -504,7 +504,7 @@ export function renderCleanFilterPills(counts) {
 
 export function renderCleanRow(item, showProperty, index) {
   const colour = showProperty && item.propertyId
-    ? getPropertyColourById(item.propertyId) : 'var(--forest, #1E3A2F)';
+    ? getPropertyColourById(item.propertyId) : 'var(--primary)';
   const propName = showProperty && item.propertyId
     ? getPropertyNameById(item.propertyId) : '';
 
@@ -538,18 +538,18 @@ export function renderCleanRow(item, showProperty, index) {
 
   return '<div>' +
     '<div onclick="toggleCleanAction(' + index + ',\'' + cleanId + '\',\'' + bookingId + '\',\'' + escapeJsSingleQuotedHtmlAttr(item.status) + '\')" ' +
-      'style="padding:12px 14px;border-bottom:1px solid var(--warm,#F0EDE8);display:flex;align-items:center;gap:12px;cursor:pointer" id="' + rowId + '">' +
+      'style="padding:12px 14px;border-bottom:1px solid var(--hairline-2);display:flex;align-items:center;gap:12px;cursor:pointer" id="' + rowId + '">' +
       '<div style="width:4px;height:36px;border-radius:2px;background:' + colour + ';flex-shrink:0"></div>' +
       '<div style="flex:1;min-width:0">' +
-        '<div style="font-weight:700;font-size:14px;color:var(--text,#1A1A1A)">' + escHtml(item.guest) + '</div>' +
-        '<div style="font-size:12px;color:var(--text-soft,#6B6560);margin-top:2px">' + propLabel + cleanerText + '</div>' +
+        '<div style="font-weight:700;font-size:14px;color:var(--ink-1)">' + escHtml(item.guest) + '</div>' +
+        '<div style="font-size:12px;color:var(--muted-2);margin-top:2px">' + propLabel + cleanerText + '</div>' +
       '</div>' +
       '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">' +
         statusPill +
-        '<div style="font-size:11px;color:var(--text-soft,#6B6560)">' + escHtml(fmtShort(item.date)) + '</div>' +
+        '<div style="font-size:11px;color:var(--muted-2)">' + escHtml(fmtShort(item.date)) + '</div>' +
       '</div>' +
     '</div>' +
-    '<div id="' + actionId + '" style="display:none;padding:0 14px 12px;border-bottom:1px solid var(--warm,#F0EDE8);background:var(--mist,#F8F6F3)"></div>' +
+    '<div id="' + actionId + '" style="display:none;padding:0 14px 12px;border-bottom:1px solid var(--hairline-2);background:var(--surface2)"></div>' +
   '</div>';
 }
 
@@ -568,7 +568,7 @@ export function renderCleanTimeline(data, showProperty) {
     list.innerHTML = '<div style="text-align:center;padding:28px 16px">' +
       '<div style="font-size:36px;margin-bottom:10px;opacity:0.4">&#10003;</div>' +
       '<div style="font-weight:600;font-size:14px;margin-bottom:4px">All clear</div>' +
-      '<div style="font-size:12px;color:var(--text-soft)">No cleans match this filter</div></div>';
+      '<div style="font-size:12px;color:var(--muted-2)">No cleans match this filter</div></div>';
     return;
   }
 
@@ -618,7 +618,7 @@ export function renderCleanPipeline(data, showProperty) {
   if (!list.innerHTML) {
     list.innerHTML = '<div style="text-align:center;padding:28px 16px">' +
       '<div style="font-weight:600;font-size:14px;margin-bottom:4px">All clear</div>' +
-      '<div style="font-size:12px;color:var(--text-soft)">No cleans match this filter</div></div>';
+      '<div style="font-size:12px;color:var(--muted-2)">No cleans match this filter</div></div>';
   }
 }
 
@@ -630,14 +630,14 @@ export function renderCleanByProperty(data) {
   if (!props.length) {
     list.innerHTML = '<div style="text-align:center;padding:28px 16px">' +
       '<div style="font-weight:600;font-size:14px;margin-bottom:4px">All clear</div>' +
-      '<div style="font-size:12px;color:var(--text-soft)">No cleans match this filter</div></div>';
+      '<div style="font-size:12px;color:var(--muted-2)">No cleans match this filter</div></div>';
     return;
   }
 
   let byPropRowIdx = 0;
   list.innerHTML = props.map(([propName, propData]) => {
     const colour = propData.propertyId
-      ? getPropertyColourById(propData.propertyId) : 'var(--forest)';
+      ? getPropertyColourById(propData.propertyId) : 'var(--primary)';
     const unassignedCount = propData.items.filter(i => i.status === 'unassigned').length;
 
     return '<div style="background:#fff;border-radius:14px;border-left:4px solid ' + colour +
@@ -645,7 +645,7 @@ export function renderCleanByProperty(data) {
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
         '<div>' +
           '<div style="font-weight:700;font-size:16px;color:var(--text)">' + escHtml(propName) + '</div>' +
-          '<div style="font-size:12px;color:var(--text-soft)">' + propData.items.length + ' upcoming clean' +
+          '<div style="font-size:12px;color:var(--muted-2)">' + propData.items.length + ' upcoming clean' +
             (propData.items.length !== 1 ? 's' : '') + '</div>' +
         '</div>' +
         (unassignedCount > 0
@@ -681,7 +681,7 @@ export function toggleCleanAction(index, cleanId, bookingId, status) {
   if (status === 'unassigned') {
     buttons =
       '<button onclick="event.stopPropagation();jumpToAssignClean(\'' + bookingId + '\')" ' +
-        'style="flex:1;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Assign cleaner</button>';
   } else if (status === 'awaiting') {
     buttons =
@@ -692,26 +692,26 @@ export function toggleCleanAction(index, cleanId, bookingId, status) {
         'style="flex:1;padding:10px;background:#FCEBEB;color:#A32D2D;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Decline</button>' +
       '<button onclick="event.stopPropagation();openNotifyModal(\'' + cleanId + '\')" ' +
-        'style="flex:1;padding:10px;background:var(--mist,#F0EDE8);color:var(--text,#1A1A1A);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--surface2);color:var(--ink-1);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'SMS</button>' +
       '<button onclick="event.stopPropagation();renotifyClean(\'' + cleanId + '\')" ' +
-        'style="flex:1;padding:10px;background:var(--mist,#F0EDE8);color:var(--text,#1A1A1A);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--surface2);color:var(--ink-1);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Re-notify</button>';
   } else if (status === 'confirmed') {
     buttons =
       '<button onclick="event.stopPropagation();openNotifyModal(\'' + cleanId + '\')" ' +
-        'style="flex:1;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Send SMS</button>' +
       '<button onclick="event.stopPropagation();renotifyClean(\'' + cleanId + '\')" ' +
-        'style="flex:1;padding:10px;background:var(--mist,#F0EDE8);color:var(--text,#1A1A1A);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--surface2);color:var(--ink-1);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Re-notify</button>' +
       '<button onclick="event.stopPropagation();reassignClean(\'' + cleanId + '\')" ' +
-        'style="flex:1;padding:10px;background:var(--mist,#F0EDE8);color:var(--text,#1A1A1A);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--surface2);color:var(--ink-1);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Reassign</button>';
   } else if (status === 'declined') {
     buttons =
       '<button onclick="event.stopPropagation();openNotifyModal(\'' + cleanId + '\')" ' +
-        'style="flex:1;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Send SMS</button>' +
       '<button onclick="event.stopPropagation();reassignClean(\'' + cleanId + '\')" ' +
         'style="flex:1;padding:10px;background:#FCEBEB;color:#A32D2D;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
@@ -719,7 +719,7 @@ export function toggleCleanAction(index, cleanId, bookingId, status) {
   } else if (status === 'cancelled_pending') {
     buttons =
       '<button onclick="event.stopPropagation();renotifyClean(\'' + cleanId + '\')" ' +
-        'style="flex:1;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Re-notify</button>';
   } else if (status === 'cancelled_acked') {
     buttons =
@@ -728,7 +728,7 @@ export function toggleCleanAction(index, cleanId, bookingId, status) {
 
   const viewBookingBtn = bookingId
     ? '<button onclick="event.stopPropagation();globalThis.showDetail(\'' + bookingId + '\')" ' +
-        'style="flex:1;padding:10px;background:transparent;color:var(--forest,#1E3A2F);border:1.5px solid var(--warm,#E8E0D5);border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
+        'style="flex:1;padding:10px;background:transparent;color:var(--primary);border:1.5px solid var(--hairline-2);border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'View booking</button>'
     : '';
 
@@ -785,12 +785,12 @@ export function jumpToAssignClean(bookingIdRaw) {
 export function updateCleanViewSwitcherStyles() {
   document.querySelectorAll('.clean-view-tab').forEach(t => {
     t.style.background = '';
-    t.style.color = 'var(--text-soft, #6B6560)';
+    t.style.color = 'var(--muted-2)';
     t.style.fontWeight = '600';
   });
   const active = document.getElementById('clean-view-' + cleaningViewMode);
   if (active) {
-    active.style.background = 'var(--forest, #1E3A2F)';
+    active.style.background = 'var(--primary)';
     active.style.color = '#fff';
     active.style.fontWeight = '700';
   }
@@ -847,7 +847,7 @@ function _renderCleanDesktopTable(data, showProperty) {
 
   const items = data.filtered;
   if (!items.length) {
-    list.innerHTML = '<div class="card" style="text-align:center;padding:40px"><div style="font-size:36px;margin-bottom:10px;opacity:0.4">&#10003;</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">All clear</div><div style="font-size:12px;color:var(--text-soft)">No cleans match this filter</div></div>';
+    list.innerHTML = '<div class="card" style="text-align:center;padding:40px"><div style="font-size:36px;margin-bottom:10px;opacity:0.4">&#10003;</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">All clear</div><div style="font-size:12px;color:var(--muted-2)">No cleans match this filter</div></div>';
     return;
   }
 
@@ -862,7 +862,7 @@ function _renderCleanDesktopTable(data, showProperty) {
 
   const propTh = showProperty ? '<th>Property</th>' : '';
   const rows = items.map(item => {
-    const propTd = showProperty ? '<td style="font-size:12px;color:var(--text-soft)">' + escHtml(item.propertyId ? getPropertyNameById(item.propertyId) : '') + '</td>' : '';
+    const propTd = showProperty ? '<td style="font-size:12px;color:var(--muted-2)">' + escHtml(item.propertyId ? getPropertyNameById(item.propertyId) : '') + '</td>' : '';
     const cleanerHtml = item.cleaner
       ? '<span style="color:var(--moss);font-weight:500">' + escHtml(item.cleaner) + '</span>'
       : '<span style="color:var(--red);font-size:12px">Unassigned</span>';
@@ -902,10 +902,10 @@ function _renderCleanDesktopTable(data, showProperty) {
       '<table class="desktop-table"><thead><tr><th>Date</th>' + propTh + '<th>Guest</th><th>Cleaner</th><th>Status</th><th>Cost</th></tr></thead><tbody>' + rows + '</tbody></table>' +
     '</div>' +
     '<div style="display:flex;flex-direction:column;gap:16px">' +
-      '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Cleaner Summary</div>' + cleanerSummary + '</div>' +
-      '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Overview</div>' +
-        '<div style="font-family:\'Newsreader\',serif;font-size:28px;color:var(--forest)">' + items.length + ' cleans</div>' +
-        '<div style="font-size:12px;color:var(--text-soft);margin-top:4px">' + confirmed + ' confirmed · ' + awaiting + ' awaiting · ' + unassigned + ' unassigned</div>' +
+      '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted-2);margin-bottom:12px">Cleaner Summary</div>' + cleanerSummary + '</div>' +
+      '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted-2);margin-bottom:12px">Overview</div>' +
+        '<div style="font-family:\'Newsreader\',serif;font-size:28px;color:var(--primary)">' + items.length + ' cleans</div>' +
+        '<div style="font-size:12px;color:var(--muted-2);margin-top:4px">' + confirmed + ' confirmed · ' + awaiting + ' awaiting · ' + unassigned + ' unassigned</div>' +
       '</div>' +
     '</div>' +
   '</div>';

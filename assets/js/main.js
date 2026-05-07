@@ -491,7 +491,7 @@ window.switchToCleanerMode = function () {
   const hostPill = document.getElementById('role-pill-host');
   const cleanerPill = document.getElementById('role-pill-cleaner');
   if (hostPill) { hostPill.style.background = 'rgba(255,255,255,0.12)'; hostPill.style.color = 'rgba(255,255,255,0.8)'; }
-  if (cleanerPill) { cleanerPill.style.background = '#8FAF85'; cleanerPill.style.color = '#1E3A2F'; }
+  if (cleanerPill) { cleanerPill.style.background = '#8FAF85'; cleanerPill.style.color = '#2f5d4e'; }
 
   // Switch to cleaner view (hides host UI, shows cleaner UI, loads data)
   showCleanerApp();
@@ -511,7 +511,7 @@ window.switchToCleanerMode = function () {
       const btn = document.createElement('button');
       btn.id = 'back-to-host-btn';
       btn.onclick = window.switchToHostMode;
-      btn.style.cssText = 'display:flex;align-items:center;gap:6px;background:rgba(30,58,47,0.1);border:1.5px solid var(--forest,#1E3A2F);border-radius:20px;color:var(--forest,#1E3A2F);font-family:"Plus Jakarta Sans",sans-serif;font-size:12px;font-weight:600;padding:7px 14px;cursor:pointer;margin-top:12px';
+      btn.style.cssText = 'display:flex;align-items:center;gap:6px;background:rgba(30,58,47,0.1);border:1.5px solid var(--primary);border-radius:20px;color:var(--primary);font-family:"Plus Jakarta Sans",sans-serif;font-size:12px;font-weight:600;padding:7px 14px;cursor:pointer;margin-top:12px';
       btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg> Back to Host';
       cleanerHeader.appendChild(btn);
     }
@@ -541,7 +541,7 @@ window.switchToHostMode = function () {
   // Reset pill styles
   const hostPill = document.getElementById('role-pill-host');
   const cleanerPill = document.getElementById('role-pill-cleaner');
-  if (hostPill) { hostPill.style.background = '#8FAF85'; hostPill.style.color = '#1E3A2F'; }
+  if (hostPill) { hostPill.style.background = '#8FAF85'; hostPill.style.color = '#2f5d4e'; }
   if (cleanerPill) { cleanerPill.style.background = 'rgba(255,255,255,0.12)'; cleanerPill.style.color = 'rgba(255,255,255,0.8)'; }
 };
 
@@ -580,7 +580,7 @@ function checkCancelledBookings() {
       }
 
       cards += '<div style="background:#FCEBEB;border-radius:10px;padding:14px 16px;margin-bottom:10px">';
-      cards += '<div style="font-size:15px;font-weight:600;color:#1a1a1a">' + (b.name || 'Guest') + '</div>';
+      cards += '<div style="font-size:15px;font-weight:600;color:var(--ink-1)">' + (b.name || 'Guest') + '</div>';
       if (propName) cards += '<div style="font-size:12px;color:#888;margin-top:2px">' + propName + '</div>';
       cards += '<div style="font-size:13px;color:#A32D2D;margin-top:4px;text-decoration:line-through">' + fmtD(b.checkin) + ' → ' + fmtD(b.checkout) + '</div>';
 
@@ -683,26 +683,26 @@ window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3D6B4F" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
         <div>
-          <div style="font-size:16px;font-weight:700;color:#1a1a1a">Email sent</div>
+          <div style="font-size:16px;font-weight:700;color:var(--ink-1)">Email sent</div>
           <div style="font-size:12px;color:#6B6560;margin-top:2px">${esc(clean.cleaner)} · ${esc(email)}</div>
         </div>
       </div>
       <div style="font-size:12px;color:#6B6560;margin-bottom:14px;line-height:1.5">
-        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Property</span><strong style="color:#1a1a1a">${esc(propName || 'N/A')}</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Guest</span><strong style="color:#1a1a1a">${esc(b.name || 'Guest')}</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Check-in</span><strong style="color:#1a1a1a">${esc(fmtD(b.checkin))}</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:6px 0"><span>Check-out</span><strong style="color:#1a1a1a">${esc(fmtD(b.checkout))}</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Property</span><strong style="color:var(--ink-1)">${esc(propName || 'N/A')}</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Guest</span><strong style="color:var(--ink-1)">${esc(b.name || 'Guest')}</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Check-in</span><strong style="color:var(--ink-1)">${esc(fmtD(b.checkin))}</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0"><span>Check-out</span><strong style="color:var(--ink-1)">${esc(fmtD(b.checkout))}</strong></div>
       </div>
       <div style="border-top:1px solid rgba(0,0,0,0.06);padding-top:16px;margin-top:4px">
-        <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:10px">Also send a text message?</div>
-        <textarea id="cancel-sms-body" style="width:100%;min-height:80px;border:1px solid rgba(0,0,0,0.12);border-radius:10px;padding:10px 12px;font-family:inherit;font-size:13px;color:#1a1a1a;resize:vertical;line-height:1.5;box-sizing:border-box">${esc(smsBody)}</textarea>
+        <div style="font-size:13px;font-weight:600;color:var(--ink-1);margin-bottom:10px">Also send a text message?</div>
+        <textarea id="cancel-sms-body" style="width:100%;min-height:80px;border:1px solid rgba(0,0,0,0.12);border-radius:10px;padding:10px 12px;font-family:inherit;font-size:13px;color:var(--ink-1);resize:vertical;line-height:1.5;box-sizing:border-box">${esc(smsBody)}</textarea>
         ${phone
           ? `<div style="font-size:12px;color:#6B6560;margin-top:6px">To: ${esc(phone)}</div>`
           : '<div style="font-size:12px;color:#C0392B;margin-top:6px">No phone number on file — add one in Settings → Cleaning</div>'}
       </div>
       <div style="display:flex;gap:10px;margin-top:16px">
-        <button id="cancel-notify-done" style="flex:1;padding:12px;border:1px solid rgba(0,0,0,0.15);border-radius:10px;background:white;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;color:#1a1a1a">Done</button>
-        <button id="cancel-notify-sms" style="flex:1;padding:12px;border:none;border-radius:10px;background:#1E3A2F;color:white;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;${phone ? '' : 'opacity:0.4;pointer-events:none'}">
+        <button id="cancel-notify-done" style="flex:1;padding:12px;border:1px solid rgba(0,0,0,0.15);border-radius:10px;background:white;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;color:var(--ink-1)">Done</button>
+        <button id="cancel-notify-sms" style="flex:1;padding:12px;border:none;border-radius:10px;background:#2f5d4e;color:white;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;${phone ? '' : 'opacity:0.4;pointer-events:none'}">
           <span style="display:inline-flex;align-items:center;gap:6px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>Send SMS</span>
         </button>
       </div>
@@ -902,7 +902,7 @@ window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
         const banner = document.createElement('div');
         banner.id = 'notif-prompt-banner';
         banner.innerHTML =
-          '<div style="position:fixed;bottom:80px;left:16px;right:16px;z-index:998;background:#1E3A2F;color:#fff;border-radius:14px;padding:14px 16px;box-shadow:0 4px 20px rgba(0,0,0,0.2);display:flex;align-items:center;gap:12px">' +
+          '<div style="position:fixed;bottom:80px;left:16px;right:16px;z-index:998;background:#2f5d4e;color:#fff;border-radius:14px;padding:14px 16px;box-shadow:0 4px 20px rgba(0,0,0,0.2);display:flex;align-items:center;gap:12px">' +
             '<div style="font-size:24px;flex-shrink:0">🔔</div>' +
             '<div style="flex:1"><div style="font-weight:700;font-size:14px">Enable Notifications</div><div style="font-size:12px;opacity:0.7;margin-top:2px">Get alerts for bookings, cleans, and messages</div></div>' +
             '<div onclick="enableNotificationsManually();document.getElementById(\'notif-prompt-banner\').remove()" style="background:#8FAF85;color:#fff;font-weight:700;font-size:12px;padding:8px 14px;border-radius:8px;cursor:pointer;white-space:nowrap">Enable</div>' +

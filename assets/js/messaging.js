@@ -20,7 +20,7 @@ let _previewTimer = null;   // Auto-dismiss timer for preview popup
 
 // ── CARD CONFIG ──────────────────────────────────────────────────────────────
 const CARD_GRADIENTS = {
-  clean_assigned:    'linear-gradient(90deg,#1E3A2F,#8FAF85)',
+  clean_assigned:    'linear-gradient(90deg,#2f5d4e,#8FAF85)',
   clean_confirmed:   'linear-gradient(90deg,#34C759,#8BC34A)',
   clean_declined:    'linear-gradient(90deg,#FF3B30,#FF6B6B)',
   clean_complete:    'linear-gradient(90deg,#34C759,#8BC34A)',
@@ -44,11 +44,11 @@ const CARD_TITLES = {
 };
 
 const CARD_TITLE_COLORS = {
-  clean_assigned:    '#1E3A2F',
+  clean_assigned:    '#2f5d4e',
   clean_confirmed:   '#2E7D32',
   clean_declined:    '#C62828',
   clean_complete:    '#2E7D32',
-  maintenance_flag:  '#1E3A2F',
+  maintenance_flag:  '#2f5d4e',
 };
 
 // Deterministic avatar colours
@@ -460,7 +460,7 @@ export function renderChatBubble() {
       <div id="chat-badge" style="display:none;position:absolute;top:-3px;right:-3px;min-width:20px;height:20px;border-radius:10px;background:#FF3B30;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 5px;border:2px solid #f5f5f3"></div>
     </div>
     <div id="chat-preview" style="display:none;position:fixed;bottom:220px;right:24px;z-index:98;background:#fff;padding:10px 14px;border-radius:14px 14px 4px 14px;box-shadow:0 4px 16px rgba(0,0,0,0.12);max-width:220px;cursor:pointer" onclick="window._stayOpsOpenChat()">
-      <div id="chat-preview-name" style="font-weight:700;font-size:12px;color:#1E3A2F"></div>
+      <div id="chat-preview-name" style="font-weight:700;font-size:12px;color:#2f5d4e"></div>
       <div id="chat-preview-msg" style="font-size:12px;color:#666;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden"></div>
     </div>
   `;
@@ -484,7 +484,7 @@ export async function renderConversationList() {
 
   // Show loading state
   panel.innerHTML = `
-    <div style="background:#1E3A2F;padding:48px 18px 14px;flex-shrink:0">
+    <div style="background:#2f5d4e;padding:48px 18px 14px;flex-shrink:0">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <span style="font-family:'Newsreader',serif;font-size:22px;color:#fff">Messages</span>
         <span onclick="window._stayOpsCloseChat()" style="color:rgba(255,255,255,0.5);font-size:22px;cursor:pointer;padding:4px 8px">&times;</span>
@@ -525,7 +525,7 @@ export async function renderConversationList() {
   }
 
   panel.innerHTML = `
-    <div style="background:#1E3A2F;padding:48px 18px 14px;flex-shrink:0">
+    <div style="background:#2f5d4e;padding:48px 18px 14px;flex-shrink:0">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <span style="font-family:'Newsreader',serif;font-size:22px;color:#fff">Messages</span>
         <span onclick="window._stayOpsCloseChat()" style="color:rgba(255,255,255,0.5);font-size:22px;cursor:pointer;padding:4px 8px">&times;</span>
@@ -542,14 +542,14 @@ function _renderConvRow(conv) {
   const bg = isUnread ? 'background:#FAFFF5;' : '';
   const nameWeight = isUnread ? 'font-weight:700;' : 'font-weight:600;';
   const previewColor = isUnread ? 'color:#555;' : 'color:#999;';
-  const timeColor = isUnread ? 'color:#1E3A2F;font-weight:600;' : 'color:#999;';
+  const timeColor = isUnread ? 'color:#2f5d4e;font-weight:600;' : 'color:#999;';
 
   let preview = escHtml(conv.lastMessageBody);
   if (conv.lastMessageType === 'photo') preview = '\u{1F4F7} Photo';
   if (conv.lastMessageType === 'card') preview = '\u{1F4CB} ' + escHtml(conv.lastMessageBody);
 
   const badge = isUnread
-    ? `<div style="width:22px;height:22px;border-radius:50%;background:#1E3A2F;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:4px;margin-left:auto">${conv.unread}</div>`
+    ? `<div style="width:22px;height:22px;border-radius:50%;background:#2f5d4e;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:4px;margin-left:auto">${conv.unread}</div>`
     : '';
 
   return `
@@ -579,7 +579,7 @@ export async function renderChatThread(cleanerId) {
 
   // Show loading
   panel.innerHTML = `
-    <div style="background:#1E3A2F;padding:48px 14px 12px;display:flex;align-items:center;gap:10px;flex-shrink:0">
+    <div style="background:#2f5d4e;padding:48px 14px 12px;display:flex;align-items:center;gap:10px;flex-shrink:0">
       <div onclick="window._stayOpsBackToList()" style="color:rgba(255,255,255,0.7);font-size:22px;cursor:pointer;padding:0 6px">&lsaquo;</div>
       <div style="width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;flex-shrink:0;border:2px solid rgba(255,255,255,0.2);background:${color}">${escHtml(initials)}</div>
       <div style="flex:1"><div style="color:#fff;font-weight:600;font-size:16px">${escHtml(name)}</div><div style="color:rgba(255,255,255,0.55);font-size:11px">online</div></div>
@@ -609,7 +609,7 @@ export async function renderChatThread(cleanerId) {
   }
 
   panel.innerHTML = `
-    <div style="background:#1E3A2F;padding:48px 14px 12px;display:flex;align-items:center;gap:10px;flex-shrink:0">
+    <div style="background:#2f5d4e;padding:48px 14px 12px;display:flex;align-items:center;gap:10px;flex-shrink:0">
       <div onclick="window._stayOpsBackToList()" style="color:rgba(255,255,255,0.7);font-size:22px;cursor:pointer;padding:0 6px">&lsaquo;</div>
       <div style="width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;flex-shrink:0;border:2px solid rgba(255,255,255,0.2);background:${color}">${escHtml(initials)}</div>
       <div style="flex:1"><div style="color:#fff;font-weight:600;font-size:16px">${escHtml(name)}</div><div style="color:rgba(255,255,255,0.55);font-size:11px">online</div></div>
@@ -624,7 +624,7 @@ export async function renderChatThread(cleanerId) {
         <input type="file" id="chat-photo-input" accept="image/*" style="display:none" onchange="window._stayOpsChatPhotoSelected(this)">
         <input type="text" id="chat-input-field" placeholder="Type a message..." style="flex:1;border:none;outline:none;font-size:14px;font-family:inherit;padding:4px 2px;color:#111;background:transparent" onkeydown="if(event.key==='Enter'){event.preventDefault();window._stayOpsSendFromInput();}">
       </div>
-      <div onclick="window._stayOpsSendFromInput()" style="width:42px;height:42px;border-radius:50%;background:#1E3A2F;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0">
+      <div onclick="window._stayOpsSendFromInput()" style="width:42px;height:42px;border-radius:50%;background:#2f5d4e;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
       </div>
     </div>
@@ -671,7 +671,7 @@ function _renderSystemCard(msg) {
   const gradient = CARD_GRADIENTS[cardType] || CARD_GRADIENTS.clean_assigned;
   const icon = CARD_ICONS[cardType] || '\u{1F3E0}';
   const title = CARD_TITLES[cardType] || (msg.body || 'System Message');
-  const titleColor = CARD_TITLE_COLORS[cardType] || '#1E3A2F';
+  const titleColor = CARD_TITLE_COLORS[cardType] || '#2f5d4e';
 
   let bodyHTML;
   const cd = msg.card_data || {};
@@ -712,7 +712,7 @@ function _renderSystemCard(msg) {
     if (reporter) parts.push('Reported by ' + reporter);
     bodyHTML = parts.join('<br>');
     if (cd.actionable !== false) {
-      bodyHTML += `<div style="margin-top:6px;font-size:11.5px;font-weight:700;color:#1E3A2F;cursor:pointer">Create maintenance task &rarr;</div>`;
+      bodyHTML += `<div style="margin-top:6px;font-size:11.5px;font-weight:700;color:#2f5d4e;cursor:pointer">Create maintenance task &rarr;</div>`;
     }
   } else {
     bodyHTML = escHtml(msg.body || '');

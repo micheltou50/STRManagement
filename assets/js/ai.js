@@ -127,17 +127,17 @@ export function renderAIIgnoreList() {
   if (!el) return;
   const list = loadAIIgnoreList();
   if (!list.length) {
-    el.innerHTML = '<div style="font-size:12px;color:var(--text-soft)">Nothing ignored yet. Tap "Ignore" on any flagged item in the expense analysis.</div>';
+    el.innerHTML = '<div style="font-size:12px;color:var(--muted-2)">Nothing ignored yet. Tap "Ignore" on any flagged item in the expense analysis.</div>';
     return;
   }
   const typeLabel = { duplicate:'Duplicate', anomaly:'Anomaly', missing:'Missing Receipt', uncategorised:'Uncategorised', recurring:'Recurring' };
   el.innerHTML = list.map(item => `
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--warm);gap:8px">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--hairline-2);gap:8px">
       <div style="flex:1;min-width:0">
-        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:2px">${typeLabel[item.type]||item.type}</div>
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:2px">${typeLabel[item.type]||item.type}</div>
         <div style="font-size:13px;font-weight:500;color:var(--text)">${item.label}</div>
-        ${item.reason ? `<div style="font-size:11px;color:var(--text-soft);margin-top:2px;font-style:italic">${item.reason}</div>` : ''}
-        <div style="font-size:11px;color:var(--text-soft);margin-top:2px">Added ${item.addedDate}</div>
+        ${item.reason ? `<div style="font-size:11px;color:var(--muted-2);margin-top:2px;font-style:italic">${item.reason}</div>` : ''}
+        <div style="font-size:11px;color:var(--muted-2);margin-top:2px">Added ${item.addedDate}</div>
       </div>
       <button onclick="removeAIIgnoreItem('${item.id}')" style="font-size:11px;color:var(--red);background:none;border:1px solid var(--red);border-radius:20px;padding:4px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap;flex-shrink:0">Remove</button>
     </div>`).join('');
@@ -163,15 +163,15 @@ function renderExpenseAnalysis(data) {
 
   const ignoreBtn = (type, key, label) =>
     `<button onclick="promptIgnore('${type}','${key.replace(/'/g,"\\'")}','${label.replace(/'/g,"\\'")}');event.stopPropagation()"
-      style="font-size:10px;color:var(--text-soft);background:var(--warm);border:none;border-radius:12px;padding:3px 8px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;margin-top:6px;display:inline-block">
+      style="font-size:10px;color:var(--muted-2);background:var(--hairline-2);border:none;border-radius:12px;padding:3px 8px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;margin-top:6px;display:inline-block">
       🚫 Ignore this
     </button>`;
 
   const row = (main, sub, badge, type, key) => `
     <div style="background:white;border-radius:8px;padding:10px 12px;margin-bottom:6px;border-left:3px solid currentColor">
       <div style="font-weight:600;font-size:13px">${main}</div>
-      <div style="font-size:12px;color:var(--text-soft);margin-top:2px">${sub}</div>
-      ${badge ? `<div style="font-size:11px;margin-top:4px;color:var(--text-soft);font-style:italic">${badge}</div>` : ''}
+      <div style="font-size:12px;color:var(--muted-2);margin-top:2px">${sub}</div>
+      ${badge ? `<div style="font-size:11px;margin-top:4px;color:var(--muted-2);font-style:italic">${badge}</div>` : ''}
       ${ignoreBtn(type, key, main)}
     </div>`;
 
@@ -206,7 +206,7 @@ function renderExpenseAnalysis(data) {
 
   if (data.insights?.length) {
     html += `<div style="margin-bottom:8px">
-      <div style="font-weight:600;font-size:12px;color:var(--forest);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">💡 Insights</div>`;
+      <div style="font-weight:600;font-size:12px;color:var(--primary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">💡 Insights</div>`;
     data.insights.forEach(i => {
       html += `<div style="background:white;border-radius:8px;padding:10px 12px;margin-bottom:6px;font-size:13px">${i}</div>`;
     });
@@ -215,13 +215,13 @@ function renderExpenseAnalysis(data) {
 
   const hasAnything = data.duplicates?.length || data.anomalies?.length ||
     data.missingReceipts?.length || data.uncategorised?.length || data.recurring?.length;
-  if (!hasAnything) html += '<div style="color:var(--forest);font-weight:600">✓ No issues found — your expenses look clean!</div>';
+  if (!hasAnything) html += '<div style="color:var(--primary);font-weight:600">✓ No issues found — your expenses look clean!</div>';
 
   html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
     <button onclick="openSettingsCat('advanced');openSettingsPanel('ai-ignore');"
-      style="font-size:11px;color:var(--text-soft);background:none;border:none;cursor:pointer;text-decoration:underline">View ignore list</button>
+      style="font-size:11px;color:var(--muted-2);background:none;border:none;cursor:pointer;text-decoration:underline">View ignore list</button>
     <button onclick="document.getElementById('expense-analysis-result').style.display='none'"
-      style="font-size:12px;color:var(--text-soft);background:none;border:none;cursor:pointer">✕ Close</button>
+      style="font-size:12px;color:var(--muted-2);background:none;border:none;cursor:pointer">✕ Close</button>
   </div>`;
 
   return html;

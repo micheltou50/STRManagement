@@ -155,7 +155,7 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
         <div id="s-platforms-grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
           ${['airbnb','booking','stayz','vrbo','direct'].map(p => {
             const labels = { airbnb:'Airbnb', booking:'Booking.com', stayz:'Stayz', vrbo:'VRBO', direct:'Direct' };
-            const colors = { airbnb:'#FF5A5F', booking:'#003580', stayz:'#00A699', vrbo:'#1B468E', direct:'#1E3A2F' };
+            const colors = { airbnb:'#FF5A5F', booking:'#003580', stayz:'#00A699', vrbo:'#1B468E', direct:'#2f5d4e' };
             const icons  = { airbnb:'🏠', booking:'🅱️', stayz:'🌊', vrbo:'🏡', direct:'📅' };
             const active = Array.isArray(cfg.platforms) && cfg.platforms.includes(p);
             return '<div class="ss-plat-chip' + (active ? ' active' : '') + '" data-platform="' + p + '" ' +
@@ -396,7 +396,7 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
     const hasDirectOnly = _selectedPlatforms.has('direct') && !urlPlatforms.length;
     if (!urlPlatforms.length) {
       container.innerHTML = hasDirectOnly
-        ? '<div class="ss-hint" style="margin-top:8px;color:var(--text-soft)">Direct bookings don\'t need a listing URL — you\'ll add bookings manually or via email import.</div>'
+        ? '<div class="ss-hint" style="margin-top:8px;color:var(--muted-2)">Direct bookings don\'t need a listing URL — you\'ll add bookings manually or via email import.</div>'
         : '';
       return;
     }
@@ -420,7 +420,7 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
         const url = airbnbInput.value.trim();
         if (!url || !url.match(/airbnb\.[a-z.]+\/rooms\/\d+/i)) return;
         const hint = container.querySelector('#s-hint-airbnb');
-        if (hint) hint.innerHTML = '<span style="color:var(--forest)">⏳ Fetching listing details…</span>';
+        if (hint) hint.innerHTML = '<span style="color:var(--primary)">⏳ Fetching listing details…</span>';
         try {
           const _af = typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch;
           const res = await _af('/.netlify/functions/fetch-listing', {
@@ -462,9 +462,9 @@ function _setupBuildOverlay(editMode, createMode, onDone) {
         chip.style.color = '#999';
       } else {
         _selectedPlatforms.add(p);
-        chip.style.borderColor = def ? def.color : '#1E3A2F';
-        chip.style.background = (def ? def.color : '#1E3A2F') + '15';
-        chip.style.color = def ? def.color : '#1E3A2F';
+        chip.style.borderColor = def ? def.color : '#2f5d4e';
+        chip.style.background = (def ? def.color : '#2f5d4e') + '15';
+        chip.style.color = def ? def.color : '#2f5d4e';
       }
       _renderListingUrls();
     });
@@ -674,7 +674,7 @@ function _setupInjectStyles() {
 
     /* ── Header ── */
     #setup-header {
-      background: var(--forest, #1E3A2F);
+      background: var(--primary);
       padding: 22px 22px 18px;
       display: flex;
       align-items: flex-start;
@@ -710,9 +710,9 @@ function _setupInjectStyles() {
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.6px;
-      color: var(--text-soft, #6B6560);
+      color: var(--muted-2);
       padding: 16px 0 9px;
-      border-top: 1px solid var(--warm, #F0EDE8);
+      border-top: 1px solid var(--hairline-2);
       margin-top: 2px;
     }
     .ss-label:first-of-type { border-top: none; padding-top: 16px; }
@@ -737,7 +737,7 @@ function _setupInjectStyles() {
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.45px;
-      color: var(--text-soft, #6B6560);
+      color: var(--muted-2);
       margin-bottom: 5px;
     }
     .ss-req { color: var(--red, #C0392B); font-size: 13px; }
@@ -751,26 +751,26 @@ function _setupInjectStyles() {
     .ss-inp {
       width: 100%;
       box-sizing: border-box;
-      background: var(--mist, #F8F6F3);
-      border: 1.5px solid var(--stone, #C4BDB5);
+      background: var(--surface2);
+      border: 1.5px solid var(--hairline-1);
       border-radius: 10px;
       padding: 10px 12px;
       font-family: 'Plus Jakarta Sans', sans-serif;
       font-size: 14px;
-      color: var(--text, #1A1A1A);
+      color: var(--ink-1);
       -webkit-appearance: none;
       transition: border-color 0.14s, box-shadow 0.14s;
     }
     .ss-inp:focus {
       outline: none;
-      border-color: var(--forest, #1E3A2F);
+      border-color: var(--primary);
       box-shadow: 0 0 0 3px rgba(30, 58, 47, 0.10);
     }
-    .ss-inp::placeholder { color: var(--stone, #C4BDB5); }
+    .ss-inp::placeholder { color: var(--hairline-1); }
     .ss-inp.ss-error     { border-color: var(--red, #C0392B); }
     .ss-hint {
       font-size: 11px;
-      color: var(--text-soft, #6B6560);
+      color: var(--muted-2);
       margin-top: 4px;
       line-height: 1.45;
     }
@@ -800,7 +800,7 @@ function _setupInjectStyles() {
       position: sticky;
       bottom: 0;
       background: #fff;
-      border-top: 1px solid var(--warm, #F0EDE8);
+      border-top: 1px solid var(--hairline-2);
       margin: 14px -18px 0;
       padding: 14px 18px calc(14px + env(safe-area-inset-bottom, 0px));
       display: flex;
@@ -808,7 +808,7 @@ function _setupInjectStyles() {
     }
     .ss-btn-primary {
       flex: 1;
-      background: var(--forest, #1E3A2F);
+      background: var(--primary);
       color: #fff;
       border: none;
       border-radius: 12px;
@@ -823,8 +823,8 @@ function _setupInjectStyles() {
     .ss-btn-primary:active  { opacity: 0.82; transform: scale(0.98); }
     .ss-btn-primary:disabled { opacity: 0.55; cursor: default; transform: none; }
     .ss-btn-secondary {
-      background: var(--warm, #F0EDE8);
-      color: var(--forest, #1E3A2F);
+      background: var(--hairline-2);
+      color: var(--primary);
       border: none;
       border-radius: 12px;
       padding: 14px 20px;

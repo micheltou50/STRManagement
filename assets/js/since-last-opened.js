@@ -146,7 +146,7 @@ function _section(title, items, render) {
   if (!items || !items.length) return '';
   return (
     '<div style="margin-top:14px">' +
-      '<div style="font-weight:700;font-size:13px;color:#1E3A2F;margin-bottom:4px">' + _esc(title) + '</div>' +
+      '<div style="font-weight:700;font-size:13px;color:#2f5d4e;margin-bottom:4px">' + _esc(title) + '</div>' +
       items.slice(0, 6).map(render).join('') +
       (items.length > 6 ? _line('… and ' + (items.length - 6) + ' more') : '') +
     '</div>'
@@ -185,7 +185,7 @@ export function showSinceLastOpenedRundown(changes, onDismiss) {
     if (sc.length) summaryBits.push(sc.length + (sc.length === 1 ? ' status change' : ' status changes'));
 
     card.innerHTML =
-      '<div style="font-size:18px;font-weight:800;color:#1E3A2F">Since you last opened StayOps</div>' +
+      '<div style="font-size:18px;font-weight:800;color:#2f5d4e">Since you last opened StayOps</div>' +
       '<div style="font-size:13px;color:#666;margin-top:4px">' + _esc(summaryBits.join(' · ')) + '</div>' +
       _section('New bookings', nb, x =>
         _line('• ' + (x.name || 'Guest') + (x.ci ? ' — ' + x.ci + (x.co ? ' → ' + x.co : '') : ''))
@@ -200,7 +200,7 @@ export function showSinceLastOpenedRundown(changes, onDismiss) {
         _line('• ' + (x.name || 'Guest') + ': ' + (x.from || '—') + ' → ' + (x.to || '—'))
       ) +
       '<div style="margin-top:18px;display:flex;justify-content:flex-end">' +
-        '<button id="since-last-opened-dismiss" style="background:#1E3A2F;color:#fff;border:0;border-radius:10px;padding:10px 18px;font-weight:700;font-size:14px;cursor:pointer">Got it</button>' +
+        '<button id="since-last-opened-dismiss" style="background:#2f5d4e;color:#fff;border:0;border-radius:10px;padding:10px 18px;font-weight:700;font-size:14px;cursor:pointer">Got it</button>' +
       '</div>';
 
     overlay.appendChild(card);

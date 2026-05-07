@@ -80,7 +80,7 @@ function viewPropertyBtn(cloudPid) {
 
   return '<div style="margin-top:12px">' +
     '<button type="button" onclick="event.stopPropagation();switchPropertyFromSheet(\'' + escapeJsSingleQuotedHtmlAttr(localId ?? '') + '\')" ' +
-      'style="width:100%;padding:10px;background:var(--forest,#1E3A2F);color:#fff;border:none;' +
+      'style="width:100%;padding:10px;background:var(--primary);color:#fff;border:none;' +
       'border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
       'View property &#8594;' +
     '</button>' +
@@ -110,7 +110,7 @@ function buildPropertyDetailContent(cloudPid) {
   const booking = checkoutToday || current || nextUpcoming;
 
   if (!booking) {
-    return '<div style="padding:8px 0;font-size:13px;color:var(--text-soft)">No upcoming bookings</div>' +
+    return '<div style="padding:8px 0;font-size:13px;color:var(--muted-2)">No upcoming bookings</div>' +
       viewPropertyBtn(cloudPid);
   }
 
@@ -130,7 +130,7 @@ function buildPropertyDetailContent(cloudPid) {
 
   const row = (lbl, val) =>
     '<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;font-size:13px">' +
-      '<span style="color:var(--text-soft)">' + escHtml(lbl) + '</span>' +
+      '<span style="color:var(--muted-2)">' + escHtml(lbl) + '</span>' +
       '<span style="font-weight:600;color:var(--text);text-align:right">' + val + '</span>' +
     '</div>';
 
@@ -138,8 +138,8 @@ function buildPropertyDetailContent(cloudPid) {
   const platDisp = plat ? plat.charAt(0).toUpperCase() + plat.slice(1).toLowerCase() : '';
 
   let body =
-    '<div style="border-top:1px solid var(--warm,#F0EDE8);padding-top:10px">' +
-      '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:6px">' + escHtml(label) + '</div>' +
+    '<div style="border-top:1px solid var(--hairline-2);padding-top:10px">' +
+      '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted-2);margin-bottom:6px">' + escHtml(label) + '</div>' +
       row('Guest', escHtml(booking.name)) +
       row('Check-in', escHtml(fmtShort(booking.checkin))) +
       row('Check-out', escHtml(fmtShort(booking.checkout))) +
@@ -151,8 +151,8 @@ function buildPropertyDetailContent(cloudPid) {
       (platDisp ? row('Platform', escHtml(platDisp)) : '') +
       row('Clean', cleanLine) +
       (isCurrentlyHosting && nextUpcoming
-        ? '<div style="border-top:1px solid var(--warm,#F0EDE8);margin-top:8px;padding-top:8px">' +
-            '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:6px">Next booking</div>' +
+        ? '<div style="border-top:1px solid var(--hairline-2);margin-top:8px;padding-top:8px">' +
+            '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted-2);margin-bottom:6px">Next booking</div>' +
             row('Guest', escHtml(nextUpcoming.name)) +
             row('Check-in', escHtml(fmtShort(nextUpcoming.checkin))) +
             row('Nights', escHtml(String(nextUpcoming.nights ?? ''))) +
@@ -185,8 +185,8 @@ function renderPortfolioBookings(filter) {
   if (!filtered.length) {
     list.innerHTML = '<div class="card" style="text-align:center;padding:40px 24px 36px">' +
       '<div style="font-size:36px;margin-bottom:14px;opacity:0.45">📅</div>' +
-      '<div style="font-weight:700;font-size:15px;color:var(--forest);margin-bottom:6px">No bookings found</div>' +
-      '<div style="font-size:12.5px;color:var(--text-soft);line-height:1.5">Across all properties</div></div>';
+      '<div style="font-weight:700;font-size:15px;color:var(--primary);margin-bottom:6px">No bookings found</div>' +
+      '<div style="font-size:12.5px;color:var(--muted-2);line-height:1.5">Across all properties</div></div>';
     return;
   }
 
@@ -201,7 +201,7 @@ function renderPortfolioBookings(filter) {
 
   list.innerHTML = Object.entries(grouped).map(([monthLabel, items]) => `
     <div style="margin-bottom:4px">
-      <div style="font-size:11px;font-weight:700;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.9px;padding:16px 4px 8px">${escHtml(monthLabel)}</div>
+      <div style="font-size:11px;font-weight:700;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.9px;padding:16px 4px 8px">${escHtml(monthLabel)}</div>
       ${items.map(b => {
         const colour = getPropertyColourById(b._propertyId);
         const propName = getPropertyNameById(b._propertyId);
@@ -270,7 +270,7 @@ function renderPortfolioFinance() {
     '<div style="display:flex;align-items:center;gap:8px;font-size:12px">' +
       '<div style="width:7px;height:7px;border-radius:50%;background:' + p.colour + ';flex-shrink:0"></div>' +
       '<span style="color:var(--text);font-weight:600;min-width:90px">' + escHtml(p.name) + '</span>' +
-      '<div style="flex:1;height:6px;background:var(--warm,#F0EDE8);border-radius:3px;overflow:hidden">' +
+      '<div style="flex:1;height:6px;background:var(--hairline-2);border-radius:3px;overflow:hidden">' +
         '<div style="width:' + Math.round(p.revenue / maxRevenue * 100) + '%;height:100%;background:' + p.colour + ';border-radius:3px"></div>' +
       '</div>' +
       '<span style="font-weight:600;color:var(--text);min-width:50px;text-align:right">$' + Math.round(p.revenue).toLocaleString() + '</span>' +
@@ -284,11 +284,11 @@ function renderPortfolioFinance() {
   const expenseRows = recentExpenses.map(e => {
     const colour = getPropertyColourById(e._propertyId);
     const propName = getPropertyNameById(e._propertyId);
-    return '<div style="padding:10px 14px;border-bottom:1px solid var(--warm);border-left:3px solid ' + colour + '">' +
+    return '<div style="padding:10px 14px;border-bottom:1px solid var(--hairline-2);border-left:3px solid ' + colour + '">' +
       '<div style="display:flex;justify-content:space-between">' +
         '<div>' +
           '<div style="font-weight:600;font-size:13px">' + escHtml(e.description || e.category || 'Expense') + '</div>' +
-          '<div style="font-size:11px;color:var(--text-soft);margin-top:2px">' + escHtml(fmt(e.date)) + ' · ' + escHtml(propName) + '</div>' +
+          '<div style="font-size:11px;color:var(--muted-2);margin-top:2px">' + escHtml(fmt(e.date)) + ' · ' + escHtml(propName) + '</div>' +
         '</div>' +
         '<div style="font-weight:700;font-size:14px;color:var(--red)">-$' + Math.round(Number(e.amount || 0)).toLocaleString() + '</div>' +
       '</div>' +
@@ -296,24 +296,24 @@ function renderPortfolioFinance() {
   }).join('');
 
   const summaryCard = (label, value) =>
-    '<div style="background:var(--mist,#F8F6F3);border-radius:10px;padding:12px;text-align:center">' +
-      '<div style="font-size:22px;font-weight:700;color:var(--forest)">' + value + '</div>' +
-      '<div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;margin-top:2px">' + label + '</div></div>';
+    '<div style="background:var(--surface2);border-radius:10px;padding:12px;text-align:center">' +
+      '<div style="font-size:22px;font-weight:700;color:var(--primary)">' + value + '</div>' +
+      '<div style="font-size:10px;color:var(--muted-2);text-transform:uppercase;margin-top:2px">' + label + '</div></div>';
 
   portfolioFin.innerHTML =
     '<div style="background:#fff;border-radius:14px;padding:16px;margin-bottom:12px">' +
-      '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:10px">' + escHtml(monthName) + ' · All properties</div>' +
+      '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted-2);margin-bottom:10px">' + escHtml(monthName) + ' · All properties</div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">' +
         summaryCard('Revenue', '$' + Math.round(totalRevenue).toLocaleString()) +
         summaryCard('Mgmt fees', '$' + Math.round(totalMgmt).toLocaleString()) +
         summaryCard('Expenses', '$' + Math.round(totalExpenses).toLocaleString()) +
         summaryCard('Owner payout', '$' + Math.round(totalOwner).toLocaleString()) +
       '</div>' +
-      '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:8px">Per property</div>' +
+      '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted-2);margin-bottom:8px">Per property</div>' +
       '<div style="display:flex;flex-direction:column;gap:8px">' + breakdownHtml + '</div>' +
     '</div>' +
     (recentExpenses.length
-      ? '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:8px;padding:0 4px">Recent expenses</div>' +
+      ? '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted-2);margin-bottom:8px;padding:0 4px">Recent expenses</div>' +
         '<div style="background:#fff;border-radius:14px;overflow:hidden">' + expenseRows + '</div>'
       : '');
 }
@@ -461,7 +461,7 @@ function openPropertySwitcherSheet() {
     list.style.padding = '0 16px';
 
     const sheetHeader = '<div style="padding:4px 20px 14px;display:flex;justify-content:space-between;align-items:center">' +
-      '<div style="font-size:16px;font-weight:700;color:#1A1A1A">Switch property</div>' +
+      '<div style="font-size:16px;font-weight:700;color:var(--ink-1)">Switch property</div>' +
       '<div onclick="closePropertySwitcherSheet()" style="font-size:13px;color:#6B6560;cursor:pointer">Close</div>' +
       '</div>';
 
@@ -470,15 +470,15 @@ function openPropertySwitcherSheet() {
           (portfolioMode ? '#F0EDE8' : '#fff') +
           ';border:1.5px solid ' + (portfolioMode ? '#F0EDE8' : '#F0EDE8') +
           ';border-radius:14px;padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:14px">' +
-          '<div style="width:40px;height:40px;border-radius:12px;background:#1E3A2F;display:flex;align-items:center;justify-content:center">' +
-            '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="6" width="7" height="8" rx="1" fill="#8FAF85"/><rect x="11" y="4" width="7" height="10" rx="1" fill="#8FAF85"/><rect x="4" y="9" width="3" height="3" rx="0.5" fill="#1E3A2F"/><rect x="13" y="7" width="3" height="3" rx="0.5" fill="#1E3A2F"/></svg>' +
+          '<div style="width:40px;height:40px;border-radius:12px;background:#2f5d4e;display:flex;align-items:center;justify-content:center">' +
+            '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="6" width="7" height="8" rx="1" fill="#8FAF85"/><rect x="11" y="4" width="7" height="10" rx="1" fill="#8FAF85"/><rect x="4" y="9" width="3" height="3" rx="0.5" fill="#2f5d4e"/><rect x="13" y="7" width="3" height="3" rx="0.5" fill="#2f5d4e"/></svg>' +
           '</div>' +
           '<div style="flex:1">' +
-            '<div style="font-weight:700;font-size:15px;color:#1A1A1A">All properties</div>' +
+            '<div style="font-weight:700;font-size:15px;color:var(--ink-1)">All properties</div>' +
             '<div style="font-size:12px;color:#6B6560;margin-top:1px">Portfolio overview</div>' +
           '</div>' +
           (portfolioMode
-            ? '<div style="background:#1E3A2F;color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px">Active</div>'
+            ? '<div style="background:#2f5d4e;color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px">Active</div>'
             : '') +
         '</div>'
       : '';
@@ -490,7 +490,7 @@ function openPropertySwitcherSheet() {
       const location = [p.suburb, p.state].filter(Boolean).join(', ');
 
       const tintBg = i === 0 ? '#E8F4ED' : i === 1 ? '#E6F1FB' : i === 2 ? '#FAEEDA' : '#FBEAF0';
-      const tintText = i === 0 ? '#1E3A2F' : i === 1 ? '#185FA5' : i === 2 ? '#854F0B' : '#72243E';
+      const tintText = i === 0 ? '#2f5d4e' : i === 1 ? '#185FA5' : i === 2 ? '#854F0B' : '#72243E';
 
       const cloudPid = (window._cloudPropertyIds && window._cloudPropertyIds[p.propertyId]) || p.supabaseId || '';
       const now = new Date();
@@ -529,12 +529,12 @@ function openPropertySwitcherSheet() {
         '</div>' +
 
         '<div style="flex:1">' +
-          '<div style="font-weight:700;font-size:15px;color:#1A1A1A">' + escHtml(p.name || p.propertyId) + '</div>' +
+          '<div style="font-weight:700;font-size:15px;color:var(--ink-1)">' + escHtml(p.name || p.propertyId) + '</div>' +
           (location ? '<div style="font-size:12px;color:#6B6560;margin-top:1px">' + escHtml(location) + '</div>' : '') +
         '</div>' +
 
         (isActive
-          ? '<div style="background:#1E3A2F;color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px">Active</div>'
+          ? '<div style="background:#2f5d4e;color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px">Active</div>'
           : '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">' +
               '<div style="background:' + statusBg + ';color:' + statusColour + ';font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px">' + statusLabel + '</div>' +
               '<div style="font-size:11px;color:#6B6560">' + upcomingCount + ' booking' + (upcomingCount !== 1 ? 's' : '') + '</div>' +
@@ -546,9 +546,9 @@ function openPropertySwitcherSheet() {
       'style="width:100%;padding:13px;background:#F8F6F3;border:1.5px dashed #D3D1C7;' +
       'border-radius:14px;text-align:center;cursor:pointer;display:flex;align-items:center;' +
       'justify-content:center;gap:8px;margin-top:4px">' +
-      '<div style="width:22px;height:22px;border-radius:50%;background:#1E3A2F;color:#fff;' +
+      '<div style="width:22px;height:22px;border-radius:50%;background:#2f5d4e;color:#fff;' +
       'display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700">+</div>' +
-      '<span style="font-size:14px;font-weight:600;color:#1E3A2F">Add property</span>' +
+      '<span style="font-size:14px;font-weight:600;color:#2f5d4e">Add property</span>' +
       '</div>';
 
     list.innerHTML = sheetHeader + allPropsRow + propRows + addRow;
@@ -728,23 +728,23 @@ function renderPortfolioPropertyTab() {
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">' +
         '<div>' +
           '<div style="font-weight:700;font-size:16px;color:var(--text)">' + escHtml(p.name || p.propertyId) + '</div>' +
-          '<div style="font-size:12px;color:var(--text-soft)">' + escHtml(tagline) + '</div>' +
-          (p.owner && p.owner.name ? '<div style="font-size:11px;color:var(--text-soft);margin-top:2px">Owner: ' + escHtml(p.owner.name) + '</div>' : '') +
+          '<div style="font-size:12px;color:var(--muted-2)">' + escHtml(tagline) + '</div>' +
+          (p.owner && p.owner.name ? '<div style="font-size:11px;color:var(--muted-2);margin-top:2px">Owner: ' + escHtml(p.owner.name) + '</div>' : '') +
         '</div>' +
         '<div style="background:' + statusBg + ';color:' + statusColour + ';font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px">' + statusLabel + '</div>' +
       '</div>' +
-      '<div style="display:flex;gap:16px;font-size:12px;color:var(--text-soft);border-top:1px solid var(--warm);padding-top:8px">' +
+      '<div style="display:flex;gap:16px;font-size:12px;color:var(--muted-2);border-top:1px solid var(--hairline-2);padding-top:8px">' +
         '<span>' + (stats.bedrooms || '?') + ' bed</span>' +
         '<span>' + (stats.maxGuests || '?') + ' guests</span>' +
         '<span>' + (stats.bathrooms || '?') + ' bath</span>' +
-        '<span style="font-weight:600;color:var(--forest)">' + occ + '% occ.</span>' +
+        '<span style="font-weight:600;color:var(--primary)">' + occ + '% occ.</span>' +
       '</div>' +
     '</div>';
   }).join('');
 
   const addBtn = '<div style="text-align:center;padding:16px 0 4px">' +
     '<div onclick="closePropertySwitcherSheet();openAddPropertySetup()" ' +
-    'style="display:inline-flex;align-items:center;gap:8px;background:var(--forest);color:#fff;' +
+    'style="display:inline-flex;align-items:center;gap:8px;background:var(--primary);color:#fff;' +
     'padding:12px 20px;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer">+ Add property</div></div>';
 
   container.innerHTML =
@@ -791,7 +791,7 @@ function openOwnerReportFromHub() {
   globalThis.openSettingsPanel?.('owner-report', 'property');
 }
 
-const PROPERTY_COLOURS = ['#1E3A2F', '#378ADD', '#EF9F27', '#D4537E', '#534AB7', '#1D9E75', '#D85A30', '#639922'];
+const PROPERTY_COLOURS = ['#2f5d4e', '#378ADD', '#EF9F27', '#D4537E', '#534AB7', '#1D9E75', '#D85A30', '#639922'];
 
 function getPropertyColour(index) {
   return PROPERTY_COLOURS[index % PROPERTY_COLOURS.length];
@@ -958,15 +958,15 @@ function showPropertyPicker({ guest, checkin, checkout, platform, properties }) 
       'transform:translateY(20px);transition:transform 0.25s ease';
 
     sheet.innerHTML =
-      '<div style="width:36px;height:4px;background:var(--stone,#C4BDB5);border-radius:2px;margin:0 auto 16px"></div>' +
-      '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft,#6B6560);margin-bottom:6px">Which property is this booking for?</div>' +
-      '<div style="font-size:16px;font-weight:700;color:var(--text,#1A1A1A);margin-bottom:4px">' +
+      '<div style="width:36px;height:4px;background:var(--hairline-1);border-radius:2px;margin:0 auto 16px"></div>' +
+      '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted-2);margin-bottom:6px">Which property is this booking for?</div>' +
+      '<div style="font-size:16px;font-weight:700;color:var(--ink-1);margin-bottom:4px">' +
         escHtml(guest) + platformLabel + '</div>' +
-      (dateLabel ? '<div style="font-size:13px;color:var(--text-soft);margin-bottom:16px">' + dateLabel + '</div>' : '') +
+      (dateLabel ? '<div style="font-size:13px;color:var(--muted-2);margin-bottom:16px">' + dateLabel + '</div>' : '') +
       '<div id="prop-picker-list" style="display:flex;flex-direction:column;gap:8px"></div>' +
       '<button id="prop-picker-skip" style="width:100%;margin-top:12px;padding:12px;' +
-        'border:1.5px solid var(--stone,#C4BDB5);border-radius:12px;background:white;' +
-        'font-size:14px;font-weight:600;color:var(--text-soft);cursor:pointer;' +
+        'border:1.5px solid var(--hairline-1);border-radius:12px;background:white;' +
+        'font-size:14px;font-weight:600;color:var(--muted-2);cursor:pointer;' +
         'font-family:\'Plus Jakarta Sans\',sans-serif">Skip — assign later</button>';
 
     overlay.appendChild(sheet);
@@ -982,14 +982,14 @@ function showPropertyPicker({ guest, checkin, checkout, platform, properties }) 
     properties.forEach(p => {
       const btn = document.createElement('button');
       btn.style.cssText = 'width:100%;text-align:left;padding:14px 16px;' +
-        'border:1.5px solid var(--warm,#F0EDE8);border-radius:12px;' +
-        'background:var(--mist,#F8F6F3);cursor:pointer;' +
+        'border:1.5px solid var(--hairline-2);border-radius:12px;' +
+        'background:var(--surface2);cursor:pointer;' +
         'font-family:\'Plus Jakarta Sans\',sans-serif;transition:border-color 0.15s';
       btn.innerHTML =
-        '<div style="font-weight:700;font-size:14px;color:var(--forest,#1E3A2F)">' +
+        '<div style="font-weight:700;font-size:14px;color:var(--primary)">' +
           escHtml(p.name) + '</div>' +
         (p.subtitle
-          ? '<div style="font-size:12px;color:var(--text-soft);margin-top:2px">' +
+          ? '<div style="font-size:12px;color:var(--muted-2);margin-top:2px">' +
               escHtml(p.subtitle) + '</div>'
           : '');
       btn.addEventListener('click', () => dismiss(p.id));
@@ -1015,7 +1015,7 @@ function _ownerReportSetVal(id, val) {
 function _updateOwnerReportToggleUI(on) {
   const track = document.getElementById('owner-autosend-toggle');
   const thumb = document.getElementById('owner-autosend-thumb');
-  if (track) track.style.background = on ? 'var(--forest, #1E3A2F)' : 'var(--border, #C7C7CC)';
+  if (track) track.style.background = on ? 'var(--primary)' : 'var(--border, #C7C7CC)';
   if (thumb) thumb.style.transform  = on ? 'translateX(18px)' : 'translateX(0)';
 }
 

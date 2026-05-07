@@ -88,12 +88,12 @@ let _spNewDiscountOpen = false;
 
 function cardShell(title, inner) {
   return `<div style="background:white;border-radius:12px;padding:16px;margin-bottom:14px;border:0.5px solid rgba(0,0,0,0.1)">
-    <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:12px">${escHtml(title)}</div>
+    <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted-2);margin-bottom:12px">${escHtml(title)}</div>
     ${inner}
   </div>`;
 }
 
-function iconBadge(innerHtml, bg, color = '#1a1a1a') {
+function iconBadge(innerHtml, bg, color = 'var(--ink-1)') {
   return `<div style="width:32px;height:32px;border-radius:8px;background:${bg};color:${color};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${innerHtml}</div>`;
 }
 
@@ -120,8 +120,8 @@ function discountRowHtml(r) {
   return `<div class="sp-discount-row" data-id="${r.id}" data-swipe="1" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-top:0.5px solid rgba(0,0,0,0.1);touch-action:pan-y">
     ${badge}
     <div style="flex:1;min-width:0">
-      <div style="font-size:14px;font-weight:500;color:#1a1a1a">${escHtml(r.name || 'Discount')}</div>
-      <div style="font-size:11px;color:var(--text-soft);margin-top:2px">${escHtml(sub)}</div>
+      <div style="font-size:14px;font-weight:500;color:var(--ink-1)">${escHtml(r.name || 'Discount')}</div>
+      <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${escHtml(sub)}</div>
     </div>
     <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
       <span style="font-size:16px;font-weight:600;color:#1D9E75">${Number(r.value)}%</span>
@@ -148,25 +148,25 @@ function newDiscountPanelHtml() {
     (o) => `<option value="${escHtml(o.value)}">${escHtml(o.label)}</option>`
   ).join('');
   const display = _spNewDiscountOpen ? 'block' : 'none';
-  return `<div id="sp-new-discount-wrap" style="display:${display};margin-top:12px;padding:14px;background:var(--warm);border-radius:12px;border:0.5px solid rgba(0,0,0,0.08)">
-    <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:#1a1a1a">New discount</div>
-    <label style="font-size:11px;color:var(--text-soft)">Name</label>
+  return `<div id="sp-new-discount-wrap" style="display:${display};margin-top:12px;padding:14px;background:var(--hairline-2);border-radius:12px;border:0.5px solid rgba(0,0,0,0.08)">
+    <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--ink-1)">New discount</div>
+    <label style="font-size:11px;color:var(--muted-2)">Name</label>
     <input id="sp-nd-name" type="text" placeholder="e.g. Returning guest" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:0.5px solid rgba(0,0,0,0.15);margin-bottom:10px;font-size:14px">
-    <label style="font-size:11px;color:var(--text-soft)">Condition</label>
+    <label style="font-size:11px;color:var(--muted-2)">Condition</label>
     <select id="sp-nd-cond" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:0.5px solid rgba(0,0,0,0.15);margin-bottom:10px;font-size:14px">${opts}</select>
     <div style="display:flex;gap:10px;margin-bottom:12px">
       <div style="flex:1">
-        <label style="font-size:11px;color:var(--text-soft)">Discount %</label>
+        <label style="font-size:11px;color:var(--muted-2)">Discount %</label>
         <input id="sp-nd-pct" type="number" min="0" max="100" step="0.5" value="10" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:0.5px solid rgba(0,0,0,0.15);font-size:14px">
       </div>
       <div style="flex:1">
-        <label id="sp-nd-days-lbl" style="font-size:11px;color:var(--text-soft)">Days / nights</label>
+        <label id="sp-nd-days-lbl" style="font-size:11px;color:var(--muted-2)">Days / nights</label>
         <input id="sp-nd-days" type="number" min="1" value="7" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:0.5px solid rgba(0,0,0,0.15);font-size:14px">
       </div>
     </div>
     <div style="display:flex;gap:10px">
       <button type="button" id="sp-nd-cancel" class="btn-secondary" style="flex:1">Cancel</button>
-      <button type="button" id="sp-nd-save" style="flex:1;background:#1E3A2F;color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:600">Save discount</button>
+      <button type="button" id="sp-nd-save" style="flex:1;background:#2f5d4e;color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:600">Save discount</button>
     </div>
   </div>`;
 }
@@ -181,18 +181,18 @@ function part2Html() {
   const lead = (firstDow + 6) % 7;
   const daysInMonth = new Date(y, m + 1, 0).getDate();
   const hdr = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
-    .map((h) => `<div style="text-align:center;font-size:10px;font-weight:600;color:var(--text-soft);padding:4px">${h}</div>`)
+    .map((h) => `<div style="text-align:center;font-size:10px;font-weight:600;color:var(--muted-2);padding:4px">${h}</div>`)
     .join('');
   let cells = '';
   for (let i = 0; i < lead; i++) cells += '<div></div>';
   for (let d = 1; d <= daysInMonth; d++) {
     const ds = `${y}-${pad2(m + 1)}-${pad2(d)}`;
     const dayData = _spState.daysMap[ds];
-    const numStyle = 'font-size:11px;color:var(--text-soft)';
+    const numStyle = 'font-size:11px;color:var(--muted-2)';
     let sub;
     let cellBg = 'transparent';
     let cellBorder = '0.5px solid rgba(0,0,0,0.06)';
-    let _subColor = '#1a1a1a';
+    let _subColor = 'var(--ink-1)';
     if (dayData) {
       const rt = dayData.rateType || 'base';
       if (rt === 'booked') {
@@ -206,7 +206,7 @@ function part2Html() {
       } else if (rt === 'discounted') {
         sub = `<span style="font-size:10px;font-weight:600;color:#E24B4A">$${Number(dayData.suggestedRate)}</span>`;
       } else {
-        sub = `<span style="font-size:10px;font-weight:600;color:#1a1a1a">$${Number(dayData.suggestedRate)}</span>`;
+        sub = `<span style="font-size:10px;font-weight:600;color:var(--ink-1)">$${Number(dayData.suggestedRate)}</span>`;
       }
     } else {
       sub = `<span style="font-size:10px;color:#ccc">—</span>`;
@@ -225,7 +225,7 @@ function part2Html() {
   ]
     .map(
       ([col, lab]) =>
-        `<span style="display:inline-flex;align-items:center;gap:4px;margin:4px 8px 4px 0;font-size:10px;color:var(--text-soft)"><span style="width:10px;height:10px;border-radius:2px;background:${col === 'transparent' ? '#fff' : col};border:0.5px solid rgba(0,0,0,0.15)"></span>${lab}</span>`
+        `<span style="display:inline-flex;align-items:center;gap:4px;margin:4px 8px 4px 0;font-size:10px;color:var(--muted-2)"><span style="width:10px;height:10px;border-radius:2px;background:${col === 'transparent' ? '#fff' : col};border:0.5px solid rgba(0,0,0,0.15)"></span>${lab}</span>`
     )
     .join('');
 
@@ -233,9 +233,9 @@ function part2Html() {
     ${cardShell(
       'Pricing calendar',
       `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <button type="button" id="sp-cal-prev" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;cursor:pointer">‹</button>
+        <button type="button" id="sp-cal-prev" style="background:var(--hairline-2);border:none;border-radius:8px;width:32px;height:32px;cursor:pointer">‹</button>
         <span style="font-size:14px;font-weight:600">${escHtml(title)}</span>
-        <button type="button" id="sp-cal-next" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;cursor:pointer">›</button>
+        <button type="button" id="sp-cal-next" style="background:var(--hairline-2);border:none;border-radius:8px;width:32px;height:32px;cursor:pointer">›</button>
       </div>
       <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:6px">${hdr}</div>
       <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:12px">${cells}</div>
@@ -245,10 +245,10 @@ function part2Html() {
       'AI insight',
       `<div style="display:flex;align-items:flex-start;gap:10px">
         <div style="width:36px;height:36px;border-radius:10px;background:#E8F5E9;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#1D9E75;font-size:18px">★</div>
-        <div style="font-size:13px;line-height:1.55;color:#1a1a1a">${escHtml(_spState.insight || '—')}</div>
+        <div style="font-size:13px;line-height:1.55;color:var(--ink-1)">${escHtml(_spState.insight || '—')}</div>
       </div>`
     )}
-    <button type="button" id="sp-regenerate" style="width:100%;background:#1E3A2F;color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:600;margin-bottom:20px">Regenerate pricing suggestions</button>
+    <button type="button" id="sp-regenerate" style="width:100%;background:#2f5d4e;color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:600;margin-bottom:20px">Regenerate pricing suggestions</button>
   </div>`;
 }
 
@@ -307,22 +307,22 @@ function dateRangeCardHtml() {
     'Forecast window',
     `<div style="display:flex;gap:10px;align-items:flex-end">
       <div style="flex:1">
-        <label style="font-size:11px;color:var(--text-soft);display:block;margin-bottom:4px">From</label>
+        <label style="font-size:11px;color:var(--muted-2);display:block;margin-bottom:4px">From</label>
         <input id="sp-from" type="date" value="${escHtml(start)}" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:0.5px solid rgba(0,0,0,0.15);font-size:14px">
       </div>
       <div style="flex:1">
-        <label style="font-size:11px;color:var(--text-soft);display:block;margin-bottom:4px">To</label>
+        <label style="font-size:11px;color:var(--muted-2);display:block;margin-bottom:4px">To</label>
         <input id="sp-to" type="date" value="${escHtml(end)}" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:0.5px solid rgba(0,0,0,0.15);font-size:14px">
       </div>
     </div>
     <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
-      <button type="button" class="sp-preset" data-days="30" style="background:var(--warm);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">30d</button>
-      <button type="button" class="sp-preset" data-days="60" style="background:var(--warm);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">60d</button>
-      <button type="button" class="sp-preset" data-days="90" style="background:var(--warm);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">90d</button>
-      <button type="button" class="sp-preset" data-days="180" style="background:var(--warm);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">6mo</button>
-      <button type="button" class="sp-preset" data-days="365" style="background:var(--warm);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">1yr</button>
+      <button type="button" class="sp-preset" data-days="30" style="background:var(--hairline-2);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">30d</button>
+      <button type="button" class="sp-preset" data-days="60" style="background:var(--hairline-2);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">60d</button>
+      <button type="button" class="sp-preset" data-days="90" style="background:var(--hairline-2);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">90d</button>
+      <button type="button" class="sp-preset" data-days="180" style="background:var(--hairline-2);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">6mo</button>
+      <button type="button" class="sp-preset" data-days="365" style="background:var(--hairline-2);border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer">1yr</button>
     </div>
-    <div id="sp-range-hint" style="font-size:11px;color:var(--text-soft);margin-top:8px">${escHtml(hint)} Max 365 days.</div>`
+    <div id="sp-range-hint" style="font-size:11px;color:var(--muted-2);margin-top:8px">${escHtml(hint)} Max 365 days.</div>`
   );
 }
 
@@ -336,15 +336,15 @@ function renderFullUI(root) {
       'Base rates',
       `<div>
         <div class="sp-row-edit" data-edit="base_nightly" style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:none;cursor:pointer">
-          <span style="font-size:13px;color:var(--text-soft)">Sun – Thu base price</span>
+          <span style="font-size:13px;color:var(--muted-2)">Sun – Thu base price</span>
           <div style="display:flex;align-items:center;gap:8px"><span id="sp-val-base_nightly" style="font-size:16px;font-weight:500">$${bn ? Math.round(Number(bn.value)) : '—'}</span><span style="color:#C7C7CC">›</span></div>
         </div>
         <div class="sp-row-edit" data-edit="base_weekend" style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:0.5px solid rgba(0,0,0,0.1);cursor:pointer">
-          <span style="font-size:13px;color:var(--text-soft)">Fri – Sat price</span>
+          <span style="font-size:13px;color:var(--muted-2)">Fri – Sat price</span>
           <div style="display:flex;align-items:center;gap:8px"><span id="sp-val-base_weekend" style="font-size:16px;font-weight:500">$${bw ? Math.round(Number(bw.value)) : '—'}</span><span style="color:#C7C7CC">›</span></div>
         </div>
         <div class="sp-row-edit" data-edit="min_nights" style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:0.5px solid rgba(0,0,0,0.1);cursor:pointer">
-          <span style="font-size:13px;color:var(--text-soft)">Per booking</span>
+          <span style="font-size:13px;color:var(--muted-2)">Per booking</span>
           <div style="display:flex;align-items:center;gap:8px"><span id="sp-val-min_nights" style="font-size:16px;font-weight:500">${mn ? Math.round(Number(mn.value)) : '—'} nights</span><span style="color:#C7C7CC">›</span></div>
         </div>
       </div>`
@@ -361,8 +361,8 @@ function renderFullUI(root) {
       ${newDiscountPanelHtml()}`
     ) +
     dateRangeCardHtml() +
-    `<button type="button" id="sp-generate" style="width:100%;background:#1E3A2F;color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:600;margin-bottom:8px">Generate pricing calendar</button>
-    <div id="sp-gen-spinner" style="display:none;text-align:center;font-size:13px;color:var(--text-soft);margin-bottom:8px">Generating… <span class="sp-spin">⟳</span></div>`;
+    `<button type="button" id="sp-generate" style="width:100%;background:#2f5d4e;color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:600;margin-bottom:8px">Generate pricing calendar</button>
+    <div id="sp-gen-spinner" style="display:none;text-align:center;font-size:13px;color:var(--muted-2);margin-bottom:8px">Generating… <span class="sp-spin">⟳</span></div>`;
 
   const part2 = _spState && _spState.daysMap && Object.keys(_spState.daysMap).length ? part2Html() : '';
   root.innerHTML = baseCard + part2;
@@ -712,19 +712,19 @@ export async function renderSmartPricingPanel() {
   if (!root) return;
   if (typeof isPortfolioMode === 'function' && isPortfolioMode()) {
     root.innerHTML =
-      '<div style="padding:24px;text-align:center;font-size:14px;color:var(--text-soft)">Select a property from the switcher to edit Smart Pricing.</div>';
+      '<div style="padding:24px;text-align:center;font-size:14px;color:var(--muted-2)">Select a property from the switcher to edit Smart Pricing.</div>';
     return;
   }
   const user = await getCurrentSupabaseUser();
   if (!user) {
     root.innerHTML =
-      '<div style="padding:24px;text-align:center;font-size:14px;color:var(--text-soft)">Sign in to load pricing rules.</div>';
+      '<div style="padding:24px;text-align:center;font-size:14px;color:var(--muted-2)">Sign in to load pricing rules.</div>';
     return;
   }
   const pid = getActivePropertyUuid();
   if (!pid) {
     root.innerHTML =
-      '<div style="padding:24px;text-align:center;font-size:14px;color:var(--text-soft)">Property is not linked to the cloud yet.</div>';
+      '<div style="padding:24px;text-align:center;font-size:14px;color:var(--muted-2)">Property is not linked to the cloud yet.</div>';
     return;
   }
   _spNewDiscountOpen = false;

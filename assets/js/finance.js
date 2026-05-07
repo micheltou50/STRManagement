@@ -281,7 +281,7 @@ function ensureFinanceReconciliationSummaryEl() {
   el = document.createElement('div');
   el.id = 'finance-reconciliation-summary';
   el.style.cssText =
-    'margin:10px 0 0;padding:0 16px 8px;font-size:13px;color:var(--text-soft);line-height:1.45;display:none;font-family:\'Plus Jakarta Sans\',sans-serif';
+    'margin:10px 0 0;padding:0 16px 8px;font-size:13px;color:var(--muted-2);line-height:1.45;display:none;font-family:\'Plus Jakarta Sans\',sans-serif';
   if (anchor && anchor.parentNode === parent) {
     anchor.insertAdjacentElement('afterend', el);
   } else {
@@ -348,7 +348,7 @@ function ensureBankImportToolbar() {
   btn.id = 'bank-import-trigger-btn';
   btn.textContent = 'Import Bank Statement';
   btn.style.cssText =
-    "font-size:12px;color:var(--forest);background:transparent;border:1px solid var(--forest);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;white-space:nowrap";
+    "font-size:12px;color:var(--primary);background:transparent;border:1px solid var(--primary);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;white-space:nowrap";
   btn.onclick = () => getOrCreateBankCsvFileInput().click();
   titleRow.appendChild(btn);
   getOrCreateBankCsvFileInput();
@@ -367,7 +367,7 @@ function ensureBankImportToolbarPortfolio() {
   btn.id = 'bank-import-trigger-btn-portfolio';
   btn.textContent = 'Import Bank Statement';
   btn.style.cssText =
-    "font-size:12px;color:var(--forest);background:transparent;border:1px solid var(--forest);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;white-space:nowrap";
+    "font-size:12px;color:var(--primary);background:transparent;border:1px solid var(--primary);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;white-space:nowrap";
   btn.onclick = () => getOrCreateBankCsvFileInput().click();
   wrap.appendChild(btn);
   root.insertBefore(wrap, root.firstChild);
@@ -418,8 +418,8 @@ function bankImportShowLoading() {
   container.innerHTML = `
     <div class="settings-back" onclick="globalThis.bankImportCancelLoad()">‹ Finance</div>
     <div class="card" style="margin:20px 16px;padding:24px;text-align:center">
-      <div style="font-size:15px;font-weight:600;margin-bottom:8px;color:var(--forest)">Analysing transactions…</div>
-      <div style="font-size:13px;color:var(--text-soft)">Please wait while we check for duplicates and categorise entries.</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:8px;color:var(--primary)">Analysing transactions…</div>
+      <div style="font-size:13px;color:var(--muted-2)">Please wait while we check for duplicates and categorise entries.</div>
     </div>`;
 }
 
@@ -501,16 +501,16 @@ function renderBankImportReview() {
   const headerHtml = `
     <div class="settings-back" onclick="globalThis.exitBankImportReview()">‹ Finance</div>
     <div style="padding:4px 16px 8px">
-      <div style="font-family:inherit;font-size:16px;font-weight:500;color:#1a1a1a">Review Transactions</div>
+      <div style="font-family:inherit;font-size:16px;font-weight:500;color:var(--ink-1)">Review Transactions</div>
       <div style="font-size:13px;font-weight:400;color:#999;margin-top:4px">${total} transactions · ${autoPersonal} auto-skipped (personal)</div>
     </div>
-    <div id="bank-import-sticky-summary" style="position:sticky;top:0;z-index:5;background:var(--color-background-primary,var(--mist));padding:12px 16px;border-bottom:0.5px solid var(--border-tertiary,var(--stone));margin-bottom:8px">
+    <div id="bank-import-sticky-summary" style="position:sticky;top:0;z-index:5;background:var(--color-background-primary,var(--surface2));padding:12px 16px;border-bottom:0.5px solid var(--border-tertiary,var(--hairline-1));margin-bottom:8px">
       <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between">
         <div style="font-size:13px;color:var(--text)">
           <strong>${ready}</strong> ready to import · <strong>${skipped}</strong> skipped · <strong>${dups}</strong> duplicates
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:8px">
-          <button type="button" id="bank-import-run-btn" onclick="globalThis.bankImportRunImport()" style="font-size:12px;padding:8px 14px;border-radius:8px;border:none;background:var(--forest);color:white;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Import All</button>
+          <button type="button" id="bank-import-run-btn" onclick="globalThis.bankImportRunImport()" style="font-size:12px;padding:8px 14px;border-radius:8px;border:none;background:var(--primary);color:white;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Import All</button>
         </div>
       </div>
     </div>`;
@@ -531,7 +531,7 @@ function renderBankImportReview() {
         !row.userMarkedSkip &&
         !isPersonal &&
         !row.userMarkedPersonal;
-      let borderLeft = '0.5px solid var(--border-tertiary,var(--stone))';
+      let borderLeft = '0.5px solid var(--border-tertiary,var(--hairline-1))';
       if (confirmed && !dup) borderLeft = '3px solid var(--moss, #2d6a4f)';
       else if (dup) borderLeft = '3px solid #e67e22';
 
@@ -548,10 +548,10 @@ function renderBankImportReview() {
       const amountStr = '$' + Number(row.amount || 0).toFixed(2);
 
       return `
-        <div class="bank-import-card" data-idx="${i}" style="background:white;border:0.5px solid var(--border-tertiary,var(--stone));border-radius:12px;padding:14px 16px;margin:0 16px 8px;opacity:${greyed ? 0.5 : 1};border-left:${borderLeft}">
+        <div class="bank-import-card" data-idx="${i}" style="background:white;border:0.5px solid var(--border-tertiary,var(--hairline-1));border-radius:12px;padding:14px 16px;margin:0 16px 8px;opacity:${greyed ? 0.5 : 1};border-left:${borderLeft}">
           ${bankImportMatchStripHtml(row)}
           ${dup ? `<div style="font-size:12px;color:#b45309;background:#fff7ed;padding:8px 10px;border-radius:8px;margin-bottom:10px">Possible duplicate</div>` : ''}
-          ${isPersonal ? `<div style="font-size:12px;font-weight:600;color:var(--text-soft);margin-bottom:8px">Personal — skipped</div>` : ''}
+          ${isPersonal ? `<div style="font-size:12px;font-weight:600;color:var(--muted-2);margin-bottom:8px">Personal — skipped</div>` : ''}
           <div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:flex-start">
             <div style="flex:1;min-width:140px">
               <div style="font-size:13px;font-weight:600;color:var(--text)">${bankImportFmtDayMon(row.date)}</div>
@@ -560,20 +560,20 @@ function renderBankImportReview() {
             </div>
             <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:8px">
               <select id="bank-import-prop-${i}" onchange="globalThis.bankImportOnPropChange(${i})" ${isPersonal || matchLocked ? 'disabled' : ''}
-                style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--stone);border-radius:8px;background:${matchLocked ? 'var(--warm)' : 'var(--mist)'};font-family:'Plus Jakarta Sans',sans-serif;color:${matchLocked ? 'var(--text-soft)' : 'inherit'}">
+                style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--hairline-1);border-radius:8px;background:${matchLocked ? 'var(--hairline-2)' : 'var(--surface2)'};font-family:'Plus Jakarta Sans',sans-serif;color:${matchLocked ? 'var(--muted-2)' : 'inherit'}">
                 ${propOptions}
               </select>
               <select id="bank-import-cat-${i}" onchange="globalThis.bankImportOnCatChange(${i})" ${isPersonal || matchLocked ? 'disabled' : ''}
-                style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--stone);border-radius:8px;background:${matchLocked ? 'var(--warm)' : 'var(--mist)'};font-family:'Plus Jakarta Sans',sans-serif;color:${matchLocked ? 'var(--text-soft)' : 'inherit'}">
+                style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--hairline-1);border-radius:8px;background:${matchLocked ? 'var(--hairline-2)' : 'var(--surface2)'};font-family:'Plus Jakarta Sans',sans-serif;color:${matchLocked ? 'var(--muted-2)' : 'inherit'}">
                 <option value="">— Category —</option>
                 ${catOptions}
               </select>
-              <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-soft)">
+              <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted-2)">
                 <span style="width:8px;height:8px;border-radius:50%;background:${confDot};flex-shrink:0"></span>
                 <span>${confLabel}</span>
               </div>
               <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
-                ${isPersonal || row.userMarkedSkip ? `<button type="button" onclick="globalThis.bankImportUndoSkip(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--moss);color:var(--moss);background:#f0faf4;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Undo</button>` : `<button type="button" onclick="globalThis.bankImportSkipRow(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--stone);background:white;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Skip</button>
+                ${isPersonal || row.userMarkedSkip ? `<button type="button" onclick="globalThis.bankImportUndoSkip(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--moss);color:var(--moss);background:#f0faf4;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Undo</button>` : `<button type="button" onclick="globalThis.bankImportSkipRow(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--hairline-1);background:white;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Skip</button>
                 <button type="button" onclick="globalThis.bankImportPersonalRow(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--red);color:var(--red);background:#fff5f5;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Personal</button>`}
               </div>
             </div>
@@ -864,9 +864,9 @@ function _showBankImportReceiptPrompt() {
     <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;${i < items.length - 1 ? 'border-bottom:0.5px solid rgba(0,0,0,0.06)' : ''}">
       <div style="min-width:0;flex:1">
         <div style="font-size:13px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml((e.description || '').slice(0, 40))}</div>
-        <div style="font-size:11px;color:var(--text-soft);margin-top:2px">${e.date ? fmt(e.date) : ''} · ${fmtAmt(e.amount)}</div>
+        <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${e.date ? fmt(e.date) : ''} · ${fmtAmt(e.amount)}</div>
       </div>
-      <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow='';openExpenseEdit('${e.id}')" style="flex-shrink:0;margin-left:10px;padding:6px 12px;border-radius:8px;border:1.5px solid var(--forest);background:white;color:var(--forest);font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Add Receipt</button>
+      <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow='';openExpenseEdit('${e.id}')" style="flex-shrink:0;margin-left:10px;padding:6px 12px;border-radius:8px;border:1.5px solid var(--primary);background:white;color:var(--primary);font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Add Receipt</button>
     </div>`).join('');
 
   let overlay = document.getElementById('bank-receipt-prompt-overlay');
@@ -880,13 +880,13 @@ function _showBankImportReceiptPrompt() {
     <div style="background:white;border-radius:16px 16px 0 0;width:100%;max-width:500px;max-height:70vh;overflow-y:auto;padding:20px 16px env(safe-area-inset-bottom,0);animation:settingsPanelIn 0.28s cubic-bezier(0.32,0.72,0,1)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
         <div>
-          <div style="font-size:15px;font-weight:700;color:var(--forest)">Add Receipts</div>
-          <div style="font-size:12px;color:var(--text-soft);margin-top:2px">${items.length} expense${items.length !== 1 ? 's' : ''} created — attach receipts now or later</div>
+          <div style="font-size:15px;font-weight:700;color:var(--primary)">Add Receipts</div>
+          <div style="font-size:12px;color:var(--muted-2);margin-top:2px">${items.length} expense${items.length !== 1 ? 's' : ''} created — attach receipts now or later</div>
         </div>
-        <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow=''" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--mist);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-soft)">×</button>
+        <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow=''" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--surface2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted-2)">×</button>
       </div>
       ${list}
-      <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow='';if(typeof showReconciliationView==='function')showReconciliationView()" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--forest);color:white;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">View Transaction Map →</button>
+      <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow='';if(typeof showReconciliationView==='function')showReconciliationView()" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--primary);color:white;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">View Transaction Map →</button>
     </div>`;
   document.body.style.overflow = 'hidden';
 }
@@ -1183,16 +1183,16 @@ function renderMgmtFY() {
   const fyTotal = mdata.reduce((s,m)=>s+m.total, 0);
   el.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-      <button type="button" onclick="fyPrev();renderMgmtFY()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">‹</button>
-      <div style="font-size:15px;font-weight:500;color:#1a1a1a;font-family:'Plus Jakarta Sans',sans-serif">${fyLabel(reportFY)}</div>
-      <button type="button" onclick="fyNext();renderMgmtFY()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">›</button>
+      <button type="button" onclick="fyPrev();renderMgmtFY()" style="background:var(--hairline-2);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">‹</button>
+      <div style="font-size:15px;font-weight:500;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif">${fyLabel(reportFY)}</div>
+      <button type="button" onclick="fyNext();renderMgmtFY()" style="background:var(--hairline-2);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">›</button>
     </div>
     <div style="text-align:center;padding:16px;background:#fff;border-radius:12px;margin-bottom:12px;border:0.5px solid rgba(0,0,0,0.08)">
-      <div style="font-size:11px;color:var(--text-soft)">Total management payout</div>
-      <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:28px;font-weight:500;color:#1a1a1a;margin-top:6px">$${fyTotal.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
+      <div style="font-size:11px;color:var(--muted-2)">Total management payout</div>
+      <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:28px;font-weight:500;color:var(--ink-1);margin-top:6px">$${fyTotal.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
     </div>
     <div style="background:#fff;border-radius:12px;padding:0 16px;border:0.5px solid rgba(0,0,0,0.08)">
-      ${mdata.map(m=>`<div class="fin-rev-row"><div><div style="font-size:14px;font-weight:500">${m.label}</div><div style="font-size:11px;color:var(--text-soft);margin-top:2px">${m.count} booking${m.count!==1?'s':''}</div></div><div style="font-size:14px;font-weight:500;color:#1D9E75">$${m.total.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>`).join('')}
+      ${mdata.map(m=>`<div class="fin-rev-row"><div><div style="font-size:14px;font-weight:500">${m.label}</div><div style="font-size:11px;color:var(--muted-2);margin-top:2px">${m.count} booking${m.count!==1?'s':''}</div></div><div style="font-size:14px;font-weight:500;color:#1D9E75">$${m.total.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>`).join('')}
     </div>`;
 }
 
@@ -1354,19 +1354,19 @@ function renderReport() {
     <!-- FY Navigator -->
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between">
-        <button onclick="fyPrev()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">‹</button>
-        <div style="font-family:inherit;font-size:16px;font-weight:500;color:#1a1a1a">${fyLabel(reportFY)}</div>
-        <button onclick="fyNext()" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">›</button>
+        <button onclick="fyPrev()" style="background:var(--hairline-2);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">‹</button>
+        <div style="font-family:inherit;font-size:16px;font-weight:500;color:var(--ink-1)">${fyLabel(reportFY)}</div>
+        <button onclick="fyNext()" style="background:var(--hairline-2);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">›</button>
       </div>
       <div style="margin-top:12px" class="report-kpi-grid">
         <div class="report-kpi"><div class="report-kpi-val">${fmt2(fyTotalRev)}</div><div class="report-kpi-label">Total Revenue</div></div>
         <div class="report-kpi"><div class="report-kpi-val">${fmt2(fyTotalNet)}</div><div class="report-kpi-label">Owner Payout</div></div>
-        <div class="report-kpi" style="background:${fyNetIncome>=0?'#EDF7ED':'#FEF2F2'}"><div class="report-kpi-val" style="color:${fyNetIncome>=0?'var(--forest)':'var(--red)'}">${fmt2(Math.abs(fyNetIncome))}</div><div class="report-kpi-label">Net Income ${fyNetIncome<0?'(Loss)':''}</div></div>
+        <div class="report-kpi" style="background:${fyNetIncome>=0?'#EDF7ED':'#FEF2F2'}"><div class="report-kpi-val" style="color:${fyNetIncome>=0?'var(--primary)':'var(--red)'}">${fmt2(Math.abs(fyNetIncome))}</div><div class="report-kpi-label">Net Income ${fyNetIncome<0?'(Loss)':''}</div></div>
         <div class="report-kpi"><div class="report-kpi-val">${fyOccupancy.toFixed(0)}%</div><div class="report-kpi-label">Occupancy</div></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
-        <button onclick="exportReportPDF()" class="no-print" style="background:var(--forest);color:white;border:none;border-radius:var(--radius-sm);padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">⬇ Export PDF</button>
-        <button onclick="exportReportCSV()" class="no-print" style="background:var(--mist);color:var(--forest);border:1.5px solid var(--forest);border-radius:var(--radius-sm);padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">⬇ Export CSV</button>
+        <button onclick="exportReportPDF()" class="no-print" style="background:var(--primary);color:white;border:none;border-radius:var(--radius-sm);padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">⬇ Export PDF</button>
+        <button onclick="exportReportCSV()" class="no-print" style="background:var(--surface2);color:var(--primary);border:1.5px solid var(--primary);border-radius:var(--radius-sm);padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">⬇ Export CSV</button>
       </div>
     </div>
 
@@ -1423,10 +1423,10 @@ function renderReport() {
         </tbody>
       </table>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
-        <div style="font-size:11px;color:var(--text-soft);background:var(--warm);padding:8px 10px;border-radius:var(--radius-sm)"><b>ALOS</b> ${fyALOS.toFixed(1)} nights avg</div>
-        <div style="font-size:11px;color:var(--text-soft);background:var(--warm);padding:8px 10px;border-radius:var(--radius-sm)"><b>Bookings</b> ${fyBookings} total</div>
+        <div style="font-size:11px;color:var(--muted-2);background:var(--hairline-2);padding:8px 10px;border-radius:var(--radius-sm)"><b>ALOS</b> ${fyALOS.toFixed(1)} nights avg</div>
+        <div style="font-size:11px;color:var(--muted-2);background:var(--hairline-2);padding:8px 10px;border-radius:var(--radius-sm)"><b>Bookings</b> ${fyBookings} total</div>
       </div>
-      <div style="margin-top:10px;font-size:11px;color:var(--text-soft);line-height:1.6;border-top:1px solid var(--warm);padding-top:8px">
+      <div style="margin-top:10px;font-size:11px;color:var(--muted-2);line-height:1.6;border-top:1px solid var(--hairline-2);padding-top:8px">
         <b>ADR</b> Average Daily Rate — revenue ÷ booked nights &nbsp;·&nbsp; <b>RevPAR</b> Revenue Per Available Night — revenue ÷ all available nights &nbsp;·&nbsp; <b>ALOS</b> Average Length of Stay
       </div>
     </div>
@@ -1434,7 +1434,7 @@ function renderReport() {
     <!-- Expense Breakdown -->
     <div class="card" style="margin-bottom:12px">
       <div class="report-section-title">Expenses by Category</div>
-      ${allExp.length === 0 ? '<div style="color:var(--text-soft);font-size:13px">No expenses recorded for this financial year.</div>' : `
+      ${allExp.length === 0 ? '<div style="color:var(--muted-2);font-size:13px">No expenses recorded for this financial year.</div>' : `
       <table class="report-table">
         <thead><tr><th>Category</th><th>Amount</th><th>%</th></tr></thead>
         <tbody>
@@ -1454,7 +1454,7 @@ function renderReport() {
           <tr><td>Total Revenue (Gross)</td><td>${fmt2(fyTotalRev)}</td></tr>
           <tr><td>Owner Payout (after fees)</td><td>${fmt2(fyTotalNet)}</td></tr>
           <tr><td>Total Expenses</td><td style="color:var(--red)">− ${fmt2(fyTotalExp)}</td></tr>
-          <tr class="highlight-row"><td>Net Income</td><td style="color:${fyNetIncome>=0?'var(--forest)':'var(--red)'}">${fyNetIncome<0?'−':''} ${fmt2(Math.abs(fyNetIncome))}</td></tr>
+          <tr class="highlight-row"><td>Net Income</td><td style="color:${fyNetIncome>=0?'var(--primary)':'var(--red)'}">${fyNetIncome<0?'−':''} ${fmt2(Math.abs(fyNetIncome))}</td></tr>
         </tbody>
       </table>
     </div>
@@ -1548,56 +1548,56 @@ function renderRevenue() {
   const _expRow = (e) => {
     const verified = !!(e.reconciled || e.bank_transaction_id);
     const badge = verified ? '<span style="font-size:10px;color:#1D9E75;margin-left:4px">✓ Bank</span>' : '';
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:0.5px solid rgba(0,0,0,0.05)"><div style="min-width:0"><div style="color:var(--text);font-weight:500">${escHtml(e.category||'Uncategorised')}${badge}</div><div style="color:var(--text-soft);font-size:11px;margin-top:1px">${escHtml(e.description||'')}${e.date ? ' · ' + fmt(e.date) : ''}</div></div><div style="flex-shrink:0;color:#E24B4A;font-weight:500;margin-left:12px">$${_fmtAud(Math.abs(Number(e.amount||0)))}</div></div>`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:0.5px solid rgba(0,0,0,0.05)"><div style="min-width:0"><div style="color:var(--text);font-weight:500">${escHtml(e.category||'Uncategorised')}${badge}</div><div style="color:var(--muted-2);font-size:11px;margin-top:1px">${escHtml(e.description||'')}${e.date ? ' · ' + fmt(e.date) : ''}</div></div><div style="flex-shrink:0;color:#E24B4A;font-weight:500;margin-left:12px">$${_fmtAud(Math.abs(Number(e.amount||0)))}</div></div>`;
   };
-  const opDetailHtml = operationalExpenses.length ? [...operationalExpenses].sort((a,b) => new Date(a.date) - new Date(b.date)).map(_expRow).join('') : '<div style="color:var(--text-soft);font-size:12px;padding:8px 0">No operational expenses this month.</div>';
+  const opDetailHtml = operationalExpenses.length ? [...operationalExpenses].sort((a,b) => new Date(a.date) - new Date(b.date)).map(_expRow).join('') : '<div style="color:var(--muted-2);font-size:12px;padding:8px 0">No operational expenses this month.</div>';
   const ownerDetailHtml = ownerPaidExpenses.length ? [...ownerPaidExpenses].sort((a,b) => new Date(a.date) - new Date(b.date)).map(_expRow).join('') : '';
 
   // ── Summary section ──
   // ── Clean cost detail row builder ──
   const _cleanCostRow = (c) => {
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:0.5px solid rgba(0,0,0,0.05)"><div style="min-width:0"><div style="color:var(--text);font-weight:500">${escHtml(c.cleaner || 'Cleaner')}</div><div style="color:var(--text-soft);font-size:11px;margin-top:1px">${escHtml(c.guestName || '')}${c.date ? ' · ' + fmt(c.date) : ''}</div></div><div style="flex-shrink:0;color:#E24B4A;font-weight:500;margin-left:12px">$${_fmtAud(Number(c.cost||0))}</div></div>`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:0.5px solid rgba(0,0,0,0.05)"><div style="min-width:0"><div style="color:var(--text);font-weight:500">${escHtml(c.cleaner || 'Cleaner')}</div><div style="color:var(--muted-2);font-size:11px;margin-top:1px">${escHtml(c.guestName || '')}${c.date ? ' · ' + fmt(c.date) : ''}</div></div><div style="flex-shrink:0;color:#E24B4A;font-weight:500;margin-left:12px">$${_fmtAud(Number(c.cost||0))}</div></div>`;
   };
   const cleanCostDetailHtml = monthCleanCosts.length ? [...monthCleanCosts].sort((a,b) => new Date(a.date) - new Date(b.date)).map(_cleanCostRow).join('') : '';
 
   let summaryHtml = `<div class="finance-summary">
-    <div class="finance-row"><span class="finance-label">Gross revenue</span><span class="finance-val" style="color:#1a1a1a;font-weight:500">$${_fmtAud(totalHost)}</span></div>
+    <div class="finance-row"><span class="finance-label">Gross revenue</span><span class="finance-val" style="color:var(--ink-1);font-weight:500">$${_fmtAud(totalHost)}</span></div>
     <div class="finance-row"><span class="finance-label">Management fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalMgmt)}</span></div>`;
 
   if (totalCleanCost > 0) {
     summaryHtml += `
-    <div class="finance-row" style="cursor:pointer;border-radius:6px;margin:0 -4px;padding:10px 4px;transition:background 0.15s" onclick="var d=document.getElementById('rev-clean-cost-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.cc-chevron').textContent=open?'▾':'▴'" onmouseover="this.style.background='var(--mist)'" onmouseout="this.style.background=''">
-      <span class="finance-label" style="display:flex;align-items:center;gap:4px">Cleaning costs (${monthCleanCosts.length}) <span class="cc-chevron" style="font-size:9px;color:var(--text-soft);transition:transform 0.2s">▾</span></span>
+    <div class="finance-row" style="cursor:pointer;border-radius:6px;margin:0 -4px;padding:10px 4px;transition:background 0.15s" onclick="var d=document.getElementById('rev-clean-cost-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.cc-chevron').textContent=open?'▾':'▴'" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <span class="finance-label" style="display:flex;align-items:center;gap:4px">Cleaning costs (${monthCleanCosts.length}) <span class="cc-chevron" style="font-size:9px;color:var(--muted-2);transition:transform 0.2s">▾</span></span>
       <span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalCleanCost)}</span>
     </div>
-    <div id="rev-clean-cost-detail" style="display:none;padding:10px 14px;margin:2px 0 6px;background:var(--mist);border-radius:10px">${cleanCostDetailHtml}</div>`;
+    <div id="rev-clean-cost-detail" style="display:none;padding:10px 14px;margin:2px 0 6px;background:var(--surface2);border-radius:10px">${cleanCostDetailHtml}</div>`;
   }
 
   if (isDeduct && totalOperational > 0) {
     // Model A: operational expenses deducted before payout
     summaryHtml += `
-    <div class="finance-row" style="cursor:pointer;border-radius:6px;margin:0 -4px;padding:10px 4px;transition:background 0.15s" onclick="var d=document.getElementById('rev-expense-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.exp-chevron').textContent=open?'▾':'▴'" onmouseover="this.style.background='var(--mist)'" onmouseout="this.style.background=''">
-      <span class="finance-label" style="display:flex;align-items:center;gap:4px">Expenses (${operationalExpenses.length}) <span class="exp-chevron" style="font-size:9px;color:var(--text-soft);transition:transform 0.2s">▾</span></span>
+    <div class="finance-row" style="cursor:pointer;border-radius:6px;margin:0 -4px;padding:10px 4px;transition:background 0.15s" onclick="var d=document.getElementById('rev-expense-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.exp-chevron').textContent=open?'▾':'▴'" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <span class="finance-label" style="display:flex;align-items:center;gap:4px">Expenses (${operationalExpenses.length}) <span class="exp-chevron" style="font-size:9px;color:var(--muted-2);transition:transform 0.2s">▾</span></span>
       <span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalOperational)}</span>
     </div>
-    <div id="rev-expense-detail" style="display:none;padding:10px 14px;margin:2px 0 6px;background:var(--mist);border-radius:10px">${opDetailHtml}</div>`;
+    <div id="rev-expense-detail" style="display:none;padding:10px 14px;margin:2px 0 6px;background:var(--surface2);border-radius:10px">${opDetailHtml}</div>`;
   }
 
   const payoutColor = finalPayout >= 0 ? '#1D9E75' : '#E24B4A';
   summaryHtml += `
-    <div class="finance-row finance-total" style="border-top:1.5px solid var(--stone);padding-top:12px;margin-top:4px"><span class="finance-label" style="font-size:14px">Owner payout</span><span class="finance-val" style="color:${payoutColor};font-size:14px">${_fmtPayout(finalPayout)}</span></div>
+    <div class="finance-row finance-total" style="border-top:1.5px solid var(--hairline-1);padding-top:12px;margin-top:4px"><span class="finance-label" style="font-size:14px">Owner payout</span><span class="finance-val" style="color:${payoutColor};font-size:14px">${_fmtPayout(finalPayout)}</span></div>
   </div>`;
 
   // Owner-paid costs section (shown in both modes when they exist)
   if (ownerPaidExpenses.length > 0) {
     summaryHtml += `
-    <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--warm)">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="var d=document.getElementById('rev-owner-cost-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.oc-chevron').textContent=open?'▾':'▴'">
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--hairline-2)">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted-2);margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="var d=document.getElementById('rev-owner-cost-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.oc-chevron').textContent=open?'▾':'▴'">
         <span>OWNER COSTS (${ownerPaidExpenses.length}) <span class="oc-chevron" style="font-size:9px;transition:transform 0.2s">▾</span></span>
-        <span style="font-size:13px;font-weight:600;color:var(--text-soft);letter-spacing:0;text-transform:none">$${_fmtAud(totalOwnerPaid)}</span>
+        <span style="font-size:13px;font-weight:600;color:var(--muted-2);letter-spacing:0;text-transform:none">$${_fmtAud(totalOwnerPaid)}</span>
       </div>
-      <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.4">Not deducted from payout — paid by owner directly</div>
-      <div id="rev-owner-cost-detail" style="display:none;padding:10px 14px;background:var(--mist);border-radius:10px">${ownerDetailHtml}</div>
+      <div style="font-size:11px;color:var(--muted-2);margin-bottom:8px;line-height:1.4">Not deducted from payout — paid by owner directly</div>
+      <div id="rev-owner-cost-detail" style="display:none;padding:10px 14px;background:var(--surface2);border-radius:10px">${ownerDetailHtml}</div>
     </div>`;
   }
 
@@ -1605,12 +1605,12 @@ function renderRevenue() {
     // Model B: ALL expenses shown separately below (not just owner-paid)
     const allDetailHtml = [...monthExpenses].sort((a,b) => new Date(a.date) - new Date(b.date)).map(_expRow).join('');
     summaryHtml += `
-    <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--warm)">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-soft);margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="var d=document.getElementById('rev-all-expense-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.exp-chevron').textContent=open?'▾':'▴'">
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--hairline-2)">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted-2);margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="var d=document.getElementById('rev-all-expense-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.exp-chevron').textContent=open?'▾':'▴'">
         <span>ALL EXPENSES (${monthExpenses.length}) <span class="exp-chevron" style="font-size:9px;transition:transform 0.2s">▾</span></span>
         <span style="font-size:13px;font-weight:600;color:#E24B4A;letter-spacing:0;text-transform:none">$${_fmtAud(totalOperational + totalOwnerPaid)}</span>
       </div>
-      <div id="rev-all-expense-detail" style="display:none;padding:10px 14px;background:var(--mist);border-radius:10px">${allDetailHtml}</div>
+      <div id="rev-all-expense-detail" style="display:none;padding:10px 14px;background:var(--surface2);border-radius:10px">${allDetailHtml}</div>
     </div>`;
   }
 
@@ -1619,12 +1619,12 @@ function renderRevenue() {
   // ── Per-booking breakdown ──
   document.getElementById('revenue-breakdown').innerHTML = monthBookings.length ? [...monthBookings].sort((a,b)=>new Date(a.checkin)-new Date(b.checkin)).map(b=>`
     <div class="fin-rev-row">
-      <div style="min-width:0"><div style="font-weight:500;font-size:14px;color:#1a1a1a">${escHtml(b.name||'')}</div><div style="font-size:11px;color:var(--text-soft);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n</div></div>
+      <div style="min-width:0"><div style="font-weight:500;font-size:14px;color:var(--ink-1)">${escHtml(b.name||'')}</div><div style="font-size:11px;color:var(--muted-2);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n</div></div>
       <div style="text-align:right;flex-shrink:0">
-        <div style="font-size:14px;font-weight:500;color:#1a1a1a;font-family:'Plus Jakarta Sans',sans-serif">$${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+        <div style="font-size:14px;font-weight:500;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif">$${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
         <div style="font-size:11px;color:#1D9E75;margin-top:2px;font-family:'Plus Jakarta Sans',sans-serif">$${Number(b.netPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
       </div>
-    </div>`).join('') : '<div style="color:var(--text-soft);font-size:13px;padding:14px 0">No bookings this month.</div>';
+    </div>`).join('') : '<div style="color:var(--muted-2);font-size:13px;padding:14px 0">No bookings this month.</div>';
 }
 
 let mgmtYear = new Date().getFullYear();
@@ -1658,8 +1658,8 @@ function _setMgmtCheckboxUi(cb) {
   const tick = box?.querySelector('svg');
   if (!box || !tick) return;
   if (cb.checked) {
-    box.style.background = '#1E3A2F';
-    box.style.borderColor = '#1E3A2F';
+    box.style.background = '#2f5d4e';
+    box.style.borderColor = '#2f5d4e';
     tick.style.display = 'block';
   } else {
     box.style.background = '#fff';
@@ -1736,12 +1736,12 @@ function renderManagement() {
           </span>
         </span>
         <div style="flex:1;min-width:0">
-          <div style="font-weight:500;font-size:14px;color:#1a1a1a;text-transform:none">${escHtml(b.name||'')}</div>
-          <div style="font-size:11px;color:var(--text-soft);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n · Host $${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+          <div style="font-weight:500;font-size:14px;color:var(--ink-1);text-transform:none">${escHtml(b.name||'')}</div>
+          <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n · Host $${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
         </div>
         <div style="font-size:14px;font-weight:500;color:#1D9E75;font-family:'Plus Jakarta Sans',sans-serif;flex-shrink:0">$${Number(b.mgmtPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
       </label>`;
-    }).join('') : '<div style="color:var(--text-soft);font-size:13px;padding:14px 0">No bookings this month.</div>';
+    }).join('') : '<div style="color:var(--muted-2);font-size:13px;padding:14px 0">No bookings this month.</div>';
   }
   _bindMgmtActionButtons();
   _bindMgmtBookingCheckboxes();
@@ -2170,8 +2170,8 @@ function renderExpenseCatSettings() {
         <button type="button" data-expcat-del="${i}" onclick="event.stopPropagation();deleteExpenseCat(${i})"
           style="position:absolute;right:0;top:0;bottom:0;width:64px;border:none;background:#FEE2E2;color:#991B1B;font-weight:600;font-size:12px;font-family:'Plus Jakarta Sans',sans-serif;transform:translateX(100%);transition:transform 0.2s ease;cursor:pointer">Delete</button>
         <div data-expcat-inner="${i}" style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:0.5px solid rgba(0,0,0,0.08);background:#fff;transition:transform 0.2s ease;cursor:pointer">
-          <span data-expcat-txt="${i}" style="font-size:14px;color:#1a1a1a;font-family:'Plus Jakarta Sans',sans-serif">${escHtml(c)}</span>
-          <span style="font-size:12px;color:var(--text-soft);font-family:'Plus Jakarta Sans',sans-serif">${counts[c] != null ? counts[c] : 0} expenses</span>
+          <span data-expcat-txt="${i}" style="font-size:14px;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif">${escHtml(c)}</span>
+          <span style="font-size:12px;color:var(--muted-2);font-family:'Plus Jakarta Sans',sans-serif">${counts[c] != null ? counts[c] : 0} expenses</span>
         </div>
       </div>`
       )
@@ -2256,13 +2256,13 @@ function renderClientsList() {
   const clients = loadClients();
   const el = document.getElementById('clients-list');
   if (!el) return;
-  if (!clients.length) { el.innerHTML='<div style="font-size:13px;color:var(--text-soft)">No clients yet</div>'; return; }
+  if (!clients.length) { el.innerHTML='<div style="font-size:13px;color:var(--muted-2)">No clients yet</div>'; return; }
   el.innerHTML = clients.map((c,i) => `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--warm)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--hairline-2)">
       <div>
         <div style="font-weight:600;font-size:14px">${c.name}</div>
-        ${c.contact?`<div style="font-size:12px;color:var(--text-soft)">${c.contact}</div>`:''}
-        ${c.email?`<div style="font-size:12px;color:var(--text-soft)">${c.email}</div>`:''}
+        ${c.contact?`<div style="font-size:12px;color:var(--muted-2)">${c.contact}</div>`:''}
+        ${c.email?`<div style="font-size:12px;color:var(--muted-2)">${c.email}</div>`:''}
       </div>
       <button onclick="deleteClient(${i})" style="background:none;border:none;color:var(--red);font-size:18px;cursor:pointer;padding:4px">✕</button>
     </div>`).join('');
@@ -2334,13 +2334,13 @@ function merchantAutocomplete(val) {
   if (!matches.length) { box.style.display = 'none'; return; }
 
   box.innerHTML = matches.slice(0, 4).map((m, i) => `
-    <div onmousedown="selectMerchantSuggest(${i})" style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--warm);display:flex;justify-content:space-between;align-items:center"
-      onmouseover="this.style.background='var(--mist)'" onmouseout="this.style.background='white'">
+    <div onmousedown="selectMerchantSuggest(${i})" style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--hairline-2);display:flex;justify-content:space-between;align-items:center"
+      onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='white'">
       <div>
         <div style="font-weight:600;font-size:13px">${m.merchant}</div>
-        ${m.description ? `<div style="font-size:11px;color:var(--text-soft)">${m.description}</div>` : ''}
+        ${m.description ? `<div style="font-size:11px;color:var(--muted-2)">${m.description}</div>` : ''}
       </div>
-      <div style="font-size:11px;color:var(--text-soft);text-align:right;flex-shrink:0;margin-left:8px">
+      <div style="font-size:11px;color:var(--muted-2);text-align:right;flex-shrink:0;margin-left:8px">
         <div>${m.category}</div>
         <div>$${Math.abs(Number(m.amount)).toFixed(2)}</div>
       </div>
@@ -2467,7 +2467,7 @@ function openExpFilterDropdown(kind) {
       btn.type = 'button';
       btn.textContent = lab;
       btn.style.cssText =
-        'display:block;width:100%;text-align:left;padding:8px 4px;border:none;border-bottom:0.5px solid rgba(0,0,0,0.08);background:none;font-size:13px;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif;color:#1a1a1a';
+        'display:block;width:100%;text-align:left;padding:8px 4px;border:none;border-bottom:0.5px solid rgba(0,0,0,0.08);background:none;font-size:13px;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif;color:var(--ink-1)';
       btn.onclick = () => {
         const sel = document.getElementById('expense-filter-cat');
         if (sel) sel.value = val;
@@ -2488,7 +2488,7 @@ function openExpFilterDropdown(kind) {
     dd.innerHTML = opts
       .map(
         ([val, lab]) =>
-          `<button type="button" class="exp-dd-rec" data-rec="${val}" style="display:block;width:100%;text-align:left;padding:8px 4px;border:none;border-bottom:0.5px solid rgba(0,0,0,0.08);background:none;font-size:13px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;color:#1a1a1a">${lab}</button>`
+          `<button type="button" class="exp-dd-rec" data-rec="${val}" style="display:block;width:100%;text-align:left;padding:8px 4px;border:none;border-bottom:0.5px solid rgba(0,0,0,0.08);background:none;font-size:13px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;color:var(--ink-1)">${lab}</button>`
       )
       .join('');
     dd.querySelectorAll('.exp-dd-rec').forEach((btn) => {
@@ -2512,12 +2512,12 @@ function syncExpensePillStyles() {
     const el = document.getElementById(id);
     if (!el) return;
     if (on) {
-      el.style.background = '#1E3A2F';
+      el.style.background = '#2f5d4e';
       el.style.color = '#fff';
-      el.style.borderColor = '#1E3A2F';
+      el.style.borderColor = '#2f5d4e';
     } else {
       el.style.background = '#fff';
-      el.style.color = 'var(--text-soft)';
+      el.style.color = 'var(--muted-2)';
       el.style.borderColor = 'rgba(0,0,0,0.12)';
     }
   };
@@ -2634,7 +2634,7 @@ function renderExpenses() {
 
   if (!propertyExpenses.length) {
     listEl.innerHTML =
-      '<div style="text-align:center;padding:28px 16px;font-family:\'Plus Jakarta Sans\',sans-serif"><div style="font-weight:500;font-size:14px;margin-bottom:4px;color:#1a1a1a">No expenses yet</div><div style="font-size:12px;color:var(--text-soft)">Add your first expense above</div></div>';
+      '<div style="text-align:center;padding:28px 16px;font-family:\'Plus Jakarta Sans\',sans-serif"><div style="font-weight:500;font-size:14px;margin-bottom:4px;color:var(--ink-1)">No expenses yet</div><div style="font-size:12px;color:var(--muted-2)">Add your first expense above</div></div>';
     syncExpensePillStyles();
     refreshReconciliationFooter();
     return;
@@ -2688,7 +2688,7 @@ function renderExpenses() {
 
   if (!filtered.length) {
     listEl.innerHTML =
-      '<div style="padding:16px 0;color:var(--text-soft);font-size:13px;text-align:center;font-family:\'Plus Jakarta Sans\',sans-serif">No results match your filters</div>';
+      '<div style="padding:16px 0;color:var(--muted-2);font-size:13px;text-align:center;font-family:\'Plus Jakarta Sans\',sans-serif">No results match your filters</div>';
     const sm = document.getElementById('expenses-show-more');
     if (sm) sm.style.display = 'none';
     syncExpensePillStyles();
@@ -2703,8 +2703,8 @@ function renderExpenses() {
       + '<div style="display:flex;align-items:center;gap:10px">'
       + '<span style="font-size:18px">\u{1F4CE}</span>'
       + '<div>'
-      + '<div style="font-weight:500;font-size:14px;color:#1a1a1a;font-family:\'Plus Jakarta Sans\',sans-serif">' + _missingReceiptCount + ' expense' + (_missingReceiptCount === 1 ? '' : 's') + ' missing receipts</div>'
-      + '<div style="font-size:12px;color:var(--text-soft);font-family:\'Plus Jakarta Sans\',sans-serif">Tap to view</div>'
+      + '<div style="font-weight:500;font-size:14px;color:var(--ink-1);font-family:\'Plus Jakarta Sans\',sans-serif">' + _missingReceiptCount + ' expense' + (_missingReceiptCount === 1 ? '' : 's') + ' missing receipts</div>'
+      + '<div style="font-size:12px;color:var(--muted-2);font-family:\'Plus Jakarta Sans\',sans-serif">Tap to view</div>'
       + '</div></div>'
       + '<div style="color:#C7C7CC;font-size:20px;font-weight:300">\u203A</div></div>'
     : '';
@@ -2731,8 +2731,8 @@ function renderExpenses() {
       box-shadow:0 1px 2px rgba(0,0,0,0.02);border-left:3px solid ${catCol};border-top-left-radius:0;border-bottom-left-radius:0;
       -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;font-family:'Plus Jakarta Sans',sans-serif">
       <div style="flex:1;min-width:0">
-        <div style="font-weight:500;font-size:14px;color:#1a1a1a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(e.merchant || 'Unknown')}</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-top:2px">${line2}</div>
+        <div style="font-weight:500;font-size:14px;color:var(--ink-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(e.merchant || 'Unknown')}</div>
+        <div style="font-size:12px;color:var(--muted-2);margin-top:2px">${line2}</div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap">
           <span style="font-size:11px;font-weight:600;color:${catCol}">${escHtml(e.category || '')}</span>
           ${recBlock}
@@ -2771,7 +2771,7 @@ function renderExpenses() {
       const descShort = (e.description || '').length > 40 ? (e.description || '').slice(0, 40) + '...' : (e.description || '');
       return `<tr onclick="openExpenseView('${escapeJsSingleQuotedHtmlAttr(String(e.id))}')" style="cursor:pointer">
         <td style="white-space:nowrap">${fmt(e.date)}</td>
-        <td style="max-width:200px"><strong>${escHtml(e.merchant || 'Unknown')}</strong>${descShort ? '<div style="font-size:11px;color:var(--text-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(descShort) + '</div>' : ''}</td>
+        <td style="max-width:200px"><strong>${escHtml(e.merchant || 'Unknown')}</strong>${descShort ? '<div style="font-size:11px;color:var(--muted-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(descShort) + '</div>' : ''}</td>
         <td style="white-space:nowrap"><span style="font-size:11px;font-weight:600;color:${catCol};background:${catCol}15;padding:2px 8px;border-radius:6px">${escHtml(e.category || '')}</span></td>
         <td style="white-space:nowrap">${recHtml}</td>
         <td style="text-align:right;font-weight:500;color:${amtColor};white-space:nowrap">${prefix}$${Math.abs(Number(e.amount)).toFixed(2)}</td>
@@ -2794,10 +2794,10 @@ function renderExpenses() {
     listEl.innerHTML = _missingReceiptCard + '<div style="display:grid;grid-template-columns:1fr minmax(260px,300px);gap:20px">' +
       '<div class="card" style="padding:0;overflow:hidden;overflow-x:auto"><table class="desktop-table"><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Receipt</th><th style="text-align:right">Amount</th></tr></thead><tbody>' + tblRows + '</tbody></table></div>' +
       '<div style="display:flex;flex-direction:column;gap:16px">' +
-        '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">This Month</div>' +
-          '<div style="font-family:\'Newsreader\',serif;font-size:28px;color:var(--forest)">$' + Math.abs(monthSum).toFixed(0) + '</div>' +
-          '<div style="font-size:12px;color:var(--text-soft);margin-top:4px">' + monthCnt + ' expenses</div></div>' +
-        '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">By Category</div>' + catBreakdown + '</div>' +
+        '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted-2);margin-bottom:12px">This Month</div>' +
+          '<div style="font-family:\'Newsreader\',serif;font-size:28px;color:var(--primary)">$' + Math.abs(monthSum).toFixed(0) + '</div>' +
+          '<div style="font-size:12px;color:var(--muted-2);margin-top:4px">' + monthCnt + ' expenses</div></div>' +
+        '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted-2);margin-bottom:12px">By Category</div>' + catBreakdown + '</div>' +
       '</div></div>';
   } else {
     listEl.innerHTML = _missingReceiptCard + displayKeys
@@ -3070,7 +3070,7 @@ function openExpenseView(id) {
       <button onclick="openReceiptViewer('${escapeJsSingleQuotedHtmlAttr(String(e.driveLink))}', this)"
          style="display:flex;align-items:center;justify-content:center;gap:8px;
                 width:100%;padding:11px;box-sizing:border-box;
-                background:var(--mist);border:1.5px solid var(--moss);border-radius:10px;
+                background:var(--surface2);border:1.5px solid var(--moss);border-radius:10px;
                 color:var(--moss);font-weight:600;font-size:13px;cursor:pointer;
                 font-family:'Plus Jakarta Sans',sans-serif">
         📎 View Receipt
@@ -3088,7 +3088,7 @@ function openExpenseView(id) {
     <div style="margin-bottom:16px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
         <div style="min-width:0;flex:1">
-          <div style="font-family:inherit;font-size:16px;font-weight:500;color:#1a1a1a;line-height:1.15;
+          <div style="font-family:inherit;font-size:16px;font-weight:500;color:var(--ink-1);line-height:1.15;
                       word-break:break-word">${escHtml(e.merchant||'Unknown')}</div>
           ${e.description ? `<div style="font-size:13px;font-weight:400;color:#999;margin-top:4px">${escHtml(e.description)}</div>` : ''}
         </div>
@@ -3189,7 +3189,7 @@ async function saveExpenseEdit() {
   if (editingExpensePhotoBase64) {
     const statusEl = document.getElementById('ee-upload-status');
     statusEl.style.display = 'block';
-    statusEl.style.color = 'var(--text-soft)';
+    statusEl.style.color = 'var(--muted-2)';
     statusEl.textContent = '⟳ Uploading receipt...';
     try {
       const fakeExp = Object.assign({}, e, { photo: editingExpensePhotoBase64, _mediaType: editingExpenseMediaType });
@@ -3379,8 +3379,8 @@ function _renderExpensePayoutModeUI(mode) {
   const separateLabel = document.getElementById('expense-mode-separate-label');
   if (deductRadio)   deductRadio.checked   = mode === 'deduct';
   if (separateRadio) separateRadio.checked  = mode === 'separate';
-  if (deductLabel)   deductLabel.style.borderColor   = mode === 'deduct'   ? 'var(--forest)' : 'var(--stone)';
-  if (separateLabel) separateLabel.style.borderColor  = mode === 'separate' ? 'var(--forest)' : 'var(--stone)';
+  if (deductLabel)   deductLabel.style.borderColor   = mode === 'deduct'   ? 'var(--primary)' : 'var(--hairline-1)';
+  if (separateLabel) separateLabel.style.borderColor  = mode === 'separate' ? 'var(--primary)' : 'var(--hairline-1)';
 }
 
 function _renderExpenseCatToggles() {
@@ -3393,9 +3393,9 @@ function _renderExpenseCatToggles() {
     const label = bankImportFormatCategoryLabel(cat);
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)">
       <span style="font-size:13px;font-weight:500;color:var(--text)">${escHtml(label)}</span>
-      <div style="display:flex;gap:0;border-radius:6px;overflow:hidden;border:1px solid var(--stone)">
-        <button onclick="toggleExpenseCatMode('${cat}','deduct')" id="ecat-${cat}-deduct" style="padding:5px 10px;font-size:11px;font-weight:600;border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:background 0.15s;background:${!isOwner ? 'var(--forest)' : 'white'};color:${!isOwner ? 'white' : 'var(--text-soft)'}">Deduct</button>
-        <button onclick="toggleExpenseCatMode('${cat}','owner')" id="ecat-${cat}-owner" style="padding:5px 10px;font-size:11px;font-weight:600;border:none;border-left:1px solid var(--stone);cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:background 0.15s;background:${isOwner ? '#E24B4A' : 'white'};color:${isOwner ? 'white' : 'var(--text-soft)'}">Owner pays</button>
+      <div style="display:flex;gap:0;border-radius:6px;overflow:hidden;border:1px solid var(--hairline-1)">
+        <button onclick="toggleExpenseCatMode('${cat}','deduct')" id="ecat-${cat}-deduct" style="padding:5px 10px;font-size:11px;font-weight:600;border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:background 0.15s;background:${!isOwner ? 'var(--primary)' : 'white'};color:${!isOwner ? 'white' : 'var(--muted-2)'}">Deduct</button>
+        <button onclick="toggleExpenseCatMode('${cat}','owner')" id="ecat-${cat}-owner" style="padding:5px 10px;font-size:11px;font-weight:600;border:none;border-left:1px solid var(--hairline-1);cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:background 0.15s;background:${isOwner ? '#E24B4A' : 'white'};color:${isOwner ? 'white' : 'var(--muted-2)'}">Owner pays</button>
       </div>
     </div>`;
   }).join('');
@@ -3425,7 +3425,7 @@ function _setVal(id, val) {
 function _updateOwnerReportToggleUI(on) {
   const track = document.getElementById('owner-autosend-toggle');
   const thumb = document.getElementById('owner-autosend-thumb');
-  if (track) track.style.background = on ? 'var(--forest, #1E3A2F)' : 'var(--border, #C7C7CC)';
+  if (track) track.style.background = on ? 'var(--primary)' : 'var(--border, #C7C7CC)';
   if (thumb) thumb.style.transform  = on ? 'translateX(18px)' : 'translateX(0)';
 }
 
@@ -3486,7 +3486,7 @@ async function sendOwnerReport() {
   const btn    = document.getElementById('owner-report-send-btn');
   const status = document.getElementById('owner-report-send-status');
   if (btn)    { btn.disabled = true; btn.textContent = 'Sending…'; }
-  if (status) { status.style.color = 'var(--text-soft)'; status.textContent = 'Building PDF…'; }
+  if (status) { status.style.color = 'var(--muted-2)'; status.textContent = 'Building PDF…'; }
 
   try {
     // 1. Build PDF and get base64 string
@@ -3521,7 +3521,7 @@ async function sendOwnerReport() {
       const existingOwner = getActivePropertyConfig().owner || {};
       savePropertyConfig({ owner: { ...existingOwner, lastReportSentAt: now } });
 
-      if (status) { status.style.color = 'var(--forest)'; status.textContent = '✓ Report sent to ' + ownerEmail; }
+      if (status) { status.style.color = 'var(--primary)'; status.textContent = '✓ Report sent to ' + ownerEmail; }
       globalThis.showBanner('✅ Report emailed to ' + ownerEmail, 'ok');
 
       // Refresh the last-sent label
@@ -3868,9 +3868,9 @@ function showTaxExportView() {
   const previewEl = document.getElementById('tax-export-preview');
   if (previewEl) {
     let html = '<div class="card" style="padding:16px">';
-    html += '<div style="font-weight:500;font-size:14px;margin-bottom:12px;color:#1a1a1a">Deductions by ATO Category</div>';
+    html += '<div style="font-weight:500;font-size:14px;margin-bottom:12px;color:var(--ink-1)">Deductions by ATO Category</div>';
     if (groups.length === 0) {
-      html += '<div style="font-size:13px;color:var(--text-soft)">No expenses recorded for this financial year.</div>';
+      html += '<div style="font-size:13px;color:var(--muted-2)">No expenses recorded for this financial year.</div>';
     } else {
       groups.forEach(g => {
         const missingBadge = g.missingReceipt > 0
@@ -3878,8 +3878,8 @@ function showTaxExportView() {
           : '';
         html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)">
           <div>
-            <div style="font-size:13px;font-weight:500;color:#1a1a1a">${escHtml(g.label)}${missingBadge}</div>
-            <div style="font-size:11px;color:var(--text-soft)">${g.expenses.length} item${g.expenses.length !== 1 ? 's' : ''}</div>
+            <div style="font-size:13px;font-weight:500;color:var(--ink-1)">${escHtml(g.label)}${missingBadge}</div>
+            <div style="font-size:11px;color:var(--muted-2)">${g.expenses.length} item${g.expenses.length !== 1 ? 's' : ''}</div>
           </div>
           <div style="font-size:14px;font-weight:500;color:#1D9E75">$${g.total.toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
         </div>`;
@@ -3887,16 +3887,16 @@ function showTaxExportView() {
       if (depTotal > 0) {
         html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)">
           <div>
-            <div style="font-size:13px;font-weight:500;color:#1a1a1a">Depreciation (Assets)</div>
-            <div style="font-size:11px;color:var(--text-soft)">From asset register</div>
+            <div style="font-size:13px;font-weight:500;color:var(--ink-1)">Depreciation (Assets)</div>
+            <div style="font-size:11px;color:var(--muted-2)">From asset register</div>
           </div>
           <div style="font-size:14px;font-weight:500;color:#1D9E75">$${depTotal.toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
         </div>`;
       }
       const grandTotal = totalAmt + depTotal;
       html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0 0">
-        <div style="font-size:13px;font-weight:600;color:#1a1a1a">Total Deductions</div>
-        <div style="font-size:15px;font-weight:600;color:#1E3A2F">$${grandTotal.toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+        <div style="font-size:13px;font-weight:600;color:var(--ink-1)">Total Deductions</div>
+        <div style="font-size:15px;font-weight:600;color:#2f5d4e">$${grandTotal.toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
       </div>`;
     }
     html += '</div>';
@@ -3916,23 +3916,23 @@ function showTaxExportView() {
   if (hostEl) {
     const fmtAU = n => '$' + Number(n).toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
     let hHtml = '<div class="card" style="padding:16px;margin-top:12px">';
-    hHtml += '<div style="font-weight:500;font-size:14px;margin-bottom:4px;color:#1a1a1a">\uD83D\uDCCA Host Management Income (Your Tax)</div>';
-    hHtml += `<div style="font-size:11px;color:var(--text-soft);margin-bottom:12px">${fyLabel(fy)} \u00B7 All properties</div>`;
+    hHtml += '<div style="font-weight:500;font-size:14px;margin-bottom:4px;color:var(--ink-1)">\uD83D\uDCCA Host Management Income (Your Tax)</div>';
+    hHtml += `<div style="font-size:11px;color:var(--muted-2);margin-bottom:12px">${fyLabel(fy)} \u00B7 All properties</div>`;
     if (hostIncome.byProperty.length === 0) {
-      hHtml += '<div style="font-size:13px;color:var(--text-soft)">No management fee income recorded for this financial year.</div>';
+      hHtml += '<div style="font-size:13px;color:var(--muted-2)">No management fee income recorded for this financial year.</div>';
     } else {
       hostIncome.byProperty.forEach(p => {
         hHtml += `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)">
-          <div style="font-size:13px;font-weight:500;color:#1a1a1a">${escHtml(p.propertyName)}</div>
+          <div style="font-size:13px;font-weight:500;color:var(--ink-1)">${escHtml(p.propertyName)}</div>
           <div style="font-size:14px;font-weight:500;color:#1D9E75">${fmtAU(p.total)}</div>
         </div>`;
       });
       hHtml += `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0 0">
-        <div style="font-size:13px;font-weight:600;color:#1a1a1a">Total Management Income</div>
-        <div style="font-size:15px;font-weight:600;color:#1E3A2F">${fmtAU(hostIncome.grandTotal)}</div>
+        <div style="font-size:13px;font-weight:600;color:var(--ink-1)">Total Management Income</div>
+        <div style="font-size:15px;font-weight:600;color:#2f5d4e">${fmtAU(hostIncome.grandTotal)}</div>
       </div>`;
     }
-    hHtml += '<div style="font-size:11px;color:var(--text-soft);margin-top:10px;font-style:italic">This is your management fee income for your own tax return.</div>';
+    hHtml += '<div style="font-size:11px;color:var(--muted-2);margin-top:10px;font-style:italic">This is your management fee income for your own tax return.</div>';
     hHtml += '</div>';
     hostEl.innerHTML = hHtml;
   }
@@ -4261,11 +4261,11 @@ async function renderReconciliationView() {
   if (!summaryBar || !filtersEl || !listEl) return;
 
   // Show loading state
-  listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-soft);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">Loading transactions...</div>';
+  listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">Loading transactions...</div>';
 
   const user = await getCurrentSupabaseUser();
   if (!user) {
-    listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-soft);font-size:13px">Sign in to view transactions.</div>';
+    listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px">Sign in to view transactions.</div>';
     summaryBar.innerHTML = '';
     filtersEl.innerHTML = '';
     return;
@@ -4277,7 +4277,7 @@ async function renderReconciliationView() {
   if (_reconTxns.length === 0) {
     summaryBar.innerHTML = '';
     filtersEl.innerHTML = '';
-    listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-soft);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">No bank transactions imported yet. Use <b>Import bank CSV</b> in the Expenses view to get started.</div>';
+    listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">No bank transactions imported yet. Use <b>Import bank CSV</b> in the Expenses view to get started.</div>';
     return;
   }
 
@@ -4322,9 +4322,9 @@ function renderReconciliationFilters(container) {
 
   container.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap">${pills.map(p => {
     const isActive = _reconFilter === p.key;
-    const bg    = isActive ? '#1E3A2F' : '#F5F3EF';
+    const bg    = isActive ? '#2f5d4e' : '#F5F3EF';
     const color = isActive ? '#fff'    : '#555';
-    const bdr   = isActive ? '#1E3A2F' : '#E0DCD5';
+    const bdr   = isActive ? '#2f5d4e' : '#E0DCD5';
     return `<button onclick="filterReconciliation('${p.key}')" style="background:${bg};border:1px solid ${bdr};border-radius:20px;padding:6px 14px;font-size:12px;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer;color:${color}">${p.label}</button>`;
   }).join('')}</div>`;
 }
@@ -4343,7 +4343,7 @@ function renderReconciliationList(container) {
     : _reconTxns.filter(t => t.status === _reconFilter);
 
   if (filtered.length === 0) {
-    container.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-soft);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">No transactions in this category.</div>';
+    container.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">No transactions in this category.</div>';
     return;
   }
 
@@ -4377,9 +4377,9 @@ function renderReconciliationList(container) {
 
     return `<div style="background:#fff;border-radius:10px;padding:12px 14px;margin-bottom:8px;border:0.5px solid rgba(0,0,0,0.06);display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
       <div style="flex:1;min-width:0">
-        <div style="font-size:11px;color:var(--text-soft);margin-bottom:2px">${dateStr}</div>
-        <div style="font-size:14px;font-weight:500;color:#1a1a1a;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${desc}</div>
-        <div style="font-size:15px;font-weight:600;color:#1a1a1a;margin-top:2px">$${amt}</div>
+        <div style="font-size:11px;color:var(--muted-2);margin-bottom:2px">${dateStr}</div>
+        <div style="font-size:14px;font-weight:500;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${desc}</div>
+        <div style="font-size:15px;font-weight:600;color:var(--ink-1);margin-top:2px">$${amt}</div>
       </div>
       <div style="flex-shrink:0;text-align:right">${rightInfo}</div>
     </div>`;
@@ -4428,7 +4428,7 @@ async function reconMatchExpense(txnId, date, amount) {
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:0.5px solid rgba(0,0,0,0.06);cursor:pointer" onclick="reconLinkToExpense('${escapeJsSingleQuotedHtmlAttr(txnId)}','${eid}')">
       <div style="min-width:0;flex:1">
         <div style="font-size:13px;font-weight:500;color:var(--text)">${escHtml(e.merchant || e.description || 'Expense')}${amtBadge}</div>
-        <div style="font-size:11px;color:var(--text-soft);margin-top:2px">${fmt(e.date)} · $${_fmtAud(eAmt)} · ${escHtml(e.category || '')}</div>
+        <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${fmt(e.date)} · $${_fmtAud(eAmt)} · ${escHtml(e.category || '')}</div>
       </div>
       <div style="flex-shrink:0;margin-left:8px;color:var(--moss);font-size:12px;font-weight:600">Link →</div>
     </div>`;
@@ -4441,14 +4441,14 @@ async function reconMatchExpense(txnId, date, amount) {
     <div style="background:white;border-radius:16px 16px 0 0;width:100%;max-width:500px;max-height:70vh;overflow-y:auto;padding:20px 16px 24px;animation:settingsPanelIn 0.28s cubic-bezier(0.32,0.72,0,1)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
         <div>
-          <div style="font-size:15px;font-weight:700;color:var(--forest)">Match to Expense</div>
-          <div style="font-size:12px;color:var(--text-soft);margin-top:2px">Transaction: $${_fmtAud(amt)} on ${fmt(date)}</div>
+          <div style="font-size:15px;font-weight:700;color:var(--primary)">Match to Expense</div>
+          <div style="font-size:12px;color:var(--muted-2);margin-top:2px">Transaction: $${_fmtAud(amt)} on ${fmt(date)}</div>
         </div>
-        <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--mist);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-soft)">×</button>
+        <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--surface2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted-2)">×</button>
       </div>
-      <div style="font-size:12px;color:var(--text-soft);margin-bottom:10px">${nearby.length} similar expense${nearby.length !== 1 ? 's' : ''} found — tap to link</div>
+      <div style="font-size:12px;color:var(--muted-2);margin-bottom:10px">${nearby.length} similar expense${nearby.length !== 1 ? 's' : ''} found — tap to link</div>
       ${list}
-      <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--mist);color:var(--text-soft);font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Cancel</button>
+      <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--surface2);color:var(--muted-2);font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Cancel</button>
     </div>`;
   document.body.style.overflow = 'hidden';
 }

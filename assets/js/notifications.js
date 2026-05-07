@@ -275,7 +275,7 @@ export function updateNotifStatus() {
     if (el) { el.textContent = '❌ Notifications blocked — change in device Settings.'; el.style.background = '#FDECEA'; el.style.color = 'var(--red)'; }
     if (menuRow) menuRow.textContent = '❌ Blocked';
   } else {
-    if (el) { el.textContent = '⚪ Notifications not yet enabled on this device.'; el.style.background = 'var(--warm)'; el.style.color = 'var(--text-soft)'; }
+    if (el) { el.textContent = '⚪ Notifications not yet enabled on this device.'; el.style.background = 'var(--hairline-2)'; el.style.color = 'var(--muted-2)'; }
     if (menuRow) menuRow.textContent = 'Tap to set up';
   }
   if (typeof globalThis.refreshConnectionSummarySoon === 'function') {
@@ -581,7 +581,7 @@ Check-in: {{checkin}}
 Check-out: {{checkout}}
 
 Tap the button below to open your app and accept or decline.`,
-    color: '#1E3A2F'
+    color: '#2f5d4e'
   },
   reminder: {
     subject: '⏰ Reminder: Clean tomorrow — {{guest_name}}',
@@ -628,7 +628,7 @@ Check-out: {{checkout}}
 Please tap the button below to confirm you can make it.
 
 Thanks so much! 🙏`,
-      color: '#1E3A2F'
+      color: '#2f5d4e'
     },
     {
       label: 'Professional',
@@ -642,7 +642,7 @@ Check-in: {{checkin}}
 Check-out: {{checkout}}
 
 Open your app to accept or decline.`,
-      color: '#1E3A2F'
+      color: '#2f5d4e'
     }
   ],
   reminder: [
@@ -682,9 +682,9 @@ export function applyPreset(type, idx) {
   document.getElementById('etpl-color').value   = preset.color;
   document.getElementById('etpl-color-preview').style.background = preset.color;
   document.querySelectorAll('.etpl-preset-btn').forEach((b, i) => {
-    b.style.background    = i === idx ? 'var(--forest)' : 'var(--mist)';
-    b.style.color         = i === idx ? 'white' : 'var(--forest)';
-    b.style.borderColor   = i === idx ? 'var(--forest)' : 'var(--stone)';
+    b.style.background    = i === idx ? 'var(--primary)' : 'var(--surface2)';
+    b.style.color         = i === idx ? 'white' : 'var(--primary)';
+    b.style.borderColor   = i === idx ? 'var(--primary)' : 'var(--hairline-1)';
   });
   updateEmailPreview(type);
 }
@@ -882,7 +882,7 @@ export function applyEmailTemplate(type, vars) {
     if (!value) return '';
     return `<tr>
       <td style="padding:9px 14px;font-size:11px;font-weight:500;color:#999;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap;border-bottom:1px solid #f0ede8">${label}</td>
-      <td style="padding:9px 14px;font-size:13px;color:#1a1a1a;text-align:right;border-bottom:1px solid #f0ede8">${value}</td>
+      <td style="padding:9px 14px;font-size:13px;color:var(--ink-1);text-align:right;border-bottom:1px solid #f0ede8">${value}</td>
     </tr>`;
   }
 
@@ -925,7 +925,7 @@ export function applyEmailTemplate(type, vars) {
 
   const detailsOpacity = type === 'cancellation' ? 'opacity:0.55;' : '';
 
-  const html = `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+  const html = `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;color:var(--ink-1)">
     <div style="background:${color};padding:20px 24px 16px;border-radius:10px 10px 0 0">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
         <span style="font-size:17px;font-weight:700;color:#fff">${propName}</span>
@@ -934,7 +934,7 @@ export function applyEmailTemplate(type, vars) {
       ${addressLine ? `<div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:1px">${addressLine}</div>` : ''}
     </div>
     <div style="background:white;padding:22px 24px;border:1px solid #ebe7e2;border-top:none">
-      <p style="font-size:14px;color:#1a1a1a;margin:0 0 10px">Dear ${cleanerFirst},</p>
+      <p style="font-size:14px;color:var(--ink-1);margin:0 0 10px">Dear ${cleanerFirst},</p>
       <p style="font-size:13px;color:#444;margin:0 0 16px;line-height:1.55">${intros[type]}</p>
       ${rows ? `<table style="width:100%;border-collapse:collapse;border:1px solid #ebe7e2;border-radius:8px;overflow:hidden;margin-bottom:16px;${detailsOpacity}">${rows}</table>` : ''}
       ${noteHtml}
@@ -1028,8 +1028,8 @@ function _setConnectionCheckResult(id, status, msg) {
     el.style.background = '#F0FAF4';
     el.style.color = 'var(--moss)';
   } else if (status === 'loading') {
-    el.style.background = 'var(--warm)';
-    el.style.color = 'var(--text-soft)';
+    el.style.background = 'var(--hairline-2)';
+    el.style.color = 'var(--muted-2)';
   } else {
     el.style.background = '#FEF2F2';
     el.style.color = 'var(--red)';
@@ -1072,7 +1072,7 @@ export async function testNotificationConfig() {
 
 export async function testCleanerEmail() {
   const resultEl = document.getElementById('email-test-result');
-  if (resultEl) { resultEl.style.display = 'block'; resultEl.style.background = 'var(--warm)'; resultEl.style.color = 'var(--text-soft)'; resultEl.textContent = 'Sending…'; }
+  if (resultEl) { resultEl.style.display = 'block'; resultEl.style.background = 'var(--hairline-2)'; resultEl.style.color = 'var(--muted-2)'; resultEl.textContent = 'Sending…'; }
   const cleaners = loadCleaners().filter(c => c.email);
   if (!cleaners.length) {
     if (resultEl) { resultEl.style.background = '#FEF2F2'; resultEl.style.color = 'var(--red)'; resultEl.textContent = '⚠ Add an email to at least one team member first (Settings → Property → Team)'; }

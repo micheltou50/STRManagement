@@ -327,28 +327,28 @@ function renderOnboardingGuidance(_usageSnapshot) {
   el.innerHTML =
     '<div class="card" style="margin-bottom:12px;padding:18px 16px">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
-        '<div style="font-weight:700;font-size:15px;color:var(--forest)">Getting Started</div>' +
+        '<div style="font-weight:700;font-size:15px;color:var(--primary)">Getting Started</div>' +
         '<div style="display:flex;align-items:center;gap:8px">' +
-          '<span style="font-size:12px;color:var(--text-soft)">' + completedCount + '/' + items.length + '</span>' +
-          '<span onclick="dismissChecklist()" style="font-size:16px;color:var(--text-soft);cursor:pointer;padding:2px">\u2715</span>' +
+          '<span style="font-size:12px;color:var(--muted-2)">' + completedCount + '/' + items.length + '</span>' +
+          '<span onclick="dismissChecklist()" style="font-size:16px;color:var(--muted-2);cursor:pointer;padding:2px">\u2715</span>' +
         '</div>' +
       '</div>' +
-      '<div style="background:var(--warm);border-radius:4px;height:6px;margin-bottom:14px;overflow:hidden">' +
-        '<div style="background:var(--forest);height:100%;width:' + pct + '%;border-radius:4px;transition:width .3s"></div>' +
+      '<div style="background:var(--hairline-2);border-radius:4px;height:6px;margin-bottom:14px;overflow:hidden">' +
+        '<div style="background:var(--primary);height:100%;width:' + pct + '%;border-radius:4px;transition:width .3s"></div>' +
       '</div>' +
       items.map(function(item) {
         var checkStyle = item.done
-          ? 'background:var(--forest);border-color:var(--forest);color:#fff'
+          ? 'background:var(--primary);border-color:var(--primary);color:#fff'
           : 'background:#fff;border-color:#D1D1D6;color:transparent';
         return '<div style="display:flex;align-items:center;gap:12px;padding:8px 0;' + (item.done ? 'opacity:0.5' : '') + '">' +
           '<div style="width:22px;height:22px;border-radius:50%;border:2px solid;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;' + checkStyle + '">' +
             (item.done ? '\u2713' : '') +
           '</div>' +
-          '<div style="flex:1;font-size:13px;' + (item.done ? 'text-decoration:line-through;color:var(--text-soft)' : 'color:var(--text);font-weight:500') + '">' +
+          '<div style="flex:1;font-size:13px;' + (item.done ? 'text-decoration:line-through;color:var(--muted-2)' : 'color:var(--text);font-weight:500') + '">' +
             item.icon + ' ' + item.label +
           '</div>' +
           (!item.done && item.action
-            ? '<div onclick="' + item.action + '" style="font-size:12px;color:var(--forest);font-weight:600;cursor:pointer;white-space:nowrap">' + item.actionLabel + ' \u2192</div>'
+            ? '<div onclick="' + item.action + '" style="font-size:12px;color:var(--primary);font-weight:600;cursor:pointer;white-space:nowrap">' + item.actionLabel + ' \u2192</div>'
             : '') +
         '</div>';
       }).join('') +
@@ -698,7 +698,7 @@ function buildTodayBookingCardHtml(b, options) {
     (b.nights !== 1 ? 's' : '');
   const stripe = showPropertyStripe ? `box-shadow:inset 4px 0 0 ${showPropertyStripe};` : '';
   const row1WrapOpacity = isCancelled ? ';opacity:0.6' : '';
-  const nameSpanStyle = 'font-weight:500;font-size:15px;color:#1a1a1a';
+  const nameSpanStyle = 'font-weight:500;font-size:15px;color:var(--ink-1)';
   const priceSpanStyle = isCancelled
     ? 'font-weight:500;font-size:15px;color:#666;text-decoration:line-through'
     : 'font-weight:500;font-size:15px;color:#1D9E75';
@@ -1418,7 +1418,7 @@ function buildStayopsUnifiedTodayCalendarHtml({
         </div>
         <div style="flex:1;min-width:0;padding-bottom:4px">
           <div style="font-size:13px;font-weight:600;color:${color}">${title}</div>
-          ${sub ? `<div style="font-size:12px;color:var(--text-soft);margin-top:2px">${sub}</div>` : ''}
+          ${sub ? `<div style="font-size:12px;color:var(--muted-2);margin-top:2px">${sub}</div>` : ''}
         </div>
       </div>`;
 
@@ -1482,7 +1482,7 @@ function buildStayopsUnifiedTodayCalendarHtml({
     events.sort((a, b) => a.sortKey - b.sortKey);
 
     const emptyHint = !events.length
-      ? `<div style="font-size:13px;color:var(--text-soft);text-align:center;padding:12px 8px">No events</div>`
+      ? `<div style="font-size:13px;color:var(--muted-2);text-align:center;padding:12px 8px">No events</div>`
       : '';
 
     dayDetailHtml = `<div style="margin-top:10px;padding-top:10px;border-top:0.5px solid rgba(0,0,0,0.1)">
@@ -1496,8 +1496,8 @@ function buildStayopsUnifiedTodayCalendarHtml({
     `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">` +
     `<span style="font-size:16px;font-weight:700;color:${primary}">${escHtml(calMonthName)}</span>` +
     `<div style="display:flex;align-items:center;gap:4px">` +
-    `<button type="button" onclick="_todayCalNav(-1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">‹</button>` +
-    `<button type="button" onclick="_todayCalNav(1)" style="background:var(--warm);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">›</button>` +
+    `<button type="button" onclick="_todayCalNav(-1)" style="background:var(--hairline-2);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">‹</button>` +
+    `<button type="button" onclick="_todayCalNav(1)" style="background:var(--hairline-2);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:${primary}">›</button>` +
     `</div></div>` +
     `<div style="border-radius:8px;overflow:hidden">` +
     `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:0;margin-bottom:2px">${calHeader}</div>` +
@@ -1510,7 +1510,7 @@ function buildStayopsUnifiedTodayCalendarHtml({
 
 function buildSinglePropertyTodayDashboardMarkup() {
   const tertiary = '#6B6560';
-  const primary = '#1a1a1a';
+  const primary = 'var(--ink-1)';
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const cloudIds = window._cloudPropertyIds || {};
@@ -1697,17 +1697,17 @@ function buildSinglePropertyTodayDashboardMarkup() {
 
     const upcomingTable = `<div class="card" style="padding:0;overflow:hidden">
       <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 16px 12px">
-        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft)">Upcoming Bookings</span>
+        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted-2)">Upcoming Bookings</span>
         <span onclick="showSection('bookings')" style="font-size:12px;color:var(--moss);cursor:pointer;font-weight:500">View all &rarr;</span>
       </div>
-      <table class="desktop-table"><thead><tr><th>Guest</th><th>Check-in</th><th>Check-out</th><th>Payout</th><th>Platform</th><th>Status</th></tr></thead><tbody>${tblRows || '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-soft)">No upcoming bookings</td></tr>'}</tbody></table>
+      <table class="desktop-table"><thead><tr><th>Guest</th><th>Check-in</th><th>Check-out</th><th>Payout</th><th>Platform</th><th>Status</th></tr></thead><tbody>${tblRows || '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--muted-2)">No upcoming bookings</td></tr>'}</tbody></table>
     </div>`;
 
     // Occupancy card
     const occCard = `<div class="card">
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Monthly Occupancy</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted-2);margin-bottom:12px">Monthly Occupancy</div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-        <span style="font-family:'Newsreader',serif;font-size:32px;color:var(--forest)">${occupancyThisMonth}%</span>
+        <span style="font-family:'Newsreader',serif;font-size:32px;color:var(--primary)">${occupancyThisMonth}%</span>
         <span style="font-size:12px;color:var(--moss)">${bookedNightsMonth}/${daysThisMonth} nights</span>
       </div>
       <div style="height:8px;background:#e8e0d5;border-radius:4px;overflow:hidden"><div style="height:100%;background:var(--moss);border-radius:4px;width:${occupancyThisMonth}%"></div></div>
@@ -1715,10 +1715,10 @@ function buildSinglePropertyTodayDashboardMarkup() {
 
     setTimeout(animateNumbers, 100);
     return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:20px">
-      <div class="card" style="text-align:center"><div data-animate-number="${occupancyThisMonth}" data-num-suffix="%" style="font-family:'Newsreader',serif;font-size:28px;color:var(--forest)">0%</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Occupancy</div></div>
-      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueThisMonth)}" data-num-prefix="$" style="font-family:'Newsreader',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Revenue</div></div>
-      <div class="card" style="text-align:center"><div data-animate-number="${activeBookings.length}" style="font-family:'Newsreader',serif;font-size:28px;color:var(--forest)">0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
-      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueNext30)}" data-num-prefix="$" style="font-family:'Newsreader',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${occupancyThisMonth}" data-num-suffix="%" style="font-family:'Newsreader',serif;font-size:28px;color:var(--primary)">0%</div><div style="font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Occupancy</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueThisMonth)}" data-num-prefix="$" style="font-family:'Newsreader',serif;font-size:28px;color:var(--primary)">$0</div><div style="font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Revenue</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${activeBookings.length}" style="font-family:'Newsreader',serif;font-size:28px;color:var(--primary)">0</div><div style="font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueNext30)}" data-num-prefix="$" style="font-family:'Newsreader',serif;font-size:28px;color:var(--primary)">$0</div><div style="font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
     </div>
     <div style="display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:20px">
       <div style="display:flex;flex-direction:column;gap:16px">
@@ -1826,7 +1826,7 @@ function buildTodayDashboardMarkup(ctx) {
 
 function buildPortfolioTodayDashboardMarkup() {
   const tertiary = '#6B6560';
-  const primary = '#1a1a1a';
+  const primary = 'var(--ink-1)';
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (!_todayWeekStart) _todayWeekStart = _mondayStart(new Date());
@@ -1936,9 +1936,9 @@ function buildPortfolioTodayDashboardMarkup() {
 
   const weekCard = `<div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.12);padding:12px;margin-bottom:14px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px">
-      <button type="button" onclick="_todayWeekNav(-1)" style="background:#F1EFE8;border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:#1a1a1a">‹</button>
+      <button type="button" onclick="_todayWeekNav(-1)" style="background:#F1EFE8;border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:var(--ink-1)">‹</button>
       <div style="font-size:13px;font-weight:500;color:${primary};text-align:center;flex:1">${escHtml(weekRangeLabel)}</div>
-      <button type="button" onclick="_todayWeekNav(1)" style="background:#F1EFE8;border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:#1a1a1a">›</button>
+      <button type="button" onclick="_todayWeekNav(1)" style="background:#F1EFE8;border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:var(--ink-1)">›</button>
     </div>
     <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
       <span onclick="_todayWeekReset()" style="font-size:11px;font-weight:500;color:#2D5A3D;cursor:pointer">This week</span>
@@ -2018,15 +2018,15 @@ function buildPortfolioTodayDashboardMarkup() {
     };
     const tblRows = upcoming.map(b => {
       const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
-      return `<tr onclick="showDetail('${bid}')" style="cursor:pointer"><td><strong>${escHtml(b.name)}</strong></td><td style="font-size:12px;color:var(--text-soft)">${escHtml(propNameFor(b))}</td><td>${fmtSh(b.checkin)}</td><td>${fmtSh(b.checkout)}</td><td>$${Number(b.hostPayout||0).toLocaleString()}</td><td><span class="dt-platform ${platformCls(b.platform)}">${escHtml(normalizePlatformLabel(b.platform))}</span></td><td>${statusBdg(b)}</td></tr>`;
+      return `<tr onclick="showDetail('${bid}')" style="cursor:pointer"><td><strong>${escHtml(b.name)}</strong></td><td style="font-size:12px;color:var(--muted-2)">${escHtml(propNameFor(b))}</td><td>${fmtSh(b.checkin)}</td><td>${fmtSh(b.checkout)}</td><td>$${Number(b.hostPayout||0).toLocaleString()}</td><td><span class="dt-platform ${platformCls(b.platform)}">${escHtml(normalizePlatformLabel(b.platform))}</span></td><td>${statusBdg(b)}</td></tr>`;
     }).join('');
 
     const upcomingTable = `<div class="card" style="padding:0;overflow:hidden">
       <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 16px 12px">
-        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft)">Upcoming Bookings</span>
+        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted-2)">Upcoming Bookings</span>
         <span onclick="showSection('bookings')" style="font-size:12px;color:var(--moss);cursor:pointer;font-weight:500">View all &rarr;</span>
       </div>
-      <table class="desktop-table"><thead><tr><th>Guest</th><th>Property</th><th>Check-in</th><th>Check-out</th><th>Payout</th><th>Platform</th><th>Status</th></tr></thead><tbody>${tblRows || '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text-soft)">No upcoming bookings</td></tr>'}</tbody></table>
+      <table class="desktop-table"><thead><tr><th>Guest</th><th>Property</th><th>Check-in</th><th>Check-out</th><th>Payout</th><th>Platform</th><th>Status</th></tr></thead><tbody>${tblRows || '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted-2)">No upcoming bookings</td></tr>'}</tbody></table>
     </div>`;
 
     // Today's cleans for sidebar
@@ -2047,10 +2047,10 @@ function buildPortfolioTodayDashboardMarkup() {
 
     setTimeout(animateNumbers, 100);
     return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:20px">
-      <div class="card" style="text-align:center"><div data-animate-number="${occupancyThisMonth}" data-num-suffix="%" style="font-family:'Newsreader',serif;font-size:28px;color:var(--forest)">0%</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Occupancy</div></div>
-      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueThisMonth)}" data-num-prefix="$" style="font-family:'Newsreader',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Revenue</div></div>
-      <div class="card" style="text-align:center"><div data-animate-number="${activeBookings.length}" style="font-family:'Newsreader',serif;font-size:28px;color:var(--forest)">0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
-      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueNext30)}" data-num-prefix="$" style="font-family:'Newsreader',serif;font-size:28px;color:var(--forest)">$0</div><div style="font-size:10px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${occupancyThisMonth}" data-num-suffix="%" style="font-family:'Newsreader',serif;font-size:28px;color:var(--primary)">0%</div><div style="font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Occupancy</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueThisMonth)}" data-num-prefix="$" style="font-family:'Newsreader',serif;font-size:28px;color:var(--primary)">$0</div><div style="font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Revenue</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${activeBookings.length}" style="font-family:'Newsreader',serif;font-size:28px;color:var(--primary)">0</div><div style="font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
+      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueNext30)}" data-num-prefix="$" style="font-family:'Newsreader',serif;font-size:28px;color:var(--primary)">$0</div><div style="font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr minmax(300px,380px);gap:20px">
       <div style="display:flex;flex-direction:column;gap:16px">
@@ -2060,9 +2060,9 @@ function buildPortfolioTodayDashboardMarkup() {
       <div style="display:flex;flex-direction:column;gap:16px">
         ${needsHtml ? '<div class="card" style="padding:16px">' + needsHtml + '</div>' : ''}
         <div class="card">
-          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-soft);margin-bottom:12px">Occupancy by Property</div>
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted-2);margin-bottom:12px">Occupancy by Property</div>
           <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-            <span style="font-family:'Newsreader',serif;font-size:32px;color:var(--forest)">${occupancyThisMonth}%</span>
+            <span style="font-family:'Newsreader',serif;font-size:32px;color:var(--primary)">${occupancyThisMonth}%</span>
             <span style="font-size:12px;color:var(--moss)">${bookedNightsMonth}/${denomDays} nights</span>
           </div>
           <div style="height:8px;background:#e8e0d5;border-radius:4px;overflow:hidden;margin-bottom:12px"><div style="height:100%;background:var(--moss);border-radius:4px;width:${occupancyThisMonth}%"></div></div>
@@ -2225,7 +2225,7 @@ async function ensureHostIdentityAndRestore() {
 // ── MAINTENANCE ───────────────────────────────────────────────────────────
 function renderMaintenance() {
   const el = document.getElementById('maintenance-list');
-  if (!maintenance.length) { el.innerHTML = '<div style="padding:12px 0;color:var(--text-soft);font-size:13px">No issues logged</div>'; return; }
+  if (!maintenance.length) { el.innerHTML = '<div style="padding:12px 0;color:var(--muted-2);font-size:13px">No issues logged</div>'; return; }
   const order = {open:0,inprogress:1,resolved:2};
   const sorted = [...maintenance].sort((a,b) => (order[a.status]||0)-(order[b.status]||0));
   el.innerHTML = sorted.map(m => `
@@ -2234,12 +2234,12 @@ function renderMaintenance() {
         <div style="flex:1">
           <span class="maint-status-badge maint-${m.status}">${m.status==='open'?'🔴 Open':m.status==='inprogress'?'🔄 In Progress':'✅ Resolved'}</span>
           <div style="font-weight:600;font-size:14px;margin-top:4px">${m.description}</div>
-          ${m.contractor?`<div style="font-size:12px;color:var(--text-soft);margin-top:2px">👤 ${m.contractor}</div>`:''}
-          <div style="font-size:12px;color:var(--text-soft);margin-top:1px">${fmt(m.date)}${m.cost?` · $${Number(m.cost).toFixed(2)}`:''}
+          ${m.contractor?`<div style="font-size:12px;color:var(--muted-2);margin-top:2px">👤 ${m.contractor}</div>`:''}
+          <div style="font-size:12px;color:var(--muted-2);margin-top:1px">${fmt(m.date)}${m.cost?` · $${Number(m.cost).toFixed(2)}`:''}
           </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0">
-          <button onclick="deleteMaintenance('${m.id}')" style="font-size:10px;color:var(--text-soft);background:none;border:none;cursor:pointer">✕</button>
+          <button onclick="deleteMaintenance('${m.id}')" style="font-size:10px;color:var(--muted-2);background:none;border:none;cursor:pointer">✕</button>
           ${m.status !== 'resolved' ? `
           <button onclick="resolveIssue('${m.id}')" style="font-size:11px;background:var(--moss);color:white;border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Mark Resolved</button>
           <button onclick="setMaintInProgress('${m.id}')" style="font-size:11px;background:var(--forest-light);color:var(--sage);border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">In Progress</button>
@@ -2340,37 +2340,37 @@ function renderInventory() {
   if (invView === 'low') {
     // Shopping list — name only, clean checklist feel
     if (!lowItems.length) {
-      listEl.innerHTML = '<div class="card" style="text-align:center;color:var(--moss);padding:24px"><div style="font-size:28px;margin-bottom:6px">✅</div><div style="font-weight:600;font-size:15px">All stocked up!</div><div style="font-size:12px;color:var(--text-soft);margin-top:4px">Nothing needs reordering right now</div></div>';
+      listEl.innerHTML = '<div class="card" style="text-align:center;color:var(--moss);padding:24px"><div style="font-size:28px;margin-bottom:6px">✅</div><div style="font-weight:600;font-size:15px">All stocked up!</div><div style="font-size:12px;color:var(--muted-2);margin-top:4px">Nothing needs reordering right now</div></div>';
       return;
     }
     listEl.innerHTML = `<div class="card" style="padding:0">
-      <div style="padding:10px 16px 6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);border-bottom:1px solid var(--warm)">${lowItems.length} item${lowItems.length!==1?'s':''} to reorder</div>
+      <div style="padding:10px 16px 6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);border-bottom:1px solid var(--hairline-2)">${lowItems.length} item${lowItems.length!==1?'s':''} to reorder</div>
       ` + lowItems.map(i => `
-      <div onclick="restockItem('${i.id}')" style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--warm);cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='var(--mist)'" onmouseout="this.style.background=''">
-        <div style="width:22px;height:22px;border-radius:5px;border:2px solid var(--stone);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--moss)">+</div>
+      <div onclick="restockItem('${i.id}')" style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--hairline-2);cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+        <div style="width:22px;height:22px;border-radius:5px;border:2px solid var(--hairline-1);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--moss)">+</div>
         <div>
-          <div style="font-weight:600;font-size:14px">${i.name}${i.unit?` <span style="font-size:12px;font-weight:400;color:var(--text-soft)">(${i.unit})</span>`:''}</div>
-          <div style="font-size:11px;color:var(--text-soft);margin-top:2px">Stock: ${i.stock} · Reorder below ${i.threshold}</div>
+          <div style="font-weight:600;font-size:14px">${i.name}${i.unit?` <span style="font-size:12px;font-weight:400;color:var(--muted-2)">(${i.unit})</span>`:''}</div>
+          <div style="font-size:11px;color:var(--muted-2);margin-top:2px">Stock: ${i.stock} · Reorder below ${i.threshold}</div>
         </div>
       </div>`).join('') + `</div>`;
     return;
   }
 
   // All items view
-  if (!inventory.length) { listEl.innerHTML = '<div style="color:var(--text-soft);font-size:13px;padding:8px 0">No items added yet</div>'; return; }
+  if (!inventory.length) { listEl.innerHTML = '<div style="color:var(--muted-2);font-size:13px;padding:8px 0">No items added yet</div>'; return; }
   listEl.innerHTML = `<div class="card" style="padding:0">` + inventory.map(i => {
     const isLow = i.stock <= i.threshold;
     return `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--warm);gap:8px">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--hairline-2);gap:8px">
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:14px;color:${isLow?'var(--red)':'var(--text)'}">${i.name}${isLow?' ⚠':''}</div>
-        <div style="font-size:12px;color:var(--text-soft);margin-top:1px">Reorder below ${i.threshold}${i.unit?' '+i.unit:''}</div>
+        <div style="font-size:12px;color:var(--muted-2);margin-top:1px">Reorder below ${i.threshold}${i.unit?' '+i.unit:''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-        <button onclick="adjustStock('${i.id}',-1)" style="width:30px;height:30px;border-radius:50%;border:1px solid var(--stone);background:white;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;flex-shrink:0">−</button>
-        <span style="font-weight:700;font-size:17px;min-width:26px;text-align:center;color:${isLow?'var(--red)':'var(--forest)'}">${i.stock}</span>
-        <button onclick="adjustStock('${i.id}',1)" style="width:30px;height:30px;border-radius:50%;border:none;background:var(--forest);color:white;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;flex-shrink:0">+</button>
-        <button onclick="openInvEdit('${i.id}')" style="width:30px;height:30px;border-radius:50%;border:1px solid var(--stone);background:white;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--forest)">ℹ</button>
+        <button onclick="adjustStock('${i.id}',-1)" style="width:30px;height:30px;border-radius:50%;border:1px solid var(--hairline-1);background:white;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;flex-shrink:0">−</button>
+        <span style="font-weight:700;font-size:17px;min-width:26px;text-align:center;color:${isLow?'var(--red)':'var(--primary)'}">${i.stock}</span>
+        <button onclick="adjustStock('${i.id}',1)" style="width:30px;height:30px;border-radius:50%;border:none;background:var(--primary);color:white;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;flex-shrink:0">+</button>
+        <button onclick="openInvEdit('${i.id}')" style="width:30px;height:30px;border-radius:50%;border:1px solid var(--hairline-1);background:white;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--primary)">ℹ</button>
       </div>
     </div>`;
   }).join('') + `</div>`;
@@ -2518,7 +2518,7 @@ async function processScanNeedsReview(data) {
 
 let _modalResolve = null;
 
-function showAppModal({ title, msg, confirmText='Confirm', confirmColor='var(--forest)', cancelText='Cancel', hasInput=false, inputPlaceholder='', inputDefault='', inputType='number' }) {
+function showAppModal({ title, msg, confirmText='Confirm', confirmColor='var(--primary)', cancelText='Cancel', hasInput=false, inputPlaceholder='', inputDefault='', inputType='number' }) {
   return new Promise(resolve => {
     _modalResolve = resolve;
     const titleEl = document.getElementById('app-modal-title');
@@ -3143,9 +3143,9 @@ function switchCleanerCleanTab(tab) {
     const btn = document.getElementById('csubtab-' + t);
     const el = document.getElementById('cleaner-cleans-' + t);
     if (btn) {
-      btn.style.color = t === tab ? 'var(--forest)' : 'var(--text-soft)';
+      btn.style.color = t === tab ? 'var(--primary)' : 'var(--muted-2)';
       btn.style.fontWeight = t === tab ? '700' : '600';
-      btn.style.borderBottomColor = t === tab ? 'var(--forest)' : 'transparent';
+      btn.style.borderBottomColor = t === tab ? 'var(--primary)' : 'transparent';
       btn.style.background = t === tab ? 'rgba(31,90,67,0.08)' : 'transparent';
       btn.style.borderRadius = '10px 10px 0 0';
     }
@@ -3185,12 +3185,12 @@ function renderCleanerCleans() {
       cleanerView.insertBefore(quick, upcomingEl || null);
     }
     quick.innerHTML = `
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.55px;color:var(--text-soft);margin-bottom:6px">Your jobs today</div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.55px;color:var(--muted-2);margin-bottom:6px">Your jobs today</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <div class="mini-status-chip chip-new">New: <strong>${newCount}</strong></div>
         <div class="mini-status-chip chip-upcoming">Upcoming: <strong>${upcomingCount}</strong></div>
       </div>
-      <div style="font-size:11px;color:var(--text-soft);margin-top:7px">${newCount > 0 ? 'Start in New to accept/decline your latest jobs.' : 'No new responses needed right now.'}</div>
+      <div style="font-size:11px;color:var(--muted-2);margin-top:7px">${newCount > 0 ? 'Start in New to accept/decline your latest jobs.' : 'No new responses needed right now.'}</div>
     `;
   }
   const newBadge = document.getElementById('csubtab-new-badge');
@@ -3198,8 +3198,8 @@ function renderCleanerCleans() {
   const badgeStyle = 'border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700';
   if (newBadge) newBadge.innerHTML = newCount > 0
     ? `<span style="background:var(--red);color:white;${badgeStyle}">${newCount}</span>`
-    : `<span style="background:var(--stone);color:white;${badgeStyle}">0</span>`;
-  if (upBadge) upBadge.innerHTML = `<span style="background:${upcomingCount > 0 ? 'var(--forest)' : 'var(--stone)'};color:white;${badgeStyle}">${upcomingCount}</span>`;
+    : `<span style="background:var(--hairline-1);color:white;${badgeStyle}">0</span>`;
+  if (upBadge) upBadge.innerHTML = `<span style="background:${upcomingCount > 0 ? 'var(--primary)' : 'var(--hairline-1)'};color:white;${badgeStyle}">${upcomingCount}</span>`;
 
   const daysUntil = d => {
     const diff = (new Date(d) - new Date(today)) / 86400000;
@@ -3225,28 +3225,28 @@ function renderCleanerCleans() {
     return `<div class="clean-job-card ${isToday ? 'urgent' : ''}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
         <div>
-          <div style="font-family:inherit;font-size:16px;font-weight:500;color:#1a1a1a">${urgency || 'Upcoming'}</div>
+          <div style="font-family:inherit;font-size:16px;font-weight:500;color:var(--ink-1)">${urgency || 'Upcoming'}</div>
           <div style="font-size:13px;font-weight:400;color:#999;margin-top:2px">${c.date ? fmt(c.date) : '—'}</div>
           ${nameDisplay ? `<div style="font-size:13px;font-weight:600;color:var(--text);margin-top:4px">👤 ${nameDisplay}</div>` : ''}
         </div>
         ${isToday ? '<div style="font-size:11px;font-weight:600;color:var(--amber);background:#FFF5E6;padding:4px 10px;border-radius:20px">Today!</div>' : ''}
       </div>
       <div style="display:grid;grid-template-columns:${showGuests ? '1fr 1fr 1fr' : '1fr 1fr'};gap:8px;margin-bottom:12px">
-        <div style="background:var(--mist);border-radius:8px;padding:8px 10px">
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:3px">Check-in</div>
+        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:3px">Check-in</div>
           <div style="font-size:12px;font-weight:600">${checkinStr}</div>
         </div>
-        <div style="background:var(--mist);border-radius:8px;padding:8px 10px">
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:3px">Check-out</div>
+        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:3px">Check-out</div>
           <div style="font-size:12px;font-weight:600">${checkoutStr}</div>
         </div>
-        ${showGuests ? `<div style="background:var(--mist);border-radius:8px;padding:8px 10px">
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:3px">Guests</div>
+        ${showGuests ? `<div style="background:var(--surface2);border-radius:8px;padding:8px 10px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:3px">Guests</div>
           <div style="font-size:12px;font-weight:600">${booking.guests}</div>
         </div>` : ''}
       </div>
-      ${showPayout ? `<div style="background:#EDF7ED;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px;color:var(--forest);font-weight:600">💰 Cleaning fee: $${Number(booking.cleaningFee||0).toLocaleString()}</div>` : ''}
-      ${showNotes && c.notes ? `<div style="background:var(--mist);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:var(--text-soft)">📝 ${c.notes}</div>` : ''}
+      ${showPayout ? `<div style="background:#EDF7ED;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px;color:var(--primary);font-weight:600">💰 Cleaning fee: $${Number(booking.cleaningFee||0).toLocaleString()}</div>` : ''}
+      ${showNotes && c.notes ? `<div style="background:var(--surface2);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:var(--muted-2)">📝 ${c.notes}</div>` : ''}
       BUTTONS_PLACEHOLDER
     </div>`;
   }
@@ -3258,7 +3258,7 @@ function renderCleanerCleans() {
     if (!newCleans.length) {
       newEl.innerHTML = `<div style="text-align:center;padding:48px 16px">
         <div style="font-size:48px;margin-bottom:12px">✨</div>
-        <div style="font-family:inherit;font-size:16px;font-weight:500;color:#1a1a1a;margin-bottom:6px">Nothing new!</div>
+        <div style="font-family:inherit;font-size:16px;font-weight:500;color:var(--ink-1);margin-bottom:6px">Nothing new!</div>
         <div style="font-size:13px;font-weight:400;color:#999">New assignments will appear here</div>
         <div style="font-size:13px;font-weight:400;color:#999;margin-top:8px">If you were just assigned, tap <strong>↻ Refresh</strong>.</div>
       </div>`;
@@ -3266,7 +3266,7 @@ function renderCleanerCleans() {
       newEl.innerHTML = newCleans.map(c => {
         const buttons = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <button onclick="cleanerDecline('${c.id}')" style="background:#FDECEA;color:var(--red);border:none;border-radius:var(--radius-sm);padding:13px;font-size:13px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer">✗ Decline</button>
-          <button onclick="cleanerAccept('${c.id}')" style="background:var(--forest);color:white;border:none;border-radius:var(--radius-sm);padding:13px;font-size:13px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer">✓ Accept</button>
+          <button onclick="cleanerAccept('${c.id}')" style="background:var(--primary);color:white;border:none;border-radius:var(--radius-sm);padding:13px;font-size:13px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer">✓ Accept</button>
         </div>`;
         return buildCard(c).replace('BUTTONS_PLACEHOLDER', buttons);
       }).join('');
@@ -3280,13 +3280,13 @@ function renderCleanerCleans() {
     if (!upcomingCleans.length) {
       upcomingEl.innerHTML = `<div style="text-align:center;padding:48px 16px">
         <div style="font-size:48px;margin-bottom:12px">🗓</div>
-        <div style="font-family:inherit;font-size:16px;font-weight:500;color:#1a1a1a;margin-bottom:6px">No upcoming cleans</div>
+        <div style="font-family:inherit;font-size:16px;font-weight:500;color:var(--ink-1);margin-bottom:6px">No upcoming cleans</div>
         <div style="font-size:13px;font-weight:400;color:#999">Cleans you've accepted will appear here</div>
         <div style="font-size:13px;font-weight:400;color:#999;margin-top:8px">Accept a clean from the <strong>New</strong> tab first.</div>
       </div>`;
     } else {
       upcomingEl.innerHTML = upcomingCleans.map(c => {
-        const buttons = `<button onclick="cleanerMarkDone('${c.id}')" style="width:100%;background:var(--forest);color:white;border:none;border-radius:var(--radius-sm);padding:13px;font-size:14px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer">✓ Mark as Complete</button>`;
+        const buttons = `<button onclick="cleanerMarkDone('${c.id}')" style="width:100%;background:var(--primary);color:white;border:none;border-radius:var(--radius-sm);padding:13px;font-size:14px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer">✓ Mark as Complete</button>`;
         return buildCard(c).replace('BUTTONS_PLACEHOLDER', buttons);
       }).join('');
     }
@@ -3302,23 +3302,23 @@ function renderCleanerInventory() {
   if (lowItems.length) {
     html += `<div class="card" style="margin-bottom:12px;border-left:4px solid var(--amber)">
       <div style="font-size:12px;font-weight:600;color:var(--amber);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">⚠ Needs Restocking</div>
-      <div style="font-size:13px;color:var(--text-soft)">${lowItems.map(i=>`<strong>${i.name}</strong>`).join(', ')} ${lowItems.length===1?'is':'are'} running low</div>
+      <div style="font-size:13px;color:var(--muted-2)">${lowItems.map(i=>`<strong>${i.name}</strong>`).join(', ')} ${lowItems.length===1?'is':'are'} running low</div>
     </div>`;
   }
   if (!inventory.length) {
-    html += '<div style="text-align:center;padding:40px 16px;color:var(--text-soft);font-size:13px">No inventory items added yet</div>';
+    html += '<div style="text-align:center;padding:40px 16px;color:var(--muted-2);font-size:13px">No inventory items added yet</div>';
   } else {
     html += `<div class="card" style="padding:0">` + inventory.map(i => {
       const isLow = i.stock <= i.threshold;
-      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--warm);gap:8px">
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--hairline-2);gap:8px">
         <div style="flex:1;min-width:0">
           <div style="font-weight:600;font-size:14px;color:${isLow?'var(--red)':'var(--text)'}">${i.name}${isLow?' ⚠':''}</div>
-          ${i.unit?`<div style="font-size:11px;color:var(--text-soft);margin-top:2px">${i.unit}</div>`:''}
+          ${i.unit?`<div style="font-size:11px;color:var(--muted-2);margin-top:2px">${i.unit}</div>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-          <button onclick="cleanerAdjustStock('${i.id}',-1)" style="width:36px;height:36px;border-radius:50%;border:1.5px solid var(--stone);background:white;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">−</button>
-          <span style="font-weight:700;font-size:18px;min-width:28px;text-align:center;color:${isLow?'var(--red)':'var(--forest)'}">${i.stock}</span>
-          <button onclick="cleanerAdjustStock('${i.id}',1)" style="width:36px;height:36px;border-radius:50%;border:none;background:var(--forest);color:white;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">+</button>
+          <button onclick="cleanerAdjustStock('${i.id}',-1)" style="width:36px;height:36px;border-radius:50%;border:1.5px solid var(--hairline-1);background:white;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">−</button>
+          <span style="font-weight:700;font-size:18px;min-width:28px;text-align:center;color:${isLow?'var(--red)':'var(--primary)'}">${i.stock}</span>
+          <button onclick="cleanerAdjustStock('${i.id}',1)" style="width:36px;height:36px;border-radius:50%;border:none;background:var(--primary);color:white;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">+</button>
         </div>
       </div>`;
     }).join('') + `</div>`;
@@ -3364,7 +3364,7 @@ function renderCleanerChat() {
   const messages = window._cleanerMessages || [];
   const cleanerId = cleaner ? String(cleaner.id) : '';
 
-  let html = '<div style="font-family:\'Newsreader\',serif;font-size:16px;color:var(--forest);margin-bottom:12px">Messages</div>';
+  let html = '<div style="font-family:\'Newsreader\',serif;font-size:16px;color:var(--primary);margin-bottom:12px">Messages</div>';
   html += '<div id="cleaner-chat-messages" style="flex:1;overflow-y:auto;max-height:55vh;padding:8px 0;display:flex;flex-direction:column;gap:6px">';
 
   if (messages.length === 0) {
@@ -3374,7 +3374,7 @@ function renderCleanerChat() {
       const isOutgoing = String(msg.sender_id || msg.senderId || '') === cleanerId ||
                          msg.sender_role === 'cleaner';
       const align = isOutgoing ? 'flex-end' : 'flex-start';
-      const bg = isOutgoing ? 'var(--forest, #1E3A2F)' : '#F0F0F0';
+      const bg = isOutgoing ? 'var(--primary)' : '#F0F0F0';
       const color = isOutgoing ? '#fff' : '#1C1C1E';
       const time = msg.created_at || msg.createdAt || '';
       let timeStr = '';
@@ -3398,7 +3398,7 @@ function renderCleanerChat() {
   // Input bar
   html += '<div style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #eee">';
   html += '<input id="cleaner-chat-input" type="text" placeholder="Type a message..." style="flex:1;padding:10px 14px;border:1.5px solid #E5E5EA;border-radius:20px;font-family:\'Plus Jakarta Sans\',sans-serif;font-size:14px;outline:none" onkeydown="if(event.key===\'Enter\')window._sendCleanerChatMessage()">';
-  html += '<button onclick="window._sendCleanerChatMessage()" style="background:var(--forest,#1E3A2F);color:white;border:none;border-radius:50%;width:40px;height:40px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center">&#9654;</button>';
+  html += '<button onclick="window._sendCleanerChatMessage()" style="background:var(--primary);color:white;border:none;border-radius:50%;width:40px;height:40px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center">&#9654;</button>';
   html += '</div>';
 
   container.innerHTML = html;
@@ -3804,10 +3804,10 @@ function onboardTogglePlatform(platform) {
     const label = document.getElementById('ob-plat-' + p);
     const check = document.getElementById('ob-check-' + p);
     const active = _OB_PLATFORMS.has(p);
-    if (label) label.style.borderColor = active ? 'var(--forest,#1E3A2F)' : 'transparent';
+    if (label) label.style.borderColor = active ? 'var(--primary)' : 'transparent';
     if (check) {
-      check.style.background  = active ? 'var(--forest,#1E3A2F)' : 'transparent';
-      check.style.borderColor = active ? 'var(--forest,#1E3A2F)' : '#E5E5EA';
+      check.style.background  = active ? 'var(--primary)' : 'transparent';
+      check.style.borderColor = active ? 'var(--primary)' : '#E5E5EA';
       check.innerHTML = active ? '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' : '';
     }
   });
@@ -3842,12 +3842,12 @@ function onboardToggleIntegration(key) {
       if (btn) {
         if (active) {
           btn.textContent = '✓ Connected';
-          btn.style.background = 'var(--forest,#1E3A2F)';
+          btn.style.background = 'var(--primary)';
           btn.style.color = '#fff';
         } else {
           btn.textContent = 'Connect';
           btn.style.background = 'var(--sage-tint,#EAF1E6)';
-          btn.style.color = 'var(--forest,#1E3A2F)';
+          btn.style.color = 'var(--primary)';
         }
       }
     }
@@ -4169,7 +4169,7 @@ function renderNewCleanerView(data) {
       html += '<div style="background:white;border:0.5px solid #eee;border-left:3px solid #C0392B;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px">';
       html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
       html += '<div>';
-      html += '<div style="font-size:17px;font-weight:500;color:#1a1a1a;text-decoration:line-through">' + formatDate(c.clean_date) + '</div>';
+      html += '<div style="font-size:17px;font-weight:500;color:var(--ink-1);text-decoration:line-through">' + formatDate(c.clean_date) + '</div>';
       html += '<div style="font-size:13px;color:#888;margin-top:2px;text-decoration:line-through">' + guestLine + '</div>';
       html += '</div>';
       html += '<div style="font-size:11px;font-weight:500;background:#FCEBEB;color:#A32D2D;padding:3px 10px;border-radius:12px;white-space:nowrap">Booking cancelled</div>';
@@ -4181,7 +4181,7 @@ function renderNewCleanerView(data) {
       if (acked) {
         html += '<div style="margin-top:10px;font-size:12px;color:#0F6E56;font-weight:500">✓ Acknowledged</div>';
       } else {
-        html += '<button type="button" data-action="acknowledge_cancel" data-clean-id="' + String(c.id) + '" style="width:100%;margin-top:10px;padding:10px;background:#1E3A2F;color:white;border:none;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Acknowledge Cancellation</button>';
+        html += '<button type="button" data-action="acknowledge_cancel" data-clean-id="' + String(c.id) + '" style="width:100%;margin-top:10px;padding:10px;background:#2f5d4e;color:white;border:none;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Acknowledge Cancellation</button>';
       }
       html += '</div>';
     });
@@ -4204,7 +4204,7 @@ function renderNewCleanerView(data) {
       html += '<div style="background:white;border:0.5px solid #eee;border-left:3px solid #E24B4A;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px">';
       html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
       html += '<div>';
-      html += '<div style="font-size:17px;font-weight:500;color:#1a1a1a">' + formatDate(c.clean_date) + '</div>';
+      html += '<div style="font-size:17px;font-weight:500;color:var(--ink-1)">' + formatDate(c.clean_date) + '</div>';
       html += '<div style="font-size:13px;color:#888;margin-top:2px">' + guestLine + '</div>';
       html += '</div>';
       html += urgencyPill(days);
@@ -4214,7 +4214,7 @@ function renderNewCleanerView(data) {
       html += '<div style="font-size:12px;color:#888;margin-top:1px">' + (prop.address || '') + '</div>';
       html += '</div>';
       html += '<div style="display:flex;gap:8px;margin-top:12px">';
-      html += '<button type="button" data-action="accept" data-clean-id="' + String(c.id) + '" style="flex:1;padding:10px;background:#1E3A2F;color:white;border:none;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Accept</button>';
+      html += '<button type="button" data-action="accept" data-clean-id="' + String(c.id) + '" style="flex:1;padding:10px;background:#2f5d4e;color:white;border:none;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Accept</button>';
       html += '<button type="button" data-action="decline" data-clean-id="' + String(c.id) + '" style="flex:1;padding:10px;background:transparent;color:#A32D2D;border:1px solid #F09595;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Decline</button>';
       html += '</div></div>';
     });
@@ -4238,7 +4238,7 @@ function renderNewCleanerView(data) {
       html += '<div style="background:white;border:0.5px solid #eee;border-left:3px solid #1D9E75;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px">';
       html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
       html += '<div>';
-      html += '<div style="font-size:17px;font-weight:500;color:#1a1a1a">' + formatDate(c.clean_date) + '</div>';
+      html += '<div style="font-size:17px;font-weight:500;color:var(--ink-1)">' + formatDate(c.clean_date) + '</div>';
       html += '<div style="font-size:13px;color:#888;margin-top:2px">' + guestLine + '</div>';
       html += '</div>';
       html += urgencyPill(days);
@@ -4262,7 +4262,7 @@ function renderNewCleanerView(data) {
       const isToday = c.clean_date === todayStr;
       const isPast = cleanDateObj < today;
       if (isToday || isPast) {
-        html += '<button type="button" data-action="done" data-clean-id="' + String(c.id) + '" style="width:100%;margin-top:10px;padding:10px;background:transparent;color:#1E3A2F;border:1px solid #ccc;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Mark as done</button>';
+        html += '<button type="button" data-action="done" data-clean-id="' + String(c.id) + '" style="width:100%;margin-top:10px;padding:10px;background:transparent;color:#2f5d4e;border:1px solid #ccc;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Mark as done</button>';
       }
       html += '</div>';
     });
@@ -4504,7 +4504,7 @@ function renderCleanerCalendar() {
   let html = '';
   html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">';
   html += '<button onclick="cleanerCalNav(-1)" style="background:none;border:none;font-size:20px;cursor:pointer;padding:8px">‹</button>';
-  html += '<div style="font-weight:700;font-size:16px;color:var(--forest,#1E3A2F)">' + monthNames[viewMonth] + ' ' + viewYear + '</div>';
+  html += '<div style="font-weight:700;font-size:16px;color:var(--primary)">' + monthNames[viewMonth] + ' ' + viewYear + '</div>';
   html += '<button onclick="cleanerCalNav(1)" style="background:none;border:none;font-size:20px;cursor:pointer;padding:8px">›</button>';
   html += '</div>';
 
@@ -4524,7 +4524,7 @@ function renderCleanerCalendar() {
     const hasCleans = cleanDates[dateStr];
     const isToday = dateStr === todayStr;
 
-    html += '<div onclick="showCleanerDayDetail(\'' + dateStr + '\')" style="text-align:center;padding:8px 2px;border-radius:10px;cursor:' + (hasCleans ? 'pointer' : 'default') + ';' + (isToday ? 'background:var(--forest,#1E3A2F);color:white;font-weight:700;' : '') + '">';
+    html += '<div onclick="showCleanerDayDetail(\'' + dateStr + '\')" style="text-align:center;padding:8px 2px;border-radius:10px;cursor:' + (hasCleans ? 'pointer' : 'default') + ';' + (isToday ? 'background:var(--primary);color:white;font-weight:700;' : '') + '">';
     html += '<div style="font-size:14px">' + d + '</div>';
     if (hasCleans) {
       const dotColor = hasCleans.some((c) => !c.cleaner_confirmed && !c.done) ? '#C0392B' : '#3B6D11';
@@ -4555,7 +4555,7 @@ function showCleanerDayDetail(dateStr) {
   if (!cleans.length) { container.innerHTML = ''; return; }
 
   let html = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid #eee">';
-  html += '<div style="font-weight:700;font-size:13px;color:var(--forest,#1E3A2F);margin-bottom:8px">' + dateStr + '</div>';
+  html += '<div style="font-weight:700;font-size:13px;color:var(--primary);margin-bottom:8px">' + dateStr + '</div>';
 
   cleans.forEach((c) => {
     const prop = c.properties || {};
@@ -4591,8 +4591,8 @@ function renderCleanerProfile() {
   let html = '';
   html += '<div style="background:white;border-radius:16px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">';
   html += '<div style="text-align:center;margin-bottom:20px">';
-  html += '<div style="width:64px;height:64px;border-radius:50%;background:var(--forest,#1E3A2F);color:white;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;margin:0 auto 10px">' + ((cr.name || 'C')[0].toUpperCase()) + '</div>';
-  html += '<div style="font-weight:700;font-size:18px;color:var(--forest,#1E3A2F)">' + (cr.name || 'Cleaner') + '</div>';
+  html += '<div style="width:64px;height:64px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;margin:0 auto 10px">' + ((cr.name || 'C')[0].toUpperCase()) + '</div>';
+  html += '<div style="font-weight:700;font-size:18px;color:var(--primary)">' + (cr.name || 'Cleaner') + '</div>';
   html += '</div>';
   html += '<div style="border-top:1px solid #f0f0f0;padding-top:16px">';
   html += '<div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #f5f5f3">';
@@ -4614,11 +4614,11 @@ function renderCleanerProfile() {
 
   html += '<div style="display:flex;gap:12px;margin-top:20px">';
   html += '<div style="flex:1;background:#f5f5f3;border-radius:12px;padding:14px;text-align:center">';
-  html += '<div style="font-size:22px;font-weight:700;color:var(--forest,#1E3A2F)">' + completed + '</div>';
+  html += '<div style="font-size:22px;font-weight:700;color:var(--primary)">' + completed + '</div>';
   html += '<div style="font-size:11px;color:#999;margin-top:2px">Completed</div>';
   html += '</div>';
   html += '<div style="flex:1;background:#f5f5f3;border-radius:12px;padding:14px;text-align:center">';
-  html += '<div style="font-size:22px;font-weight:700;color:var(--forest,#1E3A2F)">' + upcoming + '</div>';
+  html += '<div style="font-size:22px;font-weight:700;color:var(--primary)">' + upcoming + '</div>';
   html += '<div style="font-size:11px;color:#999;margin-top:2px">Upcoming</div>';
   html += '</div>';
   html += '</div>';
@@ -4626,9 +4626,9 @@ function renderCleanerProfile() {
   // "Also a Host?" section — only show if user doesn't already have a host role
   html += '<div id="cleaner-become-host-section" style="margin-top:20px;display:none">';
   html += '<div style="background:white;border-radius:12px;padding:16px;border:1.5px solid #EAF3DE">';
-  html += '<div style="font-weight:700;font-size:14px;color:var(--forest,#1E3A2F);margin-bottom:4px">Also manage your own property?</div>';
+  html += '<div style="font-weight:700;font-size:14px;color:var(--primary);margin-bottom:4px">Also manage your own property?</div>';
   html += '<div style="font-size:12px;color:#888;margin-bottom:12px;line-height:1.4">Add host mode to manage bookings, finances, and cleaning schedules for your own properties.</div>';
-  html += '<button onclick="becomeHost()" id="become-host-btn" style="width:100%;padding:12px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">Enable Host Mode</button>';
+  html += '<button onclick="becomeHost()" id="become-host-btn" style="width:100%;padding:12px;background:var(--primary);color:white;border:none;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">Enable Host Mode</button>';
   html += '</div></div>';
 
   html += '<button onclick="cleanerSignOut()" style="width:100%;margin-top:20px;padding:14px;background:white;color:#C0392B;border:1.5px solid #C0392B;border-radius:12px;font-weight:700;font-size:14px;cursor:pointer">Sign Out</button>';
@@ -4639,7 +4639,7 @@ function renderCleanerProfile() {
   const notifEl = document.getElementById('cleaner-profile-notif-status');
   if (notifEl) {
     const enableBtn =
-      '<button onclick="window._enableCleanerNotifs()" style="background:var(--forest,#1E3A2F);color:white;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer">Enable</button>';
+      '<button onclick="window._enableCleanerNotifs()" style="background:var(--primary);color:white;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer">Enable</button>';
     if (typeof Notification === 'undefined' || !('serviceWorker' in navigator)) {
       notifEl.innerHTML = '<span style="color:#C0392B">Not supported</span>';
     } else if (Notification.permission === 'granted') {
@@ -4751,9 +4751,9 @@ function getInviteButtonHtml(cleaner) {
     return '<span style="font-size:11px;color:#999;font-style:italic">Save team to sync cleaner before inviting</span>';
   }
   if (cleaner.invitation_status === 'invited') {
-    return '<button id="invite-btn-' + cloudId + '" onclick="inviteCleaner(\'' + (cleaner._cloudId || cleaner.cloud_id) + '\')" style="font-size:12px;padding:6px 12px;background:transparent;color:var(--forest,#1E3A2F);border:1px solid var(--forest,#1E3A2F);border-radius:8px;font-weight:600;cursor:pointer">Resend Invite</button>';
+    return '<button id="invite-btn-' + cloudId + '" onclick="inviteCleaner(\'' + (cleaner._cloudId || cleaner.cloud_id) + '\')" style="font-size:12px;padding:6px 12px;background:transparent;color:var(--primary);border:1px solid var(--primary);border-radius:8px;font-weight:600;cursor:pointer">Resend Invite</button>';
   }
-  return '<button id="invite-btn-' + cloudId + '" onclick="inviteCleaner(\'' + (cleaner._cloudId || cleaner.cloud_id) + '\')" style="font-size:12px;padding:6px 12px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:8px;font-weight:600;cursor:pointer">Invite to App</button>';
+  return '<button id="invite-btn-' + cloudId + '" onclick="inviteCleaner(\'' + (cleaner._cloudId || cleaner.cloud_id) + '\')" style="font-size:12px;padding:6px 12px;background:var(--primary);color:white;border:none;border-radius:8px;font-weight:600;cursor:pointer">Invite to App</button>';
 }
 window.getInviteButtonHtml = getInviteButtonHtml;
 

@@ -37,51 +37,51 @@ function renderConnectionSummary() {
   const outlookConnected = !!outlookEmail;
 
   wrap.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--mist);border-radius:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--surface2);border-radius:10px">
       <div style="font-size:13px;color:var(--text)">Supabase</div>
       <div style="font-size:12px;color:var(--moss)">✓ Connected</div>
     </div>
 
-    <div style="padding:12px;background:var(--mist);border-radius:10px;margin-top:8px">
-      <div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:6px">📧 Gmail — Booking Import</div>
+    <div style="padding:12px;background:var(--surface2);border-radius:10px;margin-top:8px">
+      <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:6px">📧 Gmail — Booking Import</div>
       ${gmailTokenExpired && gmailEmail ? `
         <div style="font-size:12px;color:var(--red);margin-bottom:8px">⚠ Disconnected — token expired for ${escHtml(gmailEmail)}</div>
-        <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.4">Your Gmail access has expired. Reconnect to resume automatic booking imports.</div>
+        <div style="font-size:11px;color:var(--muted-2);margin-bottom:8px;line-height:1.4">Your Gmail access has expired. Reconnect to resume automatic booking imports.</div>
         <button onclick="connectGmail()"
-          style="width:100%;background:var(--forest);color:white;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">🔄 Reconnect Gmail</button>
+          style="width:100%;background:var(--primary);color:white;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">🔄 Reconnect Gmail</button>
       ` : gmailConnected ? `
         <div style="font-size:12px;color:var(--moss);margin-bottom:8px">✓ Connected: ${escHtml(gmailEmail)}</div>
         <div style="display:flex;gap:6px">
           <button onclick="scanGmailBookings()" id="gmail-scan-btn"
-            style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">📥 Scan for Bookings</button>
+            style="flex:1;background:var(--primary);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">📥 Scan for Bookings</button>
           <button onclick="connectGmail()"
-            style="background:var(--warm);color:var(--forest);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Reconnect</button>
+            style="background:var(--hairline-2);color:var(--primary);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Reconnect</button>
         </div>
         <div id="gmail-scan-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;line-height:1.5"></div>
       ` : `
-        <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.5">Connect your Gmail to automatically import bookings from Airbnb, VRBO, Booking.com, and other platforms.</div>
+        <div style="font-size:11px;color:var(--muted-2);margin-bottom:8px;line-height:1.5">Connect your Gmail to automatically import bookings from Airbnb, VRBO, Booking.com, and other platforms.</div>
         <button onclick="connectGmail()"
-          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
+          style="width:100%;background:white;border:1.5px solid var(--hairline-1);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
           <img src="https://www.google.com/favicon.ico" width="18" height="18" style="border-radius:3px"> Connect Gmail
         </button>
       `}
     </div>
 
-    <div style="padding:12px;background:var(--mist);border-radius:10px;margin-top:8px">
-      <div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:6px">📧 Outlook — Booking Import</div>
+    <div style="padding:12px;background:var(--surface2);border-radius:10px;margin-top:8px">
+      <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:6px">📧 Outlook — Booking Import</div>
       ${outlookConnected ? `
         <div style="font-size:12px;color:var(--moss);margin-bottom:8px">✓ Connected: ${escHtml(outlookEmail)}</div>
         <div style="display:flex;gap:6px">
           <button onclick="scanOutlookBookings()" id="outlook-scan-btn"
-            style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">📥 Scan for Bookings</button>
+            style="flex:1;background:var(--primary);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">📥 Scan for Bookings</button>
           <button onclick="connectOutlook()"
-            style="background:var(--warm);color:var(--forest);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Reconnect</button>
+            style="background:var(--hairline-2);color:var(--primary);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Reconnect</button>
         </div>
         <div id="outlook-scan-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;line-height:1.5"></div>
       ` : `
-        <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.5">Connect your Outlook / Hotmail account to automatically import bookings from Airbnb, VRBO, Booking.com, and other platforms.</div>
+        <div style="font-size:11px;color:var(--muted-2);margin-bottom:8px;line-height:1.5">Connect your Outlook / Hotmail account to automatically import bookings from Airbnb, VRBO, Booking.com, and other platforms.</div>
         <button onclick="connectOutlook()"
-          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
+          style="width:100%;background:white;border:1.5px solid var(--hairline-1);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
           <img src="https://www.microsoft.com/favicon.ico" width="18" height="18" style="border-radius:3px"> Connect Outlook
         </button>
       `}
@@ -103,53 +103,53 @@ function _renderCalendarSyncCard() {
   const ocalConnected = !!ocalEmail;
   const anyConnected = gcalConnected || ocalConnected;
   return `
-    <div style="padding:12px;background:var(--mist);border-radius:10px;margin-top:8px">
-      <div style="font-size:12px;font-weight:700;color:var(--forest);margin-bottom:6px">📅 Two-way Calendar Sync</div>
+    <div style="padding:12px;background:var(--surface2);border-radius:10px;margin-top:8px">
+      <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:6px">📅 Two-way Calendar Sync</div>
       ${anyConnected ? `
-        <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.4">A calendar named "StayOps" in your account holds bookings, cleans, and maintenance. Add events titled "Clean: ..." or "Maintenance: ..." on your phone — they appear in the app within ~10 seconds. Untitled events land in the Inbox below for you to triage.</div>
+        <div style="font-size:11px;color:var(--muted-2);margin-bottom:8px;line-height:1.4">A calendar named "StayOps" in your account holds bookings, cleans, and maintenance. Add events titled "Clean: ..." or "Maintenance: ..." on your phone — they appear in the app within ~10 seconds. Untitled events land in the Inbox below for you to triage.</div>
         ${gcalConnected ? `
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px;background:white;border:1px solid var(--stone);border-radius:8px;margin-bottom:6px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px;background:white;border:1px solid var(--hairline-1);border-radius:8px;margin-bottom:6px">
             <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--moss)">
               <img src="https://www.google.com/favicon.ico" width="14" height="14" style="border-radius:2px">
               ✓ Google: ${escHtml(gcalEmail)}
             </div>
-            <button onclick="disconnectGoogleCalendar()" style="background:var(--warm);color:var(--forest);border:none;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Disconnect</button>
+            <button onclick="disconnectGoogleCalendar()" style="background:var(--hairline-2);color:var(--primary);border:none;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Disconnect</button>
           </div>
         ` : `
-          <button onclick="connectGoogleCalendar()" style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px">
+          <button onclick="connectGoogleCalendar()" style="width:100%;background:white;border:1.5px solid var(--hairline-1);border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px">
             <img src="https://www.google.com/favicon.ico" width="14" height="14" style="border-radius:2px"> Connect Google Calendar
           </button>
         `}
         ${ocalConnected ? `
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px;background:white;border:1px solid var(--stone);border-radius:8px;margin-bottom:6px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px;background:white;border:1px solid var(--hairline-1);border-radius:8px;margin-bottom:6px">
             <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--moss)">
               <img src="https://www.microsoft.com/favicon.ico" width="14" height="14" style="border-radius:2px">
               ✓ Outlook: ${escHtml(ocalEmail)}
             </div>
-            <button onclick="disconnectOutlookCalendar()" style="background:var(--warm);color:var(--forest);border:none;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Disconnect</button>
+            <button onclick="disconnectOutlookCalendar()" style="background:var(--hairline-2);color:var(--primary);border:none;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Disconnect</button>
           </div>
         ` : `
-          <button onclick="connectOutlookCalendar()" style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px">
+          <button onclick="connectOutlookCalendar()" style="width:100%;background:white;border:1.5px solid var(--hairline-1);border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px">
             <img src="https://www.microsoft.com/favicon.ico" width="14" height="14" style="border-radius:2px"> Connect Outlook Calendar
           </button>
         `}
         <div style="display:flex;gap:6px;margin-top:8px">
           <button onclick="syncCalendarNow()" id="cal-sync-btn"
-            style="flex:1;background:var(--forest);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">🔄 Sync now</button>
+            style="flex:1;background:var(--primary);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">🔄 Sync now</button>
         </div>
         <div id="cal-sync-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;line-height:1.5"></div>
         <div id="cal-inbox" style="margin-top:10px"></div>
       ` : `
-        <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px;line-height:1.5">Sync StayOps with your phone calendar. Your phone shows app events; your phone-side edits flow back to the app. We create a dedicated "StayOps" calendar in your account — your personal calendar stays untouched.</div>
+        <div style="font-size:11px;color:var(--muted-2);margin-bottom:8px;line-height:1.5">Sync StayOps with your phone calendar. Your phone shows app events; your phone-side edits flow back to the app. We create a dedicated "StayOps" calendar in your account — your personal calendar stays untouched.</div>
         <button onclick="connectGoogleCalendar()"
-          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:6px">
+          style="width:100%;background:white;border:1.5px solid var(--hairline-1);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:6px">
           <img src="https://www.google.com/favicon.ico" width="18" height="18" style="border-radius:3px"> Connect Google Calendar
         </button>
         <button onclick="connectOutlookCalendar()"
-          style="width:100%;background:white;border:1.5px solid var(--stone);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
+          style="width:100%;background:white;border:1.5px solid var(--hairline-1);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:10px">
           <img src="https://www.microsoft.com/favicon.ico" width="18" height="18" style="border-radius:3px"> Connect Outlook Calendar
         </button>
-        <div style="font-size:11px;color:var(--text-soft);margin-top:8px;text-align:center">Apple Calendar — coming soon.</div>
+        <div style="font-size:11px;color:var(--muted-2);margin-top:8px;text-align:center">Apple Calendar — coming soon.</div>
       `}
     </div>`;
 }
@@ -225,7 +225,7 @@ async function syncCalendarNow() {
     const data = await res.json();
     if (statusEl) {
       statusEl.style.background = '#EDF7ED';
-      statusEl.style.color = 'var(--forest)';
+      statusEl.style.color = 'var(--primary)';
       const r = (data.results && data.results[0] && data.results[0].reconcile) || {};
       statusEl.textContent = '✓ Synced — ' + (r.applied || 0) + ' applied, ' + (r.deleted || 0) + ' removed, ' + (r.skipped || 0) + ' skipped';
     }
@@ -262,12 +262,12 @@ async function renderCalendarInbox() {
       const title = escHtml(ev.summary || '(no title)');
       const start = (ev.start && (ev.start.date || ev.start.dateTime)) || '';
       return `
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px;background:white;border:1px solid var(--stone);border-radius:8px;margin-top:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px;background:white;border:1px solid var(--hairline-1);border-radius:8px;margin-top:6px">
           <div style="flex:1;min-width:0">
-            <div style="font-size:12px;font-weight:600;color:var(--forest);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${title}</div>
-            <div style="font-size:11px;color:var(--text-soft)">${escHtml(String(start).slice(0,10))}</div>
+            <div style="font-size:12px;font-weight:600;color:var(--primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${title}</div>
+            <div style="font-size:11px;color:var(--muted-2)">${escHtml(String(start).slice(0,10))}</div>
           </div>
-          <select onchange="classifyInboxEvent('${r.id}', this.value)" style="font-size:11px;padding:4px 6px;border-radius:6px;border:1px solid var(--stone)">
+          <select onchange="classifyInboxEvent('${r.id}', this.value)" style="font-size:11px;padding:4px 6px;border-radius:6px;border:1px solid var(--hairline-1)">
             <option value="">Triage…</option>
             <option value="cleans">→ Clean</option>
             <option value="maintenance">→ Maintenance</option>
@@ -276,7 +276,7 @@ async function renderCalendarInbox() {
           </select>
         </div>`;
     }).join('');
-    wrap.innerHTML = `<div style="font-size:11px;font-weight:700;color:var(--forest);margin-top:6px;margin-bottom:2px">📥 Inbox — phone events to triage</div>${rows}`;
+    wrap.innerHTML = `<div style="font-size:11px;font-weight:700;color:var(--primary);margin-top:6px;margin-bottom:2px">📥 Inbox — phone events to triage</div>${rows}`;
   } catch (_) { wrap.innerHTML = ''; }
 }
 
@@ -413,8 +413,8 @@ async function scanGmailBookings() {
 
     if (statusEl) {
       const hasChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0) > 0;
-      statusEl.style.background = hasChanges ? '#EDF7ED' : 'var(--mist)';
-      statusEl.style.color = hasChanges ? 'var(--forest)' : 'var(--text-soft)';
+      statusEl.style.background = hasChanges ? '#EDF7ED' : 'var(--surface2)';
+      statusEl.style.color = hasChanges ? 'var(--primary)' : 'var(--muted-2)';
 
       let msg = data.message || 'Scan complete';
       if (data.details && data.details.length) {
@@ -518,8 +518,8 @@ async function scanOutlookBookings() {
 
     if (statusEl) {
       const hasChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0) > 0;
-      statusEl.style.background = hasChanges ? '#EDF7ED' : 'var(--mist)';
-      statusEl.style.color = hasChanges ? 'var(--forest)' : 'var(--text-soft)';
+      statusEl.style.background = hasChanges ? '#EDF7ED' : 'var(--surface2)';
+      statusEl.style.color = hasChanges ? 'var(--primary)' : 'var(--muted-2)';
 
       let msg = data.message || 'Scan complete';
       if (data.details && data.details.length) {
@@ -838,7 +838,7 @@ function renderSettings() {
       gmailStatusEl.style.color = 'var(--moss)';
     } else {
       gmailStatusEl.textContent = 'Not connected';
-      gmailStatusEl.style.color = 'var(--text-soft)';
+      gmailStatusEl.style.color = 'var(--muted-2)';
     }
   }
   if (outlookStatusEl) {
@@ -848,7 +848,7 @@ function renderSettings() {
       outlookStatusEl.style.color = 'var(--moss)';
     } else {
       outlookStatusEl.textContent = 'Not connected';
-      outlookStatusEl.style.color = 'var(--text-soft)';
+      outlookStatusEl.style.color = 'var(--muted-2)';
     }
   }
 
@@ -959,7 +959,7 @@ function _renderLogoPreview() {
     el.innerHTML = '<img src="' + logo + '" style="max-width:120px;max-height:80px;border-radius:6px;border:0.5px solid rgba(0,0,0,0.1)" alt="Logo">';
     if (rmBtn) rmBtn.style.display = '';
   } else {
-    el.innerHTML = '<div style="font-size:12px;color:var(--text-soft)">No logo uploaded</div>';
+    el.innerHTML = '<div style="font-size:12px;color:var(--muted-2)">No logo uploaded</div>';
     if (rmBtn) rmBtn.style.display = 'none';
   }
 }
@@ -1093,15 +1093,15 @@ function renderTeamList() {
   const countRow = document.getElementById('team-count-row');
   if (countRow) countRow.textContent = people.length ? people.length + ' people' : 'Cleaners & contractors';
   if (!people.length) { el.innerHTML = ''; return; }
-  const roleColors = {Cleaner:'var(--moss)',Plumber:'#1565C0',Electrician:'#E65100',Landscaper:'#2E7D32',Builder:'#6A1B9A',Handyman:'#00838F',Other:'var(--stone)'};
+  const roleColors = {Cleaner:'var(--moss)',Plumber:'#1565C0',Electrician:'#E65100',Landscaper:'#2E7D32',Builder:'#6A1B9A',Handyman:'#00838F',Other:'var(--hairline-1)'};
   el.innerHTML = `<div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:12px">` +
     people.map((c, i) => `
     <div class="settings-cat-item" onclick="openCleanerProfile('${c.id}')" ${i===people.length-1?'style="border-bottom:none"':''}>
       <div style="display:flex;align-items:center;gap:12px">
-        <div style="width:36px;height:36px;border-radius:50%;background:${roleColors[c.role]||'var(--stone)'};color:white;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${c.name.charAt(0)}</div>
+        <div style="width:36px;height:36px;border-radius:50%;background:${roleColors[c.role]||'var(--hairline-1)'};color:white;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${c.name.charAt(0)}</div>
         <div>
           <div style="font-weight:500;font-size:14px">${c.name}</div>
-          <div style="font-size:12px;color:var(--text-soft)">${c.role||'Cleaner'}${c.email?' · '+c.email:c.phone?' · '+c.phone:''}</div>
+          <div style="font-size:12px;color:var(--muted-2)">${c.role||'Cleaner'}${c.email?' · '+c.email:c.phone?' · '+c.phone:''}</div>
           <div style="margin-top:6px" onclick="event.stopPropagation()">${typeof window.getInviteButtonHtml === 'function' ? window.getInviteButtonHtml(c) : ''}</div>
         </div>
       </div>
@@ -1129,23 +1129,23 @@ function openCleanerProfile(id) {
     if (!cloudId) {
       inviteHtml = '<div style="font-size:12px;color:#999;font-style:italic">Save team to sync cleaner before inviting</div>';
     } else if (c.invitation_status === 'invited') {
-      inviteHtml = '<button id="invite-btn-' + cloudId + '" onclick="inviteCleaner(\'' + (c._cloudId || c.cloud_id) + '\')" style="font-size:13px;padding:10px 14px;background:transparent;color:var(--forest,#1E3A2F);border:1.5px solid var(--forest,#1E3A2F);border-radius:10px;font-weight:700;cursor:pointer">Resend Invite</button>';
+      inviteHtml = '<button id="invite-btn-' + cloudId + '" onclick="inviteCleaner(\'' + (c._cloudId || c.cloud_id) + '\')" style="font-size:13px;padding:10px 14px;background:transparent;color:var(--primary);border:1.5px solid var(--primary);border-radius:10px;font-weight:700;cursor:pointer">Resend Invite</button>';
     } else {
-      inviteHtml = '<button id="invite-btn-' + cloudId + '" onclick="inviteCleaner(\'' + (c._cloudId || c.cloud_id) + '\')" style="font-size:13px;padding:10px 14px;background:var(--forest,#1E3A2F);color:white;border:none;border-radius:10px;font-weight:700;cursor:pointer">Invite to App</button>';
+      inviteHtml = '<button id="invite-btn-' + cloudId + '" onclick="inviteCleaner(\'' + (c._cloudId || c.cloud_id) + '\')" style="font-size:13px;padding:10px 14px;background:var(--primary);color:white;border:none;border-radius:10px;font-weight:700;cursor:pointer">Invite to App</button>';
     }
   }
-  const roleColors = {Cleaner:'var(--moss)',Plumber:'#1565C0',Electrician:'#E65100',Landscaper:'#2E7D32',Builder:'#6A1B9A',Handyman:'#00838F',Other:'var(--stone)'};
+  const roleColors = {Cleaner:'var(--moss)',Plumber:'#1565C0',Electrician:'#E65100',Landscaper:'#2E7D32',Builder:'#6A1B9A',Handyman:'#00838F',Other:'var(--hairline-1)'};
   document.getElementById('cleaner-profile-content').innerHTML = `
     <div class="card" style="margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
-        <div style="width:48px;height:48px;border-radius:50%;background:${roleColors[c.role]||'var(--stone)'};color:white;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;flex-shrink:0">${c.name.charAt(0)}</div>
+        <div style="width:48px;height:48px;border-radius:50%;background:${roleColors[c.role]||'var(--hairline-1)'};color:white;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;flex-shrink:0">${c.name.charAt(0)}</div>
         <div style="flex:1">
           <div style="font-weight:700;font-size:17px">${c.name}</div>
-          <div style="font-size:12px;color:var(--text-soft)">${c.role||'Cleaner'}</div>
+          <div style="font-size:12px;color:var(--muted-2)">${c.role||'Cleaner'}</div>
         </div>
         <button onclick="deleteCleaner('${c.id}')" style="background:none;border:none;color:var(--red);font-size:13px;cursor:pointer;padding:4px 8px">Remove</button>
       </div>
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:10px">Contact</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:10px">Contact</div>
       <label>Mobile</label>
       <input type="tel" id="cp-phone-${c.id}" value="${c.phone||''}" placeholder="e.g. 0412 345 678">
       <label>Email</label>
@@ -1154,11 +1154,11 @@ function openCleanerProfile(id) {
       <div id="cp-contact-confirm-${c.id}" style="font-size:12px;color:var(--moss);margin-top:4px;display:none">✓ Saved</div>
     </div>
     <div class="card" style="margin-bottom:10px">
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:10px">Invite to App</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:10px">Invite to App</div>
       ${inviteHtml}
     </div>
     <div class="card">
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-soft);margin-bottom:10px">👁 What They Can See</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:10px">👁 What They Can See</div>
       ${PERM_LABELS.map(p => `
       <div class="ios-toggle-row" style="padding:6px 0">
         <div class="ios-toggle-label" style="font-size:13px">${p.label}</div>
@@ -1198,15 +1198,15 @@ function renderStorageViewer() {
     try { items = JSON.parse(val || '[]'); count = Array.isArray(items) ? items.length : 0; } catch(_e) { /* ignore malformed localStorage JSON */ }
     const label = k.endsWith('bookings') ? '🏠 Bookings' : k.endsWith('cleans') ? '🧹 Cleans' : '💰 Expenses';
     return `
-    <div style="padding:12px 0;border-bottom:1px solid var(--warm)">
+    <div style="padding:12px 0;border-bottom:1px solid var(--hairline-2)">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div>
-          <div style="font-weight:600;font-size:14px;color:var(--forest)">${label}</div>
-          <div style="font-size:12px;color:var(--text-soft);margin-top:2px">${count} record${count!==1?'s':''} stored locally</div>
+          <div style="font-weight:600;font-size:14px;color:var(--primary)">${label}</div>
+          <div style="font-size:12px;color:var(--muted-2);margin-top:2px">${count} record${count!==1?'s':''} stored locally</div>
         </div>
         <button onclick="globalThis.showAppModal({title:'Clear ${label}?',msg:'This removes all locally saved data. Sheet data is unaffected.',confirmText:'Clear',confirmColor:'var(--red)'}).then(ok=>{if(ok){localStorage.removeItem('${k}');renderStorageViewer();globalThis.showBanner('Cleared ${label.replace(/[^a-zA-Z ]/g,'')}','ok');}})" style="font-size:12px;color:var(--red);background:#FEF2F2;border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600">Clear</button>
       </div>
-      ${count > 0 ? `<div style="font-size:11px;color:var(--text-soft);font-family:monospace;margin-top:6px;white-space:pre-wrap;word-break:break-all">${JSON.stringify(items.slice(0,1), null, 1).substring(0, 100)}${count > 1 ? '\n...' : ''}</div>` : ''}
+      ${count > 0 ? `<div style="font-size:11px;color:var(--muted-2);font-family:monospace;margin-top:6px;white-space:pre-wrap;word-break:break-all">${JSON.stringify(items.slice(0,1), null, 1).substring(0, 100)}${count > 1 ? '\n...' : ''}</div>` : ''}
     </div>`;
   }).join('');
 }
@@ -1301,7 +1301,7 @@ function _renderAutoAssignToggle() {
   const on = getAutoAssignCleaner();
   const track = document.getElementById('auto-assign-toggle');
   const thumb = document.getElementById('auto-assign-thumb');
-  if (track) track.style.background = on ? 'var(--forest)' : 'var(--border)';
+  if (track) track.style.background = on ? 'var(--primary)' : 'var(--border)';
   if (thumb) thumb.style.transform = on ? 'translateX(18px)' : 'translateX(0)';
 }
 
@@ -1325,7 +1325,7 @@ function renderCleanerAccessList() {
     el.innerHTML = `<div class="card" style="margin-bottom:12px;text-align:center;padding:24px">
       <div style="font-size:32px;margin-bottom:8px">🧹</div>
       <div style="font-weight:600;font-size:14px;margin-bottom:6px">No cleaners added yet</div>
-      <div style="font-size:12px;color:var(--text-soft);margin-bottom:14px">Go to Settings → Property → Team to add cleaners</div>
+      <div style="font-size:12px;color:var(--muted-2);margin-bottom:14px">Go to Settings → Property → Team to add cleaners</div>
       <button onclick="openSettingsCat('property');openSettingsPanel('team')" class="btn-primary">Add Team Members</button>
     </div>`;
     return;
@@ -1334,10 +1334,10 @@ function renderCleanerAccessList() {
     cleaners.map((c, i) => `
     <div class="settings-cat-item" onclick="openCleanerProfile('${c.id}')" ${i===cleaners.length-1?'style="border-bottom:none"':''}>
       <div style="display:flex;align-items:center;gap:12px">
-        <div style="width:36px;height:36px;border-radius:50%;background:var(--forest);color:white;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${c.name.charAt(0)}</div>
+        <div style="width:36px;height:36px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${c.name.charAt(0)}</div>
         <div>
           <div style="font-weight:500;font-size:14px">${c.name}</div>
-          <div style="font-size:12px;color:var(--text-soft)">${c.pin ? '🔐 PIN set' : '⚠️ No PIN'} · ${c.email ? '✉️ Email set' : 'No email'}</div>
+          <div style="font-size:12px;color:var(--muted-2)">${c.pin ? '🔐 PIN set' : '⚠️ No PIN'} · ${c.email ? '✉️ Email set' : 'No email'}</div>
         </div>
       </div>
       <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
@@ -1345,8 +1345,8 @@ function renderCleanerAccessList() {
   <div class="card" style="padding:0 16px;overflow:hidden">
     <div class="settings-cat-item" onclick="openSettingsCat('property');setTimeout(()=>openSettingsPanel('team'),50)" style="border-bottom:none">
       <div style="display:flex;align-items:center;gap:12px">
-        <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="17" y1="11" x2="23" y2="11"/></svg></div>
-        <div style="font-weight:500;font-size:14px;color:var(--forest)">Add Person</div>
+        <div style="width:36px;height:36px;border-radius:10px;background:var(--hairline-2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f5d4e" stroke-width="1.5"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="17" y1="11" x2="23" y2="11"/></svg></div>
+        <div style="font-weight:500;font-size:14px;color:var(--primary)">Add Person</div>
       </div>
       <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
     </div>
@@ -1410,9 +1410,9 @@ const ICAL_PLATFORMS = [
 ];
 
 function _renderICalFeedsCard() {
-  return `<div style="background:var(--mist);padding:14px 16px;border-radius:10px;margin-top:8px">
+  return `<div style="background:var(--surface2);padding:14px 16px;border-radius:10px;margin-top:8px">
     <div style="font-weight:600;font-size:14px;margin-bottom:4px">📅 Calendar Feeds</div>
-    <div style="font-size:11px;color:var(--text-soft);margin-bottom:12px;line-height:1.5">Subscribe to per-property iCal URLs from Airbnb, Booking.com, VRBO, Stayz. Bookings appear automatically; emails fill in guest details.</div>
+    <div style="font-size:11px;color:var(--muted-2);margin-bottom:12px;line-height:1.5">Subscribe to per-property iCal URLs from Airbnb, Booking.com, VRBO, Stayz. Bookings appear automatically; emails fill in guest details.</div>
     <button onclick="openSettingsPanel('ical-feeds')" class="btn-primary" style="width:100%;padding:10px;font-size:13px">Manage Calendar Feeds</button>
   </div>`;
 }
@@ -1421,11 +1421,11 @@ async function populateICalFeedsPanel() {
   const user = await getCurrentSupabaseUser();
   const listEl = document.getElementById('ical-feeds-list');
   if (!listEl) return;
-  if (!user) { listEl.innerHTML = '<div style="font-size:12px;color:var(--text-soft)">Sign in first.</div>'; return; }
+  if (!user) { listEl.innerHTML = '<div style="font-size:12px;color:var(--muted-2)">Sign in first.</div>'; return; }
 
   const allProps = typeof getAllProperties === 'function' ? getAllProperties() : [];
   if (!allProps.length) {
-    listEl.innerHTML = '<div style="font-size:12px;color:var(--text-soft)">Add a property first, then add iCal feeds for it.</div>';
+    listEl.innerHTML = '<div style="font-size:12px;color:var(--muted-2)">Add a property first, then add iCal feeds for it.</div>';
     return;
   }
 
@@ -1445,7 +1445,7 @@ async function populateICalFeedsPanel() {
 
   const platformOptions = ICAL_PLATFORMS.map(p => `<option value="${p.value}">${p.label}</option>`).join('');
   const fieldStyle = 'width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--card-bg);box-sizing:border-box';
-  const labelStyle = 'font-size:11px;color:var(--text-soft);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px;display:block';
+  const labelStyle = 'font-size:11px;color:var(--muted-2);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px;display:block';
   let html = '';
   allProps.forEach(prop => {
     const propId = prop.supabaseId || prop.id;
@@ -1454,20 +1454,20 @@ async function populateICalFeedsPanel() {
     html += `<div style="background:var(--card-bg);padding:12px;border-radius:10px;margin-bottom:10px;border:1px solid var(--border)">
       <div style="font-weight:600;font-size:13px;margin-bottom:8px">${escHtml(propName)}</div>`;
     if (!propFeeds.length) {
-      html += '<div style="font-size:11px;color:var(--text-soft);margin-bottom:8px">No feeds yet.</div>';
+      html += '<div style="font-size:11px;color:var(--muted-2);margin-bottom:8px">No feeds yet.</div>';
     } else {
       propFeeds.forEach(f => {
         const platLabel = (ICAL_PLATFORMS.find(p => p.value === f.platform) || {}).label || f.platform;
         const customName = (f.label || '').trim();
         const primary = customName || platLabel;
-        const chip = customName ? `<span style="display:inline-block;font-size:10px;font-weight:600;color:var(--forest);background:var(--sage);padding:2px 8px;border-radius:10px;margin-left:6px;vertical-align:middle">${escHtml(platLabel)}</span>` : '';
+        const chip = customName ? `<span style="display:inline-block;font-size:10px;font-weight:600;color:var(--primary);background:var(--sage);padding:2px 8px;border-radius:10px;margin-left:6px;vertical-align:middle">${escHtml(platLabel)}</span>` : '';
         const lastSync = f.last_synced_at ? new Date(f.last_synced_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : 'never';
         const err = f.last_error ? '<div style="font-size:11px;color:var(--red);margin-top:4px">⚠ ' + escHtml(f.last_error) + '</div>' : '';
-        html += `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px;background:var(--mist);border-radius:8px;margin-bottom:6px">
+        html += `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px;background:var(--surface2);border-radius:8px;margin-bottom:6px">
           <div style="flex:1;min-width:0">
             <div style="font-size:12px;font-weight:600">${escHtml(primary)}${chip}</div>
-            <div style="font-size:10px;color:var(--text-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(f.ical_url)}</div>
-            <div style="font-size:10px;color:var(--text-soft)">Last sync: ${escHtml(lastSync)}</div>
+            <div style="font-size:10px;color:var(--muted-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(f.ical_url)}</div>
+            <div style="font-size:10px;color:var(--muted-2)">Last sync: ${escHtml(lastSync)}</div>
             ${err}
           </div>
           <button onclick="removeICalFeed('${escHtml(f.id)}')" style="padding:6px 10px;font-size:11px;background:none;border:1px solid var(--red);border-radius:6px;color:var(--red);cursor:pointer;flex-shrink:0">Remove</button>
@@ -1475,7 +1475,7 @@ async function populateICalFeedsPanel() {
       });
     }
     html += `<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
-        <div style="font-size:11px;color:var(--text-soft);margin-bottom:8px">You can add multiple feeds per property — one per platform.</div>
+        <div style="font-size:11px;color:var(--muted-2);margin-bottom:8px">You can add multiple feeds per property — one per platform.</div>
         <div style="margin-bottom:8px">
           <label style="${labelStyle}">Platform</label>
           <select id="ical-add-platform-${escHtml(propId)}" style="${fieldStyle}">${platformOptions}</select>
@@ -1554,7 +1554,7 @@ async function syncICalFeedsNow() {
   const btn = document.getElementById('ical-sync-now-btn');
   const statusEl = document.getElementById('ical-feeds-status');
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing…'; }
-  if (statusEl) { statusEl.style.color = 'var(--text-soft)'; statusEl.textContent = 'Fetching feeds…'; }
+  if (statusEl) { statusEl.style.color = 'var(--muted-2)'; statusEl.textContent = 'Fetching feeds…'; }
   try {
     const res = await fetch('/.netlify/functions/ical-sync', {
       method: 'POST',

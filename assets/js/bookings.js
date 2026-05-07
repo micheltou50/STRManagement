@@ -458,7 +458,7 @@ function renderBookings(filter) {
     const _emptyTitle = hasAny ? (_emptyLabels[bookingFilter] || 'No bookings found') : 'No bookings yet';
     const _emptyHint = hasAny ? (_emptyHints[bookingFilter] || 'Try switching tabs above') : 'Add your first booking to get started';
     const _emptyBtn = !hasAny ? '<div style="margin-top:14px"><button onclick="showAddBookingModal()" class="btn-primary" style="padding:10px 24px;font-size:14px">+ Add Booking</button></div>' : '';
-    list.innerHTML = `<div class="card" style="text-align:center;padding:40px 24px 36px"><div style="font-size:36px;margin-bottom:14px;opacity:0.45">📅</div><div style="font-weight:700;font-size:15px;color:var(--forest);margin-bottom:6px">${_emptyTitle}</div><div style="font-size:12.5px;color:var(--text-soft);line-height:1.5">${_emptyHint}</div>${_emptyBtn}</div>`;
+    list.innerHTML = `<div class="card" style="text-align:center;padding:40px 24px 36px"><div style="font-size:36px;margin-bottom:14px;opacity:0.45">📅</div><div style="font-weight:700;font-size:15px;color:var(--primary);margin-bottom:6px">${_emptyTitle}</div><div style="font-size:12.5px;color:var(--muted-2);line-height:1.5">${_emptyHint}</div>${_emptyBtn}</div>`;
     return;
   }
 
@@ -520,7 +520,7 @@ function renderBookings(filter) {
       .map(
         ([monthLabel, items]) => `
       <div style="margin-bottom:4px">
-        <div style="font-size:11px;font-weight:700;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.9px;padding:16px 4px 8px">${escHtml(monthLabel)}</div>
+        <div style="font-size:11px;font-weight:700;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.9px;padding:16px 4px 8px">${escHtml(monthLabel)}</div>
         ${items.map(b => buildBookingListCardFromBooking(b)).join('')}
       </div>`
       )
@@ -537,12 +537,12 @@ function renderNotes() {
   const list = document.getElementById('notes-list');
   if (typeof isPortfolioMode === 'function' && isPortfolioMode()) {
     list.innerHTML =
-      '<div class="card" style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">📝</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">Select a property to view notes</div><div style="font-size:12px;color:var(--text-soft)">Notes are per property — open the property switcher and choose one property.</div></div>';
+      '<div class="card" style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">📝</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">Select a property to view notes</div><div style="font-size:12px;color:var(--muted-2)">Notes are per property — open the property switcher and choose one property.</div></div>';
     return;
   }
   if (!notes.length) {
     list.innerHTML =
-      '<div class="card" style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">📝</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">No notes yet</div><div style="font-size:12px;color:var(--text-soft)">Add notes about guests, special requests or anything useful</div></div>';
+      '<div class="card" style="text-align:center;padding:28px 16px"><div style="font-size:36px;margin-bottom:10px">📝</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">No notes yet</div><div style="font-size:12px;color:var(--muted-2)">Add notes about guests, special requests or anything useful</div></div>';
     return;
   }
   list.innerHTML = [...notes]
@@ -634,7 +634,7 @@ function showDetail(id) {
   if (isCancelled) {
     document.getElementById('detail-content').innerHTML = `
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px">
-        <div style="font-size:18px;font-weight:500;color:#1a1a1a;flex:1;min-width:0">${escHtml(b.name)}</div>
+        <div style="font-size:18px;font-weight:500;color:var(--ink-1);flex:1;min-width:0">${escHtml(b.name)}</div>
       </div>
       <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:20px">
         ${b.platform ? _bookingDetailPlatformPill(b.platform) : ''}
@@ -644,23 +644,23 @@ function showDetail(id) {
       <div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden">
         <div style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center">
           <span style="font-size:13px;color:#666">Check-in</span>
-          <span style="font-size:13px;font-weight:500;color:#1a1a1a">${fmt(b.checkin)}</span>
+          <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${fmt(b.checkin)}</span>
         </div>
         <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
           <span style="font-size:13px;color:#666">Check-out</span>
-          <span style="font-size:13px;font-weight:500;color:#1a1a1a">${fmt(b.checkout)}</span>
+          <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${fmt(b.checkout)}</span>
         </div>
         <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
           <span style="font-size:13px;color:#666">Nights</span>
-          <span style="font-size:13px;font-weight:500;color:#1a1a1a">${b.nights}</span>
+          <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${b.nights}</span>
         </div>
         <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
           <span style="font-size:13px;color:#666">Guests</span>
-          <span style="font-size:13px;font-weight:500;color:#1a1a1a">${b.guests}</span>
+          <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${b.guests}</span>
         </div>
         <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
           <span style="font-size:13px;color:#666">Platform</span>
-          <span style="font-size:13px;font-weight:500;color:#1a1a1a">${_bookingDetailPlatformPlain(b.platform)}</span>
+          <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${_bookingDetailPlatformPlain(b.platform)}</span>
         </div>
       </div>
       <div style="display:flex;gap:10px;margin-top:20px">
@@ -745,7 +745,7 @@ function showDetail(id) {
 
   document.getElementById('detail-content').innerHTML = `
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px">
-      <div style="font-size:18px;font-weight:500;color:#1a1a1a;flex:1;min-width:0">${escHtml(b.name)}</div>
+      <div style="font-size:18px;font-weight:500;color:var(--ink-1);flex:1;min-width:0">${escHtml(b.name)}</div>
       <span onclick="showEditModal('${safeIdEsc}')" style="color:#2D5A3D;font-size:13px;font-weight:500;cursor:pointer;flex-shrink:0;touch-action:manipulation;padding-top:2px">Edit</span>
     </div>
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:20px">
@@ -757,23 +757,23 @@ function showDetail(id) {
     <div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden">
       <div style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:13px;color:#666">Check-in</span>
-        <span style="font-size:13px;font-weight:500;color:#1a1a1a">${fmt(b.checkin)}</span>
+        <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${fmt(b.checkin)}</span>
       </div>
       <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:13px;color:#666">Check-out</span>
-        <span style="font-size:13px;font-weight:500;color:#1a1a1a">${fmt(b.checkout)}</span>
+        <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${fmt(b.checkout)}</span>
       </div>
       <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:13px;color:#666">Nights</span>
-        <span style="font-size:13px;font-weight:500;color:#1a1a1a">${b.nights}</span>
+        <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${b.nights}</span>
       </div>
       <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:13px;color:#666">Guests</span>
-        <span style="font-size:13px;font-weight:500;color:#1a1a1a">${b.guests}</span>
+        <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${b.guests}</span>
       </div>
       <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:13px;color:#666">Platform</span>
-        <span style="font-size:13px;font-weight:500;color:#1a1a1a">${_bookingDetailPlatformPlain(b.platform)}</span>
+        <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${_bookingDetailPlatformPlain(b.platform)}</span>
       </div>
     </div>
 
@@ -785,19 +785,19 @@ function showDetail(id) {
       </div>
       <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:13px;color:#666">Cleaning fee</span>
-        <span style="font-size:13px;font-weight:500;color:#1a1a1a">$${Number(b.cleaningFee || 0).toLocaleString()}</span>
+        <span style="font-size:13px;font-weight:500;color:var(--ink-1)">$${Number(b.cleaningFee || 0).toLocaleString()}</span>
       </div>
       <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:13px;color:#666">Management fee</span>
-        <span style="font-size:13px;font-weight:500;color:#1a1a1a">${mgmtPct}%</span>
+        <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${mgmtPct}%</span>
       </div>
       <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:13px;color:#666">Management payout</span>
-        <span style="font-size:13px;font-weight:500;color:#1a1a1a">$${Number(b.mgmtPayout || 0).toLocaleString()}</span>
+        <span style="font-size:13px;font-weight:500;color:var(--ink-1)">$${Number(b.mgmtPayout || 0).toLocaleString()}</span>
       </div>
       <div style="border-top:0.5px solid rgba(0,0,0,0.1)"></div>
       <div style="padding:12px 14px;background:#f5f5f3;border-radius:0 0 12px 12px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px;font-weight:500;color:#1a1a1a">Owner payout</span>
+        <span style="font-size:13px;font-weight:500;color:var(--ink-1)">Owner payout</span>
         <span style="font-size:14px;font-weight:500;color:#1D9E75">$${Number(b.netPayout || 0).toLocaleString()}</span>
       </div>
     </div>
@@ -806,14 +806,14 @@ function showDetail(id) {
     <div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden">
       <div style="padding:14px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
         <div style="min-width:0;flex:1">
-          <div style="font-size:15px;font-weight:500;color:#1a1a1a">${cleanerTopName}</div>
+          <div style="font-size:15px;font-weight:500;color:var(--ink-1)">${cleanerTopName}</div>
           ${cleanerDateLine ? `<div style="font-size:13px;color:#666;margin-top:4px">${cleanerDateLine}</div>` : ''}
         </div>
         <div style="flex-shrink:0;padding-top:2px">${_bookingDetailCleanerBadge(cleanerState)}</div>
       </div>
       <div style="border-top:0.5px solid rgba(0,0,0,0.1)"></div>
       <div class="toggle-wrap" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;margin:0;border:none${isPast ? ';opacity:0.5' : ''}">
-        <span style="font-size:13px;color:#1a1a1a">Cleaner confirmed${isPast ? ' <span style="font-size:11px;color:var(--text-soft)">(locked)</span>' : ''}</span>
+        <span style="font-size:13px;color:var(--ink-1)">Cleaner confirmed${isPast ? ' <span style="font-size:11px;color:var(--muted-2)">(locked)</span>' : ''}</span>
         <button type="button" class="toggle ${matchedClean?.cleanerConfirmed ?? b.cleanerConfirmed ? 'on' : ''}" ${isPast ? 'disabled' : `onclick="toggleCleanerConfirmed('${b.id}')"`} aria-label="Toggle cleaner confirmed" style="flex-shrink:0${isPast ? ';pointer-events:none' : ''}"></button>
       </div>
       <div style="border-top:0.5px solid rgba(0,0,0,0.1)"></div>
@@ -830,7 +830,7 @@ function showDetail(id) {
         return '<div style="font-size:12px;font-weight:500;color:#999;margin:0 0 6px 2px">Cleaning cost</div>' +
       '<div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden;padding:14px">' +
       '<div id="clean-cost-view" style="display:flex;align-items:center;justify-content:space-between;gap:10px">' +
-        '<span style="font-size:20px;font-weight:500;color:#1a1a1a">' + (cleanCost ? '$' + cleanCost.toLocaleString() : 'Not set') + '</span>' +
+        '<span style="font-size:20px;font-weight:500;color:var(--ink-1)">' + (cleanCost ? '$' + cleanCost.toLocaleString() : 'Not set') + '</span>' +
         '<button type="button" onclick="document.getElementById(\'clean-cost-view\').style.display=\'none\';document.getElementById(\'clean-cost-edit\').style.display=\'\'" style="background:none;border:0.5px solid rgba(0,0,0,0.1);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:500;color:#666;cursor:pointer;font-family:inherit;touch-action:manipulation">Edit</button>' +
       '</div>' +
       '<div id="clean-cost-edit" style="display:none;margin-top:12px">' +
@@ -874,14 +874,14 @@ function showEditModal(id) {
   const safeId = b._cloudId || b.id;
   if (typeof globalThis.closeDetailModal === 'function') globalThis.closeDetailModal();
   document.getElementById('detail-content').innerHTML = `
-    <div style="font-family:inherit;font-size:16px;font-weight:500;color:#1a1a1a;margin-bottom:16px">Edit Booking</div>
+    <div style="font-family:inherit;font-size:16px;font-weight:500;color:var(--ink-1);margin-bottom:16px">Edit Booking</div>
     <label>Guest Name</label><input type="text" id="e-name" value="${b.name}">
     <div class="form-row">
       <div class="field"><label>Check-in</label><input type="date" id="e-checkin" value="${b.checkin}" onchange="editCalcNights()"></div>
       <div class="field"><label>Check-out</label><input type="date" id="e-checkout" value="${b.checkout}" onchange="editCalcNights()"></div>
     </div>
     <div class="form-row">
-      <div class="field"><label>Nights</label><input type="number" id="e-nights" value="${b.nights}" readonly style="background:var(--warm)"></div>
+      <div class="field"><label>Nights</label><input type="number" id="e-nights" value="${b.nights}" readonly style="background:var(--hairline-2)"></div>
       <div class="field"><label>Guests</label><input type="number" id="e-guests" value="${b.guests}"></div>
     </div>
     <div class="form-row">
@@ -890,12 +890,12 @@ function showEditModal(id) {
     </div>
     <div class="form-row">
       <div class="field"><label>Mgmt Fee (%)</label><input type="number" id="e-mgmtfee" value="${b.mgmtFeeRaw || Math.round((b.mgmtFee / b.hostPayout) * 1000) / 10 || 0}" min="0" max="100" step="0.1" oninput="editCalcNet()"></div>
-      <div class="field"><label>Mgmt Payout</label><input type="text" id="e-mgmtpayout" value="$${Number(b.mgmtPayout || 0).toFixed(2)}" style="background:var(--warm);color:var(--text-soft);font-style:italic" readonly></div>
+      <div class="field"><label>Mgmt Payout</label><input type="text" id="e-mgmtpayout" value="$${Number(b.mgmtPayout || 0).toFixed(2)}" style="background:var(--hairline-2);color:var(--muted-2);font-style:italic" readonly></div>
     </div>
     <label>Owner Payout ($)</label>
-    <input type="text" id="e-netpayout" value="$${Number(b.netPayout || 0).toFixed(2)}" readonly style="background:var(--warm);color:var(--text-soft);font-style:italic">
+    <input type="text" id="e-netpayout" value="$${Number(b.netPayout || 0).toFixed(2)}" readonly style="background:var(--hairline-2);color:var(--muted-2);font-style:italic">
     <label>Platform</label>
-    <div style="padding:10px 12px;background:var(--warm);border-radius:var(--radius-sm);font-size:14px;color:var(--text-soft);font-style:italic">
+    <div style="padding:10px 12px;background:var(--hairline-2);border-radius:var(--radius-sm);font-size:14px;color:var(--muted-2);font-style:italic">
       ${b.platform ? (b.platform === 'Airbnb' ? '🏠 Airbnb' : b.platform === 'VRBO' ? '🏡 VRBO' : '📋 Direct') : 'Not set'}
     </div>
     <button class="btn-primary" onclick="saveEdit('${safeId}')" id="save-edit-btn">Save & Sync</button>
