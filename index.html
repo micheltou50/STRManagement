@@ -968,6 +968,7 @@
 
     </div>
     <div id="cleaning-summary-strip"></div>
+    <div id="cleaning-cleaner-cards"></div>
     <div class="card" id="clean-schedule-card">
       <div id="clean-view-switcher" style="display:flex;background:var(--hairline-2,#efe9dc);border-radius:12px;padding:3px;margin-bottom:10px">
         <div onclick="switchCleanView('timeline')" id="clean-view-timeline" class="clean-view-tab" style="flex:1;text-align:center;padding:8px 4px;font-size:12px;font-weight:700;border-radius:10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Timeline</div>
@@ -1644,6 +1645,21 @@
             <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </div>
         </div>
+        <div class="settings-cat-item" onclick="openSettingsPanel('tax')">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h8" stroke="var(--ink-2)" stroke-width="1.5" stroke-linecap="round"/><circle cx="13" cy="12" r="1" fill="var(--ink-2)"/></svg></div>
+            <div style="flex:1;font-size:14px;font-weight:500;color:var(--ink-1)">Tax settings</div>
+            <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+        <div class="settings-cat-item" onclick="openSettingsPanel('billing')">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="4" width="12" height="9" rx="1.5" stroke="var(--ink-2)" stroke-width="1.5"/><path d="M2 7h12" stroke="var(--ink-2)" stroke-width="1.5"/></svg></div>
+            <div style="flex:1;font-size:14px;font-weight:500;color:var(--ink-1)">Plan &amp; billing</div>
+            <span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;color:var(--primary);background:var(--primary-soft)">Free</span>
+            <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
         <div class="settings-cat-item" onclick="openSettingsCat('property')" style="border-bottom:none">
           <div style="display:flex;align-items:center;gap:12px">
             <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="4" y="7" width="8" height="6" rx="1.5" stroke="var(--ink-2)" stroke-width="1.5"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2" stroke="var(--ink-2)" stroke-width="1.5" stroke-linecap="round"/></svg></div>
@@ -1681,8 +1697,8 @@
 
       <!-- ═══ LOG OUT + VERSION ═══ -->
       <div style="text-align:center;padding-bottom:14px">
-        <button onclick="hostSignOut()" style="width:100%;height:44px;border-radius:12px;background:transparent;border:1px solid var(--hairline-1);color:var(--warn);font-size:14px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer">Log out</button>
-        <div style="margin-top:10px;font-size:11px;color:var(--muted-2);font-family:'JetBrains Mono',monospace;letter-spacing:0.5px">StayOps v1.0</div>
+        <button onclick="hostSignOut()" style="width:100%;height:48px;border-radius:14px;background:transparent;border:1.5px solid var(--warn,#b56a3a);color:var(--warn,#b56a3a);font-size:14px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer">Log out</button>
+        <div style="margin-top:12px;font-size:11px;color:var(--muted-2);font-family:'JetBrains Mono',monospace;letter-spacing:1px">STAYOPS V1.0</div>
       </div>
     </div>
 

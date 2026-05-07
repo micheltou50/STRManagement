@@ -1734,7 +1734,20 @@ function buildSinglePropertyTodayDashboardMarkup() {
       `</div>`;
   }
 
+  const host = getHostProfile();
+  const firstName = escHtml(String(host?.hostName || host?.name || '').split(' ')[0] || '');
+  const hour = now.getHours();
+  const greetWord = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
+  const dateStr = now.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'short' });
+  const greetingHtml = firstName
+    ? `<div style="margin-bottom:18px">` +
+      `<div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase">${escHtml(dateStr.toUpperCase())}</div>` +
+      `<div style="margin-top:4px;font-family:'Newsreader',serif;font-size:28px;font-weight:600;color:var(--ink-1);letter-spacing:-0.5px">${greetWord}, <em>${firstName}</em></div>` +
+      `</div>`
+    : '';
+
   return (
+    greetingHtml +
     statusHtml +
     needsHtml +
     upcomingCardsHtml +
@@ -2059,7 +2072,19 @@ function buildPortfolioTodayDashboardMarkup() {
     </div>`;
   }
 
-  return needsHtml + weekCard + next7Html + statsHtml;
+  const host = getHostProfile();
+  const firstName = escHtml(String(host?.hostName || host?.name || '').split(' ')[0] || '');
+  const hour = now.getHours();
+  const greetWord = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
+  const dateStr = now.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'short' });
+  const greetingHtml = firstName
+    ? `<div style="margin-bottom:18px">` +
+      `<div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase">${escHtml(dateStr.toUpperCase())}</div>` +
+      `<div style="margin-top:4px;font-family:'Newsreader',serif;font-size:28px;font-weight:600;color:var(--ink-1);letter-spacing:-0.5px">${greetWord}, <em>${firstName}</em></div>` +
+      `</div>`
+    : '';
+
+  return greetingHtml + needsHtml + weekCard + next7Html + statsHtml;
 }
 
 globalThis.renderDashboard = renderDashboard;

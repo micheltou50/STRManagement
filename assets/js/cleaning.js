@@ -823,6 +823,51 @@ export function renderCleaning() {
   const summaryEl = document.getElementById('cleaning-summary-strip');
   if (summaryEl) summaryEl.innerHTML = '';
 
+  const cleanerCardsEl = document.getElementById('cleaning-cleaner-cards');
+  if (cleanerCardsEl) {
+    const cleanersList = loadCleaners().filter(c => isCleanerPerson(c));
+    const cleanerCountMap = {};
+    data.filtered.forEach(item => {
+      if (item.cleaner) {
+        cleanerCountMap[_normName(item.cleaner)] = (cleanerCountMap[_normName(item.cleaner)] || 0) + 1;
+      }
+    });
+    const CLEANER_COLORS = [
+      { bg: 'var(--accent-soft)', ink: '#7d4f1c' },
+      { bg: '#e8ddf3', ink: '#3a3556' },
+      { bg: 'var(--primary-soft)', ink: 'var(--primary)' },
+      { bg: '#d6ecf3', ink: '#1d6b88' },
+      { bg: '#fbe1e7', ink: '#a8324c' },
+    ];
+    const cards = cleanersList.map((c, i) => {
+      const col = CLEANER_COLORS[i % CLEANER_COLORS.length];
+      const initial = String(c.name || '').charAt(0).toUpperCase();
+      const count = cleanerCountMap[_normName(c.name)] || 0;
+      const costLabel = c.cleaningRate ? '€' + c.cleaningRate + '/clean' : '';
+      const sub = count + ' clean' + (count !== 1 ? 's' : '') + (costLabel ? ' · ' + costLabel : '');
+      return '<div style="min-width:170px;background:#fff;border-radius:16px;padding:14px;border:1px solid var(--hairline-1);display:flex;gap:12px;align-items:center;flex-shrink:0">' +
+        '<div style="width:38px;height:38px;border-radius:12px;background:' + col.bg + ';display:flex;align-items:center;justify-content:center;font-family:\'Newsreader\',serif;font-weight:700;color:' + col.ink + '">' + escHtml(initial) + '</div>' +
+        '<div><div style="font-size:13px;font-weight:700;color:var(--ink-1)">' + escHtml(c.name) + '</div>' +
+        '<div style="font-size:11px;color:var(--muted-2);margin-top:2px">' + escHtml(sub) + '</div></div></div>';
+    });
+    cards.push(
+      '<div style="min-width:170px;background:#fff;border-radius:16px;padding:14px;border:1.5px dashed var(--hairline-1);display:flex;gap:12px;align-items:center;flex-shrink:0;cursor:pointer" onclick="document.getElementById(\'section-settings\')&&showSection(\'settings\')">' +
+        '<div style="width:38px;height:38px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--muted-2)">+</div>' +
+        '<div><div style="font-size:13px;font-weight:700;color:var(--ink-1)">+ Add</div>' +
+        '<div style="font-size:11px;color:var(--muted-2);margin-top:2px">Invite a cleaner</div></div></div>'
+    );
+    cleanerCardsEl.innerHTML =
+      '<div style="padding:0 0 14px">' +
+        '<div style="font-size:11px;font-family:\'JetBrains Mono\',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">' +
+          '<span>My cleaners</span>' +
+          '<span onclick="showSection(\'settings\')" style="font-family:\'Plus Jakarta Sans\',sans-serif;font-size:12px;color:var(--primary);font-weight:600;cursor:pointer;letter-spacing:0;text-transform:none">Manage</span>' +
+        '</div>' +
+        '<div style="display:flex;gap:10px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px">' +
+          cards.join('') +
+        '</div>' +
+      '</div>';
+  }
+
   const showProperty = isPortfolioMode();
 
   // Desktop: table view regardless of view mode

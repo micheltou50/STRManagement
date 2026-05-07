@@ -562,7 +562,7 @@ function _bookingDetailPlatformPill(platform) {
   if (!platform) return '';
   const p = normalizePlatformLabel(platform);
   const base =
-    'font-size:11px;font-weight:500;padding:1px 7px;border-radius:4px;display:inline-block';
+    'font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;display:inline-block';
   if (p === 'Airbnb') {
     return `<span style="${base};color:#FF5A5F;background:#FFF0F0">Airbnb</span>`;
   }
@@ -572,31 +572,31 @@ function _bookingDetailPlatformPill(platform) {
   if (p === 'Direct') {
     return `<span style="${base};color:#3D6B4F;background:#E8F5E9">Direct</span>`;
   }
-  return `<span style="${base};color:#666;background:#F1EFE8">${escHtml(p)}</span>`;
+  return `<span style="${base};color:#5F5E5A;background:#F1EFE8">${escHtml(p)}</span>`;
 }
 
 function _bookingDetailStayStatusBadge(isCancelled, isPast) {
   if (isCancelled) {
-    return '<span style="font-size:11px;padding:2px 8px;border-radius:4px;display:inline-block;font-weight:500;color:#A32D2D;background:#FCEBEB">Cancelled</span>';
+    return '<span style="font-size:11px;padding:3px 10px;border-radius:999px;display:inline-block;font-weight:600;color:#A32D2D;background:#FCEBEB">Cancelled</span>';
   }
   if (isPast) {
-    return '<span style="font-size:11px;padding:2px 8px;border-radius:4px;display:inline-block;font-weight:500;color:#5F5E5A;background:#F1EFE8">Past</span>';
+    return '<span style="font-size:11px;padding:3px 10px;border-radius:999px;display:inline-block;font-weight:600;color:#5F5E5A;background:#F1EFE8">Past</span>';
   }
-  return '<span style="font-size:11px;padding:2px 8px;border-radius:4px;display:inline-block;font-weight:500;color:#0C447C;background:#E6F1FB">Upcoming</span>';
+  return '<span style="font-size:11px;padding:3px 10px;border-radius:999px;display:inline-block;font-weight:600;color:#0C447C;background:#E6F1FB">Upcoming</span>';
 }
 
 function _bookingDetailCleanerBadge(state) {
   const k = state.key;
   if (k === 'unassigned' || k === 'cancelled') {
-    return '<span style="font-size:12px;padding:2px 8px;border-radius:4px;font-weight:500;white-space:nowrap;color:#A32D2D;background:#FCEBEB">No cleaner</span>';
+    return '<span style="font-size:11px;padding:3px 10px;border-radius:999px;font-weight:600;white-space:nowrap;color:#A32D2D;background:#FCEBEB">No cleaner</span>';
   }
   if (k === 'done') {
-    return '<span style="font-size:12px;padding:2px 8px;border-radius:4px;font-weight:500;white-space:nowrap;color:#5F5E5A;background:#F1EFE8">Done</span>';
+    return '<span style="font-size:11px;padding:3px 10px;border-radius:999px;font-weight:600;white-space:nowrap;color:#5F5E5A;background:#F1EFE8">Done</span>';
   }
   if (k === 'confirmed') {
-    return '<span style="font-size:12px;padding:2px 8px;border-radius:4px;font-weight:500;white-space:nowrap;color:#1D9E75;background:#E8F5E9">Confirmed</span>';
+    return '<span style="font-size:11px;padding:3px 10px;border-radius:999px;font-weight:600;white-space:nowrap;color:#1D9E75;background:#E8F5E9">Confirmed</span>';
   }
-  return '<span style="font-size:12px;padding:2px 8px;border-radius:4px;font-weight:500;white-space:nowrap;color:#BA7517;background:#FAEEDA">Awaiting</span>';
+  return '<span style="font-size:11px;padding:3px 10px;border-radius:999px;font-weight:600;white-space:nowrap;color:#BA7517;background:#FAEEDA">Awaiting</span>';
 }
 
 function _bookingDetailPlatformPlain(platform) {
@@ -632,40 +632,40 @@ function showDetail(id) {
     0;
 
   if (isCancelled) {
+    const cancelledInitial = escHtml(String(b.name || '').charAt(0).toUpperCase());
     document.getElementById('detail-content').innerHTML = `
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px">
-        <div style="font-size:18px;font-weight:500;color:var(--ink-1);flex:1;min-width:0">${escHtml(b.name)}</div>
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px">
+        <div style="width:52px;height:52px;border-radius:14px;background:#FCEBEB;display:flex;align-items:center;justify-content:center;font-family:'Newsreader',serif;font-weight:700;font-size:22px;color:#A32D2D;flex-shrink:0">${cancelledInitial}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-family:'Newsreader',serif;font-size:22px;font-weight:600;color:var(--ink-1);letter-spacing:-0.3px;text-decoration:line-through;opacity:0.7">${escHtml(b.name)}</div>
+          <div style="font-size:12px;color:var(--muted-2);margin-top:2px">${b.nights} night${b.nights !== 1 ? 's' : ''} · ${b.guests} guest${b.guests !== 1 ? 's' : ''}</div>
+        </div>
       </div>
       <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:20px">
         ${b.platform ? _bookingDetailPlatformPill(b.platform) : ''}
         ${_bookingDetailStayStatusBadge(true, false)}
       </div>
-      <div style="font-size:12px;font-weight:500;color:#999;margin:0 0 6px 2px">Stay details</div>
-      <div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden">
-        <div style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center">
-          <span style="font-size:13px;color:#666">Check-in</span>
-          <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${fmt(b.checkin)}</span>
+      <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase;margin:0 0 8px 2px">Stay</div>
+      <div style="background:white;border-radius:16px;border:1px solid var(--hairline-1);margin-bottom:20px;overflow:hidden">
+        <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:16px">
+          <div>
+            <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:0.5px;text-transform:uppercase">CHECK-IN</div>
+            <div style="font-size:15px;font-weight:600;color:var(--ink-1);margin-top:4px">${fmt(b.checkin)}</div>
+          </div>
+          <div style="padding:0 12px"><svg width="24" height="14" viewBox="0 0 24 14" fill="none"><path d="M0 7h22M16 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <div style="text-align:right">
+            <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:0.5px;text-transform:uppercase">CHECK-OUT</div>
+            <div style="font-size:15px;font-weight:600;color:var(--ink-1);margin-top:4px">${fmt(b.checkout)}</div>
+          </div>
         </div>
-        <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
-          <span style="font-size:13px;color:#666">Check-out</span>
-          <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${fmt(b.checkout)}</span>
-        </div>
-        <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
-          <span style="font-size:13px;color:#666">Nights</span>
-          <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${b.nights}</span>
-        </div>
-        <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
-          <span style="font-size:13px;color:#666">Guests</span>
-          <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${b.guests}</span>
-        </div>
-        <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
-          <span style="font-size:13px;color:#666">Platform</span>
-          <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${_bookingDetailPlatformPlain(b.platform)}</span>
+        <div style="border-top:1px solid var(--hairline-2);padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:13px;color:var(--ink-2)">Platform</span>
+          <span style="font-size:13px;font-weight:600;color:var(--ink-1)">${_bookingDetailPlatformPlain(b.platform)}</span>
         </div>
       </div>
-      <div style="display:flex;gap:10px;margin-top:20px">
-        <div style="flex:1;border:0.5px solid rgba(0,0,0,0.1);border-radius:10px;padding:12px;text-align:center;color:#666;font-size:13px;cursor:pointer;box-sizing:border-box;touch-action:manipulation" onclick="closeDetailModal()">Close</div>
-        <div style="flex:1;background:#FCEBEB;border:0.5px solid #FCEBEB;border-radius:10px;padding:12px;text-align:center;color:#A32D2D;font-size:13px;font-weight:500;cursor:pointer;box-sizing:border-box;touch-action:manipulation" onclick="deleteBooking('${safeIdEsc}')">Delete booking</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:20px">
+        <div onclick="closeDetailModal()" style="width:100%;border:1px solid var(--hairline-1);border-radius:14px;padding:14px;text-align:center;color:var(--ink-2);font-size:14px;font-weight:600;cursor:pointer;box-sizing:border-box;touch-action:manipulation;font-family:'Plus Jakarta Sans',sans-serif">Close</div>
+        <div onclick="deleteBooking('${safeIdEsc}')" style="width:100%;border-radius:14px;padding:14px;text-align:center;color:var(--warn,#b56a3a);font-size:14px;font-weight:600;cursor:pointer;box-sizing:border-box;touch-action:manipulation;font-family:'Plus Jakarta Sans',sans-serif">Delete booking</div>
       </div>
     `;
     const _dp = window.innerWidth >= 1024 && document.getElementById('desktop-detail-panel');
@@ -732,7 +732,7 @@ function showDetail(id) {
       '">' +
       '<button type="button" onclick="assignCleanerToBooking(\'' +
       safeIdEsc +
-      '\')" id="detail-assign-btn" style="width:100%;background:#2D5A3D;border-radius:10px;padding:12px;text-align:center;color:white;font-size:14px;font-weight:500;border:none;cursor:pointer;box-sizing:border-box;font-family:inherit;touch-action:manipulation">Save assignment</button>'
+      '\')" id="detail-assign-btn" style="width:100%;background:var(--primary);border-radius:14px;padding:14px;text-align:center;color:white;font-size:14px;font-weight:600;border:none;cursor:pointer;box-sizing:border-box;font-family:\'Plus Jakarta Sans\',sans-serif;touch-action:manipulation">Save assignment</button>'
     );
   })();
 
@@ -743,82 +743,84 @@ function showDetail(id) {
     ? 'Clean date: ' + fmt(bc[0].date)
     : '';
 
+  const guestInitial = escHtml(String(b.name || '').charAt(0).toUpperCase());
   document.getElementById('detail-content').innerHTML = `
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px">
-      <div style="font-size:18px;font-weight:500;color:var(--ink-1);flex:1;min-width:0">${escHtml(b.name)}</div>
-      <span onclick="showEditModal('${safeIdEsc}')" style="color:#2D5A3D;font-size:13px;font-weight:500;cursor:pointer;flex-shrink:0;touch-action:manipulation;padding-top:2px">Edit</span>
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px">
+      <div style="width:52px;height:52px;border-radius:14px;background:var(--primary-soft);display:flex;align-items:center;justify-content:center;font-family:'Newsreader',serif;font-weight:700;font-size:22px;color:var(--primary);flex-shrink:0">${guestInitial}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-family:'Newsreader',serif;font-size:22px;font-weight:600;color:var(--ink-1);letter-spacing:-0.3px">${escHtml(b.name)}</div>
+        <div style="font-size:12px;color:var(--muted-2);margin-top:2px">${b.nights} night${b.nights !== 1 ? 's' : ''} · ${b.guests} guest${b.guests !== 1 ? 's' : ''}</div>
+      </div>
+      <span onclick="showEditModal('${safeIdEsc}')" style="color:var(--primary);font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0;touch-action:manipulation">Edit</span>
     </div>
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:20px">
       ${b.platform ? _bookingDetailPlatformPill(b.platform) : ''}
       ${_bookingDetailStayStatusBadge(false, isPast)}
     </div>
 
-    <div style="font-size:12px;font-weight:500;color:#999;margin:0 0 6px 2px">Stay details</div>
-    <div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden">
-      <div style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px;color:#666">Check-in</span>
-        <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${fmt(b.checkin)}</span>
+    <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase;margin:0 0 8px 2px">Stay</div>
+    <div style="background:white;border-radius:16px;border:1px solid var(--hairline-1);margin-bottom:20px;overflow:hidden">
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:16px">
+        <div>
+          <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:0.5px;text-transform:uppercase">CHECK-IN</div>
+          <div style="font-size:15px;font-weight:600;color:var(--ink-1);margin-top:4px">${fmt(b.checkin)}</div>
+          <div style="font-size:11px;color:var(--muted-2);margin-top:2px">15:00</div>
+        </div>
+        <div style="padding:0 12px"><svg width="24" height="14" viewBox="0 0 24 14" fill="none"><path d="M0 7h22M16 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div style="text-align:right">
+          <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:0.5px;text-transform:uppercase">CHECK-OUT</div>
+          <div style="font-size:15px;font-weight:600;color:var(--ink-1);margin-top:4px">${fmt(b.checkout)}</div>
+          <div style="font-size:11px;color:var(--muted-2);margin-top:2px">11:00</div>
+        </div>
       </div>
-      <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px;color:#666">Check-out</span>
-        <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${fmt(b.checkout)}</span>
-      </div>
-      <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px;color:#666">Nights</span>
-        <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${b.nights}</span>
-      </div>
-      <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px;color:#666">Guests</span>
-        <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${b.guests}</span>
-      </div>
-      <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px;color:#666">Platform</span>
-        <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${_bookingDetailPlatformPlain(b.platform)}</span>
+      <div style="border-top:1px solid var(--hairline-2);padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:var(--ink-2)">Platform</span>
+        <span style="font-size:13px;font-weight:600;color:var(--ink-1)">${_bookingDetailPlatformPlain(b.platform)}</span>
       </div>
     </div>
 
-    <div style="font-size:12px;font-weight:500;color:#999;margin:0 0 6px 2px">Financials</div>
-    <div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden">
-      <div style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px;color:#666">Gross revenue</span>
-        <span style="font-size:13px;font-weight:500;color:#1D9E75">$${Number(b.hostPayout || 0).toLocaleString()}</span>
+    <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase;margin:0 0 8px 2px">Financials</div>
+    <div style="background:white;border-radius:16px;border:1px solid var(--hairline-1);margin-bottom:20px;overflow:hidden">
+      <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:var(--ink-2)">Gross revenue</span>
+        <span style="font-size:14px;font-weight:600;color:var(--good,#3f7a5e);font-family:'Newsreader',serif">$${Number(b.hostPayout || 0).toLocaleString()}</span>
       </div>
-      <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px;color:#666">Cleaning fee</span>
+      <div style="padding:12px 16px;border-top:1px solid var(--hairline-2);display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:var(--ink-2)">Cleaning fee</span>
         <span style="font-size:13px;font-weight:500;color:var(--ink-1)">$${Number(b.cleaningFee || 0).toLocaleString()}</span>
       </div>
-      <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px;color:#666">Management fee</span>
+      <div style="padding:12px 16px;border-top:1px solid var(--hairline-2);display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:var(--ink-2)">Management fee</span>
         <span style="font-size:13px;font-weight:500;color:var(--ink-1)">${mgmtPct}%</span>
       </div>
-      <div style="padding:12px 14px;border-top:0.5px solid rgba(0,0,0,0.1);margin-left:14px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px;color:#666">Management payout</span>
+      <div style="padding:12px 16px;border-top:1px solid var(--hairline-2);display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:var(--ink-2)">Management payout</span>
         <span style="font-size:13px;font-weight:500;color:var(--ink-1)">$${Number(b.mgmtPayout || 0).toLocaleString()}</span>
       </div>
-      <div style="border-top:0.5px solid rgba(0,0,0,0.1)"></div>
-      <div style="padding:12px 14px;background:#f5f5f3;border-radius:0 0 12px 12px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px;font-weight:500;color:var(--ink-1)">Owner payout</span>
-        <span style="font-size:14px;font-weight:500;color:#1D9E75">$${Number(b.netPayout || 0).toLocaleString()}</span>
+      <div style="border-top:1px solid var(--hairline-1)"></div>
+      <div style="padding:14px 16px;background:var(--surface2);display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;font-weight:600;color:var(--ink-1)">Owner payout</span>
+        <span style="font-size:16px;font-weight:600;color:var(--good,#3f7a5e);font-family:'Newsreader',serif">$${Number(b.netPayout || 0).toLocaleString()}</span>
       </div>
     </div>
 
-    <div style="font-size:12px;font-weight:500;color:#999;margin:0 0 6px 2px">Cleaner</div>
-    <div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden">
-      <div style="padding:14px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+    <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase;margin:0 0 8px 2px">Cleaner</div>
+    <div style="background:white;border-radius:16px;border:1px solid var(--hairline-1);margin-bottom:20px;overflow:hidden">
+      <div style="padding:14px 16px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
         <div style="min-width:0;flex:1">
-          <div style="font-size:15px;font-weight:500;color:var(--ink-1)">${cleanerTopName}</div>
-          ${cleanerDateLine ? `<div style="font-size:13px;color:#666;margin-top:4px">${cleanerDateLine}</div>` : ''}
+          <div style="font-size:15px;font-weight:600;color:var(--ink-1)">${cleanerTopName}</div>
+          ${cleanerDateLine ? `<div style="font-size:12px;color:var(--muted-2);margin-top:4px">${cleanerDateLine}</div>` : ''}
         </div>
         <div style="flex-shrink:0;padding-top:2px">${_bookingDetailCleanerBadge(cleanerState)}</div>
       </div>
-      <div style="border-top:0.5px solid rgba(0,0,0,0.1)"></div>
-      <div class="toggle-wrap" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;margin:0;border:none${isPast ? ';opacity:0.5' : ''}">
+      <div style="border-top:1px solid var(--hairline-2)"></div>
+      <div class="toggle-wrap" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;margin:0;border:none${isPast ? ';opacity:0.5' : ''}">
         <span style="font-size:13px;color:var(--ink-1)">Cleaner confirmed${isPast ? ' <span style="font-size:11px;color:var(--muted-2)">(locked)</span>' : ''}</span>
         <button type="button" class="toggle ${matchedClean?.cleanerConfirmed ?? b.cleanerConfirmed ? 'on' : ''}" ${isPast ? 'disabled' : `onclick="toggleCleanerConfirmed('${b.id}')"`} aria-label="Toggle cleaner confirmed" style="flex-shrink:0${isPast ? ';pointer-events:none' : ''}"></button>
       </div>
-      <div style="border-top:0.5px solid rgba(0,0,0,0.1)"></div>
-      <div style="padding:14px">
-        <div style="font-size:12px;font-weight:500;color:#999;margin-bottom:8px">Change cleaner</div>
+      <div style="border-top:1px solid var(--hairline-2)"></div>
+      <div style="padding:14px 16px">
+        <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:8px">Change cleaner</div>
         ${cleanerAssignBlock}
       </div>
     </div>
@@ -848,9 +850,9 @@ function showDetail(id) {
       ${bn.map(n => `<div class="note-item" style="margin-bottom:8px"><span class="note-tag tag-${n.tag}">${n.tag}</span><div class="note-text">${n.text}</div></div>`).join('')}
     </div>`
       : ''}
-    <div style="display:flex;gap:10px;margin-top:20px">
-      <div style="flex:1;border:0.5px solid rgba(0,0,0,0.1);border-radius:10px;padding:12px;text-align:center;color:#666;font-size:13px;cursor:pointer;box-sizing:border-box;touch-action:manipulation" onclick="closeDetailModal()">Close</div>
-      <div style="flex:1;background:#FCEBEB;border:0.5px solid #FCEBEB;border-radius:10px;padding:12px;text-align:center;color:#A32D2D;font-size:13px;font-weight:500;cursor:pointer;box-sizing:border-box;touch-action:manipulation" onclick="deleteBooking('${safeIdEsc}')">Delete booking</div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:20px">
+      <div onclick="closeDetailModal()" style="width:100%;border:1px solid var(--hairline-1);border-radius:14px;padding:14px;text-align:center;color:var(--ink-2);font-size:14px;font-weight:600;cursor:pointer;box-sizing:border-box;touch-action:manipulation;font-family:'Plus Jakarta Sans',sans-serif">Close</div>
+      <div onclick="deleteBooking('${safeIdEsc}')" style="width:100%;border-radius:14px;padding:14px;text-align:center;color:var(--warn,#b56a3a);font-size:14px;font-weight:600;cursor:pointer;box-sizing:border-box;touch-action:manipulation;font-family:'Plus Jakarta Sans',sans-serif">Delete booking</div>
     </div>
   `;
   const _dp2 = window.innerWidth >= 1024 && document.getElementById('desktop-detail-panel');
