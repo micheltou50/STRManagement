@@ -140,21 +140,21 @@ export function buildBookingListCardFromBooking(b, options = {}) {
   const stripe = portfolioStripeColor ? `box-shadow:inset 4px 0 0 ${portfolioStripeColor};` : '';
 
   const row1WrapOpacity = isCancelled ? ';opacity:0.6' : '';
-  const nameSpanStyle = 'font-weight:500;font-size:15px;color:var(--ink-1)';
+  const nameSpanStyle = 'font-weight:700;font-size:14.5px;color:var(--ink-1);font-family:\'Newsreader\',serif';
   const priceSpanStyle = isCancelled
-    ? 'font-weight:500;font-size:15px;color:#666;text-decoration:line-through'
-    : 'font-weight:500;font-size:15px;color:#1D9E75';
+    ? 'font-weight:600;font-size:16px;color:var(--muted-2);text-decoration:line-through;font-family:\'Newsreader\',serif'
+    : 'font-weight:600;font-size:16px;color:var(--ink-1);font-family:\'Newsreader\',serif';
   const row2Style = isCancelled
-    ? 'font-size:13px;color:#666;margin-top:3px;opacity:0.6'
-    : 'font-size:13px;color:#666;margin-top:3px';
+    ? 'font-size:12px;color:var(--muted-2);margin-top:2px;opacity:0.6'
+    : 'font-size:12px;color:var(--muted-2);margin-top:2px';
 
-  const platformPill = `<span style="font-size:11px;font-weight:500;padding:1px 7px;border-radius:4px;color:${platformMeta.color};background:${platformMeta.bg}">${escHtml(platformMeta.label)}</span>`;
+  const platformPill = `<span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;color:${platformMeta.color};background:${platformMeta.bg}">${escHtml(platformMeta.label)}</span>`;
 
-  const bookBadge = `<span style="font-size:11px;font-weight:500;padding:2px 8px;border-radius:4px;color:${bookStatus.color};background:${bookStatus.bg}">${escHtml(bookStatus.label)}</span>`;
+  const bookBadge = `<span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;color:${bookStatus.color};background:${bookStatus.bg}">${escHtml(bookStatus.label)}</span>`;
 
   const cleanerBadgeHtml =
     !isCancelled && cleanerMeta
-      ? `<span style="font-size:12px;font-weight:500;padding:2px 8px;border-radius:4px;color:${cleanerMeta.color};background:${cleanerMeta.bg}">${escHtml(cleanerMeta.label)}</span>`
+      ? `<span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;color:${cleanerMeta.color};background:${cleanerMeta.bg}">${escHtml(cleanerMeta.label)}</span>`
       : '';
 
   const row3LeftPills = isCancelled
@@ -170,7 +170,7 @@ export function buildBookingListCardFromBooking(b, options = {}) {
   // Source rails (5px inset shadow) live on `data-source` attr — class rule wins.
   // If a portfolio stripe is also requested, layer it as a 2nd shadow so both show.
   const outerStyle =
-    'display:block;background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);padding:14px 16px 14px 22px;margin-bottom:10px;cursor:pointer;border-bottom:none;' +
+    'display:block;background:white;border-radius:16px;border:1px solid var(--hairline-1);padding:14px 16px 14px 22px;margin-bottom:8px;cursor:pointer;border-bottom:none;' +
     CARD_TOUCH +
     stripe;
 
