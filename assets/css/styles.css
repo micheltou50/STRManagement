@@ -2973,3 +2973,35 @@ body.cleaner-mode .cl-progress > i { display: block; height: 100%; background: v
 .so-h2 { font-family: var(--font-display); font-size: 22px; font-weight: 500; color: var(--ink-1); }
 .so-label { font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-2); }
 
+/* ── Cleaner PWA palette overrides (teal v2) ────────────────────────────── */
+body.cleaner-mode .cleaner-header { background: var(--cl-primary-ink); }
+body.cleaner-mode .cleaner-header .header-sub-name { color: rgba(255,255,255,0.7); }
+body.cleaner-mode .cleaner-tab-bar { background: var(--cl-bg); border-bottom: 1px solid var(--cl-hairline); }
+body.cleaner-mode .cleaner-tab { color: var(--cl-muted); }
+body.cleaner-mode .cleaner-tab.active { color: var(--cl-primary); border-bottom-color: var(--cl-primary); }
+body.cleaner-mode .cleaner-content { background: var(--cl-bg); }
+body.cleaner-pin-active #cleaner-pin-screen { background: var(--cl-primary-ink); }
+
+/* Cleaner home/offer/in-progress/done helper components */
+.cl-greeting { display: flex; align-items: center; gap: 12px; padding: 18px 22px 6px; }
+.cl-avatar { width: 44px; height: 44px; border-radius: 50%; background: var(--cl-accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-display); font-size: 22px; font-weight: 500; flex-shrink: 0; }
+.cl-greeting-name { font-family: var(--font-display); font-size: 22px; font-weight: 500; color: var(--cl-ink); }
+.cl-section-title { font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cl-muted); margin: 18px 22px 8px; }
+.cl-pay-pill { display: inline-flex; padding: 4px 10px; border-radius: 999px; font-family: var(--font-mono); font-size: 12px; font-weight: 600; background: rgba(255,255,255,0.18); color: #fff; }
+.cl-offer-card { background: #fff; border: 2px solid var(--cl-accent); border-radius: 18px; padding: 16px 18px; box-shadow: var(--shadow-card); }
+.cl-time-strip { display: flex; gap: 10px; padding: 0 22px; overflow-x: auto; }
+.cl-day-card { flex: 0 0 110px; background: #fff; border: 1px solid var(--cl-hairline); border-radius: 14px; padding: 12px; }
+.cl-day-badge { font-family: var(--font-mono); font-size: 11px; color: var(--cl-muted); }
+.cl-checklist { display: flex; flex-direction: column; gap: 8px; padding: 0 6px; }
+.cl-checklist-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: #fff; border: 1px solid var(--cl-hairline); border-radius: 12px; }
+.cl-checklist-item.done { opacity: 0.6; }
+.cl-checklist-item.done .cl-task-text { text-decoration: line-through; color: var(--cl-muted); }
+.cl-checklist-item.current { background: var(--accent-soft); border-color: var(--cl-accent); }
+.cl-check-tick { width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--cl-hairline); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.cl-checklist-item.done .cl-check-tick { background: var(--cl-primary); border-color: var(--cl-primary); color: #fff; }
+.cl-photo-tag { font-family: var(--font-mono); font-size: 10px; color: var(--cl-muted); background: var(--cl-primary-soft); padding: 2px 6px; border-radius: 6px; margin-left: auto; }
+.cl-earnings-card { background: #fff; border: 1px solid var(--cl-hairline); border-radius: 18px; padding: 22px; box-shadow: var(--shadow-card); }
+.cl-earnings-amount { font-family: var(--font-display); font-size: 38px; font-weight: 500; color: var(--cl-ink); letter-spacing: -0.02em; }
+.cl-earnings-paid-pill { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; background: var(--cl-primary-soft); color: var(--cl-primary); }
+.cl-done-circle { width: 88px; height: 88px; border-radius: 50%; background: var(--cl-primary); color: #fff; display: inline-flex; align-items: center; justify-content: center; }
+
