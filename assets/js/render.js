@@ -1636,23 +1636,6 @@ function buildSinglePropertyTodayDashboardMarkup() {
     </div>
   </div>`;
 
-  const propExpenses = expenses.filter(e => {
-    if (!e.date || e.date < monthStartStr || e.date >= monthEndStr) return false;
-    if (!activePid) return true;
-    return !e._propertyId || String(e._propertyId) === String(activePid);
-  });
-  const expSum = propExpenses.reduce((s, e) => s + safeNum(e.amount), 0);
-  const openMaint = maintenance.filter(m => {
-    if (m.status !== 'open' && m.status !== 'inprogress') return false;
-    if (activePid && m._propertyId && String(m._propertyId) !== String(activePid)) return false;
-    return true;
-  });
-  const lowStock = inventory.filter(i => {
-    if (i.stock > i.threshold) return false;
-    if (activePid && i._propertyId && String(i._propertyId) !== String(activePid)) return false;
-    return true;
-  });
-
   const quickActionIcon = (svgPath) =>
     `<div style="width:36px;height:36px;border-radius:10px;background:var(--primary-soft);margin:0 auto;display:flex;align-items:center;justify-content:center">
       <svg width="22" height="22" viewBox="0 0 22 22" fill="none">${svgPath}</svg>
