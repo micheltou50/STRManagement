@@ -3558,8 +3558,6 @@ export function maybeShowFirstBookingToast(bookingsArr) {
     const cfg = globalThis.appConfig || globalThis.config;
     if (!cfg) return;
     localStorage.setItem('stayops.firstBookingToastShown', '1');
-    const b = bookingsArr[0];
-    const guest = (b && (b.guest_name || b.guest)) || 'Your first guest';
     const cleaner = (globalThis._cleaners && globalThis._cleaners[0]?.name) || 'your cleaner';
     let toast = document.getElementById('so-first-booking-toast');
     if (!toast) {
