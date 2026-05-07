@@ -78,7 +78,7 @@ import {
 } from './admin.js';
 import {
   initMessaging, openChat, closeChat, sendMessage, sendAutoMessage,
-  getUnreadCount, renderChatBubble, uploadChatPhoto
+  getUnreadCount, renderChatBubble, uploadChatPhoto, loadThread
 } from './messaging.js';
 import {
   showBanner, platformIcon, reloadInMemoryData, showSection, jumpToCleaningActionNeeded, jumpToScheduleClean, render, renderAll, renderDashboard, renderHeaderDateBadge,
@@ -409,6 +409,7 @@ window.closeChat                = closeChat;
 window.sendMessage              = sendMessage;
 window.sendAutoMessage          = sendAutoMessage;
 window.uploadChatPhoto          = uploadChatPhoto;
+window.loadThread               = loadThread;
 
 // Called from supabase.js typeof window.X guards (boot sequence)
 window.getAllProperties          = getAllProperties;
