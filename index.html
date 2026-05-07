@@ -1460,54 +1460,56 @@
   <div id="section-property" class="section-hidden section-stack">
     <div class="section-heading section-heading-settings">
       <div>
-        <h2>Property</h2>
-        <p>Core property operations.</p>
+        <h2 style="font-family:'Newsreader',serif;font-size:24px;font-weight:600;color:var(--ink-1);letter-spacing:-0.3px">Property</h2>
+        <p style="font-size:12px;color:var(--muted-2);margin-top:2px">Core property operations.</p>
       </div>
-      <button class="btn-secondary section-cta" onclick="openPropertySettingsMenu()" style="width:auto;padding:10px 12px">⚙️</button>
+      <button class="btn-secondary section-cta" onclick="openPropertySettingsMenu()" style="width:auto;padding:10px 12px;border-radius:10px;border:1px solid var(--hairline-1);background:var(--surface2)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.5" stroke="var(--ink-2)" stroke-width="1.5"/><path d="M13 10a1.1 1.1 0 00.22 1.21l.04.04a1.33 1.33 0 11-1.89 1.89l-.04-.04A1.1 1.1 0 0010 13a1.1 1.1 0 00-.67 1.01V14.33a1.33 1.33 0 01-2.66 0V14.27A1.1 1.1 0 006 13a1.1 1.1 0 00-1.21.22l-.04.04a1.33 1.33 0 11-1.89-1.89l.04-.04A1.1 1.1 0 003 10a1.1 1.1 0 00-1.01-.67H1.67a1.33 1.33 0 010-2.66h.06A1.1 1.1 0 003 6a1.1 1.1 0 00-.22-1.21l-.04-.04a1.33 1.33 0 111.89-1.89l.04.04A1.1 1.1 0 006 3a1.1 1.1 0 00.67-1.01V1.67a1.33 1.33 0 012.66 0v.06A1.1 1.1 0 0010 3a1.1 1.1 0 001.21-.22l.04-.04a1.33 1.33 0 111.89 1.89l-.04.04A1.1 1.1 0 0013 6a1.1 1.1 0 001.01.67h.32a1.33 1.33 0 010 2.66h-.06A1.1 1.1 0 0013 10z" stroke="var(--ink-2)" stroke-width="1.3"/></svg>
+      </button>
     </div>
     <div id="portfolio-property-view" style="display:none"></div>
     <!-- PROPERTY HUB ─ top-level rows only -->
     <div id="prop-hub">
-      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:16px">
+      <div style="background:#fff;border-radius:18px;border:1px solid var(--hairline-1);overflow:hidden;margin-bottom:16px;padding:0 16px">
 
         <div class="settings-cat-item" onclick="openPropertyDetailsFromHub()">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>
-            <div><div style="font-weight:500;font-size:14px">Property Details</div><div style="font-size:12px;color:var(--text-soft)">Name, location, beds, configuration</div></div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-2)" stroke-width="1.7"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>
+            <div><div style="font-weight:600;font-size:14px;color:var(--ink-1)">Property Details</div><div style="font-size:12px;color:var(--muted-2)">Name, location, beds, configuration</div></div>
           </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+          <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
 
         <div class="settings-cat-item" onclick="openPropertyAccessRules()">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg></div>
-            <div><div style="font-weight:500;font-size:14px">Access &amp; Rules</div><div style="font-size:12px;color:var(--text-soft)">Entry codes, house rules, check-in info</div></div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-2)" stroke-width="1.7"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg></div>
+            <div><div style="font-weight:600;font-size:14px;color:var(--ink-1)">Access &amp; Rules</div><div style="font-size:12px;color:var(--muted-2)">Entry codes, house rules, check-in info</div></div>
           </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+          <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
 
         <div class="settings-cat-item" onclick="showPropertySub('maintenance')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94L6.73 20.15a2.1 2.1 0 01-3-3l6.72-6.72A6 6 0 0114.7 6.3z"/></svg></div>
-            <div><div style="font-weight:500;font-size:14px">Maintenance</div><div style="font-size:12px;color:var(--text-soft)">Log and track property issues</div></div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-2)" stroke-width="1.7"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94L6.73 20.15a2.1 2.1 0 01-3-3l6.72-6.72A6 6 0 0114.7 6.3z"/></svg></div>
+            <div><div style="font-weight:600;font-size:14px;color:var(--ink-1)">Maintenance</div><div style="font-size:12px;color:var(--muted-2)">Log and track property issues</div></div>
           </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+          <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
 
         <div class="settings-cat-item" onclick="showPropertySub('inventory')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
-            <div><div style="font-weight:500;font-size:14px">Inventory</div><div style="font-size:12px;color:var(--text-soft)">Stock tracking and shopping list</div></div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-2)" stroke-width="1.7"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
+            <div><div style="font-weight:600;font-size:14px;color:var(--ink-1)">Inventory</div><div style="font-size:12px;color:var(--muted-2)">Stock tracking and shopping list</div></div>
           </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+          <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
 
         <div class="settings-cat-item" onclick="openOwnerReportFromHub()" style="border-bottom:none">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
-            <div><div style="font-weight:500;font-size:14px">Owner Reports</div><div style="font-size:12px;color:var(--text-soft)">Contact details, financial report delivery</div></div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-2)" stroke-width="1.7"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
+            <div><div style="font-weight:600;font-size:14px;color:var(--ink-1)">Owner Reports</div><div style="font-size:12px;color:var(--muted-2)">Contact details, financial report delivery</div></div>
           </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+          <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
 
       </div>
@@ -1564,12 +1566,7 @@
 
   <!-- SETTINGS -->
   <div id="section-settings" class="section-hidden">
-    <div class="card" style="padding:10px 12px;margin-bottom:10px;background:#F5F3EF;border:1px solid var(--warm)">
-      <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--forest);font-weight:600">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-        <span>Settings</span>
-      </div>
-    </div>
+    <h2 style="font-family:'Newsreader',serif;font-size:28px;font-weight:600;color:var(--ink-1);letter-spacing:-0.5px;margin:0 0 16px">Settings</h2>
 
     <!-- ═══════════════════════════════════════════════════════
          MAIN SETTINGS MENU
@@ -1577,73 +1574,110 @@
     <div id="settings-menu">
       <!-- Quick actions (only shown when setup has gaps) -->
       <div class="card" id="settings-quick-actions" style="display:none;margin-bottom:14px">
-        <div class="card-title">⚡ Quick Actions</div>
+        <div class="card-title">Quick Actions</div>
         <div class="quick-action-row">
           <button class="btn-primary" id="settings-fix-setup-btn" onclick="openSettingsCat('property');reopenPropertySetup()">Fix Property Setup</button>
         </div>
       </div>
 
+      <!-- ═══ PROFILE CARD ═══ -->
+      <div onclick="openSettingsPanel('host-profile')" style="background:#fff;border-radius:20px;padding:16px;border:1px solid var(--hairline-1);display:flex;align-items:center;gap:14px;cursor:pointer;margin-bottom:22px">
+        <div id="settings-profile-avatar" style="width:56px;height:56px;border-radius:18px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-family:'Newsreader',serif;font-size:22px;font-weight:600;color:#7d4f1c;flex-shrink:0">?</div>
+        <div style="flex:1;min-width:0">
+          <div id="settings-profile-name" style="font-size:16px;font-weight:700;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Your profile</div>
+          <div id="settings-profile-email" style="font-size:12px;color:var(--muted-2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Tap to set up</div>
+        </div>
+        <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+
+      <!-- ═══ PROPERTIES ═══ -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0 4px 8px">
+        <div style="font-size:13px;font-weight:700;color:var(--ink-1)">Properties</div>
+        <div onclick="openSettingsCat('property')" style="font-size:12px;font-weight:600;color:var(--primary);cursor:pointer">+ Add</div>
+      </div>
+      <div id="settings-properties-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:22px">
+        <!-- JS populates per-property cards here; fallback empty state -->
+        <div id="settings-properties-empty" style="background:#fff;border-radius:18px;border:1px solid var(--hairline-1);padding:32px 20px;text-align:center">
+          <div style="font-size:14px;font-weight:600;color:var(--ink-1);margin-bottom:4px">No properties yet</div>
+          <div style="font-size:12px;color:var(--muted-2);line-height:1.5">Add your first place to get started.</div>
+        </div>
+      </div>
+
+      <!-- ═══ TEAM ═══ -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0 4px 8px">
+        <div style="font-size:13px;font-weight:700;color:var(--ink-1)">Team</div>
+        <div onclick="openSettingsCat('cleaner')" style="font-size:12px;font-weight:600;color:var(--primary);cursor:pointer">Invite</div>
+      </div>
+      <div id="settings-team-list" style="background:#fff;border-radius:18px;border:1px solid var(--hairline-1);overflow:hidden;margin-bottom:22px">
+        <!-- JS populates team members here; fallback row -->
+        <div id="settings-team-empty" style="padding:16px;text-align:center;font-size:12px;color:var(--muted-2)">No team members yet</div>
+      </div>
+
       <!-- ═══ ACCOUNT ═══ -->
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:16px 4px 8px">Account</div>
-      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
-        <div class="settings-cat-item" onclick="openSettingsPanel('host-profile')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
-            <div><div style="font-weight:500;font-size:14px">Your Business Profile</div><div style="font-size:12px;color:var(--text-soft)" id="host-profile-row">Name, company, ABN, contact</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
+      <div style="font-size:13px;font-weight:700;color:var(--ink-1);padding:0 4px 8px">Account</div>
+      <div style="background:#fff;border-radius:18px;border:1px solid var(--hairline-1);overflow:hidden;margin-bottom:22px">
         <div class="settings-cat-item" onclick="openSettingsPanel('notifications')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></div>
-            <div><div style="font-weight:500;font-size:14px">Notifications</div><div style="font-size:12px;color:var(--text-soft)" id="notif-status-row-menu">Tap to set up</div></div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1.5a4.5 4.5 0 00-4.5 4.5c0 2.5-1.5 4-1.5 4h12s-1.5-1.5-1.5-4A4.5 4.5 0 008 1.5z" stroke="var(--ink-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.5 12a1.5 1.5 0 003 0" stroke="var(--ink-2)" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+            <div style="flex:1;font-size:14px;font-weight:500;color:var(--ink-1)">Notifications</div>
+            <span style="font-size:12px;color:var(--muted-2);font-family:'JetBrains Mono',monospace" id="notif-status-row-menu">Tap to set up</span>
+            <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
-        <div class="settings-cat-item" onclick="openSettingsCat('cleaner')" style="border-bottom:none">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg></div>
-            <div><div style="font-weight:500;font-size:14px">Team</div><div style="font-size:12px;color:var(--text-soft)" id="team-count-row-menu">Cleaners & contractors</div></div>
+        <div class="settings-cat-item" onclick="openSettingsPanel('integrations')">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6.7 8.7a3.3 3.3 0 005 .36l2-2a3.3 3.3 0 00-4.7-4.7l-1.14 1.14" stroke="var(--ink-2)" stroke-width="1.5" stroke-linecap="round"/><path d="M9.3 7.3a3.3 3.3 0 00-5-.36l-2 2a3.3 3.3 0 004.7 4.7l1.13-1.14" stroke="var(--ink-2)" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+            <div style="flex:1;font-size:14px;font-weight:500;color:var(--ink-1)">Integrations</div>
+            <span style="font-size:12px;color:var(--muted-2);font-family:'JetBrains Mono',monospace">Gmail, iCal</span>
+            <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
         </div>
-      </div>
-
-      <!-- ═══ PROPERTY ═══ -->
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">Property</div>
-      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
-        <div class="settings-cat-item" onclick="openSettingsCat('property')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></div>
-            <div><div style="font-weight:500;font-size:14px">Property Setup</div><div style="font-size:12px;color:var(--text-soft)">Configuration & owner reports</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-        <div class="settings-cat-item" onclick="openSettingsPanel('integrations')" style="border-bottom:none">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></div>
-            <div><div style="font-weight:500;font-size:14px">Integrations</div><div style="font-size:12px;color:var(--text-soft)">Gmail, calendar feed, connections</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-      </div>
-
-      <!-- ═══ SYSTEM ═══ -->
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-soft);padding:4px 4px 8px">System</div>
-      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
         <div class="settings-cat-item" onclick="openSettingsCat('advanced')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg></div>
-            <div><div style="font-weight:500;font-size:14px">Advanced</div><div style="font-size:12px;color:var(--text-soft)">AI tools, diagnostics, app data</div></div>
-          </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-        </div>
-        <div class="settings-cat-item" onclick="hostSignOut()" style="border-bottom:none">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></div>
-            <div><div style="font-weight:500;font-size:14px">Sign Out</div><div style="font-size:12px;color:var(--text-soft)">Log out of this device</div></div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.5" stroke="var(--ink-2)" stroke-width="1.5"/><path d="M13 10a1.1 1.1 0 00.22 1.21l.04.04a1.33 1.33 0 11-1.89 1.89l-.04-.04A1.1 1.1 0 0010 13a1.1 1.1 0 00-.67 1.01V14.33a1.33 1.33 0 01-2.66 0V14.27A1.1 1.1 0 006 13a1.1 1.1 0 00-1.21.22l-.04.04a1.33 1.33 0 11-1.89-1.89l.04-.04A1.1 1.1 0 003 10a1.1 1.1 0 00-1.01-.67H1.67a1.33 1.33 0 010-2.66h.06A1.1 1.1 0 003 6a1.1 1.1 0 00-.22-1.21l-.04-.04a1.33 1.33 0 111.89-1.89l.04.04A1.1 1.1 0 006 3a1.1 1.1 0 00.67-1.01V1.67a1.33 1.33 0 012.66 0v.06A1.1 1.1 0 0010 3a1.1 1.1 0 001.21-.22l.04-.04a1.33 1.33 0 111.89 1.89l-.04.04A1.1 1.1 0 0013 6a1.1 1.1 0 001.01.67h.32a1.33 1.33 0 010 2.66h-.06A1.1 1.1 0 0013 10z" stroke="var(--ink-2)" stroke-width="1.3"/></svg></div>
+            <div style="flex:1;font-size:14px;font-weight:500;color:var(--ink-1)">Advanced</div>
+            <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </div>
         </div>
+        <div class="settings-cat-item" onclick="openSettingsCat('property')" style="border-bottom:none">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="4" y="7" width="8" height="6" rx="1.5" stroke="var(--ink-2)" stroke-width="1.5"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2" stroke="var(--ink-2)" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+            <div style="flex:1;font-size:14px;font-weight:500;color:var(--ink-1)">Data &amp; privacy</div>
+            <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ SUPPORT ═══ -->
+      <div style="font-size:13px;font-weight:700;color:var(--ink-1);padding:0 4px 8px">Support</div>
+      <div style="background:#fff;border-radius:18px;border:1px solid var(--hairline-1);overflow:hidden;margin-bottom:22px">
+        <div class="settings-cat-item" onclick="openSettingsPanel('help')">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="var(--ink-2)" stroke-width="1.5"/><path d="M6 6.5a2 2 0 014 0c0 1.1-1.2 1.5-2 2" stroke="var(--ink-2)" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.5" r="0.5" fill="var(--ink-2)"/></svg></div>
+            <div style="flex:1;font-size:14px;font-weight:500;color:var(--ink-1)">Help centre</div>
+            <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+        <div class="settings-cat-item" onclick="openSettingsPanel('feedback')">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12v8H6l-4 3V3z" stroke="var(--ink-2)" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
+            <div style="flex:1;font-size:14px;font-weight:500;color:var(--ink-1)">Send feedback</div>
+            <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+        <div class="settings-cat-item" onclick="openSettingsPanel('changelog')" style="border-bottom:none">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2l1.5 3 3.5.5-2.5 2.5.5 3.5L8 10l-3 1.5.5-3.5L3 5.5 6.5 5z" stroke="var(--ink-2)" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
+            <div style="flex:1;font-size:14px;font-weight:500;color:var(--ink-1)">What's new</div>
+            <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ LOG OUT + VERSION ═══ -->
+      <div style="text-align:center;padding-bottom:14px">
+        <button onclick="hostSignOut()" style="width:100%;height:44px;border-radius:12px;background:transparent;border:1px solid var(--hairline-1);color:var(--warn);font-size:14px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer">Log out</button>
+        <div style="margin-top:10px;font-size:11px;color:var(--muted-2);font-family:'JetBrains Mono',monospace;letter-spacing:0.5px">StayOps v1.0</div>
       </div>
     </div>
 
@@ -1652,27 +1686,27 @@
     ═══════════════════════════════════════════════════════ -->
     <div id="settings-cat-property" style="display:none">
       <div class="settings-back" onclick="closeSettingsCat()">‹ Settings</div>
-      <div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:20px">
+      <div style="background:#fff;border-radius:18px;border:1px solid var(--hairline-1);overflow:hidden;margin-bottom:20px;padding:0 16px">
         <div class="settings-cat-item" onclick="reopenPropertySetup()">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>
-            <div><div style="font-weight:500;font-size:14px">Property Configuration</div><div style="font-size:12px;color:var(--text-soft)">Name, location, beds, Google IDs</div></div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-2)" stroke-width="1.7"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>
+            <div><div style="font-weight:600;font-size:14px;color:var(--ink-1)">Property Configuration</div><div style="font-size:12px;color:var(--muted-2)">Name, location, beds, Google IDs</div></div>
           </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+          <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="settings-cat-item" onclick="openSettingsPanel('mgmt-fee')">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg></div>
-            <div><div style="font-weight:500;font-size:14px">Management Fee</div><div style="font-size:12px;color:var(--text-soft)">Default fee % applied to imported bookings</div></div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-2)" stroke-width="1.7"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg></div>
+            <div><div style="font-weight:600;font-size:14px;color:var(--ink-1)">Management Fee</div><div style="font-size:12px;color:var(--muted-2)">Default fee % applied to imported bookings</div></div>
           </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+          <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="settings-cat-item" onclick="openSettingsPanel('owner-report')" style="border-bottom:none">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:36px;height:36px;border-radius:10px;background:var(--warm);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A2F" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
-            <div><div style="font-weight:500;font-size:14px">Owner & Reports</div><div style="font-size:12px;color:var(--text-soft)">Contact details, financial report delivery</div></div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-2)" stroke-width="1.7"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
+            <div><div style="font-weight:600;font-size:14px;color:var(--ink-1)">Owner &amp; Reports</div><div style="font-size:12px;color:var(--muted-2)">Contact details, financial report delivery</div></div>
           </div>
-          <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
+          <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
       </div>
     </div>
