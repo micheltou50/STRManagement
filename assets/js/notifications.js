@@ -13,6 +13,7 @@ import {
 import { saveAppConfigToCloud, getCurrentSupabaseUser } from './supabase.js';
 import { bookings, cleans } from './state.js';
 import { fmt, _normName } from './utils.js';
+import { getEmailContentConfig } from './settings.js';
 
 function loadCleaners() {
   return (window._cleaners || []);
@@ -983,17 +984,19 @@ export async function sendCleanerEmail({ cleanerName, cleanerEmail, guestName, c
   };
   const subject = subjects[emailType] || subjects.assignment;
 
+  const ecc = (typeof getEmailContentConfig === 'function') ? getEmailContentConfig() : {};
   const templateData = {
     cleaner_name: cleanerFirst,
     host_name: hostName,
     property_name: propName,
-    property_address: addressLine,
-    guest_name: guestName || '',
-    guest_count: guests || '',
+    property_address: ecc.show_address !== false ? addressLine : '',
+    guest_name: ecc.show_guest_name !== false ? (guestName || '') : '',
+    guest_count: ecc.show_guest_count !== false ? (guests || '') : '',
     checkout_date: checkout || '',
     clean_date: cleanDateStr,
     clean_time: checkoutTime || '',
-    clean_pay: '',
+    clean_pay: ecc.show_pay !== false ? '' : '',
+    est_hours: ecc.show_est_hours !== false ? '' : '',
     accept_link: cleanerLink || 'https://app.stayops.com.au',
     decline_link: cleanerLink || 'https://app.stayops.com.au',
     schedule_link: cleanerLink || 'https://app.stayops.com.au',

@@ -690,6 +690,7 @@ function openSettingsPanel(panelId, returnSection) {
   }
   if (panelId === 'notifications') {
     setTimeout(updateNotifStatus, 100);
+    loadEmailContentToggles();
   }
   if (panelId === 'expense-cats') {
     renderExpenseCatSettings();
@@ -1805,6 +1806,40 @@ function openSettings() {
   globalThis.showSection('settings');
 }
 
+// ── Email Content Config (toggles for cleaner email fields) ───────────
+const ECC_DEFAULTS = { show_pay: true, show_guest_name: true, show_guest_count: true, show_est_hours: true, show_address: true };
+
+function getEmailContentConfig() {
+  const saved = (window._appConfig && window._appConfig.email_content_config) || {};
+  return { ...ECC_DEFAULTS, ...saved };
+}
+
+function loadEmailContentToggles() {
+  const cfg = getEmailContentConfig();
+  const idMap = { show_pay: 'ecc-show-pay', show_guest_name: 'ecc-show-guest-name', show_guest_count: 'ecc-show-guest-count', show_est_hours: 'ecc-show-est-hours', show_address: 'ecc-show-address' };
+  for (const [key, id] of Object.entries(idMap)) {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('on', cfg[key] !== false);
+  }
+}
+
+function toggleEmailContent(el) {
+  el.classList.toggle('on');
+  saveEmailContentConfig();
+}
+
+async function saveEmailContentConfig() {
+  const cfg = {};
+  const idMap = { 'ecc-show-pay': 'show_pay', 'ecc-show-guest-name': 'show_guest_name', 'ecc-show-guest-count': 'show_guest_count', 'ecc-show-est-hours': 'show_est_hours', 'ecc-show-address': 'show_address' };
+  for (const [id, key] of Object.entries(idMap)) {
+    const el = document.getElementById(id);
+    cfg[key] = el ? el.classList.contains('on') : ECC_DEFAULTS[key];
+  }
+  window._appConfig = window._appConfig || {};
+  window._appConfig.email_content_config = cfg;
+  await saveAppConfigToCloud({ email_content_config: cfg });
+}
+
 export {
   initSettingsSwipeBack,
   openSettings,
@@ -1874,4 +1909,8 @@ export {
   syncCalendarNow,
   renderCalendarInbox,
   classifyInboxEvent,
+  getEmailContentConfig,
+  loadEmailContentToggles,
+  toggleEmailContent,
+  saveEmailContentConfig,
 };

@@ -64,7 +64,8 @@ import {
   initFxSettings, initSettingsSwipeBack, toggleAutoAssignCleaner, resetConnectionCheckerResults, openCleanerSettings, renderCleanerAccessList, saveCleanerPinById, clearCleanerPinById, saveCleanerPerm, copyCleanerLinkById,
   populateICalFeedsPanel, addICalFeed, removeICalFeed, syncICalFeedsNow, maybeAutoSyncICal,
   connectGoogleCalendar, disconnectGoogleCalendar, connectOutlookCalendar, disconnectOutlookCalendar,
-  syncCalendarNow, renderCalendarInbox, classifyInboxEvent
+  syncCalendarNow, renderCalendarInbox, classifyInboxEvent,
+  getEmailContentConfig, toggleEmailContent, saveEmailContentConfig
 } from './settings.js';
 import { installCalendarSyncOutbound, triggerCalendarReconcileNow } from './calendar-sync-outbound.js';
 import {
@@ -312,6 +313,8 @@ window.switchReportsSubTab      = switchReportsSubTab;
 window.testCleanerEmail         = testCleanerEmail;
 window.testNotificationConfig   = testNotificationConfig;
 window.toggleAutoAssignCleaner  = toggleAutoAssignCleaner;
+window.toggleEmailContent       = toggleEmailContent;
+window.saveEmailContentConfig   = saveEmailContentConfig;
 window.toggleExpenseAddForm     = toggleExpenseAddForm;
 window.toggleExpenseList        = toggleExpenseList;
 window.switchAdminTab           = switchAdminTab;

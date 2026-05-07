@@ -90,12 +90,14 @@ exports.handler = async (_event) => {
   // Group cleans by user_id to check config once per owner
   const ownerIds = [...new Set(cleans.map(c => c.user_id).filter(Boolean))];
   const disabledOwners = new Set();
+  const ownerEmailContentCfg = {};
   for (const oid of ownerIds) {
-    const { data: cfg } = await sb.from('app_config').select('notification_config').eq('user_id', oid).maybeSingle();
+    const { data: cfg } = await sb.from('app_config').select('notification_config, email_content_config').eq('user_id', oid).maybeSingle();
     if (cfg && cfg.notification_config && cfg.notification_config.email_reminder === false) {
       disabledOwners.add(oid);
       console.log('[send-clean-reminders] email_reminder disabled for user', oid);
     }
+    if (cfg && cfg.email_content_config) ownerEmailContentCfg[oid] = cfg.email_content_config;
   }
 
   // ── 2. For each clean, look up the cleaner email ─────────────────────────
@@ -148,10 +150,11 @@ exports.handler = async (_event) => {
     }
 
     // ── 4. Build and send email ──────────────────────────────────────────
+    const ecc = ownerEmailContentCfg[clean.user_id] || {};
     const cleanerName = cleanerRecord?.name || clean.cleaner || 'there';
-    const guestName   = clean.guest_name || 'the guest';
+    const guestName   = ecc.show_guest_name !== false ? (clean.guest_name || 'the guest') : '';
     const cleanDate   = formatDate(clean.clean_date);
-    const subject     = `⏰ Reminder: Clean tomorrow — ${guestName}`;
+    const subject     = `⏰ Reminder: Clean tomorrow${guestName ? ' — ' + guestName : ''}`;
 
     const html = buildCleanReminderHtml({
       cleaner_name: cleanerName,

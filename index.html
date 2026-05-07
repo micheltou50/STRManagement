@@ -2076,6 +2076,32 @@
         <button class="btn-secondary" onclick="testCleanerEmail()">✉️ Send Test Email to Me</button>
         <div id="email-test-result" style="font-size:12px;margin-top:8px;display:none;padding:8px;border-radius:8px"></div>
       </div>
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-title">📋 Cleaner Email Content</div>
+        <div style="font-size:12px;color:var(--muted-2);margin-bottom:14px">Choose what information is included in emails sent to your cleaners.</div>
+        <div id="email-content-toggles" style="display:flex;flex-direction:column;gap:2px">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--hairline-2)">
+            <div><div style="font-size:14px;font-weight:500;color:var(--ink-1)">Cleaner pay</div><div style="font-size:12px;color:var(--muted-2)">Show how much they'll earn for the clean</div></div>
+            <div class="so-toggle" id="ecc-show-pay" onclick="toggleEmailContent(this)"></div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--hairline-2)">
+            <div><div style="font-size:14px;font-weight:500;color:var(--ink-1)">Guest name</div><div style="font-size:12px;color:var(--muted-2)">Include the guest's name in cleaning notifications</div></div>
+            <div class="so-toggle" id="ecc-show-guest-name" onclick="toggleEmailContent(this)"></div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--hairline-2)">
+            <div><div style="font-size:14px;font-weight:500;color:var(--ink-1)">Guest count</div><div style="font-size:12px;color:var(--muted-2)">Show the number of guests staying</div></div>
+            <div class="so-toggle" id="ecc-show-guest-count" onclick="toggleEmailContent(this)"></div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--hairline-2)">
+            <div><div style="font-size:14px;font-weight:500;color:var(--ink-1)">Estimated hours</div><div style="font-size:12px;color:var(--muted-2)">Show estimated cleaning time</div></div>
+            <div class="so-toggle" id="ecc-show-est-hours" onclick="toggleEmailContent(this)"></div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0">
+            <div><div style="font-size:14px;font-weight:500;color:var(--ink-1)">Property address</div><div style="font-size:12px;color:var(--muted-2)">Include the full address and map link</div></div>
+            <div class="so-toggle" id="ecc-show-address" onclick="toggleEmailContent(this)"></div>
+          </div>
+        </div>
+      </div>
       </div>
 
     <!-- PANEL: SMS TEMPLATE — hidden, kept for backend compatibility -->
