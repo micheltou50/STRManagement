@@ -14,6 +14,16 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const { parseICS } = require('./utils/ical-parse');
+const { pushChange: pushCalendarChange } = require('./utils/calendar-push-core');
+
+// Best-effort outbound calendar push — never throws. Failures are queued
+// inside pushChange via pending_direction='to_provider' for the reconciler.
+function pushBookingToCalendar(uid, localId, op) {
+  if (!uid || !localId) return;
+  pushCalendarChange(uid, 'bookings', localId, op).catch(e => {
+    console.warn('[ical-sync] calendar push failed:', e && e.message);
+  });
+}
 
 function json(status, body) {
   return {
@@ -64,7 +74,7 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
   const existRes = await fetch(
     supabaseUrl + '/rest/v1/bookings?user_id=eq.' + encodeURIComponent(feed.user_id) +
       '&ical_feed_id=eq.' + encodeURIComponent(feed.id) +
-      '&select=id,ical_uid,checkin,checkout,status,enrichment_status',
+      '&select=id,local_id,ical_uid,checkin,checkout,status,enrichment_status',
     { headers: sbHeaders }
   );
   const existing = await existRes.json();
@@ -82,6 +92,7 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
           headers: { ...sbHeaders, Prefer: 'return=minimal' },
           body: JSON.stringify({ status: 'cancelled', updated_at: new Date().toISOString() }),
         });
+        pushBookingToCalendar(feed.user_id, prior.local_id, 'delete');
         result.cancelled++;
       }
       continue;
@@ -134,6 +145,7 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
           headers: { ...sbHeaders, Prefer: 'return=minimal' },
           body: JSON.stringify(patch),
         });
+        pushBookingToCalendar(feed.user_id, prior.local_id, 'upsert');
         result.updated++;
       }
     }
@@ -148,6 +160,7 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
         headers: { ...sbHeaders, Prefer: 'return=minimal' },
         body: JSON.stringify({ status: 'cancelled', updated_at: new Date().toISOString() }),
       });
+      pushBookingToCalendar(feed.user_id, byUid[uid].local_id, 'delete');
       result.cancelled++;
     }
   }

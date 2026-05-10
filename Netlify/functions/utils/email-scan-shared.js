@@ -6,6 +6,17 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const { sendPushToHost, hasRecentNotification } = require('./push-helper');
+const { pushChange: pushCalendarChange } = require('./calendar-push-core');
+
+// Best-effort outbound calendar push. Never throws — failures are logged
+// inside pushChange and queued via pending_direction='to_provider' for the
+// reconciler to retry.
+function pushBookingToCalendar(uid, localId, op) {
+  if (!uid || !localId) return;
+  pushCalendarChange(uid, 'bookings', localId, op).catch(e => {
+    console.warn('[email-scan-shared] calendar push failed:', e && e.message);
+  });
+}
 
 // ── Pure helpers ────────────────────────────────────────────────────────────
 
@@ -573,6 +584,7 @@ async function processEmailResult(parsed, msgId, source, ctx) {
           body: JSON.stringify({ status: 'cancelled', gmail_message_id: msgId, updated_at: new Date().toISOString() }),
         }
       );
+      pushBookingToCalendar(uid, match.local_id, 'delete');
       results.cancelled++;
       results.details.push({ msgId, status: 'cancelled', guest: parsed.guestName || match.guest_name, confCode });
       // Mark this msgId as processed so it's not re-scanned (the booking's gmail_message_id
@@ -621,6 +633,7 @@ async function processEmailResult(parsed, msgId, source, ctx) {
         supabaseUrl + '/rest/v1/bookings?id=eq.' + enc(match.id),
         { method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=minimal' }, body: JSON.stringify(patch) }
       );
+      pushBookingToCalendar(uid, match.local_id, 'upsert');
       results.updated++;
       results.details.push({ msgId, status: 'updated', guest: parsed.guestName, checkin: parsed.checkin });
       // Mark this msgId as processed so it's not re-scanned
@@ -656,6 +669,7 @@ async function processEmailResult(parsed, msgId, source, ctx) {
     } else if (parsed.checkin && parsed.checkout) {
       // Modification with no matching original — insert as new
       await insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed, emailFrom, source);
+      pushBookingToCalendar(uid, source + '-' + msgId, 'upsert');
       results.imported++;
       results.details.push({ msgId, status: 'imported', guest: parsed.guestName, checkin: parsed.checkin, note: 'modification without matching original' });
       // Mark this msgId as processed so it's not re-scanned
@@ -686,6 +700,7 @@ async function processEmailResult(parsed, msgId, source, ctx) {
         supabaseUrl + '/rest/v1/bookings?id=eq.' + enc(modMatch.id),
         { method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=minimal' }, body: JSON.stringify({ updated_at: new Date().toISOString() }) }
       );
+      pushBookingToCalendar(uid, modMatch.local_id, 'upsert');
       const modPropName = (propMap.find(p => p.id === modMatch.property_id) || {}).name || propertyName;
       if (supabaseAdmin) {
         await notifyBookingOwnerPush(supabaseAdmin, {
@@ -781,6 +796,7 @@ async function processEmailResult(parsed, msgId, source, ctx) {
         supabaseUrl + '/rest/v1/bookings?id=eq.' + enc(stub.id),
         { method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=minimal' }, body: JSON.stringify(patch) }
       );
+      pushBookingToCalendar(uid, stub.local_id, 'upsert');
       results.updated++;
       results.details.push({ msgId, status: 'enriched', guest: parsed.guestName, checkin: parsed.checkin });
       newlySkipped.push(msgId);
@@ -813,6 +829,7 @@ async function processEmailResult(parsed, msgId, source, ctx) {
   }
 
   const inserted = await insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed, emailFrom, source);
+  if (inserted) pushBookingToCalendar(uid, source + '-' + msgId, 'upsert');
   if (inserted && supabaseAdmin) {
     results.imported++;
     const insRow = await fetchBookingRowByMessageId(supabaseAdmin, uid, msgId);
