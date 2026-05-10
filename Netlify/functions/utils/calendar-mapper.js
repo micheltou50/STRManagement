@@ -16,6 +16,14 @@ const TITLE_PREFIX = {
   maintenance: 'Maintenance — ',
 };
 
+// Property-local times for calendar events. Hardcoded to Sydney since the
+// app's cron schedules and email send-times are all set for AEST/AEDT.
+const EVENT_TZ = 'Australia/Sydney';
+const BOOKING_CHECKIN_TIME  = '15:00:00'; // 3pm
+const BOOKING_CHECKOUT_TIME = '10:00:00'; // 10am
+const CLEAN_START_TIME      = '11:00:00'; // 11am
+const CLEAN_END_TIME        = '13:00:00'; // 1pm (2hr block)
+
 // A trailing marker we embed in event descriptions so we can recover the
 // (table, local_id) pairing on providers (e.g. Microsoft Graph) where the
 // equivalent of Google's extendedProperties.private isn't trivial to read.
@@ -37,16 +45,14 @@ function bookingToEvent(b) {
   return {
     summary: TITLE_PREFIX.bookings + (b.guest_name || 'Guest') + guests + platform,
     description: withMarker(lines.join('\n'), 'bookings', b.id),
-    start: { date: b.checkin },
-    end: { date: b.checkout },
+    start: { dateTime: b.checkin  + 'T' + BOOKING_CHECKIN_TIME,  timeZone: EVENT_TZ },
+    end:   { dateTime: b.checkout + 'T' + BOOKING_CHECKOUT_TIME, timeZone: EVENT_TZ },
     extendedProperties: { private: { stayops_table: 'bookings', stayops_id: String(b.id) } },
   };
 }
 
 function cleanToEvent(c, propertyName) {
   const date = c.clean_date;
-  const startDateTime = date + 'T10:00:00';
-  const endDateTime = date + 'T12:00:00';
   const lines = [];
   if (c.cleaner) lines.push('Cleaner: ' + c.cleaner);
   if (c.guest_name) lines.push('Guest: ' + c.guest_name);
@@ -57,8 +63,8 @@ function cleanToEvent(c, propertyName) {
   return {
     summary: TITLE_PREFIX.cleans + (propertyName || c.property_name || 'Property'),
     description: withMarker(lines.join('\n'), 'cleans', c.id),
-    start: { dateTime: startDateTime, timeZone: 'UTC' },
-    end:   { dateTime: endDateTime,   timeZone: 'UTC' },
+    start: { dateTime: date + 'T' + CLEAN_START_TIME, timeZone: EVENT_TZ },
+    end:   { dateTime: date + 'T' + CLEAN_END_TIME,   timeZone: EVENT_TZ },
     extendedProperties: { private: { stayops_table: 'cleans', stayops_id: String(c.id) } },
   };
 }
