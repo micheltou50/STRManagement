@@ -1053,6 +1053,8 @@ async function saveEdit(id) {
   btn.textContent = 'Saving...';
   btn.disabled = true;
 
+  const prevCheckout = b.checkout;
+
   b.name = document.getElementById('e-name').value.trim();
   b.checkin = document.getElementById('e-checkin').value;
   b.checkout = document.getElementById('e-checkout').value;
@@ -1070,6 +1072,26 @@ async function saveEdit(id) {
 
   if (!b.status) b.status = 'confirmed';
   normalizeBookingCleanState();
+
+  const checkoutChanged = prevCheckout && b.checkout && prevCheckout !== b.checkout;
+  const linkedCleans = checkoutChanged
+    ? cleans.filter(c =>
+        String(c.bookingId) === String(b.id) ||
+        (b._cloudId && String(c.bookingId) === String(b._cloudId)) ||
+        (c._cloudId && b._cloudId && String(c.bookingId) === String(b._cloudId))
+      )
+    : [];
+  if (linkedCleans.length) {
+    for (const c of linkedCleans) {
+      if (c.date === b.checkout) continue;
+      c.date = b.checkout;
+      if (typeof globalThis.saveCleanToCloud === 'function') {
+        try { await globalThis.saveCleanToCloud(c); }
+        catch (e) { console.warn('[StayOps] clean cloud save failed on date follow', e); }
+      }
+    }
+  }
+
   if (typeof globalThis.saveBookingToCloud === 'function') {
     try {
       await globalThis.saveBookingToCloud(b);
@@ -1079,6 +1101,15 @@ async function saveEdit(id) {
     }
   }
   globalThis.showBanner('✅ Booking saved', 'ok');
+
+  if (linkedCleans.length && typeof globalThis.renotifyClean === 'function') {
+    for (const c of linkedCleans) {
+      if (!c.cleanerId) continue;
+      try { await globalThis.renotifyClean(c.id); }
+      catch (e) { console.warn('[StayOps] cleaner re-notify failed on date follow', e); }
+    }
+  }
+
   setTimeout(() => {
     if (typeof globalThis.closeDetailModal === 'function') globalThis.closeDetailModal();
     if (typeof globalThis.renderAll === 'function') globalThis.renderAll();

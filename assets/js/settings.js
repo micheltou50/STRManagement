@@ -34,7 +34,8 @@ function renderConnectionSummary() {
   const gmailConnected = !!gmailEmail && !gmailTokenExpired;
 
   const outlookEmail = (window._appConfig && window._appConfig.outlook_email) || '';
-  const outlookConnected = !!outlookEmail;
+  const outlookTokenExpired = !!(window._appConfig && window._appConfig._outlookTokenExpired);
+  const outlookConnected = !!outlookEmail && !outlookTokenExpired;
 
   wrap.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--surface2);border-radius:10px">
@@ -69,7 +70,12 @@ function renderConnectionSummary() {
 
     <div style="padding:12px;background:var(--surface2);border-radius:10px;margin-top:8px">
       <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:6px">📧 Outlook — Booking Import</div>
-      ${outlookConnected ? `
+      ${outlookTokenExpired && outlookEmail ? `
+        <div style="font-size:12px;color:var(--red);margin-bottom:8px">⚠ Disconnected — token expired for ${escHtml(outlookEmail)}</div>
+        <div style="font-size:11px;color:var(--muted-2);margin-bottom:8px;line-height:1.4">Your Outlook access has expired. Reconnect to resume automatic booking imports.</div>
+        <button onclick="connectOutlook()"
+          style="width:100%;background:var(--primary);color:white;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">🔄 Reconnect Outlook</button>
+      ` : outlookConnected ? `
         <div style="font-size:12px;color:var(--moss);margin-bottom:8px">✓ Connected: ${escHtml(outlookEmail)}</div>
         <div style="display:flex;gap:6px">
           <button onclick="scanOutlookBookings()" id="outlook-scan-btn"
@@ -467,7 +473,20 @@ async function maybeAutoScanOutlook() {
 
     const _pid = (window._cloudPropertyIds && window._cloudPropertyIds[getActivePropertyId()]) || '';
     const res = await fetch('/.netlify/functions/outlook-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
-    if (!res.ok) return;
+    if (!res.ok) {
+      if (res.status === 401) {
+        globalThis.showBanner('⚠ Outlook disconnected — reconnect in Settings → Integrations', 'warn');
+        window._appConfig = window._appConfig || {};
+        window._appConfig._outlookTokenExpired = true;
+        renderConnectionSummary();
+      }
+      return;
+    }
+    // Clear any prior expiry flag — a 200 response means the token works again.
+    if (window._appConfig && window._appConfig._outlookTokenExpired) {
+      delete window._appConfig._outlookTokenExpired;
+      renderConnectionSummary();
+    }
     const data = await res.json();
 
     const totalChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0);
@@ -507,6 +526,11 @@ async function scanOutlookBookings() {
     const data = await res.json();
 
     if (!res.ok) {
+      if (res.status === 401) {
+        window._appConfig = window._appConfig || {};
+        window._appConfig._outlookTokenExpired = true;
+        renderConnectionSummary();
+      }
       if (statusEl) {
         statusEl.style.background = '#FEF2F2';
         statusEl.style.color = 'var(--red)';
@@ -514,6 +538,12 @@ async function scanOutlookBookings() {
       }
       if (btn) { btn.disabled = false; btn.textContent = '📥 Scan for Bookings'; }
       return;
+    }
+
+    // Clear any prior expiry flag on success.
+    if (window._appConfig && window._appConfig._outlookTokenExpired) {
+      delete window._appConfig._outlookTokenExpired;
+      renderConnectionSummary();
     }
 
     if (statusEl) {

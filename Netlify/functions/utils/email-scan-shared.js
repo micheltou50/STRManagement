@@ -7,6 +7,7 @@
 
 const { sendPushToHost, hasRecentNotification } = require('./push-helper');
 const { pushChange: pushCalendarChange } = require('./calendar-push-core');
+const { notifyCleanerCancellation } = require('./notify-cleaner-cancellation');
 
 // Best-effort outbound calendar push. Never throws — failures are logged
 // inside pushChange and queued via pending_direction='to_provider' for the
@@ -248,7 +249,7 @@ async function loadProperties(supabaseUrl, sbHeaders, uid, pidParam) {
 async function loadExistingBookings(supabaseUrl, sbHeaders, uid) {
   const res = await fetch(
     supabaseUrl + '/rest/v1/bookings?user_id=eq.' + enc(uid) +
-      '&select=id,local_id,confirmation_code,guest_name,checkin,checkout,status,property_id,host_payout,cleaning_fee,platform,source,enrichment_status,ical_uid',
+      '&select=id,local_id,confirmation_code,guest_name,checkin,checkout,guests,status,property_id,host_payout,cleaning_fee,platform,source,enrichment_status,ical_uid',
     { headers: sbHeaders }
   );
   return await safeJson(res, 'Supabase bookings list');
@@ -604,6 +605,17 @@ async function processEmailResult(parsed, msgId, source, ctx) {
             host_payout: match.host_payout,
           },
           fallbackPropertyName: pname,
+        });
+        await notifyCleanerCancellation({
+          supabaseUrl,
+          sbHeaders,
+          userId: uid,
+          bookingId: match.local_id,
+          bookingRow: {
+            guest_name: parsed.guestName || match.guest_name,
+            property_id: match.property_id,
+            guests: match.guests,
+          },
         });
       }
     } else {

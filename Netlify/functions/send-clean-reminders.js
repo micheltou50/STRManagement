@@ -66,13 +66,17 @@ exports.handler = async (_event) => {
   console.log(`[send-clean-reminders] Running for tomorrow: ${tomorrow}`);
 
   // ── 1. Fetch cleans due tomorrow that haven't been reminded ──────────────
+  // Excludes cleans on cancelled bookings — when a booking is soft-cancelled
+  // (by iCal sync, email scan, or in-app delete), the helper sets
+  // cleaner_cancel_notified=true so this query skips it.
   const { data: cleans, error: cleanErr } = await sb
     .from('cleans')
-    .select('id, user_id, guest_name, cleaner, cleaner_id, clean_date, done, cleaner_declined, reminder_sent, property_id')
+    .select('id, user_id, guest_name, cleaner, cleaner_id, clean_date, done, cleaner_declined, reminder_sent, cleaner_cancel_notified, property_id')
     .eq('clean_date', tomorrow)
     .neq('done', true)
     .neq('cleaner_declined', true)
-    .neq('reminder_sent', true);
+    .neq('reminder_sent', true)
+    .neq('cleaner_cancel_notified', true);
 
   if (cleanErr) {
     console.error('[send-clean-reminders] Error fetching cleans:', cleanErr);

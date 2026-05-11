@@ -15,6 +15,7 @@
 
 const { parseICS } = require('./utils/ical-parse');
 const { pushChange: pushCalendarChange } = require('./utils/calendar-push-core');
+const { notifyCleanerCancellation } = require('./utils/notify-cleaner-cancellation');
 
 // Best-effort outbound calendar push — never throws. Failures are queued
 // inside pushChange via pending_direction='to_provider' for the reconciler.
@@ -74,7 +75,7 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
   const existRes = await fetch(
     supabaseUrl + '/rest/v1/bookings?user_id=eq.' + encodeURIComponent(feed.user_id) +
       '&ical_feed_id=eq.' + encodeURIComponent(feed.id) +
-      '&select=id,local_id,ical_uid,checkin,checkout,status,enrichment_status',
+      '&select=id,local_id,ical_uid,checkin,checkout,status,enrichment_status,guest_name,guests,property_id',
     { headers: sbHeaders }
   );
   const existing = await existRes.json();
@@ -93,6 +94,17 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
           body: JSON.stringify({ status: 'cancelled', updated_at: new Date().toISOString() }),
         });
         pushBookingToCalendar(feed.user_id, prior.local_id, 'delete');
+        await notifyCleanerCancellation({
+          supabaseUrl,
+          sbHeaders,
+          userId: feed.user_id,
+          bookingId: prior.local_id,
+          bookingRow: {
+            guest_name: prior.guest_name,
+            property_id: prior.property_id,
+            guests: prior.guests,
+          },
+        });
         result.cancelled++;
       }
       continue;
@@ -155,12 +167,24 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
   // (Some platforms remove cancelled events instead of marking STATUS:CANCELLED.)
   for (const uid in byUid) {
     if (!liveUids.has(uid) && byUid[uid].status !== 'cancelled') {
-      await fetch(supabaseUrl + '/rest/v1/bookings?id=eq.' + encodeURIComponent(byUid[uid].id), {
+      const stale = byUid[uid];
+      await fetch(supabaseUrl + '/rest/v1/bookings?id=eq.' + encodeURIComponent(stale.id), {
         method: 'PATCH',
         headers: { ...sbHeaders, Prefer: 'return=minimal' },
         body: JSON.stringify({ status: 'cancelled', updated_at: new Date().toISOString() }),
       });
-      pushBookingToCalendar(feed.user_id, byUid[uid].local_id, 'delete');
+      pushBookingToCalendar(feed.user_id, stale.local_id, 'delete');
+      await notifyCleanerCancellation({
+        supabaseUrl,
+        sbHeaders,
+        userId: feed.user_id,
+        bookingId: stale.local_id,
+        bookingRow: {
+          guest_name: stale.guest_name,
+          property_id: stale.property_id,
+          guests: stale.guests,
+        },
+      });
       result.cancelled++;
     }
   }
