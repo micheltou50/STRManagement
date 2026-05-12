@@ -437,8 +437,8 @@ function buildParsingPrompt(subject, from, body, singlePropertyName, propertyLis
     'Classify the email type:\n' +
     '- "new_booking" — a new guest reservation at the host\'s property (confirmed)\n' +
     '- "cancellation" — a guest booking has been cancelled\n' +
-    '- "modification" — an existing guest booking\'s dates, guests, or payout have changed AND the email includes the updated details\n' +
-    '- "modification_notice" — the email confirms a reservation was modified/altered/updated, but does NOT include the updated booking details (dates, payout, etc.). Typical examples: "Reservation updated", "Your reservation with X has been updated", alteration accepted notices that just link to the itinerary.\n' +
+    '- "modification" — an existing guest booking is being modified or has been modified. The email contains the proposed OR final new values (any of: dates, number of guests, payout). Extract the new values even if the wording is a REQUEST like "Hieu wants to change the number of guests to 8", "requested an alteration", "has asked to modify", "Trip change request". Modifications are nearly always accepted, so apply the new values optimistically. An alteration REQUEST email IS a modification (not a guest message and not not_a_booking) — classify it as modification and extract every new value that appears in the body.\n' +
+    '- "modification_notice" — the email confirms a modification happened or was accepted, but does NOT spell out the new values in the body (only a link to the platform itinerary). Examples: "Your reservation with X has been updated. Tap to view itinerary.", "Alteration accepted — see details on Airbnb."\n' +
     '- "not_a_booking" — marketing, review, payout receipt, enquiry, personal travel booking, message from guest, or anything else\n\n' +
     'If not_a_booking, return: {"not_a_booking": true}\n\n' +
     'For cancellation, return JSON with "emailType":"cancellation" plus guestName, confirmationCode, and checkin/checkout when present (for matching an existing booking).\n\n' +
