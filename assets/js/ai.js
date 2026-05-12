@@ -385,7 +385,12 @@ export async function extractExpenseFromReceipt() {
     const parsed = JSON.parse(cleaned || '{}');
     if (parsed.merchant) document.getElementById('exp-merchant').value = parsed.merchant;
     if (parsed.description) document.getElementById('exp-description').value = parsed.description;
-    if (parsed.amount) document.getElementById('exp-amount').value = parsed.amount;
+    if (parsed.amount != null) {
+      const n = Number(parsed.amount);
+      document.getElementById('exp-amount').value = Number.isFinite(n) ? Math.abs(n) : parsed.amount;
+      const refundEl = document.getElementById('exp-is-refund');
+      if (refundEl) refundEl.checked = Number.isFinite(n) && n < 0;
+    }
     if (parsed.date) document.getElementById('exp-date').value = parsed.date;
     if (parsed.receiptNum) document.getElementById('exp-receipt-num').value = parsed.receiptNum;
     if (parsed.category) {

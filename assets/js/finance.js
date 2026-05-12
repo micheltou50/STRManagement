@@ -2906,7 +2906,13 @@ function renderExpenses() {
 
 function addExpense(opts = {}) {
   const merchant = opts.merchant || document.getElementById('exp-merchant').value.trim();
-  const amount = opts.amount || parseFloat(document.getElementById('exp-amount').value);
+  const rawAmount = opts.amount != null ? Number(opts.amount) : parseFloat(document.getElementById('exp-amount').value);
+  const isRefund = opts.isRefund != null
+    ? !!opts.isRefund
+    : (document.getElementById('exp-is-refund')?.checked || false);
+  const amount = Number.isFinite(rawAmount)
+    ? (isRefund ? -Math.abs(rawAmount) : Math.abs(rawAmount))
+    : NaN;
   const date = opts.date || document.getElementById('exp-date').value || new Date().toISOString().split('T')[0];
   const category = opts.category || document.getElementById('exp-category').value;
   if (!merchant || !amount) { globalThis.showBanner('⚠ Please fill in merchant and amount', 'warn'); return; }
@@ -2950,6 +2956,8 @@ function addExpense(opts = {}) {
     ['exp-merchant','exp-description','exp-amount','exp-receipt-num'].forEach(id => {
       const el = document.getElementById(id); if (el) el.value = '';
     });
+    const refundReset = document.getElementById('exp-is-refund');
+    if (refundReset) refundReset.checked = false;
     document.getElementById('exp-date').value = new Date().toISOString().split('T')[0];
     resetExpenseCatPicker();
     const typeSel = document.getElementById('exp-receipt-type');
@@ -3223,7 +3231,10 @@ function openExpenseEdit(id) {
   editingExpensePhotoBase64 = null;
   document.getElementById('ee-merchant').value = e.merchant || '';
   document.getElementById('ee-description').value = e.description || '';
-  document.getElementById('ee-amount').value = e.amount || '';
+  const eeAmt = Number(e.amount) || 0;
+  document.getElementById('ee-amount').value = eeAmt ? Math.abs(eeAmt) : '';
+  const eeRefund = document.getElementById('ee-is-refund');
+  if (eeRefund) eeRefund.checked = eeAmt < 0;
   document.getElementById('ee-date').value = e.date || '';
   document.getElementById('ee-receipt-num').value = e.receiptNum || '';
   const eeHidden = document.getElementById('ee-category');
@@ -3258,7 +3269,9 @@ async function saveExpenseEdit() {
   if (!e) return;
   e.merchant = document.getElementById('ee-merchant').value.trim();
   e.description = document.getElementById('ee-description').value.trim();
-  e.amount = parseFloat(document.getElementById('ee-amount').value) || 0;
+  const eeRaw = parseFloat(document.getElementById('ee-amount').value) || 0;
+  const eeIsRefund = document.getElementById('ee-is-refund')?.checked || false;
+  e.amount = eeIsRefund ? -Math.abs(eeRaw) : Math.abs(eeRaw);
   e.date = document.getElementById('ee-date').value;
   e.category = document.getElementById('ee-category').value;
   e.receiptType = document.getElementById('ee-receipt-type').value;
@@ -3305,11 +3318,17 @@ async function saveExpenseEdit() {
 
 
 const DEFAULT_EXPENSE_CATS = [
-  'Cleaning & Garden','Maintenance & Repairs','Supplies & Consumables',
-  'Utilities & Rates','Insurance','Furnishings & Equipment',
-  'Mortgage','Council Rates','Strata',
-  'Advertising','Linen','Gardening','Pest Control',
-  'Renovation','Professional Services','Other'
+  'Cleaning & Garden',
+  'Maintenance & Repairs',
+  'Supplies & Consumables',
+  'Utilities',
+  'Council Rates & Strata',
+  'Insurance',
+  'Mortgage',
+  'Furnishings & Linen',
+  'Professional Services',
+  'Advertising',
+  'Other'
 ];
 function getExpenseCats() {
   const cats = window._appConfig && window._appConfig.expense_cats;
@@ -3320,16 +3339,7 @@ function getExpenseCats() {
 }
 globalThis.getExpenseCats = getExpenseCats;
 
-const EXPENSE_SUBCATS = {
-  'Supplies & Consumables': ['Coffee & tea','Paper products','Cleaning products','Toiletries','Kitchen supplies','Batteries & bulbs','Welcome packs','Other supplies'],
-  'Maintenance & Repairs': ['Plumbing','Electrical','Appliances','HVAC','Painting','Locks & keys','Pest treatment','Pool & spa','General repair','Other maintenance'],
-  'Cleaning & Garden': ['Regular clean','Deep clean','End-of-lease','Window cleaning','Carpet cleaning','Garden maintenance','Lawn mowing','Hedge trimming'],
-  'Utilities & Rates': ['Electricity','Gas','Water','Internet','Council rates','Strata levies'],
-  'Insurance': ['Building','Contents','Landlord liability','Public liability'],
-  'Professional Services': ['Accountant','Property manager','Legal','Photography','Marketing'],
-  'Furnishings & Equipment': ['Furniture','Bedding','Kitchenware','Electronics','Décor','Outdoor furniture'],
-  'Linen': ['Towels','Bed sheets','Pillowcases','Duvets','Bath mats','Table linen','Cushion covers','Blankets'],
-};
+const EXPENSE_SUBCATS = {};
 
 function renderExpenseCatPickerFor(prefix) {
   prefix = prefix || 'exp';
@@ -4588,9 +4598,12 @@ function reconCreateExpense(txnId, date, amount, description) {
     const dateEl   = document.getElementById('exp-date');
     const amountEl = document.getElementById('exp-amount');
     const descEl   = document.getElementById('exp-description');
+    const refundEl = document.getElementById('exp-is-refund');
+    const numAmount = Number(amount);
     if (dateEl)   dateEl.value   = date;
-    if (amountEl) amountEl.value = amount;
+    if (amountEl) amountEl.value = Number.isFinite(numAmount) ? Math.abs(numAmount) : amount;
     if (descEl)   descEl.value   = description;
+    if (refundEl) refundEl.checked = Number.isFinite(numAmount) && numAmount < 0;
   }, 100);
 }
 

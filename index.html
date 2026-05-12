@@ -290,6 +290,61 @@
     border-color:var(--moss,#4A7C59);
     box-shadow:0 0 0 3px rgba(74,124,89,0.18);
   }
+
+  /* Refund toggle (used on expense add + edit forms) */
+  .refund-toggle {
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:10px 12px;
+    margin:6px 0 10px;
+    background:var(--surface2,#F4F0E8);
+    border-radius:8px;
+    cursor:pointer;
+    font-size:13px;
+    font-weight:500;
+    color:var(--ink-2,#2E3A36);
+    font-family:'Plus Jakarta Sans',sans-serif;
+    text-transform:none;
+    letter-spacing:normal;
+    user-select:none;
+  }
+  .refund-toggle input[type="checkbox"] {
+    position:absolute;
+    opacity:0;
+    width:0;
+    height:0;
+    pointer-events:none;
+  }
+  .refund-toggle .refund-box {
+    width:20px;
+    height:20px;
+    border:1.5px solid #C7C7CC;
+    border-radius:5px;
+    background:#fff;
+    flex:0 0 auto;
+    position:relative;
+    transition:background 0.15s, border-color 0.15s;
+    box-sizing:border-box;
+  }
+  .refund-toggle input[type="checkbox"]:checked + .refund-box {
+    background:var(--moss,#4A7C59);
+    border-color:var(--moss,#4A7C59);
+  }
+  .refund-toggle input[type="checkbox"]:checked + .refund-box::after {
+    content:'';
+    position:absolute;
+    left:6px;
+    top:2px;
+    width:5px;
+    height:10px;
+    border:solid #fff;
+    border-width:0 2px 2px 0;
+    transform:rotate(45deg);
+  }
+  .refund-toggle input[type="checkbox"]:focus-visible + .refund-box {
+    box-shadow:0 0 0 3px rgba(74,124,89,0.2);
+  }
 </style>
 
 <!-- ══════════════════════════════════════════════════════════
@@ -1247,9 +1302,14 @@
           <label>Description</label>
           <input type="text" id="exp-description" placeholder="e.g. Toilet seats" autocomplete="off">
           <div class="form-row">
-            <div class="field"><label>Amount ($)</label><input type="number" id="exp-amount" placeholder="0.00" step="0.01"></div>
+            <div class="field"><label>Amount ($)</label><input type="number" id="exp-amount" placeholder="0.00" min="0" step="0.01" inputmode="decimal"></div>
             <div class="field"><label>Date</label><input type="date" id="exp-date"></div>
           </div>
+          <label for="exp-is-refund" class="refund-toggle">
+            <input type="checkbox" id="exp-is-refund">
+            <span class="refund-box"></span>
+            <span>This is a refund / credit</span>
+          </label>
           <label style="font-size:13px;font-weight:600;color:var(--ink-2)">Category</label>
           <select id="exp-category" style="margin-bottom:8px"></select>
           <label>Receipt Type</label>
@@ -2382,9 +2442,14 @@
     <label>Description</label>
     <input type="text" id="ee-description">
     <div class="form-row">
-      <div class="field"><label>Amount ($)</label><input type="number" id="ee-amount" step="0.01"></div>
+      <div class="field"><label>Amount ($)</label><input type="number" id="ee-amount" min="0" step="0.01" inputmode="decimal"></div>
       <div class="field"><label>Date</label><input type="date" id="ee-date"></div>
     </div>
+    <label for="ee-is-refund" class="refund-toggle">
+      <input type="checkbox" id="ee-is-refund">
+      <span class="refund-box"></span>
+      <span>This is a refund / credit</span>
+    </label>
     <label style="font-size:13px;font-weight:600;color:var(--ink-2)">Category</label>
     <select id="ee-category" style="margin-bottom:8px"></select>
     <label>Receipt Type</label>
