@@ -86,7 +86,7 @@ function looksLikeBookingEmail(subject, from, body) {
     'invite', 'referral', 'coupon', 'discount',
     'reminder', 'coming soon', 'arriving', 'starts tomorrow',
     'check-in today', 'checkout today', 'leaving today',
-    'experience', 'trip update', 'receipt', 'invoice',
+    'experience', 'receipt', 'invoice',
     'welcome home', 'how to prepare', 'getting ready',
   ];
   if (skipSubjects.some(s => subLo.includes(s))) return false;
