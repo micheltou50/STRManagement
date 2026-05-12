@@ -442,7 +442,7 @@ function buildParsingPrompt(subject, from, body, singlePropertyName, propertyLis
     '- "not_a_booking" — marketing, review, payout receipt, enquiry, personal travel booking, message from guest, or anything else\n\n' +
     'If not_a_booking, return: {"not_a_booking": true}\n\n' +
     'For cancellation, return JSON with "emailType":"cancellation" plus guestName, confirmationCode, and checkin/checkout when present (for matching an existing booking).\n\n' +
-    'For modification_notice, return JSON with "emailType":"modification_notice" plus guestName, confirmationCode, and listingTitle when present (for matching the existing booking). Extract the confirmation code from URLs if it appears there (e.g. /reservations/details/XXXX or /reservation/alteration/XXXX).\n\n' +
+    'For modification_notice, return JSON with "emailType":"modification_notice" plus guestName, confirmationCode, and listingTitle when present (for matching the existing booking). Extract the confirmation code from URLs if it appears there (e.g. /reservations/details/XXXX or /reservation/alteration/XXXX). ALSO try to extract any of these if they appear ANYWHERE in the body (return null if not present): "checkin" / "checkout" (YYYY-MM-DD), "guests" (integer — look for phrases like "8 guests", "for 8 people", "number of guests: 8", "now 8 guests", "updated to 8 guests"), "hostPayout" (number), "cleaningFee" (number). When in doubt about a value, return null rather than guessing — but if a number appears next to "guests" or "people" in any sentence about this booking, return it.\n\n' +
     'For new_booking or modification, return:\n' +
     '{\n' +
     '  "emailType": "new_booking" or "modification",\n' +
@@ -708,31 +708,61 @@ async function processEmailResult(parsed, msgId, source, ctx) {
   if (emailType === 'modification_notice') {
     const modMatch = findExistingBooking(existingBookings, confCode, parsed.guestName, parsed.checkin, propertyId);
     if (modMatch) {
+      // Defense in depth: apply any actual values Claude extracted from the body
+      // (e.g. when the request email said "wants to change to 8 guests" but
+      // Claude still classified it as a notice rather than a full modification).
+      const patch = { updated_at: new Date().toISOString() };
+      const appliedChanges = [];
+      if (parsed.checkin && parsed.checkin !== modMatch.checkin) {
+        patch.checkin = parsed.checkin;
+        appliedChanges.push('checkin: ' + modMatch.checkin + ' → ' + parsed.checkin);
+      }
+      if (parsed.checkout && parsed.checkout !== modMatch.checkout) {
+        patch.checkout = parsed.checkout;
+        appliedChanges.push('checkout: ' + modMatch.checkout + ' → ' + parsed.checkout);
+      }
+      if (patch.checkin || patch.checkout) {
+        patch.nights = daysBetween(patch.checkin || modMatch.checkin, patch.checkout || modMatch.checkout);
+      }
+      if (parsed.guests && Number(parsed.guests) !== Number(modMatch.guests)) {
+        patch.guests = parsed.guests;
+        appliedChanges.push('guests: ' + (modMatch.guests || 1) + ' → ' + parsed.guests);
+      }
+      if (parsed.hostPayout && Number(parsed.hostPayout) !== Number(modMatch.host_payout || 0)) {
+        patch.host_payout = parsed.hostPayout;
+        appliedChanges.push('payout: $' + Number(modMatch.host_payout || 0).toFixed(2) + ' → $' + Number(parsed.hostPayout).toFixed(2));
+      }
+      if (parsed.cleaningFee && Number(parsed.cleaningFee) !== Number(modMatch.cleaning_fee || 0)) {
+        patch.cleaning_fee = parsed.cleaningFee;
+      }
       await fetch(
         supabaseUrl + '/rest/v1/bookings?id=eq.' + enc(modMatch.id),
-        { method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=minimal' }, body: JSON.stringify({ updated_at: new Date().toISOString() }) }
+        { method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=minimal' }, body: JSON.stringify(patch) }
       );
       pushBookingToCalendar(uid, modMatch.local_id, 'upsert');
       const modPropName = (propMap.find(p => p.id === modMatch.property_id) || {}).name || propertyName;
       if (supabaseAdmin) {
         await notifyBookingOwnerPush(supabaseAdmin, {
-          notifyType: 'modification_notice',
+          notifyType: appliedChanges.length ? 'booking_modified' : 'modification_notice',
           propertyId: modMatch.property_id || propertyId,
           bookingRow: modMatch,
           fallbackPropertyName: modPropName,
+          changes: appliedChanges.length ? appliedChanges : undefined,
         });
       }
       needsReview.push({
         guest: parsed.guestName || modMatch.guest_name || 'Guest',
-        checkin: modMatch.checkin,
-        checkout: modMatch.checkout,
+        checkin: patch.checkin || modMatch.checkin,
+        checkout: patch.checkout || modMatch.checkout,
         platform: modMatch.platform || '',
         gmail_message_id: msgId,
         assigned_property: modPropName,
-        reason: 'Booking was modified on the platform — check itinerary for updated details',
+        reason: appliedChanges.length
+          ? 'Booking updated from email: ' + appliedChanges.join(', ')
+          : 'Booking was modified on the platform — check itinerary for updated details',
       });
       results.updated++;
-      results.details.push({ msgId, status: 'modification_notice', guest: parsed.guestName || modMatch.guest_name });
+      results.details.push({ msgId, status: appliedChanges.length ? 'updated' : 'modification_notice', guest: parsed.guestName || modMatch.guest_name, changes: appliedChanges });
     } else {
       needsReview.push({
         guest: parsed.guestName || 'Guest',
