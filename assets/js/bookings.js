@@ -1645,7 +1645,35 @@ async function saveCleanCost(cleanId, bookingId) {
       return;
     }
   }
-  globalThis.showBanner('Cleaning cost saved', 'ok');
+
+  // Recompute mgmt fee + net payout on the matched booking using the actual
+  // cleaner cost as the cleaning expense. Falls back to b.cleaningFee when
+  // no actual cost has been entered yet.
+  const b = bookings.find(bk => String(bk.id) === String(bookingId) || (bk._cloudId && String(bk._cloudId) === String(bookingId)));
+  if (b) {
+    const mgmtPct = Number(b.mgmtFeeRaw) || 0;
+    const effectiveClean = (c.cost != null && c.cost !== '') ? Number(c.cost) : (Number(b.cleaningFee) || 0);
+    const mgmtBase = (Number(b.hostPayout) || 0) - effectiveClean;
+    if (mgmtPct) {
+      b.mgmtFee = Math.round((mgmtBase * mgmtPct) / 100 * 100) / 100;
+      b.mgmtPayout = b.mgmtFee;
+      b.netPayout = Math.round((mgmtBase - b.mgmtFee) * 100) / 100;
+    } else {
+      b.netPayout = Math.round(mgmtBase * 100) / 100;
+    }
+    if (typeof globalThis.saveBookingToCloud === 'function') {
+      try {
+        await globalThis.saveBookingToCloud(b);
+      } catch (e) {
+        console.error('[StayOps] Booking cloud save failed:', e);
+        globalThis.showBanner('Clean cost saved, payout sync failed', 'warn');
+        if (typeof showDetail === 'function') showDetail(bookingId);
+        return;
+      }
+    }
+  }
+
+  globalThis.showBanner('✓ Cleaning cost saved & payout recalculated', 'ok');
   if (typeof showDetail === 'function') showDetail(bookingId);
 }
 
