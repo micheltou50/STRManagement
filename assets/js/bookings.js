@@ -1634,24 +1634,19 @@ async function saveCleaningFee(bookingId) {
   if (typeof showDetail === 'function') showDetail(bookingId);
 }
 
-async function saveCleanCost(cleanId, bookingId) {
+/** Persist a clean's actual cost AND recompute the booking's mgmt fee + net
+ *  payout. Reusable from saveCleanCost (booking-detail UI) and from the
+ *  expense-link path (when a Cleaning expense gets attached to a booking).
+ *  Returns { ok: true } on success or { ok: false, error } on cloud failure. */
+async function applyCleanCostAndRecompute(cleanId, bookingId, amount) {
   const c = cleans.find(cl => String(cl.id) === String(cleanId) || (cl._cloudId && String(cl._cloudId) === String(cleanId)));
-  const input = document.getElementById('actual-clean-fee');
-  if (!c || !input) return;
-  c.cost = Number(input.value) || 0;
+  if (!c) return { ok: false, error: 'clean not found' };
+  c.cost = (amount === null || amount === '' || amount === undefined) ? null : Number(amount);
   if (typeof globalThis.saveCleanToCloud === 'function') {
-    try {
-      await globalThis.saveCleanToCloud(c);
-    } catch (e) {
-      console.error('[StayOps] Cloud save failed:', e);
-      globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
-      return;
-    }
+    try { await globalThis.saveCleanToCloud(c); }
+    catch (e) { return { ok: false, error: e }; }
   }
 
-  // Recompute mgmt fee + net payout on the matched booking using the actual
-  // cleaner cost as the cleaning expense. Falls back to b.cleaningFee when
-  // no actual cost has been entered yet.
   const b = bookings.find(bk => String(bk.id) === String(bookingId) || (bk._cloudId && String(bk._cloudId) === String(bookingId)));
   if (b) {
     const mgmtPct = Number(b.mgmtFeeRaw) || 0;
@@ -1665,19 +1660,49 @@ async function saveCleanCost(cleanId, bookingId) {
       b.netPayout = Math.round(mgmtBase * 100) / 100;
     }
     if (typeof globalThis.saveBookingToCloud === 'function') {
-      try {
-        await globalThis.saveBookingToCloud(b);
-      } catch (e) {
-        console.error('[StayOps] Booking cloud save failed:', e);
-        globalThis.showBanner('Clean cost saved, payout sync failed', 'warn');
-        if (typeof showDetail === 'function') showDetail(bookingId);
-        return;
-      }
+      try { await globalThis.saveBookingToCloud(b); }
+      catch (e) { return { ok: false, error: e }; }
     }
   }
+  return { ok: true };
+}
 
+async function saveCleanCost(cleanId, bookingId) {
+  const input = document.getElementById('actual-clean-fee');
+  if (!input) return;
+  const amount = Number(input.value) || 0;
+  const res = await applyCleanCostAndRecompute(cleanId, bookingId, amount);
+  if (!res.ok) {
+    console.error('[StayOps] saveCleanCost failed:', res.error);
+    globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+    if (typeof showDetail === 'function') showDetail(bookingId);
+    return;
+  }
   globalThis.showBanner('✓ Cleaning cost saved & payout recalculated', 'ok');
   if (typeof showDetail === 'function') showDetail(bookingId);
+}
+
+/** Called from the expense add/edit flow when an expense is linked to a
+ *  booking. Mirrors the expense.amount into the booking's clean.cost and
+ *  triggers the mgmt fee + net payout recompute. */
+async function applyExpenseToBookingClean(bookingId, amount) {
+  if (!bookingId) return { ok: false, error: 'no bookingId' };
+  const b = bookings.find(bk => String(bk.id) === String(bookingId) || (bk._cloudId && String(bk._cloudId) === String(bookingId)));
+  if (!b) return { ok: false, error: 'booking not found' };
+  const clean = findMatchingCleanForBooking(b);
+  if (!clean) return { ok: false, error: 'no clean record for booking' };
+  return await applyCleanCostAndRecompute(clean._cloudId || clean.id, b._cloudId || b.id, amount);
+}
+
+/** Clear the cleaning cost on a booking's matched clean (used when an
+ *  expense is unlinked or deleted). */
+async function clearExpenseFromBookingClean(bookingId) {
+  if (!bookingId) return;
+  const b = bookings.find(bk => String(bk.id) === String(bookingId) || (bk._cloudId && String(bk._cloudId) === String(bookingId)));
+  if (!b) return;
+  const clean = findMatchingCleanForBooking(b);
+  if (!clean) return;
+  await applyCleanCostAndRecompute(clean._cloudId || clean.id, b._cloudId || b.id, null);
 }
 
 /** Yellow banner shown on a booking detail when a modification email was
@@ -1912,6 +1937,8 @@ export {
   getBookingIdentityKey,
   saveCleaningFee,
   saveCleanCost,
+  applyExpenseToBookingClean,
+  clearExpenseFromBookingClean,
   clearModificationFlag,
   switchBookingsView,
   renderBookingsCalendarView,

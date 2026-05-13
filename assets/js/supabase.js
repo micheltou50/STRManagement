@@ -873,7 +873,8 @@ async function loadExpensesFromCloud() {
       receiptNum:  e.receipt_num  || '',
       receiptType: e.receipt_type || '',
       driveLink:   e.drive_link   || '',
-      photo:       e.receipt_photo || null
+      photo:       e.receipt_photo || null,
+      bookingId:   e.booking_id   || null,
     }));
   } catch (e) {
     console.warn('[StayOps] loadExpensesFromCloud failed', e);
@@ -899,6 +900,7 @@ export async function saveExpenseToCloud(expense) {
       receipt_type: expense.receiptType || '',
       drive_link:   expense.driveLink   || '',
       receipt_photo: expense.photo || expense.receipt_photo || null,
+      booking_id:   expense.bookingId || null,
       updated_at:   new Date().toISOString()
     };
     if (expense._cloudId) {

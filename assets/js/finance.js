@@ -2915,6 +2915,9 @@ function addExpense(opts = {}) {
     : NaN;
   const date = opts.date || document.getElementById('exp-date').value || new Date().toISOString().split('T')[0];
   const category = opts.category || document.getElementById('exp-category').value;
+  const bookingId = opts.bookingId !== undefined
+    ? (opts.bookingId || null)
+    : (document.getElementById('exp-booking-link')?.value || null);
   if (!merchant || !amount) { globalThis.showBanner('⚠ Please fill in merchant and amount', 'warn'); return; }
   if (isExpensePhotoConverting()) { globalThis.showBanner('⟳ Please wait — receipt is still converting...', 'warn'); return; }
   const { base64: photoForUpload, mediaType: mediaTypeForUpload } = getExpensePhotoUploadSnapshot();
@@ -2929,7 +2932,8 @@ function addExpense(opts = {}) {
     receiptNum: opts.receiptNum || document.getElementById('exp-receipt-num').value.trim(),
     photo: null,  // never store in localStorage — too large, causes silent crash
     awaitingReceipt: photoForUpload ? false : (opts.awaitingReceipt || false),
-    driveLink: null
+    driveLink: null,
+    bookingId: bookingId || null,
   };
   // Tag with active property cloud ID so the property filter shows it immediately
   // (without this, the expense is invisible until the app reloads from cloud)
@@ -2947,6 +2951,13 @@ function addExpense(opts = {}) {
     }).catch(e => console.warn("[StayOps] silent error:", e));
   }
 
+  // If this expense is linked to a booking, push the amount into that
+  // booking's clean.cost and trigger the mgmt fee + net payout recompute.
+  if (exp.bookingId && typeof globalThis.applyExpenseToBookingClean === 'function') {
+    globalThis.applyExpenseToBookingClean(exp.bookingId, Math.abs(Number(exp.amount) || 0))
+      .catch(e => console.warn('[StayOps] applyExpenseToBookingClean failed:', e));
+  }
+
   // Try to upload photo to Drive and push to sheet
   const expWithPhoto = Object.assign({}, exp, { photo: photoForUpload, _mediaType: mediaTypeForUpload });
   saveExpenseToDriveAndSheet(expWithPhoto);
@@ -2958,6 +2969,8 @@ function addExpense(opts = {}) {
     });
     const refundReset = document.getElementById('exp-is-refund');
     if (refundReset) refundReset.checked = false;
+    const bookingLinkReset = document.getElementById('exp-booking-link');
+    if (bookingLinkReset) bookingLinkReset.value = '';
     document.getElementById('exp-date').value = new Date().toISOString().split('T')[0];
     resetExpenseCatPicker();
     const typeSel = document.getElementById('exp-receipt-type');
@@ -3241,6 +3254,8 @@ function openExpenseEdit(id) {
   if (eeHidden) eeHidden.value = e.category || '';
   renderExpenseCatPickerFor('ee');
   document.getElementById('ee-receipt-type').value = String(e.receiptType || 'missing').toLowerCase().trim();
+  // Booking link picker
+  if (typeof renderExpenseBookingPicker === 'function') renderExpenseBookingPicker('ee', e.bookingId || '');
   // Show existing drive link if present
   const currentReceiptEl = document.getElementById('ee-current-receipt');
   const receiptLinkEl = document.getElementById('ee-receipt-link');
@@ -3276,6 +3291,8 @@ async function saveExpenseEdit() {
   e.category = document.getElementById('ee-category').value;
   e.receiptType = document.getElementById('ee-receipt-type').value;
   e.receiptNum = document.getElementById('ee-receipt-num').value.trim();
+  const prevBookingId = e.bookingId || null;
+  e.bookingId = document.getElementById('ee-booking-link')?.value || null;
 
   // Upload new receipt photo if one was selected
   if (editingExpensePhotoBase64) {
@@ -3310,6 +3327,19 @@ async function saveExpenseEdit() {
 
   globalThis.savePropertyData();
   if (typeof saveExpenseToCloud === 'function') saveExpenseToCloud(e).catch(err => console.warn('[StayOps] saveExpenseToCloud failed:', err));
+
+  // Mirror the expense amount onto the linked booking's clean cost (and
+  // recompute mgmt fee + net payout). When the user unlinks a previously
+  // linked expense, clear the cost on the old booking.
+  if (prevBookingId && prevBookingId !== e.bookingId && typeof globalThis.clearExpenseFromBookingClean === 'function') {
+    globalThis.clearExpenseFromBookingClean(prevBookingId)
+      .catch(err => console.warn('[StayOps] clearExpenseFromBookingClean failed:', err));
+  }
+  if (e.bookingId && typeof globalThis.applyExpenseToBookingClean === 'function') {
+    globalThis.applyExpenseToBookingClean(e.bookingId, Math.abs(Number(e.amount) || 0))
+      .catch(err => console.warn('[StayOps] applyExpenseToBookingClean failed:', err));
+  }
+
   closeExpenseEdit();
   renderExpenses();
   globalThis.showBanner('✓ Expense updated', 'ok');
@@ -3330,6 +3360,34 @@ const DEFAULT_EXPENSE_CATS = [
   'Advertising',
   'Other'
 ];
+/** Populate the booking-link <select> beneath the cleaning category. Lists
+ *  past confirmed bookings in the last 120 days (newest first). Hidden until
+ *  the category includes "cleaning". */
+function renderExpenseBookingPicker(prefix, currentValue) {
+  prefix = prefix || 'exp';
+  const sel = document.getElementById(prefix + '-booking-link');
+  const wrap = document.getElementById(prefix + '-booking-link-wrap');
+  if (!sel) return;
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const cutoff = new Date(Date.now() - 120 * 86400000).toISOString().split('T')[0];
+  const list = (Array.isArray(bookings) ? bookings : [])
+    .filter(b => b && b.status !== 'cancelled' && b.checkout && b.checkout <= todayStr && b.checkout >= cutoff)
+    .sort((a, b) => String(b.checkout).localeCompare(String(a.checkout)));
+
+  sel.innerHTML = '<option value="">— No booking —</option>' + list.map(b => {
+    const id = String(b._cloudId || b.id || '');
+    const label = `${b.name || 'Guest'} · ${b.checkin || '?'} → ${b.checkout || '?'}`;
+    return `<option value="${escHtml(id)}">${escHtml(label)}</option>`;
+  }).join('');
+  if (currentValue) sel.value = String(currentValue);
+
+  // Show / hide based on category
+  const cat = (document.getElementById(prefix + '-category')?.value || '').toLowerCase();
+  if (wrap) wrap.style.display = cat.includes('cleaning') ? 'block' : 'none';
+}
+globalThis.renderExpenseBookingPicker = renderExpenseBookingPicker;
+
 function getExpenseCats() {
   const cats = window._appConfig && window._appConfig.expense_cats;
   if (Array.isArray(cats) && cats.length > 0 && cats.every(c => typeof c === 'string' && c.trim())) {
@@ -3372,6 +3430,14 @@ function renderExpenseCatPickerFor(prefix) {
       sel.appendChild(o);
     }
   });
+
+  // Re-render the booking picker so it shows/hides based on the new category.
+  // Attach once per <select> via a sentinel data attribute.
+  if (!sel.dataset.bookingLinkWired) {
+    sel.addEventListener('change', () => renderExpenseBookingPicker(prefix, document.getElementById(prefix + '-booking-link')?.value || ''));
+    sel.dataset.bookingLinkWired = '1';
+  }
+  renderExpenseBookingPicker(prefix, document.getElementById(prefix + '-booking-link')?.value || '');
 }
 globalThis.renderExpenseCatPickerFor = renderExpenseCatPickerFor;
 
