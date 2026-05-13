@@ -1146,6 +1146,7 @@ async function loadBookingsFromCloud() {
       phone:            b.phone         || '',
       email:            b.email         || '',
       updatedAt:        b.updated_at    || '',
+      modificationPendingAt: b.modification_pending_at || null,
     }));
   } catch (e) {
     console.warn('[StayOps] loadBookingsFromCloud failed', e);
@@ -1178,6 +1179,7 @@ export async function saveBookingToCloud(booking) {
     source:             booking.source      || 'sheet',
     phone:              booking.phone       || null,
     email:              booking.email       || null,
+    modification_pending_at: booking.modificationPendingAt || null,
     updated_at:         new Date().toISOString(),
   };
   if (booking._cloudId) {

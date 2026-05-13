@@ -635,7 +635,11 @@ async function processEmailResult(parsed, msgId, source, ctx) {
       const datesChanged =
         (parsed.checkin && parsed.checkin !== match.checkin) ||
         (parsed.checkout && parsed.checkout !== match.checkout);
-      const patch = { updated_at: new Date().toISOString(), gmail_message_id: msgId };
+      const patch = {
+        updated_at: new Date().toISOString(),
+        gmail_message_id: msgId,
+        modification_pending_at: new Date().toISOString(),
+      };
       if (parsed.checkin)   patch.checkin  = parsed.checkin;
       if (parsed.checkout)  patch.checkout = parsed.checkout;
       if (parsed.checkin && parsed.checkout) patch.nights = daysBetween(parsed.checkin, parsed.checkout);
@@ -713,7 +717,10 @@ async function processEmailResult(parsed, msgId, source, ctx) {
       // Defense in depth: apply any actual values Claude extracted from the body
       // (e.g. when the request email said "wants to change to 8 guests" but
       // Claude still classified it as a notice rather than a full modification).
-      const patch = { updated_at: new Date().toISOString() };
+      const patch = {
+        updated_at: new Date().toISOString(),
+        modification_pending_at: new Date().toISOString(),
+      };
       const appliedChanges = [];
       if (parsed.checkin && parsed.checkin !== modMatch.checkin) {
         patch.checkin = parsed.checkin;

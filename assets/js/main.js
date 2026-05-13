@@ -70,7 +70,7 @@ import {
 import { installCalendarSyncOutbound, triggerCalendarReconcileNow } from './calendar-sync-outbound.js';
 import {
   calPrev, calNext, openCalPreview, closeCalPreview, addNote, showDetail, showEditModal, saveEdit, editCalcNights, editCalcNet, filterBookings, addBooking,
-  deleteBooking, importAirbnbCSV, importCSV, switchModalTab, saveCleaningFee, saveCleanCost, renderBookings, switchBookingsView, renderBookingsCalendarView,
+  deleteBooking, importAirbnbCSV, importCSV, switchModalTab, saveCleaningFee, saveCleanCost, clearModificationFlag, renderBookings, switchBookingsView, renderBookingsCalendarView,
   openBookingFilterSheet, closeBookingFilterSheet, cycleBookingFilterDateRange, resetBookingFilters, applyBookingFilters
 } from './bookings.js';
 import {
@@ -380,6 +380,7 @@ window.saveCleanerPerm          = saveCleanerPerm;
 window.saveCleanerPinById       = saveCleanerPinById;
 window.saveCleaningFee          = saveCleaningFee;
 window.saveCleanCost            = saveCleanCost;
+window.clearModificationFlag    = clearModificationFlag;
 window.editCalcNights           = editCalcNights;
 window.editCalcNet              = editCalcNet;
 window.saveEdit                 = saveEdit;

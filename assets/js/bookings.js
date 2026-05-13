@@ -849,6 +849,7 @@ function showDetail(id) {
     : '';
 
   const guestInitial = escHtml(String(b.name || '').charAt(0).toUpperCase());
+  const modBanner = _renderModificationBanner(b, safeIdEsc);
   document.getElementById('detail-content').innerHTML = `
     <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px">
       <div style="width:52px;height:52px;border-radius:14px;background:var(--primary-soft);display:flex;align-items:center;justify-content:center;font-family:'Newsreader',serif;font-weight:700;font-size:22px;color:var(--primary);flex-shrink:0">${guestInitial}</div>
@@ -862,6 +863,8 @@ function showDetail(id) {
       ${b.platform ? _bookingDetailPlatformPill(b.platform) : ''}
       ${_bookingDetailStayStatusBadge(false, isPast)}
     </div>
+
+    ${modBanner}
 
     <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase;margin:0 0 8px 2px">Stay</div>
     <div style="background:white;border-radius:16px;border:1px solid var(--hairline-1);margin-bottom:20px;overflow:hidden">
@@ -1677,6 +1680,62 @@ async function saveCleanCost(cleanId, bookingId) {
   if (typeof showDetail === 'function') showDetail(bookingId);
 }
 
+/** Yellow banner shown on a booking detail when a modification email was
+ *  detected for this booking. Stays visible until "Mark as reviewed" clears
+ *  the modificationPendingAt flag. Lets the host verify the new values on
+ *  the source platform (since Airbnb modification emails often hide the new
+ *  payout behind a link). */
+function _renderModificationBanner(b, safeIdEsc) {
+  if (!b || !b.modificationPendingAt) return '';
+  const when = (() => {
+    try {
+      const d = new Date(b.modificationPendingAt);
+      return d.toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    } catch (_e) { return ''; }
+  })();
+  const platform = String(b.platform || '').toLowerCase();
+  let platformLink = '';
+  if (platform === 'airbnb' && b.confirmCode) {
+    const code = escHtml(String(b.confirmCode));
+    platformLink = `<a href="https://www.airbnb.com/hosting/reservations/details/${code}" target="_blank" rel="noopener" style="display:inline-block;background:#FFFFFF;color:#8A5A00;border:1px solid #E8C265;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;text-decoration:none;font-family:'Plus Jakarta Sans',sans-serif;touch-action:manipulation">Open on Airbnb</a>`;
+  } else if (platform === 'airbnb') {
+    platformLink = `<a href="https://www.airbnb.com/hosting/reservations" target="_blank" rel="noopener" style="display:inline-block;background:#FFFFFF;color:#8A5A00;border:1px solid #E8C265;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;text-decoration:none;font-family:'Plus Jakarta Sans',sans-serif;touch-action:manipulation">Open on Airbnb</a>`;
+  }
+  return `
+    <div style="background:#FFF7E0;border:1px solid #E8C265;border-radius:12px;padding:14px 16px;margin-bottom:20px;display:flex;flex-direction:column;gap:10px;font-family:'Plus Jakarta Sans',sans-serif">
+      <div style="display:flex;align-items:flex-start;gap:10px">
+        <div style="font-size:18px;line-height:1.2;flex-shrink:0">⚠️</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;color:#5C3C00">Modified by guest${when ? ' on ' + when : ''}</div>
+          <div style="font-size:12px;color:#7A5400;margin-top:2px;line-height:1.4">Verify the new guest count, dates, or payout on the platform — the modification email may not include every change.</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${platformLink}
+        <button type="button" onclick="clearModificationFlag('${safeIdEsc}')" style="background:transparent;color:#8A5A00;border:1px solid #E8C265;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;touch-action:manipulation">Mark as reviewed</button>
+      </div>
+    </div>
+  `;
+}
+
+async function clearModificationFlag(bookingId) {
+  const b = bookings.find(bk => String(bk.id) === String(bookingId) || (bk._cloudId && String(bk._cloudId) === String(bookingId)));
+  if (!b) return;
+  b.modificationPendingAt = null;
+  if (typeof globalThis.saveBookingToCloud === 'function') {
+    try {
+      await globalThis.saveBookingToCloud(b);
+    } catch (e) {
+      console.error('[StayOps] Clear modification flag failed:', e);
+      globalThis.showBanner('Marked locally, cloud sync failed', 'warn');
+      if (typeof showDetail === 'function') showDetail(bookingId);
+      return;
+    }
+  }
+  globalThis.showBanner('✓ Marked as reviewed', 'ok');
+  if (typeof showDetail === 'function') showDetail(bookingId);
+}
+
 /** Aliases for clarity (same as showEditModal / saveEdit). */
 const editBooking = showEditModal;
 const saveBookingEdit = saveEdit;
@@ -1853,6 +1912,7 @@ export {
   getBookingIdentityKey,
   saveCleaningFee,
   saveCleanCost,
+  clearModificationFlag,
   switchBookingsView,
   renderBookingsCalendarView,
   openBookingFilterSheet,
