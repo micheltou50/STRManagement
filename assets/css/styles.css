@@ -447,6 +447,11 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+[id^="section-"]:not(.section-hidden) {
+  flex: 1;
 }
 
 .section-stack { display: flex; flex-direction: column; gap: 12px; }
