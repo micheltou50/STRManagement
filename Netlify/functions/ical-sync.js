@@ -98,7 +98,7 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
           supabaseUrl,
           sbHeaders,
           userId: feed.user_id,
-          bookingId: prior.local_id,
+          bookingId: prior.id,
           bookingRow: {
             guest_name: prior.guest_name,
             property_id: prior.property_id,
@@ -178,7 +178,7 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
         supabaseUrl,
         sbHeaders,
         userId: feed.user_id,
-        bookingId: stale.local_id,
+        bookingId: stale.id,
         bookingRow: {
           guest_name: stale.guest_name,
           property_id: stale.property_id,

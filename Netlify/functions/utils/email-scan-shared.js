@@ -612,7 +612,7 @@ async function processEmailResult(parsed, msgId, source, ctx) {
           supabaseUrl,
           sbHeaders,
           userId: uid,
-          bookingId: match.local_id,
+          bookingId: match.id,
           bookingRow: {
             guest_name: parsed.guestName || match.guest_name,
             property_id: match.property_id,
