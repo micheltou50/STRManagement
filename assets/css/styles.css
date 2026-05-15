@@ -921,6 +921,36 @@ label {
 .fin-rev-row:last-child {
   border-bottom: none;
 }
+.mgmt-invoiced-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #F1EFE8;
+  color: #5F5E5A;
+  margin-left: 6px;
+  vertical-align: middle;
+  letter-spacing: 0.3px;
+}
+.inv-status-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.inv-status-paid {
+  background: #EAF3DE;
+  color: #3B6D11;
+}
+.inv-status-unpaid {
+  background: #FAEEDA;
+  color: #854F0B;
+}
 .fin-month-hdr {
   font-size: 12px;
   font-weight: 600;

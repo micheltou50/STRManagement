@@ -1815,7 +1815,7 @@ function renderManagement() {
           </span>
         </span>
         <div style="flex:1;min-width:0">
-          <div style="font-weight:500;font-size:14px;color:var(--ink-1);text-transform:none">${escHtml(b.name||'')}</div>
+          <div style="font-weight:500;font-size:14px;color:var(--ink-1);text-transform:none">${escHtml(b.name||'')}${(()=>{const nums=_getBookingInvoiceMap().get(String(b.id));return nums&&nums.length?'<span class="mgmt-invoiced-badge">'+escHtml(nums[nums.length-1])+'</span>':'';})()}</div>
           <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n · Host $${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
         </div>
         <div style="font-size:14px;font-weight:500;color:#1D9E75;font-family:'Plus Jakarta Sans',sans-serif;flex-shrink:0">$${Number(b.mgmtPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
@@ -1825,6 +1825,7 @@ function renderManagement() {
   _bindMgmtActionButtons();
   _bindMgmtBookingCheckboxes();
   updateMgmtGenInvoiceBtn();
+  renderInvoiceHistory();
 }
 
 let mgmtSelected = new Set();
@@ -1959,19 +1960,150 @@ function _getIssuedInvoices() {
   return Array.isArray(list) ? list : [];
 }
 
+function _normalizeInvoiceRecord(rec) {
+  if (!rec) return null;
+  return {
+    number: rec.number || rec.invoiceNumber || '',
+    date: rec.date || '',
+    total: Number(rec.total || 0),
+    clientName: rec.clientName || '',
+    bookingIds: Array.isArray(rec.bookingIds) ? rec.bookingIds : [],
+    status: rec.status === 'paid' ? 'paid' : 'unpaid',
+    paidDate: rec.paidDate || null,
+  };
+}
+
+let _bookingInvoiceMapCache = null;
+let _bookingInvoiceMapVersion = -1;
+
+function _getBookingInvoiceMap() {
+  const invoices = _getIssuedInvoices();
+  if (_bookingInvoiceMapCache && _bookingInvoiceMapVersion === invoices.length) {
+    return _bookingInvoiceMapCache;
+  }
+  const map = new Map();
+  for (const raw of invoices) {
+    const rec = _normalizeInvoiceRecord(raw);
+    if (!rec || !rec.number) continue;
+    for (const bid of rec.bookingIds) {
+      if (!map.has(bid)) map.set(bid, []);
+      map.get(bid).push(rec.number);
+    }
+  }
+  _bookingInvoiceMapCache = map;
+  _bookingInvoiceMapVersion = invoices.length;
+  return map;
+}
+
 function _recordIssuedInvoice(record) {
   try {
     if (!record || !record.number) return;
     window._appConfig = window._appConfig || {};
     const list = Array.isArray(window._appConfig.invoices) ? window._appConfig.invoices.slice() : [];
-    // Idempotency guard: never store the same number twice.
     if (list.some(r => r && (r.number || r.invoiceNumber) === record.number)) return;
     list.push(record);
     window._appConfig.invoices = list;
+    _bookingInvoiceMapCache = null;
     if (typeof saveAppConfigToCloud === 'function') {
       saveAppConfigToCloud({ invoices: list }).catch(e => console.warn('[StayOps] silent error:', e));
     }
   } catch (_e) { /* fail silently — never block invoice generation */ }
+}
+
+function _updateInvoiceStatus(invoiceNumber, newStatus) {
+  if (!invoiceNumber || (newStatus !== 'paid' && newStatus !== 'unpaid')) return;
+  window._appConfig = window._appConfig || {};
+  const list = Array.isArray(window._appConfig.invoices) ? window._appConfig.invoices.slice() : [];
+  const idx = list.findIndex(r => r && (r.number || r.invoiceNumber) === invoiceNumber);
+  if (idx < 0) return;
+  list[idx] = { ...list[idx], status: newStatus, paidDate: newStatus === 'paid' ? new Date().toISOString() : null };
+  window._appConfig.invoices = list;
+  _bookingInvoiceMapCache = null;
+  if (typeof saveAppConfigToCloud === 'function') {
+    saveAppConfigToCloud({ invoices: list }).catch(e => console.warn('[StayOps] silent error:', e));
+  }
+  renderInvoiceHistory();
+}
+
+function _viewHistoricalInvoice(invoiceNumber) {
+  const invoices = _getIssuedInvoices();
+  const raw = invoices.find(r => (r.number || r.invoiceNumber) === invoiceNumber);
+  if (!raw) return;
+  const rec = _normalizeInvoiceRecord(raw);
+  const allBookings = _financeScopedBookings().length ? _financeScopedBookings() : (Array.isArray(bookings) ? bookings : []);
+  const matched = rec.bookingIds
+    .map(bid => allBookings.find(b => String(b.id) === bid))
+    .filter(Boolean);
+  if (!matched.length) {
+    if (typeof globalThis.showBanner === 'function') globalThis.showBanner('Bookings for this invoice are no longer available', 'warn');
+    return;
+  }
+  const clients = loadClients();
+  const client = rec.clientName ? clients.find(c => c.name === rec.clientName) || { name: rec.clientName } : null;
+  buildInvoicePDF(matched, client);
+}
+
+let _expandedInvoiceNum = null;
+
+function renderInvoiceHistory() {
+  const el = document.getElementById('mgmt-invoice-history');
+  if (!el) return;
+  const allInvoices = _getIssuedInvoices().map(_normalizeInvoiceRecord).filter(Boolean).reverse();
+  if (!allInvoices.length) { el.innerHTML = ''; return; }
+  const allBookingsArr = _financeScopedBookings().length ? _financeScopedBookings() : (Array.isArray(bookings) ? bookings : []);
+  const rows = allInvoices.map(inv => {
+    const isExpanded = _expandedInvoiceNum === inv.number;
+    const isPaid = inv.status === 'paid';
+    const pillClass = isPaid ? 'inv-status-paid' : 'inv-status-unpaid';
+    const pillText = isPaid ? 'Paid' : 'Unpaid';
+    const d = new Date(inv.date);
+    const dateStr = isNaN(d) ? '' : d.toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' });
+    const totalStr = '$' + inv.total.toLocaleString('en-AU', { minimumFractionDigits:2, maximumFractionDigits:2 });
+    let detail = '';
+    if (isExpanded) {
+      const matchedBookings = inv.bookingIds
+        .map(bid => allBookingsArr.find(b => String(b.id) === bid))
+        .filter(Boolean);
+      const bookingLines = matchedBookings.length
+        ? matchedBookings.map(b => {
+            const ci = new Date(b.checkin);
+            const ciStr = isNaN(ci) ? '' : ci.toLocaleDateString('en-AU', { day:'numeric', month:'short' });
+            return `<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;color:var(--ink-1)"><span>${escHtml(b.name||'Guest')} · ${ciStr}</span><span style="color:#1D9E75;font-weight:500">$${Number(b.mgmtPayout||0).toFixed(2)}</span></div>`;
+          }).join('')
+        : (inv.bookingIds.length
+            ? '<div style="font-size:12px;color:var(--muted-2);padding:6px 0">Booking details no longer available</div>'
+            : '<div style="font-size:12px;color:var(--muted-2);padding:6px 0">No linked bookings (legacy invoice)</div>');
+      const toggleLabel = isPaid ? 'Mark unpaid' : 'Mark paid';
+      const toggleStatus = isPaid ? 'unpaid' : 'paid';
+      const viewBtn = inv.bookingIds.length
+        ? `<button onclick="viewHistoricalInvoice('${escHtml(inv.number)}')" style="font-size:12px;font-weight:500;color:var(--primary);background:none;border:1px solid var(--primary);border-radius:8px;padding:6px 14px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">View invoice</button>`
+        : '';
+      detail = `<div style="padding:4px 0 8px;border-top:0.5px solid rgba(0,0,0,0.06);margin-top:4px">
+        ${bookingLines}
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button onclick="toggleInvoiceStatus('${escHtml(inv.number)}','${toggleStatus}')" style="font-size:12px;font-weight:500;color:#fff;background:var(--primary);border:none;border-radius:8px;padding:6px 14px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">${toggleLabel}</button>
+          ${viewBtn}
+        </div>
+      </div>`;
+    }
+    const clientStr = inv.clientName ? ` · ${escHtml(inv.clientName)}` : '';
+    return `<div onclick="toggleInvoiceDetail('${escHtml(inv.number)}')" style="padding:12px 0;border-bottom:0.5px solid rgba(0,0,0,0.08);cursor:pointer">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500;font-size:13px;color:var(--ink-1)">${escHtml(inv.number)}<span style="font-weight:400;color:var(--muted-2);font-size:12px;margin-left:8px">${dateStr}${clientStr}</span></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+          <span style="font-size:14px;font-weight:500;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif">${totalStr}</span>
+          <span class="inv-status-pill ${pillClass}">${pillText}</span>
+        </div>
+      </div>
+      ${detail}
+    </div>`;
+  }).join('');
+  el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:0 2px;margin-top:4px">
+      <span class="fin-section-hdr" style="margin:0">Past invoices</span>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:0 16px;border:0.5px solid rgba(0,0,0,0.08)">${rows}</div>`;
 }
 
 function buildInvoicePDF(selected, client) {
@@ -2137,6 +2269,9 @@ function buildInvoicePDF(selected, client) {
     date: invDate.toISOString(),
     total: Number(invoiceTotal.toFixed(2)),
     clientName: (client && client.name) || '',
+    bookingIds: selected.map(b => String(b.id)),
+    status: 'unpaid',
+    paidDate: null,
   });
 
   const w = window.open('', '_blank');
@@ -4892,6 +5027,9 @@ globalThis.bankImportPickFile = () => getOrCreateBankCsvFileInput().click();
 globalThis.resetFinanceSubViewToHub = resetFinanceSubViewToHub;
 globalThis.mgmtCheckboxChange = mgmtCheckboxChange;
 globalThis.mgmtToggleSelectAll = mgmtToggleSelectAll;
+globalThis.toggleInvoiceStatus = _updateInvoiceStatus;
+globalThis.viewHistoricalInvoice = _viewHistoricalInvoice;
+globalThis.toggleInvoiceDetail = function(num) { _expandedInvoiceNum = _expandedInvoiceNum === num ? null : num; renderInvoiceHistory(); };
 
 // Open a receipt by fetching a signed URL on demand (bucket is private).
 window.openReceiptViewer = async function (driveLinkValue, btnEl) {
