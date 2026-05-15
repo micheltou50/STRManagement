@@ -13,10 +13,12 @@ async function sendEmailAlongside(recipientEmail, title, body) {
   const subject = (title || 'StayOps Notification').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '').trim();
   const html = buildNotificationEmailHtml(title, body);
 
-  // Primary: Resend (branded from address)
   const apiKey = process.env.RESEND_API_KEY;
-  if (apiKey) {
-    const from = process.env.RESEND_FROM || 'StayOps <info@stayops.com.au>';
+  if (!apiKey) { console.log('[send-push] RESEND_API_KEY not set — skipping email'); return; }
+
+  const from = process.env.RESEND_FROM || 'StayOps <info@stayops.com.au>';
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -31,30 +33,13 @@ async function sendEmailAlongside(recipientEmail, title, body) {
         console.log('[send-push] Resend email sent to', recipientEmail, 'id:', data.id || 'n/a');
         return;
       }
-      console.log('[send-push] Resend failed, trying Gmail:', data.message || res.status);
+      console.log('[send-push] Resend attempt', attempt, 'failed:', data.message || res.status);
     } catch (e) {
-      console.log('[send-push] Resend failed, trying Gmail:', e.message);
+      console.log('[send-push] Resend attempt', attempt, 'failed:', e.message);
     }
+    if (attempt < maxAttempts) await new Promise(r => setTimeout(r, 1000 * attempt));
   }
-
-  // Fallback: Gmail SMTP
-  const gmailUser = process.env.GMAIL_USER;
-  const gmailPass = process.env.GMAIL_APP_PASSWORD;
-  if (!gmailUser || !gmailPass) { console.log('[send-push] No email provider available — skipping'); return; }
-  try {
-    const nodemailer = require('nodemailer');
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com', port: 587, secure: false,
-      auth: { user: gmailUser, pass: gmailPass },
-    });
-    await transporter.sendMail({
-      from: process.env.GMAIL_FROM || ('StayOps <' + gmailUser + '>'),
-      to: recipientEmail, subject, html,
-    });
-    console.log('[send-push] Gmail email sent to', recipientEmail);
-  } catch (gmailErr) {
-    console.error('[send-push] Gmail email failed:', gmailErr.message);
-  }
+  console.error('[send-push] Resend email failed after', maxAttempts, 'attempts to', recipientEmail);
 }
 
 async function resolveUserEmail(sb, userId) {

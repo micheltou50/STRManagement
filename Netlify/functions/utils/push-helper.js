@@ -187,58 +187,36 @@ async function sendPushToHost({
 
   // Also send email to host (best-effort, non-blocking)
   try {
-    const gmailUser = process.env.GMAIL_USER;
-    const gmailPass = process.env.GMAIL_APP_PASSWORD;
     const resendKey = process.env.RESEND_API_KEY;
-
-    if (gmailUser || resendKey) {
+    if (!resendKey) { console.log('[StayOps] push-helper: RESEND_API_KEY not set — skipping email'); }
+    else {
       const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(uid);
       const hostEmail = authUser && authUser.user && authUser.user.email;
       if (hostEmail) {
         const emailHtml = buildNotificationHtml(title, body);
-
-        let emailSent = false;
-
-        // Primary: Resend (branded from address)
-        if (resendKey && !emailSent) {
+        const from = process.env.RESEND_FROM || 'StayOps <info@stayops.com.au>';
+        const maxAttempts = 3;
+        let sent = false;
+        for (let attempt = 1; attempt <= maxAttempts && !sent; attempt++) {
           try {
-            const from = process.env.RESEND_FROM || 'StayOps <info@stayops.com.au>';
             const emailRes = await fetch('https://api.resend.com/emails', {
               method: 'POST',
               headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
               body: JSON.stringify({ from, to: hostEmail, subject: title, html: emailHtml }),
             });
             if (emailRes.ok) {
-              emailSent = true;
+              sent = true;
               console.log('[StayOps] push-helper: Resend email sent to', hostEmail);
             } else {
               const errBody = await emailRes.text().catch(() => '');
-              console.log('[StayOps] push-helper: Resend email failed, trying Gmail:', emailRes.status, errBody);
+              console.log('[StayOps] push-helper: Resend attempt', attempt, 'failed:', emailRes.status, errBody);
             }
           } catch (resendErr) {
-            console.log('[StayOps] push-helper: Resend email failed, trying Gmail:', resendErr.message);
+            console.log('[StayOps] push-helper: Resend attempt', attempt, 'failed:', resendErr.message);
           }
+          if (!sent && attempt < maxAttempts) await new Promise(r => setTimeout(r, 1000 * attempt));
         }
-
-        // Fallback: Gmail SMTP
-        if (gmailUser && gmailPass && !emailSent) {
-          try {
-            const nodemailer = require('nodemailer');
-            const transporter = nodemailer.createTransport({
-              host: 'smtp.gmail.com', port: 587, secure: false,
-              auth: { user: gmailUser, pass: gmailPass },
-            });
-            await transporter.sendMail({
-              from: process.env.GMAIL_FROM || ('StayOps <' + gmailUser + '>'),
-              to: hostEmail,
-              subject: title,
-              html: emailHtml,
-            });
-            console.log('[StayOps] push-helper: Gmail email sent to', hostEmail);
-          } catch (gmailErr) {
-            console.log('[StayOps] push-helper: Gmail email failed:', gmailErr.message);
-          }
-        }
+        if (!sent) console.error('[StayOps] push-helper: Resend email failed after', maxAttempts, 'attempts to', hostEmail);
       }
     }
   } catch (emailErr) {

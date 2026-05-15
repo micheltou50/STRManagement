@@ -1,10 +1,8 @@
 // Netlify/functions/send-email.js
-// Sends emails via Resend API (primary, branded from address) or Gmail SMTP (fallback).
+// Sends emails via Resend API with retry. No Gmail fallback.
 //
-// Gmail SMTP: set GMAIL_USER + GMAIL_APP_PASSWORD in Netlify env vars.
-// Resend:     set RESEND_API_KEY (+ RESEND_FROM) — requires verified domain for non-self emails.
+// Required env: RESEND_API_KEY (+ optional RESEND_FROM)
 
-const nodemailer = require('nodemailer');
 const { verifyAuth } = require('./utils/auth');
 const { captureError, flush } = require('./utils/sentry');
 const emailTemplates = require('./utils/email-templates');
@@ -41,12 +39,20 @@ exports.handler = async (event) => {
     };
   }
 
-  // ── Primary: Resend API (branded from address) ──
   const resendKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM || 'StayOps <info@stayops.com.au>';
-  const resendDiag = {};
+  if (!resendKey) {
+    console.error('[send-email] RESEND_API_KEY not set');
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: 'Email not configured — set RESEND_API_KEY' })
+    };
+  }
 
-  if (resendKey) {
+  const from = process.env.RESEND_FROM || 'StayOps <info@stayops.com.au>';
+  const maxAttempts = 3;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -59,71 +65,26 @@ exports.handler = async (event) => {
 
       const data = await response.json();
 
-      if (!response.ok) {
-        console.error('[send-email] Resend error:', data);
-        resendDiag.error = data.message || 'Resend API error';
-      } else {
+      if (response.ok) {
         console.log('[send-email] Resend sent:', data.id, 'to:', to);
         return {
           statusCode: 200,
           body: JSON.stringify({ success: true, id: data.id, provider: 'resend' })
         };
       }
+      lastError = data.message || 'Resend API error';
+      console.error('[send-email] Resend attempt', attempt, 'failed:', lastError);
     } catch (err) {
-      console.error('[send-email] Resend failed:', err.message);
-      resendDiag.error = err.message;
+      lastError = err.message;
+      console.error('[send-email] Resend attempt', attempt, 'failed:', lastError);
     }
-  } else {
-    resendDiag.error = 'RESEND_API_KEY not set';
+    if (attempt < maxAttempts) await new Promise(r => setTimeout(r, 1000 * attempt));
   }
 
-  // ── Fallback: Gmail SMTP via Nodemailer ──
-  const gmailUser = process.env.GMAIL_USER;
-  const gmailPass = process.env.GMAIL_APP_PASSWORD;
-
-  if (gmailUser && gmailPass) {
-    try {
-      const transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',
-        port: 587,
-        secure: false,
-        auth: { user: gmailUser, pass: gmailPass },
-      });
-
-      const mailOpts = {
-        from: process.env.GMAIL_FROM || ('StayOps <' + gmailUser + '>'),
-        to,
-        subject,
-        html,
-      };
-      if (attachments && Array.isArray(attachments)) {
-        mailOpts.attachments = attachments.map(a => ({
-          filename: a.filename || 'attachment',
-          content: a.content || '',
-          encoding: 'base64',
-        }));
-      }
-
-      const info = await transporter.sendMail(mailOpts);
-      console.log('[send-email] Gmail SMTP sent:', info.messageId, 'to:', to);
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ success: true, id: info.messageId, provider: 'gmail', resendError: resendDiag.error || null })
-      };
-    } catch (err) {
-      console.error('[send-email] Gmail SMTP failed:', err.message);
-      captureError(err, { tags: { function: 'send-email' } });
-      await flush();
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: err.message, resendError: resendDiag.error || null })
-      };
-    }
-  }
-
-  console.error('[send-email] No email provider configured');
+  captureError(new Error('Resend failed after ' + maxAttempts + ' attempts: ' + lastError), { tags: { function: 'send-email' } });
+  await flush();
   return {
     statusCode: 500,
-    body: JSON.stringify({ error: 'Email not configured — set RESEND_API_KEY or GMAIL_APP_PASSWORD', resendError: resendDiag.error || null })
+    body: JSON.stringify({ error: 'Email send failed after ' + maxAttempts + ' attempts', lastError })
   };
 };
