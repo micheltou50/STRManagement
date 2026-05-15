@@ -992,8 +992,8 @@ function computeDedupedTodayAlerts(isPortfolio) {
       ? (now - assignedAt) / 3600000
       : 0;
 
-    // ── Cleaner assigned but never notified ──
-    if (hasCleaner && !c.notified && !c.done && c.date && inNextDays(c.date, 14)) {
+    // ── Cleaner assigned but never notified (skip if already confirmed) ──
+    if (hasCleaner && !c.notified && !c.cleanerConfirmed && !c.done && c.date && inNextDays(c.date, 14)) {
       const dleft = daysUntil(c.date);
       pushAlert(
         'g',
@@ -1005,13 +1005,14 @@ function computeDedupedTodayAlerts(isPortfolio) {
       );
     }
 
-    // ── No response from cleaner (>12h) ──
+    // ── No response from cleaner (>12h, within next 14 days) ──
     if (
       hasCleaner &&
       !c.cleanerConfirmed &&
       !c.cleanerDeclined &&
       !c.done &&
-      ageH > 12
+      ageH > 12 &&
+      c.date && inNextDays(c.date, 14)
     ) {
       const cd = parseLocalDayStart(c.date);
       const dleft = Number.isNaN(cd.getTime()) ? 99 : Math.ceil((cd - todayStart) / 86400000);
