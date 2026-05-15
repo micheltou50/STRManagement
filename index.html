@@ -757,7 +757,7 @@
 <!-- ══════════════════════════════════════════════════════════
      STAYOPS LOADING / SPLASH SCREEN (00)
 ══════════════════════════════════════════════════════════ -->
-<div id="stayops-loading-screen" style="display:flex;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:var(--primary-ink,#1f3f35);flex-direction:column;align-items:center;justify-content:center;overflow:hidden;">
+<div id="stayops-loading-screen" style="display:flex;position:fixed;top:calc(0px - env(safe-area-inset-top,0px));left:0;right:0;bottom:calc(0px - env(safe-area-inset-bottom,0px));z-index:9999;background:var(--primary-ink,#1f3f35);flex-direction:column;align-items:center;justify-content:center;overflow:hidden;">
   <!-- Faint hospitality glyph backdrop -->
   <div aria-hidden="true" style="position:absolute;inset:0;color:rgba(207,225,217,0.06);pointer-events:none;font-family:'Newsreader',serif;font-size:24px;line-height:1.6">
     <span style="position:absolute;top:9%;left:8%">✦</span>
