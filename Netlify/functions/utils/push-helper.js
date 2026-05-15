@@ -132,47 +132,44 @@ async function sendPushToHost({
     }
   }
 
+  // ── Push notifications (only if subscriptions exist) ──
   const subs = subscriptionsFromAppConfigRow(row);
-
-  if (!subs.length) {
-    console.log('[StayOps] No push subscriptions found');
-    return { sent: 0, removed: 0 };
-  }
-
-  if (!ensureVapid()) {
-    return { sent: 0, removed: 0 };
-  }
-
-  const staleEndpoints = new Set();
   let sent = 0;
-  const payload = JSON.stringify({
-    title,
-    body: body || '',
-    url: url || '/',
-    type: type || '',
-  });
+  let staleCount = 0;
 
-  for (const sub of subs) {
-    try {
-      console.log('[StayOps] push-helper: sending push —', title);
-      await webpush.sendNotification(sub, payload);
-      sent++;
-    } catch (e) {
-      const statusCode = e && e.statusCode != null ? Number(e.statusCode) : NaN;
-      if (statusCode === 404 || statusCode === 410) {
-        staleEndpoints.add(sub.endpoint);
-        console.log('[StayOps] push-helper: subscription stale (HTTP ' + statusCode + ')');
+  if (subs.length && ensureVapid()) {
+    const staleEndpoints = new Set();
+    const payload = JSON.stringify({
+      title,
+      body: body || '',
+      url: url || '/',
+      type: type || '',
+    });
+
+    for (const sub of subs) {
+      try {
+        console.log('[StayOps] push-helper: sending push —', title);
+        await webpush.sendNotification(sub, payload);
+        sent++;
+      } catch (e) {
+        const statusCode = e && e.statusCode != null ? Number(e.statusCode) : NaN;
+        if (statusCode === 404 || statusCode === 410) {
+          staleEndpoints.add(sub.endpoint);
+          console.log('[StayOps] push-helper: subscription stale (HTTP ' + statusCode + ')');
+        }
+        console.log('[StayOps] push-helper: send failed —', e && e.message ? e.message : String(e));
       }
-      console.log('[StayOps] push-helper: send failed —', e && e.message ? e.message : String(e));
     }
+
+    staleCount = staleEndpoints.size;
+    if (staleCount) {
+      await persistAppConfigAfterStalePushEndpoints(supabaseAdmin, uid, row, staleEndpoints);
+    }
+  } else {
+    console.log('[StayOps] push-helper: no push subscriptions — skipping push, will still email');
   }
 
-  const staleCount = staleEndpoints.size;
-  if (staleCount) {
-    await persistAppConfigAfterStalePushEndpoints(supabaseAdmin, uid, row, staleEndpoints);
-  }
-
-  // Log notification
+  // ── Always log notification (regardless of push subscription state) ──
   const { error: logErr } = await supabaseAdmin.from('notification_log').insert({
     property_id: propertyId,
     type,
@@ -185,7 +182,7 @@ async function sendPushToHost({
     console.log('[StayOps] push-helper: notification_log insert failed', logErr.message);
   }
 
-  // Also send email to host (best-effort, non-blocking)
+  // ── Always send email to host (regardless of push subscription state) ──
   try {
     const resendKey = process.env.RESEND_API_KEY;
     if (!resendKey) { console.log('[StayOps] push-helper: RESEND_API_KEY not set — skipping email'); }
@@ -196,8 +193,8 @@ async function sendPushToHost({
         const emailHtml = buildNotificationHtml(title, body);
         const from = process.env.RESEND_FROM || 'StayOps <info@stayops.com.au>';
         const maxAttempts = 3;
-        let sent = false;
-        for (let attempt = 1; attempt <= maxAttempts && !sent; attempt++) {
+        let emailSent = false;
+        for (let attempt = 1; attempt <= maxAttempts && !emailSent; attempt++) {
           try {
             const emailRes = await fetch('https://api.resend.com/emails', {
               method: 'POST',
@@ -205,7 +202,7 @@ async function sendPushToHost({
               body: JSON.stringify({ from, to: hostEmail, subject: title, html: emailHtml }),
             });
             if (emailRes.ok) {
-              sent = true;
+              emailSent = true;
               console.log('[StayOps] push-helper: Resend email sent to', hostEmail);
             } else {
               const errBody = await emailRes.text().catch(() => '');
@@ -214,9 +211,9 @@ async function sendPushToHost({
           } catch (resendErr) {
             console.log('[StayOps] push-helper: Resend attempt', attempt, 'failed:', resendErr.message);
           }
-          if (!sent && attempt < maxAttempts) await new Promise(r => setTimeout(r, 1000 * attempt));
+          if (!emailSent && attempt < maxAttempts) await new Promise(r => setTimeout(r, 1000 * attempt));
         }
-        if (!sent) console.error('[StayOps] push-helper: Resend email failed after', maxAttempts, 'attempts to', hostEmail);
+        if (!emailSent) console.error('[StayOps] push-helper: Resend email failed after', maxAttempts, 'attempts to', hostEmail);
       }
     }
   } catch (emailErr) {
