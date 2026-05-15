@@ -199,7 +199,28 @@ async function sendPushToHost({
 
         let emailSent = false;
 
-        // Primary: Gmail SMTP
+        // Primary: Resend (branded from address)
+        if (resendKey && !emailSent) {
+          try {
+            const from = process.env.RESEND_FROM || 'StayOps <info@stayops.com.au>';
+            const emailRes = await fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ from, to: hostEmail, subject: title, html: emailHtml }),
+            });
+            if (emailRes.ok) {
+              emailSent = true;
+              console.log('[StayOps] push-helper: Resend email sent to', hostEmail);
+            } else {
+              const errBody = await emailRes.text().catch(() => '');
+              console.log('[StayOps] push-helper: Resend email failed, trying Gmail:', emailRes.status, errBody);
+            }
+          } catch (resendErr) {
+            console.log('[StayOps] push-helper: Resend email failed, trying Gmail:', resendErr.message);
+          }
+        }
+
+        // Fallback: Gmail SMTP
         if (gmailUser && gmailPass && !emailSent) {
           try {
             const nodemailer = require('nodemailer');
@@ -213,26 +234,9 @@ async function sendPushToHost({
               subject: title,
               html: emailHtml,
             });
-            emailSent = true;
             console.log('[StayOps] push-helper: Gmail email sent to', hostEmail);
           } catch (gmailErr) {
-            console.log('[StayOps] push-helper: Gmail email failed, trying Resend:', gmailErr.message);
-          }
-        }
-
-        // Fallback: Resend
-        if (resendKey && !emailSent) {
-          const from = process.env.RESEND_FROM || 'StayOps <noreply@app.stayops.com.au>';
-          const emailRes = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ from, to: hostEmail, subject: title, html: emailHtml }),
-          });
-          if (emailRes.ok) {
-            console.log('[StayOps] push-helper: Resend email sent to', hostEmail);
-          } else {
-            const errBody = await emailRes.text().catch(() => '');
-            console.log('[StayOps] push-helper: Resend email failed', emailRes.status, errBody);
+            console.log('[StayOps] push-helper: Gmail email failed:', gmailErr.message);
           }
         }
       }

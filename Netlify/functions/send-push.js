@@ -13,48 +13,47 @@ async function sendEmailAlongside(recipientEmail, title, body) {
   const subject = (title || 'StayOps Notification').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '').trim();
   const html = buildNotificationEmailHtml(title, body);
 
-  // Primary: Gmail SMTP
-  const gmailUser = process.env.GMAIL_USER;
-  const gmailPass = process.env.GMAIL_APP_PASSWORD;
-  if (gmailUser && gmailPass) {
+  // Primary: Resend (branded from address)
+  const apiKey = process.env.RESEND_API_KEY;
+  if (apiKey) {
+    const from = process.env.RESEND_FROM || 'StayOps <info@stayops.com.au>';
     try {
-      const nodemailer = require('nodemailer');
-      const transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com', port: 587, secure: false,
-        auth: { user: gmailUser, pass: gmailPass },
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from, to: recipientEmail, subject, html,
+          text: (title || '') + '\n\n' + (body || '') + '\n\n— StayOps',
+        }),
       });
-      await transporter.sendMail({
-        from: process.env.GMAIL_FROM || ('StayOps <' + gmailUser + '>'),
-        to: recipientEmail, subject, html,
-      });
-      console.log('[send-push] Gmail email sent to', recipientEmail);
-      return;
-    } catch (gmailErr) {
-      console.log('[send-push] Gmail failed, trying Resend:', gmailErr.message);
+      const data = await res.json();
+      if (res.ok) {
+        console.log('[send-push] Resend email sent to', recipientEmail, 'id:', data.id || 'n/a');
+        return;
+      }
+      console.log('[send-push] Resend failed, trying Gmail:', data.message || res.status);
+    } catch (e) {
+      console.log('[send-push] Resend failed, trying Gmail:', e.message);
     }
   }
 
-  // Fallback: Resend
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) { console.log('[send-push] No RESEND_API_KEY — skipping email'); return; }
-  const from = process.env.RESEND_FROM || 'StayOps <noreply@app.stayops.com.au>';
+  // Fallback: Gmail SMTP
+  const gmailUser = process.env.GMAIL_USER;
+  const gmailPass = process.env.GMAIL_APP_PASSWORD;
+  if (!gmailUser || !gmailPass) { console.log('[send-push] No email provider available — skipping'); return; }
   try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from, to: recipientEmail, subject, html,
-        text: (title || '') + '\n\n' + (body || '') + '\n\n— StayOps',
-      }),
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com', port: 587, secure: false,
+      auth: { user: gmailUser, pass: gmailPass },
     });
-    const data = await res.json();
-    if (res.ok) {
-      console.log('[send-push] Resend email sent to', recipientEmail, 'id:', data.id || 'n/a');
-    } else {
-      console.log('[send-push] Resend email failed:', data.message || res.status);
-    }
-  } catch (e) {
-    console.error('[send-push] Email failed:', e.message);
+    await transporter.sendMail({
+      from: process.env.GMAIL_FROM || ('StayOps <' + gmailUser + '>'),
+      to: recipientEmail, subject, html,
+    });
+    console.log('[send-push] Gmail email sent to', recipientEmail);
+  } catch (gmailErr) {
+    console.error('[send-push] Gmail email failed:', gmailErr.message);
   }
 }
 
