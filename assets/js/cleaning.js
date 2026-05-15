@@ -76,6 +76,7 @@ export function findMatchingCleanForBooking(booking, preferredDate) {
 
 export function isCleanLinkedToCancelledBooking(clean) {
   if (!clean) return false;
+  if (clean.cleanerCancelNotified) return true;
   const byBookingId = bookings.find(b => String(b.id) === String(clean.bookingId));
   if (byBookingId) return byBookingId.status === 'cancelled';
   const byGuestCancelled = bookings.find(b =>
@@ -389,7 +390,7 @@ export function prepareCleaningData() {
       (bk._cloudId && String(bk._cloudId) === String(c.bookingId)) ||
       _normName(bk.name) === _normName(c.guestName)
     );
-    const isCancelled = b && b.status === 'cancelled';
+    const isCancelled = (b && b.status === 'cancelled') || c.cleanerCancelNotified;
     let itemStatus;
     if (isCancelled) {
       if (c.cleaner && !c.cleanerCancelNotified) itemStatus = 'cancelled';
