@@ -959,42 +959,112 @@ function _renderCleanDesktopTable(data, showProperty) {
   '</div>';
 }
 
-function _renderCleanDesktopPipeline(data, showProperty) {
+function _renderCleanDesktopPipeline(data, _showProperty) {
   const list = document.getElementById('cleaning-list');
   if (!list) return;
-  const columns = [
-    { key: 'cancelled', label: 'Cancelled', bg: '#FCEBEB', colour: '#A32D2D', hdr: '#FDECEA',
-      items: data.filtered.filter(i => i.status === 'cancelled' || i.status === 'cancelled_pending' || i.status === 'cancelled_acked') },
-    { key: 'unassigned', label: 'Needs Assignment', bg: '#FFF8F8', colour: '#A32D2D', hdr: '#FDECEA',
-      items: data.filtered.filter(i => i.status === 'unassigned') },
-    { key: 'awaiting', label: 'Awaiting', bg: '#FFFBF5', colour: '#854F0B', hdr: '#FEF3E2',
-      items: data.filtered.filter(i => i.status === 'awaiting') },
-    { key: 'confirmed', label: 'Confirmed', bg: '#F9FCF5', colour: '#3B6D11', hdr: '#EAF3DE',
-      items: data.filtered.filter(i => i.status === 'confirmed') },
-  ].filter(c => c.items.length);
-  if (!columns.length) {
-    list.innerHTML = '<div class="card" style="text-align:center;padding:40px"><div style="font-size:36px;margin-bottom:10px;opacity:0.4">&#10003;</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">All clear</div><div style="font-size:12px;color:var(--muted-2)">No cleans match this filter</div></div>';
-    return;
-  }
+
+  const cleaners = window._cleaners || [];
   const fmtSh = d => { if (!d) return ''; return new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day:'numeric', month:'short' }); };
-  list.innerHTML = '<div style="display:grid;grid-template-columns:repeat(' + columns.length + ',1fr);gap:16px;align-items:start">' +
-    columns.map(col => {
+
+  // Cleaner roster panel
+  const cleanerCounts = {};
+  data.filtered.forEach(i => {
+    const name = i.cleaner || 'Unassigned';
+    cleanerCounts[name] = (cleanerCounts[name] || 0) + 1;
+  });
+  const cleanerCards = cleaners.map(cl => {
+    const cnt = cleanerCounts[cl.name] || 0;
+    return '<div class="dispatch-cleaner-card">' +
+      '<div class="dispatch-cleaner-avatar">' + escHtml((cl.name || '?')[0].toUpperCase()) + '</div>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(cl.name) + '</div>' +
+        '<div style="font-size:11px;color:var(--muted-2);margin-top:1px">' + cnt + ' clean' + (cnt !== 1 ? 's' : '') + '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+  const unassignedCnt = cleanerCounts['Unassigned'] || 0;
+  const cleanerPanel = '<div class="dispatch-panel dispatch-cleaners">' +
+    '<div class="dispatch-panel-hdr">Cleaners <span style="font-weight:400;color:var(--muted-2)">' + cleaners.length + '</span></div>' +
+    cleanerCards +
+    (unassignedCnt ? '<div class="dispatch-cleaner-card" style="border-color:var(--red-bg,#fdecea)"><div class="dispatch-cleaner-avatar" style="background:#fdecea;color:var(--red)">?</div><div style="flex:1"><div style="font-weight:600;font-size:13px;color:var(--red)">Unassigned</div><div style="font-size:11px;color:var(--muted-2);margin-top:1px">' + unassignedCnt + ' clean' + (unassignedCnt !== 1 ? 's' : '') + '</div></div></div>' : '') +
+  '</div>';
+
+  // Kanban columns
+  const columns = [
+    { key: 'unassigned', label: 'Needs Assignment', colour: '#A32D2D', hdr: '#FDECEA', bg: '#FFF8F8',
+      items: data.filtered.filter(i => i.status === 'unassigned') },
+    { key: 'awaiting', label: 'Awaiting', colour: '#854F0B', hdr: '#FEF3E2', bg: '#FFFBF5',
+      items: data.filtered.filter(i => i.status === 'awaiting') },
+    { key: 'confirmed', label: 'Confirmed', colour: '#3B6D11', hdr: '#EAF3DE', bg: '#F9FCF5',
+      items: data.filtered.filter(i => i.status === 'confirmed') },
+    { key: 'cancelled', label: 'Cancelled', colour: '#A32D2D', hdr: '#FDECEA', bg: '#FCEBEB',
+      items: data.filtered.filter(i => i.status === 'cancelled' || i.status === 'cancelled_pending' || i.status === 'cancelled_acked') },
+  ].filter(c => c.items.length);
+
+  let kanbanHtml;
+  if (!columns.length) {
+    kanbanHtml = '<div class="dispatch-panel dispatch-kanban" style="flex:1"><div class="dispatch-panel-hdr">Pipeline</div><div style="text-align:center;padding:40px;color:var(--muted-2);font-size:13px">No cleans match this filter</div></div>';
+  } else {
+    const colsHtml = columns.map(col => {
       const cards = col.items.map(item => {
         const bid = item.booking ? escapeJsSingleQuotedHtmlAttr(String(item.booking._cloudId || item.booking.id)) : '';
-        const onclick = bid ? ' onclick="showDetail(\'' + bid + '\')" style="cursor:pointer"' : '';
-        return '<div class="card" style="padding:14px;margin-bottom:0"' + onclick + '>' +
-          '<div style="font-weight:600;font-size:14px">' + escHtml(item.guest) + '</div>' +
-          '<div style="font-size:12px;color:var(--muted-2);margin-top:4px">' + fmtSh(item.date) +
-          (item.cleaner ? ' · ' + escHtml(item.cleaner) : '') + '</div>' +
-          '</div>';
-      }).join('');
-      return '<div>' +
-        '<div style="font-size:11px;font-family:\'JetBrains Mono\',monospace;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:' + col.colour + ';padding:10px 14px;background:' + col.hdr + ';border-radius:12px 12px 0 0;display:flex;justify-content:space-between"><span>' + col.label + '</span><span>' + col.items.length + '</span></div>' +
-        '<div style="background:' + col.bg + ';border-radius:0 0 12px 12px;padding:8px;display:flex;flex-direction:column;gap:8px;min-height:80px">' + cards + '</div>' +
+        const cleanId = item.clean ? String(item.clean.id || '') : '';
+        const onclick = bid ? ' onclick="_selectDispatchClean(\'' + bid + '\',\'' + escHtml(cleanId) + '\')" style="cursor:pointer"' : '';
+        return '<div class="dispatch-kanban-card"' + onclick + '>' +
+          '<div style="font-weight:600;font-size:13px">' + escHtml(item.guest) + '</div>' +
+          '<div style="font-size:11.5px;color:var(--muted-2);margin-top:3px">' + fmtSh(item.date) + '</div>' +
+          (item.cleaner ? '<div style="font-size:11.5px;color:var(--moss);margin-top:2px;font-weight:500">' + escHtml(item.cleaner) + '</div>' : '') +
         '</div>';
-    }).join('') +
+      }).join('');
+      return '<div class="dispatch-kanban-col">' +
+        '<div style="font-size:10px;font-family:\'JetBrains Mono\',monospace;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:' + col.colour + ';padding:8px 12px;background:' + col.hdr + ';border-radius:10px 10px 0 0;display:flex;justify-content:space-between"><span>' + col.label + '</span><span>' + col.items.length + '</span></div>' +
+        '<div style="background:' + col.bg + ';border-radius:0 0 10px 10px;padding:6px;display:flex;flex-direction:column;gap:6px;min-height:60px;overflow-y:auto;max-height:calc(100vh - 260px)">' + cards + '</div>' +
+      '</div>';
+    }).join('');
+    kanbanHtml = '<div class="dispatch-panel dispatch-kanban"><div class="dispatch-panel-hdr">Pipeline <span style="font-weight:400;color:var(--muted-2)">' + data.filtered.length + ' cleans</span></div><div class="dispatch-kanban-grid">' + colsHtml + '</div></div>';
+  }
+
+  // Detail panel (initially empty)
+  const detailPanel = '<div class="dispatch-panel dispatch-detail" id="dispatch-detail-panel">' +
+    '<div class="dispatch-panel-hdr">Details</div>' +
+    '<div class="dispatch-detail-empty">Select a clean to view details</div>' +
   '</div>';
+
+  list.innerHTML = '<div class="dispatch-board">' + cleanerPanel + kanbanHtml + detailPanel + '</div>';
 }
+
+globalThis._selectDispatchClean = function(bookingId, cleanId) {
+  const panel = document.getElementById('dispatch-detail-panel');
+  if (!panel) return;
+  const b = bookings.find(bk => String(bk._cloudId || bk.id) === bookingId);
+  const c = cleans.find(cl => String(cl.id) === cleanId);
+  if (!b) { panel.innerHTML = '<div class="dispatch-panel-hdr">Details</div><div class="dispatch-detail-empty">Booking not found</div>'; return; }
+
+  const fmtD = d => { if (!d) return '—'; return new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' }); };
+  const cleanerName = c && c.cleaner_id ? ((window._cleaners || []).find(cl => String(cl.id) === String(c.cleaner_id))?.name || 'Unknown') : 'Unassigned';
+  const statusLabel = c ? (c.cleanerConfirmed ? 'Confirmed' : c.cleaner_id ? 'Awaiting' : 'Unassigned') : 'Unknown';
+  const statusColor = statusLabel === 'Confirmed' ? 'var(--moss)' : statusLabel === 'Awaiting' ? 'var(--warn)' : 'var(--red)';
+
+  panel.innerHTML = '<div class="dispatch-panel-hdr">Details</div>' +
+    '<div class="dispatch-detail-content">' +
+      '<div style="font-family:\'Newsreader\',serif;font-size:22px;font-weight:600;color:var(--ink-1)">' + escHtml(b.name || 'Guest') + '</div>' +
+      '<div style="margin-top:16px;display:flex;flex-direction:column;gap:10px">' +
+        '<div class="dispatch-detail-row"><span>Check-in</span><strong>' + fmtD(b.checkin) + '</strong></div>' +
+        '<div class="dispatch-detail-row"><span>Check-out</span><strong>' + fmtD(b.checkout) + '</strong></div>' +
+        '<div class="dispatch-detail-row"><span>Clean date</span><strong>' + fmtD(c?.date) + '</strong></div>' +
+        '<div class="dispatch-detail-row"><span>Cleaner</span><strong style="color:' + (cleanerName === 'Unassigned' ? 'var(--red)' : 'var(--moss)') + '">' + escHtml(cleanerName) + '</strong></div>' +
+        '<div class="dispatch-detail-row"><span>Status</span><strong style="color:' + statusColor + '">' + escHtml(statusLabel) + '</strong></div>' +
+        '<div class="dispatch-detail-row"><span>Payout</span><strong>$' + Number(b.hostPayout || 0).toLocaleString() + '</strong></div>' +
+        (c?.cost ? '<div class="dispatch-detail-row"><span>Clean cost</span><strong>$' + Number(c.cost).toLocaleString() + '</strong></div>' : '') +
+        (b.platform ? '<div class="dispatch-detail-row"><span>Platform</span><strong>' + escHtml(b.platform) + '</strong></div>' : '') +
+      '</div>' +
+      '<div style="margin-top:20px">' +
+        '<button onclick="showDetail(\'' + escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id)) + '\')" class="btn-primary" style="width:100%;padding:10px;border-radius:12px;font-size:13px">Open Full Booking</button>' +
+      '</div>' +
+    '</div>';
+
+  panel.querySelectorAll('.dispatch-kanban-card.active')?.forEach(el => el.classList.remove('active'));
+};
 
 export function reassignClean(cleanId) {
   const c = cleans.find(cl => String(cl.id) === String(cleanId));

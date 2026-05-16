@@ -2812,7 +2812,7 @@ label {
     display: none;
   }
 
-  /* ── Cleaning Desktop ─────────────────────────────────────────────── */
+  /* ── Cleaning Desktop: Dispatch Board ────────────────────────────── */
   #cleaning-list {
     max-height: none !important;
     overflow: visible !important;
@@ -2822,6 +2822,120 @@ label {
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important;
     overflow: visible !important;
     gap: 12px !important;
+  }
+  .dispatch-board {
+    display: grid;
+    grid-template-columns: 200px 1fr 280px;
+    gap: 16px;
+    align-items: start;
+  }
+  .dispatch-panel {
+    background: white;
+    border-radius: 16px;
+    border: 1px solid var(--hairline-1, #e8e1d3);
+    padding: 14px;
+    min-height: 200px;
+  }
+  .dispatch-panel-hdr {
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted-2);
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--hairline-1, #e8e1d3);
+    margin-bottom: 12px;
+  }
+  .dispatch-cleaners {
+    position: sticky;
+    top: 0;
+    align-self: start;
+  }
+  .dispatch-cleaner-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    border-radius: 10px;
+    border: 1px solid var(--hairline-1, #e8e1d3);
+    margin-bottom: 6px;
+    transition: background 0.15s;
+  }
+  .dispatch-cleaner-card:hover {
+    background: var(--surface2, #fbf8f2);
+  }
+  .dispatch-cleaner-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--primary-soft);
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .dispatch-kanban {
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    padding: 14px 10px;
+  }
+  .dispatch-kanban-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    align-items: start;
+  }
+  .dispatch-kanban-col {
+    min-width: 0;
+  }
+  .dispatch-kanban-card {
+    background: white;
+    border-radius: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--hairline-1, #e8e1d3);
+    transition: box-shadow 0.15s, border-color 0.15s;
+    cursor: pointer;
+  }
+  .dispatch-kanban-card:hover {
+    border-color: var(--primary);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .dispatch-detail {
+    position: sticky;
+    top: 0;
+    align-self: start;
+  }
+  .dispatch-detail-empty {
+    text-align: center;
+    padding: 32px 0;
+    color: var(--muted-2);
+    font-size: 13px;
+  }
+  .dispatch-detail-content {
+    padding: 4px 0;
+  }
+  .dispatch-detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--hairline-1, #e8e1d3);
+    font-size: 13px;
+  }
+  .dispatch-detail-row:last-child {
+    border-bottom: none;
+  }
+  .dispatch-detail-row span {
+    color: var(--muted-2);
+  }
+  .dispatch-detail-row strong {
+    color: var(--ink-1);
+    font-weight: 600;
   }
 
   /* ── Expense Form Desktop ──────────────────────────────────────────── */
