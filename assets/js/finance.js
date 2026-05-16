@@ -2346,13 +2346,28 @@ function buildInvoicePDF(selected, client) {
   <div class="footer">${getCurrentPropertyName()} · ${[getPropertyConfig().suburb, getPropertyConfig().state].filter(Boolean).join(' ')} · Generated ${today}</div>
   <div class="actions">
     <button class="primary" onclick="window.print()">Save as PDF</button>
-    <button class="secondary" onclick="window.close()">Back to App</button>
+    <button class="primary" id="confirm-issued-btn" onclick="confirmIssued()" style="background:#1D9E75">Mark as issued</button>
+    <button class="secondary" onclick="window.close()">Close</button>
   </div>
+  <script>
+    var issued = false;
+    function confirmIssued() {
+      if (issued) return;
+      issued = true;
+      try {
+        if (window.opener && window.opener._confirmInvoiceIssued) {
+          window.opener._confirmInvoiceIssued('${invNum}');
+        }
+      } catch(e) {}
+      var btn = document.getElementById('confirm-issued-btn');
+      btn.textContent = 'Issued ✓';
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+    }
+  </script>
 </body></html>`;
 
-  // Persist the issued number BEFORE opening the popup so the next call
-  // increments correctly even if the popup is blocked or closed early.
-  _recordIssuedInvoice({
+  const pendingRecord = {
     number: invNum,
     date: invDate.toISOString(),
     total: Number(invoiceTotal.toFixed(2)),
@@ -2360,7 +2375,18 @@ function buildInvoicePDF(selected, client) {
     bookingIds: selected.map(b => String(b.id)),
     status: 'unpaid',
     paidDate: null,
-  });
+  };
+  globalThis._pendingInvoiceRecord = pendingRecord;
+  globalThis._confirmInvoiceIssued = function(num) {
+    if (!globalThis._pendingInvoiceRecord || globalThis._pendingInvoiceRecord.number !== num) return;
+    _recordIssuedInvoice(globalThis._pendingInvoiceRecord);
+    globalThis._pendingInvoiceRecord = null;
+    if (typeof globalThis.showBanner === 'function') {
+      globalThis.showBanner('✓ Invoice ' + num + ' recorded', 'ok');
+    }
+    renderManagement();
+    renderMgmtFY();
+  };
 
   const w = window.open('', '_blank');
   if (!w) {
