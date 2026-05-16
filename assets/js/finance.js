@@ -1186,6 +1186,7 @@ function switchFinanceReportsPeriod(sub) {
     if (mm) mm.style.display = sub === 'monthly' ? '' : 'none';
     if (mf) mf.style.display = sub === 'fy' ? '' : 'none';
     mgmtSelected.clear();
+    _mgmtFYSelectedMonths.clear();
     if (sub === 'monthly') renderManagement();
     else renderMgmtFY();
   }
@@ -1249,30 +1250,100 @@ function switchReportSubTab(_sub, _btn) {
   renderReport(); // always render the FY report
 }
 
+let _mgmtFYSelectedMonths = new Set();
+
+function _mgmtFYMonthKey(year, month) { return year + '-' + month; }
+
+function _mgmtFYGetMonthBookings(year, month) {
+  return _financeScopedBookings().filter(b => {
+    if (b.status === 'cancelled') return false;
+    const d = new Date(b.checkin);
+    return d.getFullYear() === year && d.getMonth() === month;
+  });
+}
+
+function _mgmtFYToggleMonth(year, month) {
+  const key = _mgmtFYMonthKey(year, month);
+  const bs = _mgmtFYGetMonthBookings(year, month);
+  if (_mgmtFYSelectedMonths.has(key)) {
+    _mgmtFYSelectedMonths.delete(key);
+    bs.forEach(b => mgmtSelected.delete(_mgmtBookingKey(b)));
+  } else {
+    _mgmtFYSelectedMonths.add(key);
+    bs.forEach(b => mgmtSelected.add(_mgmtBookingKey(b)));
+  }
+  renderMgmtFY();
+}
+
 function renderMgmtFY() {
   const el = document.getElementById('mgmt-fy-content');
   if (!el) return;
   const months = fyMonths(reportFY);
-  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const mo = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const propertyBookings = _financeScopedBookings();
   const mdata = months.map(({year, month}) => {
     const bs = propertyBookings.filter(b => b.status !== 'cancelled' && (()=>{ const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; })());
-    return { label: mo[month], total: bs.reduce((s,b)=>s+Number(b.mgmtPayout||0),0), count: bs.length };
+    const key = _mgmtFYMonthKey(year, month);
+    return { label: mo[month], year, month, key, total: bs.reduce((s,b)=>s+Number(b.mgmtPayout||0),0), count: bs.length, bookings: bs };
   });
   const fyTotal = mdata.reduce((s,m)=>s+m.total, 0);
+
+  const selBookings = propertyBookings.filter(b => mgmtSelected.has(_mgmtBookingKey(b)));
+  const selTotal = selBookings.reduce((s,b)=>s+Number(b.mgmtPayout||0),0);
+  const hasSelection = selBookings.length > 0;
+
   el.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-      <button type="button" onclick="fyPrev();renderMgmtFY()" style="background:var(--hairline-2);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">‹</button>
+      <button type="button" onclick="fyPrev();_mgmtFYSelectedMonths.clear();mgmtSelected.clear();renderMgmtFY()" style="background:var(--hairline-2);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">‹</button>
       <div style="font-size:15px;font-weight:500;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif">${fyLabel(reportFY)}</div>
-      <button type="button" onclick="fyNext();renderMgmtFY()" style="background:var(--hairline-2);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">›</button>
+      <button type="button" onclick="fyNext();_mgmtFYSelectedMonths.clear();mgmtSelected.clear();renderMgmtFY()" style="background:var(--hairline-2);border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">›</button>
     </div>
     <div style="text-align:center;padding:16px;background:#fff;border-radius:12px;margin-bottom:12px;border:0.5px solid rgba(0,0,0,0.08)">
       <div style="font-size:11px;color:var(--muted-2)">Total management payout</div>
       <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:28px;font-weight:500;color:var(--ink-1);margin-top:6px">$${fyTotal.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
     </div>
+    <div style="font-size:11px;color:var(--muted-2);margin-bottom:8px;padding:0 2px">Tap months to select for invoice</div>
     <div style="background:#fff;border-radius:12px;padding:0 16px;border:0.5px solid rgba(0,0,0,0.08)">
-      ${mdata.map(m=>`<div class="fin-rev-row"><div><div style="font-size:14px;font-weight:500">${m.label}</div><div style="font-size:11px;color:var(--muted-2);margin-top:2px">${m.count} booking${m.count!==1?'s':''}</div></div><div style="font-size:14px;font-weight:500;color:#1D9E75">$${m.total.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>`).join('')}
-    </div>`;
+      ${mdata.map(m => {
+        const sel = _mgmtFYSelectedMonths.has(m.key);
+        const hasBk = m.count > 0;
+        return `<div class="fin-rev-row mgmt-fy-month-row" data-year="${m.year}" data-month="${m.month}" style="cursor:${hasBk ? 'pointer' : 'default'};${sel ? 'background:var(--primary-soft,#dde8e1);margin:0 -16px;padding:12px 16px;' : ''}">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="mgmt-fy-month-check" style="position:relative;display:inline-flex;width:20px;height:20px;flex-shrink:0">
+              <span style="width:20px;height:20px;border:1.5px solid ${sel ? '#2f5d4e' : '#C8C6BF'};border-radius:4px;background:${sel ? '#2f5d4e' : '#fff'};display:flex;align-items:center;justify-content:center;box-sizing:border-box">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="display:${sel ? 'block' : 'none'}"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </span>
+            </span>
+            <div>
+              <div style="font-size:14px;font-weight:500">${m.label}</div>
+              <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${m.count} booking${m.count !== 1 ? 's' : ''}</div>
+            </div>
+          </div>
+          <div style="font-size:14px;font-weight:500;color:#1D9E75">$${m.total.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    <button type="button" id="mgmt-fy-gen-invoice-btn" ${hasSelection ? '' : 'disabled'}
+      style="width:100%;background:var(--primary);color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:500;font-family:'Plus Jakarta Sans',sans-serif;display:flex;justify-content:space-between;align-items:center;margin-top:12px;opacity:${hasSelection ? '1' : '0.4'};pointer-events:${hasSelection ? 'auto' : 'none'}">
+      <span>Generate invoice</span>
+      <span>${selBookings.length} selected · $${selTotal.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+    </button>
+    <div id="mgmt-fy-invoice-history" style="margin-top:16px"></div>`;
+
+  el.querySelectorAll('.mgmt-fy-month-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const yr = Number(row.dataset.year);
+      const mo2 = Number(row.dataset.month);
+      const bs = _mgmtFYGetMonthBookings(yr, mo2);
+      if (!bs.length) return;
+      _mgmtFYToggleMonth(yr, mo2);
+    });
+  });
+
+  const invBtn = el.querySelector('#mgmt-fy-gen-invoice-btn');
+  if (invBtn) invBtn.addEventListener('click', () => generateInvoice());
+
+  renderInvoiceHistory('mgmt-fy-invoice-history');
 }
 
 function _restoreFinanceExpensesView() {
@@ -2045,8 +2116,8 @@ function _viewHistoricalInvoice(invoiceNumber) {
 
 let _expandedInvoiceNum = null;
 
-function renderInvoiceHistory() {
-  const el = document.getElementById('mgmt-invoice-history');
+function renderInvoiceHistory(containerId) {
+  const el = document.getElementById(containerId || 'mgmt-invoice-history');
   if (!el) return;
   const allInvoices = _getIssuedInvoices().map(_normalizeInvoiceRecord).filter(Boolean).reverse();
   if (!allInvoices.length) { el.innerHTML = ''; return; }
@@ -5027,6 +5098,8 @@ globalThis.bankImportPickFile = () => getOrCreateBankCsvFileInput().click();
 globalThis.resetFinanceSubViewToHub = resetFinanceSubViewToHub;
 globalThis.mgmtCheckboxChange = mgmtCheckboxChange;
 globalThis.mgmtToggleSelectAll = mgmtToggleSelectAll;
+globalThis._mgmtFYSelectedMonths = _mgmtFYSelectedMonths;
+globalThis._mgmtFYToggleMonth = _mgmtFYToggleMonth;
 globalThis.toggleInvoiceStatus = _updateInvoiceStatus;
 globalThis.viewHistoricalInvoice = _viewHistoricalInvoice;
 globalThis.toggleInvoiceDetail = function(num) { _expandedInvoiceNum = _expandedInvoiceNum === num ? null : num; renderInvoiceHistory(); };
