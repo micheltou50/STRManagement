@@ -78,7 +78,7 @@ function renderBookingsCalendarView() {
   if (!root) return;
   const y = _bkCalYear;
   const m = _bkCalMonth;
-  const title = new Date(y, m, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+  const monthName = new Date(y, m, 1).toLocaleDateString('en-AU', { month: 'long' });
   const firstDow = new Date(y, m, 1).getDay();
   const lead = _bkCalMondayIndex(firstDow);
   const daysInMonth = new Date(y, m + 1, 0).getDate();
@@ -86,9 +86,7 @@ function renderBookingsCalendarView() {
   const rows = Math.ceil(cellCount / 7);
   const gridDays = rows * 7;
 
-  // Build cell date index: cellIndex -> {date, inMonth}
   const cellDates = [];
-  // Leading days from previous month
   for (let i = 0; i < lead; i++) {
     const d = new Date(y, m, 1 - (lead - i));
     cellDates.push({ date: d, inMonth: false });
@@ -104,8 +102,6 @@ function renderBookingsCalendarView() {
 
   const todayYmd = _bkCalYmd(new Date());
 
-  // ── Build bars per week row ──
-  // For each week row, collect segments [{booking, startCol, endCol, slot}].
   const weekBookings = Array.from({ length: rows }, () => []);
   const weekStart = (wk) => cellDates[wk * 7].date;
   const weekEnd = (wk) => cellDates[wk * 7 + 6].date;
@@ -116,7 +112,7 @@ function renderBookingsCalendarView() {
 
   for (const b of monthBookings) {
     const ci = _bkCalParseYmd(b.checkin);
-    const co = _bkCalParseYmd(b.checkout); // checkout day shown as partial bar (10am checkout)
+    const co = _bkCalParseYmd(b.checkout);
     for (let w = 0; w < rows; w++) {
       const ws = weekStart(w);
       const we = weekEnd(w);
@@ -130,12 +126,11 @@ function renderBookingsCalendarView() {
     }
   }
 
-  // Slot allocation per week (greedy): 3 visible slots max.
   const MAX_SLOTS = 3;
   const weekSlots = Array.from({ length: rows }, () => []);
   const weekOverflow = Array.from({ length: rows }, () => []);
   for (let w = 0; w < rows; w++) {
-    const slots = [null, null, null]; // endCol currently occupied per slot
+    const slots = [null, null, null];
     for (const seg of weekBookings[w]) {
       let placed = false;
       for (let s = 0; s < MAX_SLOTS; s++) {
@@ -151,26 +146,25 @@ function renderBookingsCalendarView() {
     }
   }
 
-  // ── Render HTML ──
   const dowHdr = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
     .map(d => `<div>${d}</div>`).join('');
 
   let cellsHtml = '';
   cellDates.forEach((cd, idx) => {
     const ds = _bkCalYmd(cd.date);
+    const isToday = ds === todayYmd;
     const cls = 'bk-cal-cell'
       + (cd.inMonth ? '' : ' bk-dim')
-      + (ds === todayYmd ? ' bk-today' : '');
+      + (isToday ? ' bk-today' : '');
     cellsHtml += `<div class="${cls}" data-col="${idx % 7}" data-row="${Math.floor(idx / 7)}" data-ymd="${ds}">
       <span class="bk-daynum">${cd.date.getDate()}</span>
     </div>`;
   });
 
-  // Build overlay bars with absolute positioning inside the grid.
-  // Each week row is 78px + 4px gap. First row starts at 0.
-  const ROW_H = 82;    // grid-auto-rows + gap
-  const TOP_OFFSET = 22; // space for day number
-  const SLOT_H = 12;   // bar height (9px) + gap
+  const ROW_H = 98;
+  const TOP_OFFSET = 28;
+  const BAR_H = 18;
+  const SLOT_H = BAR_H + 3;
 
   let barsHtml = '';
   for (let w = 0; w < rows; w++) {
@@ -179,11 +173,11 @@ function renderBookingsCalendarView() {
       const style = _bkCalPlatformStyle(b.platform);
       const widthCols = endCol - startCol + 1;
       const segStartsAtCi = seg.segStart.getTime() === ci.getTime();
-      const checkinOffset = segStartsAtCi ? (0.63 / 7) * 100 : 0;
+      const checkinOffset = segStartsAtCi ? (0.55 / 7) * 100 : 0;
       const leftPct = (startCol / 7) * 100 + checkinOffset;
       let widthPct = (widthCols / 7) * 100 - checkinOffset;
       if (isCheckoutSeg && widthCols > 0) {
-        widthPct = (widthCols / 7) * 100 - checkinOffset - ((1 - 0.42) / 7) * 100;
+        widthPct = (widthCols / 7) * 100 - checkinOffset - ((1 - 0.45) / 7) * 100;
       }
       const top = w * ROW_H + TOP_OFFSET + slot * SLOT_H;
       const segEndsAtCo = seg.segEnd.getTime() === co.getTime();
@@ -191,7 +185,7 @@ function renderBookingsCalendarView() {
       const nameLabel = (b.name || 'Guest').split(/\s+/)[0];
       const idAttr = b._cloudId || b.id;
       barsHtml += `<div class="bk-cal-bar" data-id="${escHtml(String(idAttr))}" title="${escHtml(b.name || 'Guest')} · ${escHtml(b.checkin)} → ${escHtml(b.checkout)}"
-        style="left:calc(${leftPct}% + 4px);width:calc(${widthPct}% - 8px);top:${top}px;border-radius:${radius};background:${style.border};">
+        style="left:${leftPct}%;width:${widthPct}%;top:${top}px;height:${BAR_H}px;border-radius:${radius};background:${style.border};">
         <span class="bk-bar-name">${segStartsAtCi ? escHtml(nameLabel) : ''}</span>
       </div>`;
     }
@@ -202,10 +196,9 @@ function renderBookingsCalendarView() {
   }
 
   const emptyHtml = monthBookings.length === 0
-    ? `<div class="bk-cal-empty">No bookings in ${escHtml(title)}</div>`
+    ? `<div class="bk-cal-empty">No bookings this month</div>`
     : '';
 
-  // Property switcher pills
   let propsHtml = '';
   const allProps = typeof globalThis.getAllProperties === 'function' ? globalThis.getAllProperties() : [];
   if (allProps.length > 1) {
@@ -217,7 +210,6 @@ function renderBookingsCalendarView() {
       }).join('') + '</div>';
   }
 
-  // Legend with source-rail colors
   const legend = [
     { bg: 'var(--src-direct,#1f3f35)', label: 'Direct' },
     { bg: 'var(--src-airbnb,#a8324c)', label: 'Airbnb' },
@@ -228,19 +220,22 @@ function renderBookingsCalendarView() {
   root.innerHTML = `
     <div class="bk-cal-card">
       <div class="bk-cal-head">
-        <div class="bk-cal-title">${escHtml(title)}</div>
-        <div style="display:flex;gap:6px">
-          <button type="button" class="bk-cal-nav" id="bk-cal-prev">
-            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M9 2L3 7l6 5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div>
+          <div class="bk-cal-title">${escHtml(monthName)}</div>
+          <div class="bk-cal-year">${y}</div>
+        </div>
+        <div style="display:flex;gap:4px;align-items:center">
+          <button type="button" class="bk-cal-nav" id="bk-cal-prev" aria-label="Previous month">
+            <svg width="18" height="18" viewBox="0 0 18 18"><path d="M11 4L5 9l6 5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
-          <button type="button" class="bk-cal-nav" id="bk-cal-next">
-            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M5 2l6 5-6 5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <button type="button" class="bk-cal-nav" id="bk-cal-next" aria-label="Next month">
+            <svg width="18" height="18" viewBox="0 0 18 18"><path d="M7 4l6 5-6 5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
         </div>
       </div>
       ${propsHtml}
       <div class="bk-cal-dow">${dowHdr}</div>
-      <div class="bk-cal-grid" style="height:${rows * ROW_H - 4}px">
+      <div class="bk-cal-grid" id="bk-cal-grid-inner" style="height:${rows * ROW_H}px">
         ${cellsHtml}
         ${barsHtml}
       </div>
@@ -261,12 +256,12 @@ function renderBookingsCalendarView() {
     renderBookingsCalendarView();
   };
   root.querySelectorAll('.bk-cal-bar').forEach(bar => {
-    bar.onclick = () => {
+    bar.onclick = (e) => {
+      e.stopPropagation();
       const id = bar.getAttribute('data-id');
       if (typeof globalThis.openDetailModal === 'function') globalThis.openDetailModal(id);
     };
   });
-  // Day cell tap → show detail strip
   root.querySelectorAll('.bk-cal-cell').forEach(cell => {
     cell.onclick = () => {
       const ymd = cell.getAttribute('data-ymd');
@@ -274,7 +269,6 @@ function renderBookingsCalendarView() {
       _renderCalDayDetail(ymd, monthBookings);
     };
   });
-  // Property switcher pill clicks
   root.querySelectorAll('.bk-cal-prop-pill').forEach(pill => {
     pill.onclick = () => {
       const propId = pill.getAttribute('data-prop-id');
@@ -283,6 +277,37 @@ function renderBookingsCalendarView() {
       }
     };
   });
+
+  // Touch swipe between months
+  const grid = root.querySelector('#bk-cal-grid-inner');
+  if (grid) {
+    let sx = 0, sy = 0, swiping = false;
+    grid.addEventListener('touchstart', (e) => {
+      sx = e.touches[0].clientX;
+      sy = e.touches[0].clientY;
+      swiping = false;
+    }, { passive: true });
+    grid.addEventListener('touchmove', (e) => {
+      const dx = e.touches[0].clientX - sx;
+      const dy = e.touches[0].clientY - sy;
+      if (!swiping && Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        swiping = true;
+      }
+    }, { passive: true });
+    grid.addEventListener('touchend', (e) => {
+      if (!swiping) return;
+      const dx = e.changedTouches[0].clientX - sx;
+      if (dx < -40) {
+        _bkCalMonth += 1;
+        if (_bkCalMonth > 11) { _bkCalMonth = 0; _bkCalYear += 1; }
+        renderBookingsCalendarView();
+      } else if (dx > 40) {
+        _bkCalMonth -= 1;
+        if (_bkCalMonth < 0) { _bkCalMonth = 11; _bkCalYear -= 1; }
+        renderBookingsCalendarView();
+      }
+    }, { passive: true });
+  }
 }
 
 function _renderCalDayDetail(ymd, monthBookings) {

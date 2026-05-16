@@ -2734,37 +2734,45 @@ label {
 .bookings-view-tab { color: var(--muted-2); transition: background 0.15s, color 0.15s; }
 .bookings-view-tab.active { background: #fff; color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
 
+/* ── Bookings calendar — iOS-style clean layout ─────────────────────────── */
 #bookings-calendar .bk-cal-card {
-  background: var(--surface2,#fbf8f2);
-  border-radius: 18px;
-  border: 1px solid var(--hairline-1,#e8e1d3);
-  padding: 16px;
+  padding: 0;
   margin-bottom: 14px;
 }
 #bookings-calendar .bk-cal-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 14px;
+  padding: 0 2px 16px;
+}
+#bookings-calendar .bk-cal-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--ink-1,#1c2620);
+  font-family: 'Newsreader', serif;
+  line-height: 1.1;
+}
+#bookings-calendar .bk-cal-year {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted-2,#8a958f);
+  margin-top: 2px;
 }
 #bookings-calendar .bk-cal-nav {
-  background: #fff;
-  border: 1px solid var(--hairline-1,#e8e1d3);
-  border-radius: 10px;
-  width: 34px;
-  height: 34px;
-  font-size: 16px;
+  background: none;
+  border: none;
+  width: 36px;
+  height: 36px;
   cursor: pointer;
-  color: var(--ink-2,#4a5751);
+  color: var(--primary,#2f5d4e);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  border-radius: 50%;
+  -webkit-tap-highlight-color: transparent;
 }
-#bookings-calendar .bk-cal-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--ink-1,#1c2620);
-  font-family: 'Newsreader', serif;
+#bookings-calendar .bk-cal-nav:active {
+  background: var(--primary-soft,#dde8e1);
 }
 #bookings-calendar .bk-cal-props {
   display: flex;
@@ -2773,6 +2781,7 @@ label {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+  padding: 0 2px;
 }
 #bookings-calendar .bk-cal-props::-webkit-scrollbar { display: none; }
 #bookings-calendar .bk-cal-prop-pill {
@@ -2795,111 +2804,105 @@ label {
 #bookings-calendar .bk-cal-dow {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
-  margin-bottom: 6px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--hairline-2,#efe9dc);
 }
 #bookings-calendar .bk-cal-dow div {
   text-align: center;
-  font-size: 10px;
-  font-family: 'JetBrains Mono', monospace;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 600;
   color: var(--muted-2,#8a958f);
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  padding: 4px 0;
+  padding: 8px 0;
+  font-family: 'Plus Jakarta Sans', sans-serif;
 }
 #bookings-calendar .bk-cal-grid {
   position: relative;
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  grid-auto-rows: 78px;
-  gap: 4px;
+  grid-auto-rows: 98px;
+  touch-action: pan-y;
 }
 #bookings-calendar .bk-cal-cell {
   position: relative;
-  padding: 6px 4px 0;
-  border-radius: 10px;
-  background: #fff;
-  border: 1px solid var(--hairline-2,#efe9dc);
+  padding: 6px 0 0;
+  border-bottom: 1px solid var(--hairline-2,#efe9dc);
+  background: transparent;
   overflow: hidden;
 }
-#bookings-calendar .bk-cal-cell.bk-today {
-  border-color: var(--primary,#2f5d4e);
-  box-shadow: 0 0 0 2px var(--primary-soft,#dde8e1);
-}
 #bookings-calendar .bk-cal-cell .bk-daynum {
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: 0 auto;
+  font-size: 14px;
   color: var(--ink-1,#1c2620);
-  font-weight: 600;
-  font-family: 'Newsreader', serif;
+  font-weight: 400;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  border-radius: 50%;
 }
-#bookings-calendar .bk-cal-cell.bk-dim { opacity: 0.35; }
-#bookings-calendar .bk-cal-cell.bk-dim .bk-daynum { opacity: 1; }
+#bookings-calendar .bk-cal-cell.bk-dim .bk-daynum {
+  color: var(--muted-2,#8a958f);
+  opacity: 0.4;
+}
 #bookings-calendar .bk-cal-cell.bk-today .bk-daynum {
-  color: var(--primary,#2f5d4e);
-  font-weight: 700;
+  background: var(--primary,#2f5d4e);
+  color: #fff;
+  font-weight: 600;
 }
 #bookings-calendar .bk-cal-bar {
   position: absolute;
-  height: 9px;
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 0 4px;
+  padding: 0 6px;
   cursor: pointer;
   z-index: 2;
   overflow: hidden;
   border: none;
-  opacity: 0.85;
-}
-#bookings-calendar .bk-cal-bar .bk-bar-initial {
-  display: none;
 }
 #bookings-calendar .bk-cal-bar .bk-bar-name {
-  font-size: 7px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   color: #fff;
+  line-height: 1;
 }
 #bookings-calendar .bk-cal-more {
   position: absolute;
-  height: 14px;
-  font-size: 9px;
+  height: 16px;
+  font-size: 10px;
   font-weight: 600;
   color: var(--muted-2,#8a958f);
-  font-family: 'JetBrains Mono', monospace;
-  padding: 0 4px;
+  padding: 0 6px;
   z-index: 2;
 }
 #bookings-calendar .bk-cal-legend {
   display: flex;
-  gap: 14px;
+  gap: 16px;
   flex-wrap: wrap;
-  padding-top: 12px;
-  margin-top: 14px;
+  padding: 14px 2px 0;
 }
 #bookings-calendar .bk-cal-legend-item {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  font-family: 'JetBrains Mono', monospace;
+  font-weight: 500;
   color: var(--muted-2,#8a958f);
-  letter-spacing: 0.4px;
 }
 #bookings-calendar .bk-cal-legend-dot {
-  width: 12px;
-  height: 8px;
-  border-radius: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
 }
 #bookings-calendar .bk-cal-empty {
   text-align: center;
   font-size: 13px;
   color: var(--muted-2,#8a958f);
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  padding: 24px 12px;
+  padding: 32px 12px;
 }
 #bookings-calendar .bk-cal-detail {
   margin-top: 18px;
@@ -2914,7 +2917,7 @@ label {
 }
 #bookings-calendar .bk-cal-detail-card {
   background: #fff;
-  border-radius: 16px;
+  border-radius: 14px;
   padding: 14px;
   border: 1px solid var(--hairline-1,#e8e1d3);
   display: flex;
@@ -2923,7 +2926,7 @@ label {
   cursor: pointer;
 }
 #bookings-calendar .bk-cal-detail-rail {
-  width: 6px;
+  width: 5px;
   align-self: stretch;
   border-radius: 3px;
 }
