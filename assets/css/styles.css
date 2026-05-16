@@ -2310,6 +2310,19 @@ label {
 /* Hidden on mobile, shown only in desktop media query */
 #finance-desktop-nav { display: none; }
 
+/* Context Menu */
+.ctx-menu-item {
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ink-1, #1c2620);
+  transition: background 0.1s;
+  white-space: nowrap;
+}
+.ctx-menu-item:hover {
+  background: var(--surface2, #fbf8f2);
+}
+
 /* Command Palette */
 .cmd-pal-item {
   display: flex;

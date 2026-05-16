@@ -2871,5 +2871,92 @@
 })();
 </script>
 
+<!-- Desktop right-click context menu -->
+<div id="ctx-menu" style="display:none;position:fixed;z-index:10002;min-width:180px;background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.14);border:1px solid var(--hairline-1,#e8e1d3);padding:4px;font-size:13px"></div>
+<script>
+(function() {
+  if (window.innerWidth < 1024) return;
+  var menu = document.getElementById('ctx-menu');
+
+  function showCtx(e, items) {
+    e.preventDefault();
+    var html = items.map(function(it) {
+      if (it === '---') return '<div style="height:1px;background:var(--hairline-1,#e8e1d3);margin:4px 6px"></div>';
+      return '<div class="ctx-menu-item" onclick="' + it.onclick + ';_hideCtx()">' + it.label + '</div>';
+    }).join('');
+    menu.innerHTML = html;
+    menu.style.display = 'block';
+    var x = e.clientX, y = e.clientY;
+    var mw = menu.offsetWidth, mh = menu.offsetHeight;
+    if (x + mw > window.innerWidth) x = window.innerWidth - mw - 8;
+    if (y + mh > window.innerHeight) y = window.innerHeight - mh - 8;
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+  }
+
+  window._hideCtx = function() { menu.style.display = 'none'; };
+  document.addEventListener('click', function() { menu.style.display = 'none'; });
+  document.addEventListener('scroll', function() { menu.style.display = 'none'; }, true);
+
+  document.addEventListener('contextmenu', function(e) {
+    if (window.innerWidth < 1024) return;
+
+    // Booking table row
+    var bookingRow = e.target.closest('.desktop-table tr[onclick*="showDetail"]');
+    if (bookingRow) {
+      var m = bookingRow.getAttribute('onclick')?.match(/showDetail\(['"]([^'"]+)['"]\)/);
+      if (m) {
+        var bid = m[1];
+        var guestName = bookingRow.querySelector('td strong')?.textContent || '';
+        showCtx(e, [
+          { label: '📋 View Details', onclick: "showDetail('" + bid + "')" },
+          { label: '📄 Copy Guest Name', onclick: "navigator.clipboard.writeText('" + guestName.replace(/'/g, "\\'") + "')" },
+          '---',
+          { label: '❌ Cancel Booking', onclick: "if(confirm('Cancel this booking?')) deleteBooking('" + bid + "')" }
+        ]);
+        return;
+      }
+    }
+
+    // Cleaning kanban card or table row
+    var cleanCard = e.target.closest('.dispatch-kanban-card[onclick*="_selectDispatchClean"]');
+    if (cleanCard) {
+      var cm = cleanCard.getAttribute('onclick')?.match(/_selectDispatchClean\(['"]([^'"]+)['"],\s*['"]([^'"]*)['"]\)/);
+      if (cm) {
+        showCtx(e, [
+          { label: '📋 View Booking', onclick: "showDetail('" + cm[1] + "')" },
+          { label: '🔄 Reassign Cleaner', onclick: "reassignClean('" + cm[2] + "')" }
+        ]);
+        return;
+      }
+    }
+    var cleanRow = e.target.closest('.desktop-table tr[onclick*="showDetail"]');
+    if (cleanRow && cleanRow.closest('#cleaning-list')) {
+      var crm = cleanRow.getAttribute('onclick')?.match(/showDetail\(['"]([^'"]+)['"]\)/);
+      if (crm) {
+        showCtx(e, [
+          { label: '📋 View Booking', onclick: "showDetail('" + crm[1] + "')" }
+        ]);
+        return;
+      }
+    }
+
+    // Expense table row
+    var expRow = e.target.closest('.desktop-table tr[onclick*="openExpenseEdit"]');
+    if (expRow) {
+      var em = expRow.getAttribute('onclick')?.match(/openExpenseEdit\(['"]([^'"]+)['"]\)/);
+      if (em) {
+        showCtx(e, [
+          { label: '✏️ Edit Expense', onclick: "openExpenseEdit('" + em[1] + "')" },
+          '---',
+          { label: '🗑 Delete Expense', onclick: "if(confirm('Delete this expense?')) deleteExpense('" + em[1] + "')" }
+        ]);
+        return;
+      }
+    }
+  });
+})();
+</script>
+
 </body>
 </html>
