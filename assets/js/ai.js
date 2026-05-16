@@ -396,6 +396,7 @@ export async function extractExpenseFromReceipt() {
     if (parsed.category) {
       const sel = document.getElementById('exp-category');
       for (let opt of sel.options) { if (opt.value === parsed.category) { sel.value = parsed.category; break; } }
+      if (typeof globalThis.renderExpenseBookingPicker === 'function') globalThis.renderExpenseBookingPicker('exp', '');
     }
     status.style.background = '#E8F5E9'; status.style.color = '#2E7D32';
     status.textContent = '✓ Receipt read — review details, then tap Save Expense';
