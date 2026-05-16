@@ -1778,14 +1778,26 @@ function renderRevenue() {
   document.getElementById('finance-summary-content').innerHTML = summaryHtml;
 
   // ── Per-booking breakdown ──
-  document.getElementById('revenue-breakdown').innerHTML = monthBookings.length ? [...monthBookings].sort((a,b)=>new Date(a.checkin)-new Date(b.checkin)).map(b=>`
-    <div class="fin-rev-row">
-      <div style="min-width:0"><div style="font-weight:500;font-size:14px;color:var(--ink-1)">${escHtml(b.name||'')}</div><div style="font-size:11px;color:var(--muted-2);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n</div></div>
-      <div style="text-align:right;flex-shrink:0">
-        <div style="font-size:14px;font-weight:500;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif">$${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-        <div style="font-size:11px;color:#1D9E75;margin-top:2px;font-family:'Plus Jakarta Sans',sans-serif">$${Number(b.netPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-      </div>
-    </div>`).join('') : '<div style="color:var(--muted-2);font-size:13px;padding:14px 0">No bookings this month.</div>';
+  const _revSorted = monthBookings.length ? [...monthBookings].sort((a,b)=>new Date(a.checkin)-new Date(b.checkin)) : [];
+  const _revBreakdownEl = document.getElementById('revenue-breakdown');
+  if (_revBreakdownEl) {
+    if (!_revSorted.length) {
+      _revBreakdownEl.innerHTML = '<div style="color:var(--muted-2);font-size:13px;padding:14px 0">No bookings this month.</div>';
+    } else if (window.innerWidth >= 1024) {
+      const _fmtSh = d => { if (!d) return ''; return new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day:'numeric', month:'short' }); };
+      const _revRows = _revSorted.map(b => `<tr><td><strong>${escHtml(b.name||'')}</strong></td><td>${_fmtSh(b.checkin)}</td><td>${_fmtSh(b.checkout)}</td><td>${b.nights||''}</td><td>$${_fmtAud(Number(b.hostPayout||0))}</td><td style="color:#E24B4A">$${_fmtAud(Number(b.cleaningFee||0))}</td><td style="color:#E24B4A">$${_fmtAud(Number(b.mgmtFee||0))}</td><td style="color:#1D9E75;font-weight:600">$${_fmtAud(Number(b.netPayout||0))}</td></tr>`).join('');
+      _revBreakdownEl.innerHTML = '<div class="card" style="padding:0;overflow:hidden;overflow-x:auto"><table class="desktop-table"><thead><tr><th>Guest</th><th>Check-in</th><th>Check-out</th><th>Nights</th><th>Gross</th><th>Clean</th><th>Mgmt Fee</th><th>Net Payout</th></tr></thead><tbody>' + _revRows + '</tbody></table></div>';
+    } else {
+      _revBreakdownEl.innerHTML = _revSorted.map(b=>`
+        <div class="fin-rev-row">
+          <div style="min-width:0"><div style="font-weight:500;font-size:14px;color:var(--ink-1)">${escHtml(b.name||'')}</div><div style="font-size:11px;color:var(--muted-2);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n</div></div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:14px;font-weight:500;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif">$${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+            <div style="font-size:11px;color:#1D9E75;margin-top:2px;font-family:'Plus Jakarta Sans',sans-serif">$${Number(b.netPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+          </div>
+        </div>`).join('');
+    }
+  }
 }
 
 let mgmtYear = new Date().getFullYear();
@@ -1884,30 +1896,47 @@ function renderManagement() {
   const bd = document.getElementById('mgmt-breakdown');
   if (bd) {
     const invMap = _getBookingInvoiceMap();
-    bd.innerHTML = monthBookings.length ? [...monthBookings].sort((a,b)=>new Date(a.checkin)-new Date(b.checkin)).map(b=> {
-      const invoiced = invMap.has(String(b.id));
-      const checked = !invoiced && mgmtSelected.has(_mgmtBookingKey(b)) ? 'checked' : '';
-      const bookingId = escHtml(_mgmtBookingKey(b));
-      if (invoiced) mgmtSelected.delete(_mgmtBookingKey(b));
-      const invNums = invoiced ? invMap.get(String(b.id)) : null;
-      const invBadge = invNums ? '<span class="mgmt-invoiced-badge">' + escHtml(invNums[invNums.length - 1]) + '</span>' : '';
-      return `<label class="fin-mgmt-book-row" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:0.5px solid rgba(0,0,0,0.08);${invoiced ? 'opacity:0.45;cursor:default' : 'cursor:pointer'};margin:0;text-transform:none">
-        <span class="mgmt-booking-check-wrap" style="position:relative;display:inline-flex;width:20px;height:20px;flex-shrink:0">
-          <input class="mgmt-booking-check" data-booking-id="${bookingId}" type="checkbox" ${checked} ${invoiced ? 'disabled' : ''}
-            style="position:absolute;inset:0;opacity:0;margin:0;${invoiced ? 'pointer-events:none' : 'cursor:pointer'};z-index:2">
-          <span class="mgmt-booking-box" style="width:20px;height:20px;border:1.5px solid ${invoiced ? '#ddd' : '#C8C6BF'};border-radius:4px;background:${invoiced ? '#f0f0f0' : '#fff'};display:flex;align-items:center;justify-content:center;box-sizing:border-box">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="display:none">
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
+    const _mgmtSorted = monthBookings.length ? [...monthBookings].sort((a,b)=>new Date(a.checkin)-new Date(b.checkin)) : [];
+    if (!_mgmtSorted.length) {
+      bd.innerHTML = '<div style="color:var(--muted-2);font-size:13px;padding:14px 0">No bookings this month.</div>';
+    } else if (window.innerWidth >= 1024) {
+      const _fmtSh = d => { if (!d) return ''; return new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day:'numeric', month:'short' }); };
+      const _mgmtRows = _mgmtSorted.map(b => {
+        const invoiced = invMap.has(String(b.id));
+        const checked = !invoiced && mgmtSelected.has(_mgmtBookingKey(b)) ? 'checked' : '';
+        const bookingId = escHtml(_mgmtBookingKey(b));
+        if (invoiced) mgmtSelected.delete(_mgmtBookingKey(b));
+        const invNums = invoiced ? invMap.get(String(b.id)) : null;
+        const invBadge = invNums ? ' <span class="mgmt-invoiced-badge">' + escHtml(invNums[invNums.length - 1]) + '</span>' : '';
+        return `<tr style="${invoiced ? 'opacity:0.45' : 'cursor:pointer'}"><td style="width:36px"><label style="margin:0;cursor:pointer;display:flex"><span class="mgmt-booking-check-wrap" style="position:relative;display:inline-flex;width:20px;height:20px"><input class="mgmt-booking-check" data-booking-id="${bookingId}" type="checkbox" ${checked} ${invoiced ? 'disabled' : ''} style="position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:2"><span class="mgmt-booking-box" style="width:20px;height:20px;border:1.5px solid ${invoiced ? '#ddd' : '#C8C6BF'};border-radius:4px;background:${invoiced ? '#f0f0f0' : '#fff'};display:flex;align-items:center;justify-content:center;box-sizing:border-box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="display:none"><polyline points="20 6 9 17 4 12"></polyline></svg></span></span></label></td><td><strong>${escHtml(b.name||'')}</strong>${invBadge}</td><td>${_fmtSh(b.checkin)}</td><td>${_fmtSh(b.checkout)}</td><td>${b.nights||''}</td><td>$${_fmtAud(Number(b.hostPayout||0))}</td><td style="color:${invoiced ? 'var(--muted-2)' : '#1D9E75'};font-weight:600">$${_fmtAud(Number(b.mgmtPayout||0))}</td></tr>`;
+      }).join('');
+      bd.innerHTML = '<div class="card" style="padding:0;overflow:hidden;overflow-x:auto"><table class="desktop-table"><thead><tr><th style="width:36px"></th><th>Guest</th><th>Check-in</th><th>Check-out</th><th>Nights</th><th>Gross</th><th>Mgmt Payout</th></tr></thead><tbody>' + _mgmtRows + '</tbody></table></div>';
+    } else {
+      bd.innerHTML = _mgmtSorted.map(b => {
+        const invoiced = invMap.has(String(b.id));
+        const checked = !invoiced && mgmtSelected.has(_mgmtBookingKey(b)) ? 'checked' : '';
+        const bookingId = escHtml(_mgmtBookingKey(b));
+        if (invoiced) mgmtSelected.delete(_mgmtBookingKey(b));
+        const invNums = invoiced ? invMap.get(String(b.id)) : null;
+        const invBadge = invNums ? '<span class="mgmt-invoiced-badge">' + escHtml(invNums[invNums.length - 1]) + '</span>' : '';
+        return `<label class="fin-mgmt-book-row" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:0.5px solid rgba(0,0,0,0.08);${invoiced ? 'opacity:0.45;cursor:default' : 'cursor:pointer'};margin:0;text-transform:none">
+          <span class="mgmt-booking-check-wrap" style="position:relative;display:inline-flex;width:20px;height:20px;flex-shrink:0">
+            <input class="mgmt-booking-check" data-booking-id="${bookingId}" type="checkbox" ${checked} ${invoiced ? 'disabled' : ''}
+              style="position:absolute;inset:0;opacity:0;margin:0;${invoiced ? 'pointer-events:none' : 'cursor:pointer'};z-index:2">
+            <span class="mgmt-booking-box" style="width:20px;height:20px;border:1.5px solid ${invoiced ? '#ddd' : '#C8C6BF'};border-radius:4px;background:${invoiced ? '#f0f0f0' : '#fff'};display:flex;align-items:center;justify-content:center;box-sizing:border-box">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </span>
           </span>
-        </span>
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:500;font-size:14px;color:var(--ink-1);text-transform:none">${escHtml(b.name||'')}${invBadge}</div>
-          <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n · Host $${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}${invoiced ? ' · Invoiced' : ''}</div>
-        </div>
-        <div style="font-size:14px;font-weight:500;color:${invoiced ? 'var(--muted-2)' : '#1D9E75'};font-family:'Plus Jakarta Sans',sans-serif;flex-shrink:0">$${Number(b.mgmtPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-      </label>`;
-    }).join('') : '<div style="color:var(--muted-2);font-size:13px;padding:14px 0">No bookings this month.</div>';
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:500;font-size:14px;color:var(--ink-1);text-transform:none">${escHtml(b.name||'')}${invBadge}</div>
+            <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n · Host $${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}${invoiced ? ' · Invoiced' : ''}</div>
+          </div>
+          <div style="font-size:14px;font-weight:500;color:${invoiced ? 'var(--muted-2)' : '#1D9E75'};font-family:'Plus Jakarta Sans',sans-serif;flex-shrink:0">$${Number(b.mgmtPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+        </label>`;
+      }).join('');
+    }
   }
   _bindMgmtActionButtons();
   _bindMgmtBookingCheckboxes();

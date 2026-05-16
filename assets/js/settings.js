@@ -666,7 +666,7 @@ function _ensureSettingsVisible() {
 function openSettingsCat(cat, returnSection) {
   _ensureSettingsVisible();
   const sm = document.getElementById('settings-menu');
-  if (sm) sm.style.display = 'none';
+  if (sm && window.innerWidth < 1024) sm.style.display = 'none';
   document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
   document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
   const el = document.getElementById('settings-cat-' + cat);
@@ -692,7 +692,7 @@ function openSettingsPanel(panelId, returnSection) {
   const activePanel = document.querySelector('[id^="settings-panel-"]:not([style*="display: none"]):not([style*="display:none"])');
   const prevPanel = activePanel ? activePanel.id.replace('settings-panel-', '') : null;
   const sm = document.getElementById('settings-menu');
-  if (sm) sm.style.display = 'none';
+  if (sm && window.innerWidth < 1024) sm.style.display = 'none';
   document.querySelectorAll('[id^="settings-cat-"]').forEach(el => el.style.display = 'none');
   document.querySelectorAll('[id^="settings-panel-"]').forEach(el => el.style.display = 'none');
   const panel = document.getElementById('settings-panel-' + panelId);

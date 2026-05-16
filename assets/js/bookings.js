@@ -126,11 +126,12 @@ function renderBookingsCalendarView() {
     }
   }
 
-  const MAX_SLOTS = 3;
+  const _calDesktop = window.innerWidth >= 1024;
+  const MAX_SLOTS = _calDesktop ? 4 : 3;
   const weekSlots = Array.from({ length: rows }, () => []);
   const weekOverflow = Array.from({ length: rows }, () => []);
   for (let w = 0; w < rows; w++) {
-    const slots = [null, null, null];
+    const slots = Array(MAX_SLOTS).fill(null);
     for (const seg of weekBookings[w]) {
       let placed = false;
       for (let s = 0; s < MAX_SLOTS; s++) {
@@ -146,8 +147,8 @@ function renderBookingsCalendarView() {
     }
   }
 
-  const dowHdr = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
-    .map(d => `<div>${d}</div>`).join('');
+  const _dowLabels = _calDesktop ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  const dowHdr = _dowLabels.map(d => `<div>${d}</div>`).join('');
 
   let cellsHtml = '';
   cellDates.forEach((cd, idx) => {
@@ -161,9 +162,9 @@ function renderBookingsCalendarView() {
     </div>`;
   });
 
-  const ROW_H = 98;
-  const TOP_OFFSET = 28;
-  const BAR_H = 18;
+  const ROW_H = _calDesktop ? 130 : 98;
+  const TOP_OFFSET = _calDesktop ? 32 : 28;
+  const BAR_H = _calDesktop ? 22 : 18;
   const SLOT_H = BAR_H + 3;
 
   let barsHtml = '';
@@ -182,7 +183,7 @@ function renderBookingsCalendarView() {
       const top = w * ROW_H + TOP_OFFSET + slot * SLOT_H;
       const segEndsAtCo = seg.segEnd.getTime() === co.getTime();
       const radius = `${segStartsAtCi ? '4px' : '0'} ${segEndsAtCo ? '4px' : '0'} ${segEndsAtCo ? '4px' : '0'} ${segStartsAtCi ? '4px' : '0'}`;
-      const nameLabel = (b.name || 'Guest').split(/\s+/)[0];
+      const nameLabel = _calDesktop ? (b.name || 'Guest') : (b.name || 'Guest').split(/\s+/)[0];
       const idAttr = b._cloudId || b.id;
       barsHtml += `<div class="bk-cal-bar" data-id="${escHtml(String(idAttr))}" title="${escHtml(b.name || 'Guest')} · ${escHtml(b.checkin)} → ${escHtml(b.checkout)}"
         style="left:${leftPct}%;width:${widthPct}%;top:${top}px;height:${BAR_H}px;border-radius:${radius};background:${style.border};">

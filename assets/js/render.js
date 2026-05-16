@@ -1744,22 +1744,22 @@ function buildSinglePropertyTodayDashboardMarkup() {
     </div>`;
 
     setTimeout(animateNumbers, 100);
-    return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:20px">
-      <div class="card" style="text-align:center"><div data-animate-number="${occupancyThisMonth}" data-num-suffix="%" style="font-family:'Newsreader',serif;font-size:28px;color:var(--primary)">0%</div><div style="font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Occupancy</div></div>
-      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueThisMonth)}" data-num-prefix="$" style="font-family:'Newsreader',serif;font-size:28px;color:var(--primary)">$0</div><div style="font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Revenue</div></div>
-      <div class="card" style="text-align:center"><div data-animate-number="${activeBookings.length}" style="font-family:'Newsreader',serif;font-size:28px;color:var(--primary)">0</div><div style="font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Bookings</div></div>
-      <div class="card" style="text-align:center"><div data-animate-number="${Math.round(revenueNext30)}" data-num-prefix="$" style="font-family:'Newsreader',serif;font-size:28px;color:var(--primary)">$0</div><div style="font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px;margin-top:4px">Next 30 days</div></div>
+    return `<div class="desktop-stats-grid">
+      <div class="card desktop-stat-card"><div class="desktop-stat-value" data-animate-number="${occupancyThisMonth}" data-num-suffix="%">0%</div><div class="desktop-stat-label">Occupancy</div></div>
+      <div class="card desktop-stat-card"><div class="desktop-stat-value" data-animate-number="${Math.round(revenueThisMonth)}" data-num-prefix="$">$0</div><div class="desktop-stat-label">Revenue</div></div>
+      <div class="card desktop-stat-card"><div class="desktop-stat-value" data-animate-number="${activeBookings.length}">0</div><div class="desktop-stat-label">Bookings</div></div>
+      <div class="card desktop-stat-card"><div class="desktop-stat-value" data-animate-number="${Math.round(revenueNext30)}" data-num-prefix="$">$0</div><div class="desktop-stat-label">Next 30 days</div></div>
     </div>
-    <div style="display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:20px">
+    <div class="desktop-dash-grid">
+      <div style="display:flex;flex-direction:column;gap:16px">
+        ${upcomingTable}
+        ${unifiedCalHtml}
+      </div>
       <div style="display:flex;flex-direction:column;gap:16px">
         ${needsHtml || ''}
         ${occCard}
         ${sparklineHtml}
         ${quickHtml}
-      </div>
-      <div style="display:flex;flex-direction:column;gap:16px">
-        ${upcomingTable}
-        ${unifiedCalHtml}
       </div>
     </div>`;
   }

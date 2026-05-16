@@ -871,9 +871,12 @@ export function renderCleaning() {
 
   const showProperty = isPortfolioMode();
 
-  // Desktop: table view regardless of view mode
   if (window.innerWidth >= 1024) {
-    _renderCleanDesktopTable(data, showProperty);
+    if (cleaningViewMode === 'pipeline') {
+      _renderCleanDesktopPipeline(data, showProperty);
+    } else {
+      _renderCleanDesktopTable(data, showProperty);
+    }
     return;
   }
 
@@ -953,6 +956,43 @@ function _renderCleanDesktopTable(data, showProperty) {
         '<div style="font-size:12px;color:var(--muted-2);margin-top:4px">' + confirmed + ' confirmed · ' + awaiting + ' awaiting · ' + unassigned + ' unassigned</div>' +
       '</div>' +
     '</div>' +
+  '</div>';
+}
+
+function _renderCleanDesktopPipeline(data, showProperty) {
+  const list = document.getElementById('cleaning-list');
+  if (!list) return;
+  const columns = [
+    { key: 'cancelled', label: 'Cancelled', bg: '#FCEBEB', colour: '#A32D2D', hdr: '#FDECEA',
+      items: data.filtered.filter(i => i.status === 'cancelled' || i.status === 'cancelled_pending' || i.status === 'cancelled_acked') },
+    { key: 'unassigned', label: 'Needs Assignment', bg: '#FFF8F8', colour: '#A32D2D', hdr: '#FDECEA',
+      items: data.filtered.filter(i => i.status === 'unassigned') },
+    { key: 'awaiting', label: 'Awaiting', bg: '#FFFBF5', colour: '#854F0B', hdr: '#FEF3E2',
+      items: data.filtered.filter(i => i.status === 'awaiting') },
+    { key: 'confirmed', label: 'Confirmed', bg: '#F9FCF5', colour: '#3B6D11', hdr: '#EAF3DE',
+      items: data.filtered.filter(i => i.status === 'confirmed') },
+  ].filter(c => c.items.length);
+  if (!columns.length) {
+    list.innerHTML = '<div class="card" style="text-align:center;padding:40px"><div style="font-size:36px;margin-bottom:10px;opacity:0.4">&#10003;</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">All clear</div><div style="font-size:12px;color:var(--muted-2)">No cleans match this filter</div></div>';
+    return;
+  }
+  const fmtSh = d => { if (!d) return ''; return new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day:'numeric', month:'short' }); };
+  list.innerHTML = '<div style="display:grid;grid-template-columns:repeat(' + columns.length + ',1fr);gap:16px;align-items:start">' +
+    columns.map(col => {
+      const cards = col.items.map(item => {
+        const bid = item.booking ? escapeJsSingleQuotedHtmlAttr(String(item.booking._cloudId || item.booking.id)) : '';
+        const onclick = bid ? ' onclick="showDetail(\'' + bid + '\')" style="cursor:pointer"' : '';
+        return '<div class="card" style="padding:14px;margin-bottom:0"' + onclick + '>' +
+          '<div style="font-weight:600;font-size:14px">' + escHtml(item.guest) + '</div>' +
+          '<div style="font-size:12px;color:var(--muted-2);margin-top:4px">' + fmtSh(item.date) +
+          (item.cleaner ? ' · ' + escHtml(item.cleaner) : '') + '</div>' +
+          '</div>';
+      }).join('');
+      return '<div>' +
+        '<div style="font-size:11px;font-family:\'JetBrains Mono\',monospace;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:' + col.colour + ';padding:10px 14px;background:' + col.hdr + ';border-radius:12px 12px 0 0;display:flex;justify-content:space-between"><span>' + col.label + '</span><span>' + col.items.length + '</span></div>' +
+        '<div style="background:' + col.bg + ';border-radius:0 0 12px 12px;padding:8px;display:flex;flex-direction:column;gap:8px;min-height:80px">' + cards + '</div>' +
+        '</div>';
+    }).join('') +
   '</div>';
 }
 

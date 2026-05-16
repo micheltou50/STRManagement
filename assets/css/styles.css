@@ -2473,13 +2473,40 @@ label {
   }
 
   /* ── Phase 3: Dashboard — JS handles desktop layout directly ─────── */
-  /* Remove any inherited grid on the mount — the JS renders its own grid */
   #dashboard-today-mount,
   #portfolio-dashboard > div {
     display: block !important;
   }
   .stats-row {
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
+  }
+  .desktop-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .desktop-stat-card {
+    text-align: center;
+    padding: 24px 16px !important;
+  }
+  .desktop-stat-value {
+    font-family: 'Newsreader', serif;
+    font-size: 36px;
+    color: var(--primary);
+  }
+  .desktop-stat-label {
+    font-size: 11px;
+    color: var(--muted-2);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 6px;
+    font-weight: 600;
+  }
+  .desktop-dash-grid {
+    display: grid;
+    grid-template-columns: 1fr minmax(300px, 380px);
+    gap: 20px;
   }
 
   /* ── Phase 4: Bookings side-by-side ────────────────────────────────── */
@@ -2517,21 +2544,151 @@ label {
     max-width: none;
   }
   #finance-hub {
-    max-width: 600px;
+    max-width: none;
+  }
+  #finance-hero-card {
+    padding: 28px 32px !important;
+    border-radius: 24px !important;
+  }
+  #finance-hero-net {
+    font-size: 56px !important;
+  }
+  #finance-hero-bars {
+    height: 70px !important;
+  }
+  #finance-hub > .card > .settings-cat-item {
+    border-bottom: none;
+  }
+  #finance-hub > .section-heading + .card {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0;
+    padding: 0 !important;
+    overflow: hidden;
+  }
+  #finance-hub > .section-heading + .card > .settings-cat-item {
+    padding: 20px 18px;
+    border-bottom: 1px solid var(--hairline-1, #e8e1d3);
+    border-right: 1px solid var(--hairline-1, #e8e1d3);
+  }
+  #finance-hub > .section-heading + .card > .settings-cat-item:nth-child(3n) {
+    border-right: none;
+  }
+  #finance-hub > .section-heading + .card > .settings-cat-item:nth-last-child(-n+3) {
+    border-bottom: none;
   }
   #expenses-main-block,
   .expenses-main-block {
     max-width: none !important;
   }
 
-  /* Property */
-  #section-property {
-    max-width: 900px;
+  /* ── Calendar Desktop ─────────────────────────────────────────────── */
+  #bookings-calendar .bk-cal-title {
+    font-size: 32px !important;
+  }
+  #bookings-calendar .bk-cal-dow div {
+    font-size: 12px;
+  }
+  #bookings-calendar .bk-cal-cell .bk-daynum {
+    font-size: 15px;
+    width: 30px;
+    height: 30px;
+    line-height: 30px;
+  }
+  #bookings-calendar .bk-cal-bar .bk-bar-name {
+    font-size: 11px;
   }
 
-  /* Settings */
+  /* Property */
+  #section-property {
+    max-width: none;
+  }
+  #prop-hub {
+    max-width: none;
+  }
+  #prop-hub > .card {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    padding: 0 !important;
+    overflow: hidden;
+  }
+  #prop-hub > .card > .settings-cat-item {
+    padding: 20px 18px;
+    border-bottom: 1px solid var(--hairline-1, #e8e1d3);
+    border-right: 1px solid var(--hairline-1, #e8e1d3);
+  }
+  #prop-hub > .card > .settings-cat-item:nth-child(2n) {
+    border-right: none;
+  }
+  #prop-hub > .card > .settings-cat-item:last-child {
+    border-bottom: none;
+  }
+
+  /* Maintenance / Inventory side-by-side */
+  #prop-maintenance,
+  #prop-inventory {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  #prop-maintenance > .settings-back,
+  #prop-inventory > .settings-back,
+  #prop-inventory > div:first-of-type {
+    grid-column: 1 / -1;
+  }
+
+  /* Settings — split panel */
   #section-settings {
-    max-width: 700px;
+    max-width: none;
+    display: grid !important;
+    grid-template-columns: 320px 1fr;
+    gap: 0 28px;
+    align-items: start;
+  }
+  #section-settings > #settings-menu {
+    display: block !important;
+    position: sticky;
+    top: 80px;
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+  }
+  #section-settings > [id^="settings-panel-"],
+  #section-settings > [id^="settings-cat-"] {
+    grid-column: 2;
+    grid-row: 1 / 99;
+  }
+  #section-settings .settings-back {
+    display: none;
+  }
+
+  /* ── Cleaning Desktop ─────────────────────────────────────────────── */
+  #cleaning-list {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  #cleaning-cleaner-cards > div > div:last-child {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important;
+    overflow: visible !important;
+    gap: 12px !important;
+  }
+
+  /* ── Expense Form Desktop ──────────────────────────────────────────── */
+  #expense-add-form-panel .form-row,
+  #expense-add-card .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  /* ── Modals Desktop ────────────────────────────────────────────────── */
+  #modal .modal {
+    max-width: 680px !important;
+  }
+  .action-sheet {
+    max-width: 520px !important;
   }
 
   /* ── Desktop Polish — overflow, wrapping, spacing ────────────────── */
@@ -2577,7 +2734,7 @@ label {
   input[type="password"],
   select,
   textarea {
-    max-width: 420px;
+    max-width: 560px;
   }
   .booking-name {
     font-size: 15px;
