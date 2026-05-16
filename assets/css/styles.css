@@ -2310,6 +2310,31 @@ label {
 /* Hidden on mobile, shown only in desktop media query */
 #finance-desktop-nav { display: none; }
 
+/* Command Palette */
+.cmd-pal-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--ink-1, #1c2620);
+  transition: background 0.1s;
+}
+.cmd-pal-item:hover, .cmd-pal-item.cmd-pal-active {
+  background: var(--surface2, #fbf8f2);
+}
+.cmd-pal-item.cmd-pal-active {
+  background: var(--primary, #2f5d4e);
+  color: #fff;
+}
+.cmd-pal-item.cmd-pal-active kbd {
+  background: rgba(255,255,255,0.2);
+  color: #fff;
+  border-color: rgba(255,255,255,0.2);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    DESKTOP BREAKPOINT (≥ 1024px)
    Sidebar navigation, wide content, multi-column layouts.
