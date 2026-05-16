@@ -2640,15 +2640,33 @@ label {
   }
 
   /* ── Phase 4: Bookings side-by-side ────────────────────────────────── */
-  #section-bookings .section-stack {
+  #section-bookings.section-stack:not(.section-hidden) {
     display: grid !important;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 380px;
     gap: 0 24px;
   }
-  #section-bookings .section-stack > .section-heading,
-  #section-bookings .section-stack > #bookings-tab-row,
-  #section-bookings .section-stack > .tab-row {
+  #section-bookings.section-stack > .section-heading {
     grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  #section-bookings.section-stack > #bookings-view-toggle {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  #section-bookings.section-stack > #bookings-tab-row,
+  #section-bookings.section-stack > .tab-row {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+  #section-bookings.section-stack > #bookings-list,
+  #section-bookings.section-stack > #bookings-calendar,
+  #section-bookings.section-stack > #bookings-notes-view {
+    grid-column: 1;
+    grid-row: 4;
+  }
+  #section-bookings.section-stack > #desktop-detail-panel {
+    grid-column: 2;
+    grid-row: 4 / 99;
   }
   #desktop-detail-panel {
     position: sticky;
@@ -2665,7 +2683,7 @@ label {
 
   /* ── Phase 5: Section-specific layouts ─────────────────────────────── */
   /* Cleaning */
-  #section-cleaning .section-stack {
+  #section-cleaning.section-stack {
     max-width: none;
   }
 
@@ -2727,7 +2745,7 @@ label {
     margin: 12px 16px;
   }
 
-  #section-finance {
+  #section-finance:not(.section-hidden) {
     max-width: none;
     display: grid !important;
     grid-template-columns: 220px 1fr;
@@ -2827,14 +2845,20 @@ label {
   }
 
   /* Settings — split panel */
-  #section-settings {
+  #section-settings:not(.section-hidden) {
     max-width: none;
     display: grid !important;
     grid-template-columns: 320px 1fr;
     gap: 0 28px;
     align-items: start;
   }
+  #section-settings > h2 {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
   #section-settings > #settings-menu {
+    grid-column: 1;
+    grid-row: 2;
     display: block !important;
     position: sticky;
     top: 80px;
@@ -2844,7 +2868,7 @@ label {
   #section-settings > [id^="settings-panel-"],
   #section-settings > [id^="settings-cat-"] {
     grid-column: 2;
-    grid-row: 1 / 99;
+    grid-row: 2 / 99;
   }
   #section-settings .settings-back {
     display: none;
