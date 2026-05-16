@@ -1651,6 +1651,7 @@ async function applyCleanCostAndRecompute(cleanId, bookingId, amount) {
   if (b) {
     const mgmtPct = Number(b.mgmtFeeRaw) || 0;
     const effectiveClean = (c.cost != null && c.cost !== '') ? Number(c.cost) : (Number(b.cleaningFee) || 0);
+    b.cleaningFee = effectiveClean;
     const mgmtBase = (Number(b.hostPayout) || 0) - effectiveClean;
     if (mgmtPct) {
       b.mgmtFee = Math.round((mgmtBase * mgmtPct) / 100 * 100) / 100;
