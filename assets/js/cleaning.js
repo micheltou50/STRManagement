@@ -436,7 +436,7 @@ export function prepareCleaningData() {
   allItems.sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
   const filtered = cleanStatusFilter === 'all'
-    ? allItems
+    ? allItems.filter(item => item.status !== 'cancelled' && item.status !== 'cancelled_pending' && item.status !== 'cancelled_acked')
     : cleanStatusFilter === 'cancelled'
       ? allItems.filter(item => item.status === 'cancelled' || item.status === 'cancelled_pending' || item.status === 'cancelled_acked')
       : allItems.filter(item => item.status === cleanStatusFilter);
@@ -472,7 +472,7 @@ export function prepareCleaningData() {
   });
 
   const counts = {
-    all: allItems.length,
+    all: allItems.filter(i => i.status !== 'cancelled' && i.status !== 'cancelled_pending' && i.status !== 'cancelled_acked').length,
     unassigned: allItems.filter(i => i.status === 'unassigned').length,
     awaiting: allItems.filter(i => i.status === 'awaiting').length,
     confirmed: allItems.filter(i => i.status === 'confirmed').length,

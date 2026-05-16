@@ -1733,7 +1733,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
     const arrivingToday = activeBookings.filter(b => (b.checkin||'').slice(0,10) === todayStr);
     const departingToday = activeBookings.filter(b => (b.checkout||'').slice(0,10) === todayStr);
     const allCleans = window.cleans || [];
-    const cleansToday = allCleans.filter(c => (c.date||'').slice(0,10) === todayStr && c.status !== 'cancelled');
+    const cleansToday = allCleans.filter(c => (c.date||'').slice(0,10) === todayStr && !isCleanLinkedToCancelledBooking(c));
 
     const timelineItems = [];
     departingToday.forEach(b => {
