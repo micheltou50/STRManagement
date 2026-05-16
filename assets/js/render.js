@@ -1704,8 +1704,73 @@ function buildSinglePropertyTodayDashboardMarkup() {
     `</div>` +
     `</div></div>`;
 
-  // Desktop: 2-column grid layout
+  // Desktop: Operations Control Centre
   if (window.innerWidth >= 1024) {
+    const host = getHostProfile();
+    const firstName = escHtml(String(host?.hostName || host?.name || '').split(' ')[0] || '');
+    const hour = now.getHours();
+    const greetWord = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
+    const dateStr = now.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+    const headerHtml = `<div class="dash-control-header">
+      <div>
+        <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase">${escHtml(dateStr.toUpperCase())}</div>
+        <div style="margin-top:2px;font-family:'Newsreader',serif;font-size:28px;font-weight:600;color:var(--ink-1);letter-spacing:-0.5px">${firstName ? greetWord + ', <em>' + firstName + '</em>' : 'Dashboard'}</div>
+      </div>
+      <div class="dash-kpi-strip">
+        <div class="dash-kpi"><span class="dash-kpi-val" data-animate-number="${occupancyThisMonth}" data-num-suffix="%">0%</span><span class="dash-kpi-label">Occupancy</span></div>
+        <div class="dash-kpi-sep"></div>
+        <div class="dash-kpi"><span class="dash-kpi-val" data-animate-number="${Math.round(revenueThisMonth)}" data-num-prefix="$">$0</span><span class="dash-kpi-label">Revenue</span></div>
+        <div class="dash-kpi-sep"></div>
+        <div class="dash-kpi"><span class="dash-kpi-val" data-animate-number="${activeBookings.length}">0</span><span class="dash-kpi-label">Bookings</span></div>
+        <div class="dash-kpi-sep"></div>
+        <div class="dash-kpi"><span class="dash-kpi-val" data-animate-number="${Math.round(revenueNext30)}" data-num-prefix="$">$0</span><span class="dash-kpi-label">Next 30d</span></div>
+      </div>
+    </div>`;
+
+    // Today timeline — check-ins, check-outs, cleans
+    const todayStr = now.toISOString().split('T')[0];
+    const arrivingToday = activeBookings.filter(b => (b.checkin||'').slice(0,10) === todayStr);
+    const departingToday = activeBookings.filter(b => (b.checkout||'').slice(0,10) === todayStr);
+    const allCleans = window.cleans || [];
+    const cleansToday = allCleans.filter(c => (c.date||'').slice(0,10) === todayStr && c.status !== 'cancelled');
+
+    const timelineItems = [];
+    departingToday.forEach(b => {
+      const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
+      timelineItems.push({ time: '10:00', icon: '↗', color: 'var(--warn)', label: 'Check-out', detail: escHtml(b.name || 'Guest'), onclick: `showDetail('${bid}')` });
+    });
+    cleansToday.forEach(c => {
+      const cleanerName = (window._cleaners || []).find(cl => String(cl.id) === String(c.cleaner_id))?.name || 'Unassigned';
+      const bid = c.booking_id ? escapeJsSingleQuotedHtmlAttr(String(c.booking_id)) : '';
+      timelineItems.push({ time: '12:00', icon: '✦', color: 'var(--accent)', label: 'Clean', detail: escHtml(cleanerName), onclick: bid ? `showDetail('${bid}')` : '' });
+    });
+    arrivingToday.forEach(b => {
+      const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
+      timelineItems.push({ time: '15:00', icon: '↙', color: 'var(--primary)', label: 'Check-in', detail: escHtml(b.name || 'Guest'), onclick: `showDetail('${bid}')` });
+    });
+
+    let timelineHtml = '';
+    if (timelineItems.length) {
+      const rows = timelineItems.map(t =>
+        `<div class="dash-timeline-row" ${t.onclick ? 'onclick="' + t.onclick + '" style="cursor:pointer"' : ''}>
+          <div class="dash-tl-time">${t.time}</div>
+          <div class="dash-tl-dot" style="background:${t.color}">${t.icon}</div>
+          <div class="dash-tl-content"><strong>${t.label}</strong> ${t.detail}</div>
+        </div>`
+      ).join('');
+      timelineHtml = `<div class="card dash-timeline-card">
+        <div class="dash-section-hdr"><span>Today's Activity</span><span class="dash-section-count">${timelineItems.length} event${timelineItems.length > 1 ? 's' : ''}</span></div>
+        ${rows}
+      </div>`;
+    } else {
+      timelineHtml = `<div class="card dash-timeline-card">
+        <div class="dash-section-hdr"><span>Today's Activity</span></div>
+        <div style="text-align:center;padding:24px 0;color:var(--muted-2);font-size:13px">No activity scheduled today</div>
+      </div>`;
+    }
+
+    // Upcoming bookings table
     const upcoming = [...activeBookings]
       .filter(b => parseLocalDayStart(b.checkout) >= todayStart)
       .sort((a, b) => parseLocalDayStart(a.checkin) - parseLocalDayStart(b.checkin))
@@ -1713,11 +1778,10 @@ function buildSinglePropertyTodayDashboardMarkup() {
     const fmtSh = d => { if (!d) return ''; const dt = new Date(d); return dt.toLocaleDateString('en-AU', { day:'numeric', month:'short' }); };
     const platformCls = p => { const lp = (p||'').toLowerCase(); if (lp.includes('airbnb')) return 'platform-airbnb'; if (lp.includes('vrbo')) return 'platform-vrbo'; return 'platform-direct'; };
     const statusBdg = b => {
-      const today = new Date().toISOString().split('T')[0];
       const ci = (b.checkin||'').slice(0,10), co = (b.checkout||'').slice(0,10);
-      if (ci === today) return '<span class="dt-badge dt-badge-green">Arriving</span>';
-      if (co === today) return '<span class="dt-badge dt-badge-amber">Departing</span>';
-      if (ci < today && co > today) return '<span class="dt-badge dt-badge-green">In-house</span>';
+      if (ci === todayStr) return '<span class="dt-badge dt-badge-green">Arriving</span>';
+      if (co === todayStr) return '<span class="dt-badge dt-badge-amber">Departing</span>';
+      if (ci < todayStr && co > todayStr) return '<span class="dt-badge dt-badge-green">In-house</span>';
       return '<span class="dt-badge dt-badge-blue">Confirmed</span>';
     };
     const tblRows = upcoming.map(b => {
@@ -1733,29 +1797,22 @@ function buildSinglePropertyTodayDashboardMarkup() {
       <table class="desktop-table"><thead><tr><th>Guest</th><th>Check-in</th><th>Check-out</th><th>Payout</th><th>Platform</th><th>Status</th></tr></thead><tbody>${tblRows || '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--muted-2)">No upcoming bookings</td></tr>'}</tbody></table>
     </div>`;
 
-    // Occupancy card
+    // Occupancy + sparkline sidebar
     const occCard = `<div class="card">
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted-2);margin-bottom:12px">Monthly Occupancy</div>
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-        <span style="font-family:'Newsreader',serif;font-size:32px;color:var(--primary)">${occupancyThisMonth}%</span>
-        <span style="font-size:12px;color:var(--moss)">${bookedNightsMonth}/${daysThisMonth} nights</span>
-      </div>
-      <div style="height:8px;background:#e8e0d5;border-radius:4px;overflow:hidden"><div style="height:100%;background:var(--moss);border-radius:4px;width:${occupancyThisMonth}%"></div></div>
+      <div class="dash-section-hdr"><span>Monthly Occupancy</span><span style="font-family:'Newsreader',serif;font-size:24px;color:var(--primary)">${occupancyThisMonth}%</span></div>
+      <div style="height:8px;background:#e8e0d5;border-radius:4px;overflow:hidden;margin-top:8px"><div style="height:100%;background:var(--moss);border-radius:4px;width:${occupancyThisMonth}%"></div></div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--muted-2)"><span>${bookedNightsMonth} nights booked</span><span>${daysThisMonth - bookedNightsMonth} available</span></div>
     </div>`;
 
     setTimeout(animateNumbers, 100);
-    return `<div class="desktop-stats-grid">
-      <div class="card desktop-stat-card"><div class="desktop-stat-value" data-animate-number="${occupancyThisMonth}" data-num-suffix="%">0%</div><div class="desktop-stat-label">Occupancy</div></div>
-      <div class="card desktop-stat-card"><div class="desktop-stat-value" data-animate-number="${Math.round(revenueThisMonth)}" data-num-prefix="$">$0</div><div class="desktop-stat-label">Revenue</div></div>
-      <div class="card desktop-stat-card"><div class="desktop-stat-value" data-animate-number="${activeBookings.length}">0</div><div class="desktop-stat-label">Bookings</div></div>
-      <div class="card desktop-stat-card"><div class="desktop-stat-value" data-animate-number="${Math.round(revenueNext30)}" data-num-prefix="$">$0</div><div class="desktop-stat-label">Next 30 days</div></div>
-    </div>
-    <div class="desktop-dash-grid">
-      <div style="display:flex;flex-direction:column;gap:16px">
+    return `${headerHtml}
+    <div class="dash-control-grid">
+      <div class="dash-main-col">
+        ${timelineHtml}
         ${upcomingTable}
         ${unifiedCalHtml}
       </div>
-      <div style="display:flex;flex-direction:column;gap:16px">
+      <div class="dash-side-col">
         ${needsHtml || ''}
         ${occCard}
         ${sparklineHtml}
