@@ -2788,6 +2788,9 @@ label {
   }
 
   /* ── Calendar Desktop ─────────────────────────────────────────────── */
+  #bookings-calendar .bk-cal-grid {
+    grid-auto-rows: 130px;
+  }
   #bookings-calendar .bk-cal-title {
     font-size: 32px !important;
   }
