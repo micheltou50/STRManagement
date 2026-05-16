@@ -898,6 +898,14 @@ export function resetFinanceSubViewToHub() {
   financeSubView = 'hub';
 }
 
+function _syncFinanceNav(active) {
+  const nav = document.getElementById('finance-desktop-nav');
+  if (!nav) return;
+  nav.querySelectorAll('.fin-nav-item').forEach(el => {
+    el.classList.toggle('active', el.getAttribute('data-fin-nav') === active);
+  });
+}
+
 /** Show the top-level Finance hub. Called on back-nav from any Finance sub-view. */
 function backToFinanceHub() {
   financeSubView = 'hub';
@@ -913,6 +921,7 @@ function backToFinanceHub() {
   });
   renderFinanceHubCounts();
   _financeTab = null;
+  _syncFinanceNav('hub');
 }
 
 function renderFinanceHubCounts() {
@@ -1056,6 +1065,7 @@ function showFinanceSub(sub) {
   else if (sub === 'tax-export') financeSubView = 'tax-export';
   else if (sub === 'statement') financeSubView = 'statement';
   _financeTab = sub;
+  _syncFinanceNav(sub);
   const hub = document.getElementById('finance-hub');
   if (hub) hub.style.display = 'none';
   ['finance-expenses-view', 'finance-reports-view', 'finance-reconciliation-view', 'finance-recurring-view', 'finance-depreciation-view', 'finance-tax-export-view', 'finance-statement-view'].forEach(id => {
@@ -1210,9 +1220,9 @@ function switchReportsSubTab(sub, _btn) {
  */
 function openFinancePanelFromHub(panelId) {
   globalThis.openSettingsPanel(panelId, 'finance');
-  if (panelId === 'expense-cats') financeSubView = 'categories';
-  else if (panelId === 'smart-pricing') financeSubView = 'smartpricing';
-  else if (panelId === 'bank-details') financeSubView = 'bankdetails';
+  if (panelId === 'expense-cats') { financeSubView = 'categories'; _syncFinanceNav('categories'); }
+  else if (panelId === 'smart-pricing') { financeSubView = 'smartpricing'; _syncFinanceNav('smartpricing'); }
+  else if (panelId === 'bank-details') { financeSubView = 'bankdetails'; _syncFinanceNav('bankdetails'); }
 }
 
 /**

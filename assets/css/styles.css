@@ -2307,6 +2307,9 @@ label {
   .card { padding: 18px; }
 }
 
+/* Hidden on mobile, shown only in desktop media query */
+#finance-desktop-nav { display: none; }
+
 /* ═══════════════════════════════════════════════════════════════════════════
    DESKTOP BREAKPOINT (≥ 1024px)
    Sidebar navigation, wide content, multi-column layouts.
@@ -2539,12 +2542,86 @@ label {
     max-width: none;
   }
 
-  /* Finance */
+  /* ── Finance: Desktop Command Centre ──────────────────────────────── */
+  #finance-desktop-nav {
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    align-self: start;
+    padding: 24px 0 24px 0;
+    border-right: 1px solid var(--hairline-1, #e8e1d3);
+    min-height: calc(100vh - 60px);
+    overflow-y: auto;
+  }
+  .fin-nav-section-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--muted-2, #8a958f);
+    padding: 0 20px 8px;
+    margin-top: 4px;
+  }
+  .fin-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 20px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--ink-2, #4a5751);
+    cursor: pointer;
+    border-radius: 0;
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+  }
+  .fin-nav-item:hover {
+    background: var(--surface2, #fbf8f2);
+    color: var(--ink-1, #1c2620);
+  }
+  .fin-nav-item.active {
+    background: var(--primary, #2f5d4e);
+    color: #fff;
+    font-weight: 600;
+    border-radius: 10px;
+    margin: 0 10px;
+    padding: 9px 14px;
+  }
+  .fin-nav-item svg {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+  }
+  .fin-nav-divider {
+    height: 1px;
+    background: var(--hairline-1, #e8e1d3);
+    margin: 12px 16px;
+  }
+
   #section-finance {
     max-width: none;
+    display: grid !important;
+    grid-template-columns: 220px 1fr;
+    gap: 0;
+  }
+  #section-finance > #portfolio-finance {
+    grid-column: 1 / -1;
+  }
+  #finance-content {
+    min-width: 0;
+    padding: 0 24px;
   }
   #finance-hub {
     max-width: none;
+  }
+  /* Hide the hub menu grid on desktop — nav replaces it */
+  #finance-hub > .card {
+    display: none !important;
+  }
+  #finance-hub > .section-heading {
+    padding-bottom: 8px !important;
   }
   #finance-hero-card {
     padding: 28px 32px !important;
@@ -2556,26 +2633,9 @@ label {
   #finance-hero-bars {
     height: 70px !important;
   }
-  #finance-hub > .card > .settings-cat-item {
-    border-bottom: none;
-  }
-  #finance-hub > .section-heading + .card {
-    display: grid !important;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 0;
-    padding: 0 !important;
-    overflow: hidden;
-  }
-  #finance-hub > .section-heading + .card > .settings-cat-item {
-    padding: 20px 18px;
-    border-bottom: 1px solid var(--hairline-1, #e8e1d3);
-    border-right: 1px solid var(--hairline-1, #e8e1d3);
-  }
-  #finance-hub > .section-heading + .card > .settings-cat-item:nth-child(3n) {
-    border-right: none;
-  }
-  #finance-hub > .section-heading + .card > .settings-cat-item:nth-last-child(-n+3) {
-    border-bottom: none;
+  /* Hide back buttons on desktop — nav handles navigation */
+  #finance-content .settings-back {
+    display: none !important;
   }
   #expenses-main-block,
   .expenses-main-block {
