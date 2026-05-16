@@ -3045,6 +3045,23 @@ label {
     min-width: 120px;
     max-width: 220px;
   }
+  /* Expense table — fit all columns without horizontal scroll */
+  #expenses-list .desktop-table {
+    table-layout: fixed;
+  }
+  #expenses-list .desktop-table th:nth-child(1),
+  #expenses-list .desktop-table td:nth-child(1) { width: 100px; }
+  #expenses-list .desktop-table th:nth-child(3),
+  #expenses-list .desktop-table td:nth-child(3) { width: 170px; }
+  #expenses-list .desktop-table th:nth-child(4),
+  #expenses-list .desktop-table td:nth-child(4) { width: 80px; }
+  #expenses-list .desktop-table th:nth-child(5),
+  #expenses-list .desktop-table td:nth-child(5) { width: 100px; }
+  #expenses-list .desktop-table td:nth-child(2) {
+    max-width: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   /* ── Phase 6: Typography & Spacing Polish ──────────────────────────── */
   .section-heading h2,
