@@ -1053,6 +1053,8 @@ function closeExpenseAddForm() {
   const chevron = document.getElementById('expense-add-chevron');
   if (panel)   panel.style.display = 'none';
   if (chevron) chevron.textContent = '›';
+  const suggestCard = document.getElementById('exp-ai-suggest-card');
+  if (suggestCard) suggestCard.style.display = 'none';
 }
 
 /** Navigate into a Finance sub-view (expenses, reports, reconciliation, or recurring). */
@@ -3627,6 +3629,8 @@ function removeEditReceipt(index) {
 }
 function closeExpenseEdit() {
   document.getElementById('expense-edit-modal').classList.remove('open'); globalThis._checkModalsClosed();
+  const eeSuggest = document.getElementById('ee-ai-suggest-card');
+  if (eeSuggest) eeSuggest.style.display = 'none';
   editingExpenseId = null;
   editingExpensePhotoBase64 = null;
 }

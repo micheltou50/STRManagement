@@ -400,16 +400,164 @@ export async function extractExpenseFromReceipt() {
     }
     status.style.background = '#E8F5E9'; status.style.color = '#2E7D32';
     status.textContent = '✓ Receipt read — review details, then tap Save Expense';
-    // Keep AI output in the Add Expense form for user review.
-    // Do not auto-save; user must tap Save Expense manually.
     const panel = document.getElementById('expense-add-form-panel');
     const chevron = document.getElementById('expense-add-chevron');
     if (panel) panel.style.display = 'block';
     if (chevron) chevron.textContent = '⌄';
+    setTimeout(() => triggerExpenseSuggestion('exp'), 300);
   } catch(err) {
     status.style.background = '#FDECEA'; status.style.color = '#C0392B';
     status.textContent = '✗ Error: ' + (err.message || 'Could not read receipt');
   }
+}
+
+// ── INLINE AI SUGGESTIONS ────────────────────────────────────────────────
+let _suggestTimer = null;
+let _suggestInflight = false;
+let _lastSuggestKey = '';
+
+export function triggerExpenseSuggestion(prefix) {
+  const merchant = (document.getElementById(prefix + '-merchant')?.value || '').trim();
+  const amount = parseFloat(document.getElementById(prefix + '-amount')?.value) || 0;
+  if (!merchant || !amount) return;
+
+  const date = document.getElementById(prefix + '-date')?.value || '';
+  const key = `${merchant}|${amount}|${date}`;
+  if (key === _lastSuggestKey) return;
+  if (_suggestInflight) return;
+
+  clearTimeout(_suggestTimer);
+  _suggestTimer = setTimeout(() => fetchExpenseSuggestion(prefix, { merchant, amount, date }), 800);
+}
+
+async function fetchExpenseSuggestion(prefix, { merchant, amount, date }) {
+  const cardEl = document.getElementById(prefix + '-ai-suggest-card');
+  if (!cardEl) return;
+
+  _suggestInflight = true;
+  cardEl.style.display = 'block';
+  cardEl.innerHTML = '<div style="padding:10px 12px;background:linear-gradient(135deg,#f0f7f4 0%,#e8f5e9 100%);border:1px solid var(--primary);border-radius:12px;margin-bottom:10px"><div style="font-size:11px;color:var(--primary)">✨ Getting suggestions...</div></div>';
+
+  try {
+    const getCats = globalThis.getExpenseCats;
+    const cats = typeof getCats === 'function' ? getCats() : [];
+    const currentCat = document.getElementById(prefix + '-category')?.value || '';
+    const description = document.getElementById(prefix + '-description')?.value || '';
+
+    const allBookings = Array.isArray(window.bookings) ? window.bookings : [];
+    const todayStr = new Date().toISOString().split('T')[0];
+    const cutoff = new Date(Date.now() - 120 * 86400000).toISOString().split('T')[0];
+    const recentBookings = allBookings
+      .filter(b => b && b.status !== 'cancelled' && b.checkout && b.checkout <= todayStr && b.checkout >= cutoff)
+      .sort((a, b) => String(b.checkout).localeCompare(String(a.checkout)))
+      .slice(0, 15);
+
+    const bookingsCtx = recentBookings.length
+      ? '\n\nRecent bookings (id|guest|checkin|checkout|hostPayout|mgmtFee%):\n' +
+        recentBookings.map(b => `${b._cloudId || b.id}|${b.name || 'Guest'}|${b.checkin}|${b.checkout}|${b.hostPayout || 0}|${b.mgmtFeeRaw || 0}%`).join('\n')
+      : '';
+
+    const { response, data } = await AIService.request({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 300,
+      messages: [{
+        role: 'user',
+        content: `You are a JSON API for a short-term rental property expense tracker. Return ONLY valid JSON, no markdown.
+
+Expense: merchant="${merchant}", description="${description}", amount=$${amount}, date=${date || 'unknown'}.
+Current category: "${currentCat}"
+Available categories: ${cats.join(', ')}${bookingsCtx}
+
+Suggest the best match. Return JSON:
+{"bestCategory":"<from the available list>","bestBookingId":"<booking id if this is likely a cleaning or maintenance expense near a checkout, else null>","mgmtNote":"<if bestBookingId has mgmtFee% > 0, write: Linking to [guest] ([X]% fee) will add $${amount} to clean cost. Else null>","confidence":"high or low"}`
+      }]
+    });
+
+    if (!response.ok) throw new Error('API error');
+    const rawText = data.content?.[0]?.text || '{}';
+    const cleaned = rawText.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
+    const result = JSON.parse(cleaned);
+
+    _lastSuggestKey = `${merchant}|${amount}|${date}`;
+    renderSuggestionCard(prefix, result, cats, recentBookings, currentCat);
+  } catch (_err) {
+    cardEl.style.display = 'none';
+  } finally {
+    _suggestInflight = false;
+  }
+}
+
+function renderSuggestionCard(prefix, result, cats, recentBookings, currentCat) {
+  const cardEl = document.getElementById(prefix + '-ai-suggest-card');
+  if (!cardEl) return;
+
+  const validCat = result.bestCategory && cats.includes(result.bestCategory);
+  const catDiffers = validCat && result.bestCategory !== currentCat;
+  const matchedBooking = result.bestBookingId
+    ? recentBookings.find(b => String(b._cloudId || b.id) === String(result.bestBookingId))
+    : null;
+
+  if (!catDiffers && !matchedBooking) {
+    cardEl.style.display = 'none';
+    return;
+  }
+
+  let html = `<div style="background:linear-gradient(135deg,#f0f7f4 0%,#e8f5e9 100%);border:1px solid var(--primary);border-radius:12px;padding:12px 14px;margin-bottom:10px;position:relative">
+    <button onclick="dismissAISuggest('${prefix}')" style="position:absolute;top:6px;right:8px;background:none;border:none;font-size:14px;cursor:pointer;color:var(--muted-2)">✕</button>
+    <div style="font-size:11px;font-weight:600;color:var(--primary);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">✨ AI Suggestion</div>`;
+
+  if (catDiffers) {
+    html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+      <span style="font-size:12px;color:var(--ink-2)">Category: <strong>${result.bestCategory}</strong></span>
+      <button onclick="acceptAISuggestCategory('${prefix}','${result.bestCategory.replace(/'/g, "\\'")}')" style="background:var(--primary);color:white;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer">Apply</button>
+    </div>`;
+  }
+
+  if (matchedBooking) {
+    const label = `${matchedBooking.name || 'Guest'} (${matchedBooking.checkin} → ${matchedBooking.checkout})`;
+    html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+      <span style="font-size:12px;color:var(--ink-2)">Link to: <strong>${label}</strong></span>
+      <button onclick="acceptAISuggestBooking('${prefix}','${String(matchedBooking._cloudId || matchedBooking.id).replace(/'/g, "\\'")}')" style="background:var(--primary);color:white;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer">Apply</button>
+    </div>`;
+  }
+
+  if (result.mgmtNote && matchedBooking) {
+    html += `<div style="font-size:11px;color:var(--muted-2);margin-top:4px;font-style:italic">ℹ️ ${result.mgmtNote}</div>`;
+  }
+
+  html += '</div>';
+  cardEl.innerHTML = html;
+  cardEl.style.display = 'block';
+}
+
+export function acceptAISuggestCategory(prefix, category) {
+  const sel = document.getElementById(prefix + '-category');
+  if (sel) {
+    sel.value = category;
+    if (typeof globalThis.renderExpenseBookingPicker === 'function') globalThis.renderExpenseBookingPicker(prefix, '');
+  }
+  const cardEl = document.getElementById(prefix + '-ai-suggest-card');
+  if (cardEl) {
+    const btn = cardEl.querySelector('[onclick*="acceptAISuggestCategory"]');
+    if (btn) { btn.textContent = '✓'; btn.disabled = true; btn.style.background = 'var(--moss)'; }
+  }
+}
+
+export function acceptAISuggestBooking(prefix, bookingId) {
+  const wrap = document.getElementById(prefix + '-booking-link-wrap');
+  if (wrap) wrap.style.display = 'block';
+  const sel = document.getElementById(prefix + '-booking-link');
+  if (sel) sel.value = bookingId;
+  const cardEl = document.getElementById(prefix + '-ai-suggest-card');
+  if (cardEl) {
+    const btn = cardEl.querySelector('[onclick*="acceptAISuggestBooking"]');
+    if (btn) { btn.textContent = '✓'; btn.disabled = true; btn.style.background = 'var(--moss)'; }
+  }
+}
+
+export function dismissAISuggest(prefix) {
+  const cardEl = document.getElementById(prefix + '-ai-suggest-card');
+  if (cardEl) cardEl.style.display = 'none';
 }
 
 // ── SCREENSHOT TO BOOKING ─────────────────────────────────────────────────

@@ -25,7 +25,7 @@ import {
 } from './property.js';
 import {
   getSmartPricing, analyseExpenses, renderAIIgnoreList, promptIgnore, removeAIIgnoreItem, attachExpensePhoto, attachExpenseFile, clearExpensePhoto, extractExpenseFromReceipt, isExpensePhotoConverting, getExpensePhotoUploadSnapshot, readBookingScreenshot,
-  extractBookingFromScreenshot
+  extractBookingFromScreenshot, triggerExpenseSuggestion, acceptAISuggestCategory, acceptAISuggestBooking, dismissAISuggest
 } from './ai.js';
 import {
   normalizeBookingCleanState, isCleanLinkedToCancelledBooking, getBookingCleanerState, isCleanerPerson, populateSelects, populateCleanerSelect, renderCleaning, quickAssignLastCleaner, addClean, autoFillCleanDate, assignCleanerToBooking, jumpToAssignClean,
@@ -213,6 +213,10 @@ window.enableCleanerNotifications = enableCleanerNotifications;
 window.enableNotificationsManually = enableNotificationsManually;
 window.extractBookingFromScreenshot = extractBookingFromScreenshot;
 window.extractExpenseFromReceipt = extractExpenseFromReceipt;
+window.triggerExpenseSuggestion  = triggerExpenseSuggestion;
+window.acceptAISuggestCategory   = acceptAISuggestCategory;
+window.acceptAISuggestBooking    = acceptAISuggestBooking;
+window.dismissAISuggest          = dismissAISuggest;
 window.filterBookings           = filterBookings;
 window.switchBookingsView       = switchBookingsView;
 window.renderBookingsCalendarView = renderBookingsCalendarView;
