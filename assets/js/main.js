@@ -8,7 +8,7 @@ import {
 import {
   getSupabaseSession, getCurrentSupabaseUser, seedLocalConfigFromCloud, hydrateFromCloud, savePropertyToCloud, saveHostConfigToCloud,
   loadCleansFromCloud, saveCleanToCloud, saveCleansToCloud, saveCleanersToCloud, saveInventoryToCloud, saveMaintenanceToCloud, deleteMaintenanceFromCloud,
-  saveBookingToCloud, saveBookingsToCloud, deleteBookingFromCloud, saveHostConfigToSupabase, loadHostConfigFromSupabase, saveAppConfigToCloud, saveExpenseToCloud,
+  saveBookingToCloud, saveBookingsToCloud, deleteBookingFromCloud, saveHostConfigToSupabase, loadHostConfigFromSupabase, saveAppConfigToCloud, saveExpenseToCloud, retryQueuedExpenses,
   showLoadingScreen, hideLoadingScreen, setLoadingStatus, showLoginScreen, handleAuthFailure, showAppChrome,
   handleLoginSubmit, handleSignUpSubmit, handleMagicLinkSubmit, handleVerifySubmit, handleResendCode, toggleSignUp, hostSignOut,
   welcomeShowLanding, welcomeShowSignIn, welcomeShowSignUp, welcomeShowVerify, showSuccessToast,
@@ -888,6 +888,7 @@ window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
     if (typeof setLoadingStatus === 'function') setLoadingStatus('Loading your data…');
     if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
     console.log('[StayOps] Boot step: hydrateFromCloud complete');
+    if (typeof retryQueuedExpenses === 'function') retryQueuedExpenses().catch(_e => {});
 
     // Refresh in-memory arrays and property UI after cloud hydration
     reloadInMemoryData();

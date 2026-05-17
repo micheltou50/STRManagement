@@ -893,6 +893,70 @@ async function loadExpensesFromCloud() {
   }
 }
 
+const EXPENSE_SYNC_QUEUE_KEY = 'stayops-expense-sync-queue';
+
+function _queueExpenseForRetry(expense) {
+  try {
+    const queue = JSON.parse(localStorage.getItem(EXPENSE_SYNC_QUEUE_KEY) || '[]');
+    const exists = queue.some(q => String(q.id) === String(expense.id));
+    if (!exists) {
+      queue.push({
+        id: expense.id,
+        _cloudId: expense._cloudId || null,
+        _propertyId: expense._propertyId || null,
+        merchant: expense.merchant || '',
+        description: expense.description || '',
+        amount: expense.amount || 0,
+        date: expense.date || '',
+        category: expense.category || '',
+        receiptType: expense.receiptType || '',
+        receiptNum: expense.receiptNum || '',
+        driveLink: expense.driveLink || null,
+        bookingId: expense.bookingId || null,
+        _queuedAt: new Date().toISOString()
+      });
+      localStorage.setItem(EXPENSE_SYNC_QUEUE_KEY, JSON.stringify(queue));
+    }
+  } catch (_e) { /* localStorage full or unavailable */ }
+}
+
+export async function retryQueuedExpenses() {
+  let queue;
+  try {
+    queue = JSON.parse(localStorage.getItem(EXPENSE_SYNC_QUEUE_KEY) || '[]');
+  } catch (_e) { return; }
+  if (!queue.length) return;
+
+  console.log('[StayOps] Retrying', queue.length, 'queued expense(s)...');
+  const failed = [];
+  for (const exp of queue) {
+    const result = await saveExpenseToCloud(exp);
+    if (result) {
+      const inMem = expenses.find(e => String(e.id) === String(exp.id));
+      if (!inMem) {
+        exp._cloudId = result._cloudId || result.id || exp._cloudId;
+        expenses.push(exp);
+      } else if (!inMem._cloudId) {
+        inMem._cloudId = result._cloudId || result.id;
+      }
+    } else {
+      failed.push(exp);
+    }
+  }
+  localStorage.setItem(EXPENSE_SYNC_QUEUE_KEY, JSON.stringify(failed));
+  if (failed.length) {
+    console.warn('[StayOps]', failed.length, 'expense(s) still failed to sync');
+    if (typeof globalThis.showBanner === 'function') {
+      globalThis.showBanner('⚠ ' + failed.length + ' expense(s) could not sync — will retry next time', 'warn');
+    }
+  } else if (queue.length) {
+    console.log('[StayOps] All queued expenses synced successfully');
+    if (typeof globalThis.showBanner === 'function') {
+      globalThis.showBanner('✓ ' + queue.length + ' previously-queued expense(s) synced', 'ok');
+    }
+  }
+}
+
 export async function saveExpenseToCloud(expense) {
   try {
     const user = await getCurrentSupabaseUser();
@@ -929,6 +993,10 @@ export async function saveExpenseToCloud(expense) {
     return expense;
   } catch (e) {
     console.warn('[StayOps] saveExpenseToCloud failed', e);
+    _queueExpenseForRetry(expense);
+    if (typeof globalThis.showBanner === 'function') {
+      globalThis.showBanner('⚠ Expense saved locally — cloud sync will retry', 'warn');
+    }
     return null;
   }
 }
