@@ -852,6 +852,17 @@ export async function saveNotesToCloud(notesList) {
 
 // ── EXPENSES ──────────────────────────────────────────────────────────────────
 
+export function normalizeDriveLinks(rawValue) {
+  if (!rawValue) return [];
+  if (Array.isArray(rawValue)) return rawValue.filter(Boolean);
+  const str = String(rawValue).trim();
+  if (!str) return [];
+  if (str.startsWith('[')) {
+    try { return JSON.parse(str).filter(Boolean); } catch (_e) { /* malformed JSON */ }
+  }
+  return [str];
+}
+
 async function loadExpensesFromCloud() {
   try {
     const user = await getCurrentSupabaseUser();
@@ -872,7 +883,7 @@ async function loadExpensesFromCloud() {
       amount:      e.amount      || 0,
       receiptNum:  e.receipt_num  || '',
       receiptType: e.receipt_type || '',
-      driveLink:   e.drive_link   || '',
+      driveLink:   normalizeDriveLinks(e.drive_link),
       photo:       e.receipt_photo || null,
       bookingId:   e.booking_id   || null,
     }));
@@ -898,7 +909,9 @@ export async function saveExpenseToCloud(expense) {
       amount:       Number(expense.amount) || 0,
       receipt_num:  expense.receiptNum  || '',
       receipt_type: expense.receiptType || '',
-      drive_link:   expense.driveLink   || '',
+      drive_link:   Array.isArray(expense.driveLink) && expense.driveLink.length
+        ? JSON.stringify(expense.driveLink)
+        : (typeof expense.driveLink === 'string' && expense.driveLink ? expense.driveLink : ''),
       receipt_photo: expense.photo || expense.receipt_photo || null,
       booking_id:   expense.bookingId || null,
       updated_at:   new Date().toISOString()
@@ -1369,17 +1382,16 @@ export async function deleteBookingFromCloud(booking) {
 
 // ── RECEIPTS (Supabase Storage) ───────────────────────────────────────────────
 
-export async function uploadReceiptToStorage(file, expenseId) {
+export async function uploadReceiptToStorage(file, expenseId, receiptIndex = 0) {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user || !file) return null;
     const propertyId = await getCloudPropertyId();
     const ext = file.name.split('.').pop();
-    const path = `${user.id}/${propertyId || 'default'}/${expenseId || Date.now()}.${ext}`;
+    const suffix = receiptIndex > 0 ? `_${receiptIndex + 1}` : '';
+    const path = `${user.id}/${propertyId || 'default'}/${expenseId || Date.now()}${suffix}.${ext}`;
     const { data: _data, error } = await window._sb.storage.from('receipts').upload(path, file, { upsert: true });
     if (error) { console.warn('[StayOps] uploadReceiptToStorage error', error); return null; }
-    // Store the path (not a public URL) since the bucket is private.
-    // Use getReceiptViewUrl() at view time to generate a fresh signed URL.
     return path;
   } catch (e) {
     console.warn('[StayOps] uploadReceiptToStorage failed', e);

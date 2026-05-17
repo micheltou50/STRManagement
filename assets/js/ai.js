@@ -28,7 +28,7 @@ export async function analyseExpenses() {
     category: e.category,
     merchant: e.merchant || e.vendor || '',
     description: e.description || '',
-    hasReceipt: !!(e.receiptUrl || e.driveLink || e.receiptData)
+    hasReceipt: !!(e.receiptUrl || (Array.isArray(e.driveLink) ? e.driveLink.length : e.driveLink) || e.receiptData)
   }));
 
   const totalSpend = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);

@@ -9,7 +9,7 @@ import {
   getCurrentPropertyName,
   initPropertyUI,
 } from './config.js';
-import { hydrateFromCloud } from './supabase.js';
+import { hydrateFromCloud, normalizeDriveLinks } from './supabase.js';
 import { bookings, cleans, expenses, maintenance, inventory, replaceArrayInPlace } from './state.js';
 import {
   escHtml,
@@ -902,7 +902,7 @@ async function loadPortfolioData() {
         amount:      e.amount      || 0,
         receiptNum:  e.receipt_num  || '',
         receiptType: e.receipt_type || '',
-        driveLink:   e.drive_link   || '',
+        driveLink:   normalizeDriveLinks(e.drive_link),
         photo:       null,
       })));
     }

@@ -2759,9 +2759,19 @@ function toggleExpenseMonth() {
   renderExpenses();
 }
 
+function normalizeDriveLinks(rawValue) {
+  if (!rawValue) return [];
+  if (Array.isArray(rawValue)) return rawValue.filter(Boolean);
+  const str = String(rawValue).trim();
+  if (!str) return [];
+  if (str.startsWith('[')) {
+    try { return JSON.parse(str).filter(Boolean); } catch (_e) { /* malformed JSON, treat as single path */ }
+  }
+  return [str];
+}
+
 function expenseHasReceiptAttached(e) {
-  // Only "attached" if there's an actual file, not just a receipt_type label
-  if (e.driveLink && String(e.driveLink).trim()) return true;
+  if (normalizeDriveLinks(e.driveLink).length > 0) return true;
   if (e.photo && String(e.photo).trim()) return true;
   return false;
 }
@@ -3285,12 +3295,12 @@ async function saveExpenseToDriveAndSheet(exp) {
       const fileName = generateReceiptFileName(exp);
       const file = new File([imgBlob], fileName, { type: 'application/pdf' });
       if (typeof uploadReceiptToStorage === 'function') {
-        const url = await uploadReceiptToStorage(file, exp.id);
+        const url = await uploadReceiptToStorage(file, exp.id, 0);
         if (url) {
           driveLink = url;
           const saved = expenses.find(e => String(e.id) === String(exp.id));
           if (saved) {
-            saved.driveLink = driveLink;
+            saved.driveLink = [driveLink];
             globalThis.savePropertyData();
             renderExpenses();
             if (typeof saveExpenseToCloud === 'function') saveExpenseToCloud(saved).catch(e => console.warn("[StayOps] silent error:", e));
@@ -3438,10 +3448,11 @@ function attachEditExpensePhoto(input) {
 }
 function clearEditExpensePhoto() {
   editingExpensePhotoBase64 = null;
+  editingReceiptTargetIndex = 0;
   document.getElementById('ee-photo-preview').style.display = 'none';
   document.getElementById('ee-file-input').value = '';
   const e = expenses.find(x => String(x.id) === String(editingExpenseId) || String(x._cloudId) === String(editingExpenseId));
-  document.getElementById('ee-receipt-label').textContent = e && e.driveLink ? 'Upload a replacement receipt' : 'Upload receipt photo';
+  if (e) refreshEditReceiptUI(e);
 }
 function openExpenseView(id) {
   const e = expenses.find(x => String(x.id) === String(id) || String(x._cloudId) === String(id));
@@ -3451,18 +3462,18 @@ function openExpenseView(id) {
   const amtDisplay = (isRefund ? '−' : '') + '$' + Math.abs(Number(e.amount)).toFixed(2);
 
   // ── Receipt action block ────────────────────────────────────────────────────
+  const receiptLinks = normalizeDriveLinks(e.driveLink);
   let receiptBlock;
-  if (e.driveLink) {
-    // Use onclick to fetch a signed URL on demand (bucket is private)
-    receiptBlock = `
-      <button onclick="openReceiptViewer('${escapeJsSingleQuotedHtmlAttr(String(e.driveLink))}', this)"
+  if (receiptLinks.length > 0) {
+    receiptBlock = receiptLinks.map((link, i) => `
+      <button onclick="openReceiptViewer('${escapeJsSingleQuotedHtmlAttr(link)}', this)"
          style="display:flex;align-items:center;justify-content:center;gap:8px;
                 width:100%;padding:11px;box-sizing:border-box;
                 background:var(--surface2);border:1.5px solid var(--moss);border-radius:10px;
                 color:var(--moss);font-weight:600;font-size:13px;cursor:pointer;
-                font-family:'Plus Jakarta Sans',sans-serif">
-        📎 View Receipt
-      </button>`;
+                font-family:'Plus Jakarta Sans',sans-serif${i > 0 ? ';margin-top:8px' : ''}">
+        📎 View Receipt${receiptLinks.length > 1 ? ' ' + (i + 1) : ''}
+      </button>`).join('');
   } else if (e.awaitingReceipt) {
     receiptBlock = `<div style="font-size:13px;color:var(--amber);padding:4px 0">⚠ Receipt awaiting upload</div>`;
   } else if (!e.receiptType || e.receiptType === 'missing') {
@@ -3525,11 +3536,14 @@ function openExpenseView(id) {
   setTimeout(globalThis.attachModalHandleDrag, 0);
 }
 
+let editingReceiptTargetIndex = 0;
+
 function openExpenseEdit(id) {
   const e = expenses.find(x => String(x.id) === String(id) || String(x._cloudId) === String(id));
   if (!e) return;
   editingExpenseId = id;
   editingExpensePhotoBase64 = null;
+  editingReceiptTargetIndex = 0;
   document.getElementById('ee-merchant').value = e.merchant || '';
   document.getElementById('ee-description').value = e.description || '';
   const eeAmt = Number(e.amount) || 0;
@@ -3542,25 +3556,74 @@ function openExpenseEdit(id) {
   if (eeHidden) eeHidden.value = e.category || '';
   renderExpenseCatPickerFor('ee');
   document.getElementById('ee-receipt-type').value = String(e.receiptType || 'missing').toLowerCase().trim();
-  // Booking link picker
   if (typeof renderExpenseBookingPicker === 'function') renderExpenseBookingPicker('ee', e.bookingId || '');
-  // Show existing drive link if present
-  const currentReceiptEl = document.getElementById('ee-current-receipt');
-  const receiptLinkEl = document.getElementById('ee-receipt-link');
-  if (e.driveLink) {
-    // Use onclick to fetch signed URL on demand (bucket is private)
-    receiptLinkEl.href = '#';
-    receiptLinkEl.onclick = (ev) => { ev.preventDefault(); window.openReceiptViewer(e.driveLink); };
-    currentReceiptEl.style.display = 'block';
-    document.getElementById('ee-receipt-label').textContent = 'Upload a replacement receipt';
-  } else {
-    currentReceiptEl.style.display = 'none';
-    document.getElementById('ee-receipt-label').textContent = 'Upload receipt photo';
-  }
+  refreshEditReceiptUI(e);
   document.getElementById('ee-photo-preview').style.display = 'none';
   document.getElementById('ee-upload-status').style.display = 'none';
   document.getElementById('ee-file-input').value = '';
   document.getElementById('expense-edit-modal').classList.add('open'); document.body.style.overflow='hidden';
+}
+
+function refreshEditReceiptUI(e) {
+  const links = normalizeDriveLinks(e.driveLink);
+  const slot1 = document.getElementById('ee-receipt-slot-1');
+  const slot2 = document.getElementById('ee-receipt-slot-2');
+  const link1El = document.getElementById('ee-receipt-link-1');
+  const link2El = document.getElementById('ee-receipt-link-2');
+  const addAnotherBtn = document.getElementById('ee-add-another-btn');
+  const uploadBtn = document.getElementById('ee-upload-btn');
+  const labelEl = document.getElementById('ee-receipt-label');
+
+  if (links[0]) {
+    slot1.style.display = 'block';
+    link1El.href = '#';
+    link1El.onclick = (ev) => { ev.preventDefault(); window.openReceiptViewer(links[0]); };
+    link1El.textContent = '📎 Receipt 1';
+  } else {
+    slot1.style.display = 'none';
+  }
+
+  if (links[1]) {
+    slot2.style.display = 'block';
+    link2El.href = '#';
+    link2El.onclick = (ev) => { ev.preventDefault(); window.openReceiptViewer(links[1]); };
+    link2El.textContent = '📎 Receipt 2';
+  } else {
+    slot2.style.display = 'none';
+  }
+
+  if (links.length === 1) {
+    addAnotherBtn.style.display = 'inline-block';
+    uploadBtn.style.display = 'inline-block';
+    labelEl.textContent = 'Replace receipt or add another';
+  } else if (links.length >= 2) {
+    addAnotherBtn.style.display = 'none';
+    uploadBtn.style.display = 'none';
+    labelEl.textContent = 'Maximum 2 receipts attached';
+  } else {
+    addAnotherBtn.style.display = 'none';
+    uploadBtn.style.display = 'inline-block';
+    labelEl.textContent = 'Upload receipt photo';
+  }
+  editingReceiptTargetIndex = links.length === 1 ? 0 : 0;
+}
+
+function triggerSecondReceiptUpload() {
+  editingReceiptTargetIndex = 1;
+  document.getElementById('ee-file-input').click();
+  document.getElementById('ee-receipt-label').textContent = 'Upload second receipt';
+}
+
+function removeEditReceipt(index) {
+  const e = expenses.find(x => String(x.id) === String(editingExpenseId) || String(x._cloudId) === String(editingExpenseId));
+  if (!e) return;
+  const links = normalizeDriveLinks(e.driveLink);
+  links.splice(index, 1);
+  e.driveLink = links.length ? links : [];
+  refreshEditReceiptUI(e);
+  globalThis.savePropertyData();
+  if (typeof saveExpenseToCloud === 'function') saveExpenseToCloud(e).catch(err => console.warn('[StayOps] saveExpenseToCloud failed:', err));
+  renderExpenses();
 }
 function closeExpenseEdit() {
   document.getElementById('expense-edit-modal').classList.remove('open'); globalThis._checkModalsClosed();
@@ -3594,9 +3657,11 @@ async function saveExpenseEdit() {
       const fileName = generateReceiptFileName(e);
       const file = new File([imgBlob], fileName, { type: 'application/pdf' });
       if (typeof uploadReceiptToStorage === 'function') {
-        const url = await uploadReceiptToStorage(file, e.id);
+        const url = await uploadReceiptToStorage(file, e.id, editingReceiptTargetIndex);
         if (url) {
-          e.driveLink = url;
+          const links = normalizeDriveLinks(e.driveLink);
+          links[editingReceiptTargetIndex] = url;
+          e.driveLink = links;
           statusEl.style.color = 'var(--moss)';
           statusEl.textContent = '✓ Receipt uploaded';
           globalThis.showBanner('✓ Receipt saved', 'ok');
@@ -3611,6 +3676,7 @@ async function saveExpenseEdit() {
       statusEl.textContent = '⚠ Upload failed: ' + err.message;
       globalThis.showBanner('⚠ Upload failed: ' + err.message, 'warn');
     }
+    editingReceiptTargetIndex = 0;
   }
 
   globalThis.savePropertyData();
@@ -5217,6 +5283,8 @@ window.openExpenseView = openExpenseView;
 window.openExpenseEdit = openExpenseEdit;
 window.closeExpenseEdit = closeExpenseEdit;
 window.saveExpenseEdit = saveExpenseEdit;
+window.triggerSecondReceiptUpload = triggerSecondReceiptUpload;
+window.removeEditReceipt = removeEditReceipt;
 window.deleteExpense = deleteExpense;
 window.addExpenseCat = addExpenseCat;
 window.deleteExpenseCat = deleteExpenseCat;
