@@ -927,6 +927,7 @@ export async function retryQueuedExpenses() {
   } catch (_e) { return; }
   if (!queue.length) return;
 
+  const { expenses } = await import('./state.js');
   console.log('[StayOps] Retrying', queue.length, 'queued expense(s)...');
   const failed = [];
   for (const exp of queue) {
