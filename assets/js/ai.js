@@ -544,6 +544,9 @@ export function acceptAISuggestCategory(prefix, category) {
 }
 
 export function acceptAISuggestBooking(prefix, bookingId) {
+  if (typeof globalThis.renderExpenseBookingPicker === 'function') {
+    globalThis.renderExpenseBookingPicker(prefix, bookingId);
+  }
   const wrap = document.getElementById(prefix + '-booking-link-wrap');
   if (wrap) wrap.style.display = 'block';
   const sel = document.getElementById(prefix + '-booking-link');
