@@ -30,6 +30,27 @@ import {
 import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud, getCurrentSupabaseUser, savePlatformPayout, insertPayoutLines } from './supabase.js';
 import { AIService } from './ai-logic.js';
 
+/**
+ * Normalize a booking's platform field to a stable canonical name. Real
+ * data has both "Airbnb" and "airbnb", "vrbo" and "VRBO", etc — because
+ * iCal sync writes lowercase and the manual-add UI writes title-case.
+ * Without this normaliser, lookups against ['Airbnb','VRBO','Direct']
+ * silently mis-bucket the lowercase rows into 'Direct', inflating that
+ * column in tax/finance reports.
+ */
+function _canonicalPlatformName(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (!s) return 'Direct';
+  if (s === 'airbnb' || s === 'air bnb' || s === 'ab') return 'Airbnb';
+  if (s === 'vrbo' || s === 'homeaway' || s === 'home away') return 'VRBO';
+  if (s === 'booking' || s === 'booking.com' || s === 'bookingcom' || s === 'booking_com') return 'Booking.com';
+  if (s === 'stayz') return 'Stayz';
+  if (s === 'direct' || s === 'direct booking' || s === 'website') return 'Direct';
+  // Unknown platform — keep its original spelling so the user can see it
+  // and rename, rather than silently bucketing into Direct.
+  return String(raw).trim();
+}
+
 let _financeTab = 'expenses';
 /** Keeps Finance hub vs sub-screens across renderFinance() / sync refresh. */
 let financeSubView = 'hub';
@@ -1597,7 +1618,7 @@ function renderReport() {
     const revenue = bs.reduce((s,b) => s + Number(b.hostPayout||0), 0);
     const netPayout = bs.reduce((s,b) => s + Number(b.netPayout||0), 0);
     const platformRev = {};
-    platforms.forEach(p => { platformRev[p] = bs.filter(b=>b.platform===p).reduce((s,b)=>s+Number(b.hostPayout||0),0); });
+    platforms.forEach(p => { platformRev[p] = bs.filter(b=>_canonicalPlatformName(b.platform)===p).reduce((s,b)=>s+Number(b.hostPayout||0),0); });
     return { label: mo[month], year, month, bs, availNights, bookedNights, revenue, netPayout, platformRev, bookingCount: bs.length };
   });
 
@@ -4190,10 +4211,10 @@ function _buildReportDoc(fy) {
     body: [
       ...allM.map(m => [
         m.label,
-        ...platforms.map(p => { const r=m.bs.filter(b=>b.platform===p).reduce((s,b)=>s+Number(b.hostPayout||0),0); return r?fmt2(r):'—'; }),
+        ...platforms.map(p => { const r=m.bs.filter(b=>_canonicalPlatformName(b.platform)===p).reduce((s,b)=>s+Number(b.hostPayout||0),0); return r?fmt2(r):'—'; }),
         m.rev ? fmt2(m.rev) : '—'
       ]),
-      ['Total', ...platforms.map(p=>fmt2(allM.reduce((s,m)=>s+m.bs.filter(b=>b.platform===p).reduce((ss,b)=>ss+Number(b.hostPayout||0),0),0))), fmt2(fyRev)]
+      ['Total', ...platforms.map(p=>fmt2(allM.reduce((s,m)=>s+m.bs.filter(b=>_canonicalPlatformName(b.platform)===p).reduce((ss,b)=>ss+Number(b.hostPayout||0),0),0))), fmt2(fyRev)]
     ],
     headStyles: { fillColor: FOREST, textColor:[255,255,255], fontSize:8, fontStyle:'bold' },
     bodyStyles: { fontSize:9 },
@@ -4290,7 +4311,7 @@ function exportReportCSV() {
   rows.push(['Month','Airbnb','VRBO','Direct','Total']);
   months.forEach(({year,month}) => {
     const bs = propertyBookings.filter(b => { const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; });
-    const rev = p => bs.filter(b=>b.platform===p).reduce((s,b)=>s+Number(b.hostPayout||0),0);
+    const rev = p => bs.filter(b=>_canonicalPlatformName(b.platform)===p).reduce((s,b)=>s+Number(b.hostPayout||0),0);
     const total = bs.reduce((s,b)=>s+Number(b.hostPayout||0),0);
     rows.push([mo[month], rev('Airbnb')||'', rev('VRBO')||'', rev('Direct')||'', total||'']);
   });
@@ -4546,7 +4567,7 @@ function exportTaxPDF() {
     bs.forEach(b => {
       const amt = Number(b.hostPayout || 0);
       fyTotalRev += amt;
-      const p = b.platform || 'Direct';
+      const p = _canonicalPlatformName(b.platform); // normalises "airbnb" -> "Airbnb" etc
       if (platRevs[p] !== undefined) platRevs[p] += amt;
       else platRevs['Direct'] += amt;
     });
@@ -5369,7 +5390,7 @@ function _renderStatement() {
   ).join('');
 
   const payouts = bk.map(b => {
-    const plat = b.platform || 'Direct';
+    const plat = _canonicalPlatformName(b.platform);
     const d = new Date(b.checkin).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
     const paid = new Date(b.checkout) < now;
     return `<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--hairline-2,#efe9dc)">

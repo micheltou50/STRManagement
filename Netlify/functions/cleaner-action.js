@@ -236,10 +236,13 @@ async function autoCreateExpenseForCleanIfApplicable({
   const clean = Array.isArray(cleanRows) && cleanRows[0];
   if (!clean) return { ok: false, skipped: true, reason: 'clean_not_found' };
 
+  // Phase 5 fix: previously skipped when cost was null/0 — the host then
+  // saw nothing happen and assumed it was broken. Now we ALWAYS create the
+  // expense (with amount=0 if no fee set), and the description tells the
+  // host to set the amount. The row appears in their expense list either
+  // way, so the auto-create is visible feedback even when cost is missing.
   const cost = Number(clean.cost) || 0;
-  if (cost <= 0) {
-    return { ok: true, skipped: true, reason: 'no_cost_set' };
-  }
+  const costMissing = !(cost > 0);
 
   // 2. Map cleans.booking_id (text local_id) -> bookings.id (uuid).
   //    Non-fatal if it fails — the expense can still be created without
@@ -284,15 +287,19 @@ async function autoCreateExpenseForCleanIfApplicable({
   // 4. Build the expense payload with deterministic local_id for idempotency.
   const expenseLocalId = 'clean-' + cleanLocalId;
   const guestPart = clean.guest_name ? ' for ' + clean.guest_name : '';
+  const baseDescription = 'Cleaning' + guestPart + ' (auto-created from completed clean)';
+  const description = costMissing
+    ? baseDescription + ' — SET AMOUNT (no clean cost was on the booking)'
+    : baseDescription;
   const payload = {
     user_id: uid,
     property_id: clean.property_id || null,
     local_id: expenseLocalId,
     date: clean.clean_date || new Date().toISOString().split('T')[0],
     merchant: cleanerName || 'Cleaner',
-    description: 'Cleaning' + guestPart + ' (auto-created from completed clean)',
+    description,
     category,
-    amount: cost,
+    amount: cost, // 0 when costMissing — host edits in the expense list
     receipt_type: 'missing',
     receipt_num: '',
     drive_link: '',
@@ -333,6 +340,7 @@ async function autoCreateExpenseForCleanIfApplicable({
     expenseId: newRow.id,
     expenseLocalId,
     amount: cost,
+    costMissing,
     category,
     bookingLinked: !!bookingUuid,
   };
