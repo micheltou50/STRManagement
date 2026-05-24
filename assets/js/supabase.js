@@ -870,6 +870,8 @@ async function loadExpensesFromCloud() {
     const propertyId = await getCloudPropertyId();
     let query = window._sb.from('expenses').select('*').eq('user_id', user.id);
     if (propertyId) query = query.eq('property_id', propertyId);
+    // Hide soft-deleted expenses; tolerate legacy rows with NULL status.
+    query = query.or('status.is.null,status.neq.deleted');
     const { data, error } = await query.order('date', { ascending: false });
     if (error || !data) return null;
     return data.map(e => ({
@@ -1475,8 +1477,12 @@ export async function uploadReceiptToStorage(file, expenseId, receiptIndex = 0) 
     if (!user || !file) return null;
     const propertyId = await getCloudPropertyId();
     const ext = file.name.split('.').pop();
-    const suffix = receiptIndex > 0 ? `_${receiptIndex + 1}` : '';
-    const path = `${user.id}/${propertyId || 'default'}/${expenseId || Date.now()}${suffix}.${ext}`;
+    const slotSuffix = receiptIndex > 0 ? `_${receiptIndex + 1}` : '';
+    // Append a version timestamp so a "replace" upload writes to a NEW path —
+    // the previous file in storage survives instead of being overwritten.
+    // upsert remains true as a belt-and-suspenders guard against rare collisions.
+    const version = Date.now();
+    const path = `${user.id}/${propertyId || 'default'}/${expenseId || Date.now()}${slotSuffix}_v${version}.${ext}`;
     const { data: _data, error } = await window._sb.storage.from('receipts').upload(path, file, { upsert: true });
     if (error) { console.warn('[StayOps] uploadReceiptToStorage error', error); return null; }
     return path;
