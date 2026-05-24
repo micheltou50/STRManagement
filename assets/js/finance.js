@@ -27,6 +27,7 @@ import {
   isExpensePhotoConverting,
 } from './ai.js';
 import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud, getCurrentSupabaseUser, savePlatformPayout, insertPayoutLines } from './supabase.js';
+import { AIService } from './ai-logic.js';
 
 let _financeTab = 'expenses';
 /** Keeps Finance hub vs sub-screens across renderFinance() / sync refresh. */
@@ -5403,7 +5404,7 @@ async function extractPayoutWithAI() {
     _payoutPasteStatus('⚠ That looks too short — paste the full statement', 'err');
     return;
   }
-  if (!window.AIService) {
+  if (!AIService || typeof AIService.request !== 'function') {
     _payoutPasteStatus('⚠ AI service not available', 'err');
     return;
   }
@@ -5461,7 +5462,7 @@ Return EXACTLY:
   }
 
   try {
-    const { response, data } = await window.AIService.request({
+    const { response, data } = await AIService.request({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 2000,
       messages
