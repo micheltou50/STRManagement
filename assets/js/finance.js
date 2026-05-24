@@ -5378,15 +5378,17 @@ function _payoutPasteStatus(msg, kind) {
   }
 }
 
-/** Find a booking whose confirmation_code matches the line's code (case-insensitive). */
+/** Find a booking whose confirmation code matches the line's code (case-insensitive).
+ *  Uses the imported `bookings` array from state.js (ES module live binding —
+ *  populated by replaceArrayInPlace during hydration). The in-memory field is
+ *  `b.confirmCode` (set by loadBookingsFromCloud), NOT `confirmationCode` or
+ *  `confirmation_code` — those are DB / AI shapes. */
 function _matchPayoutLineToBooking(confirmationCode) {
   if (!confirmationCode) return null;
   const target = String(confirmationCode).trim().toLowerCase();
   if (!target) return null;
-  const list = Array.isArray(window.bookings) ? window.bookings
-    : (Array.isArray(globalThis.bookings) ? globalThis.bookings : []);
-  return list.find(b => {
-    const code = String(b.confirmationCode || b.confirmation_code || '').trim().toLowerCase();
+  return bookings.find(b => {
+    const code = String(b.confirmCode || '').trim().toLowerCase();
     return code && code === target;
   }) || null;
 }
@@ -5518,14 +5520,16 @@ function _renderPayoutPasteReview(extracted) {
       </div>
     </div>${varianceWarn}`;
 
-  const bookings = Array.isArray(window.bookings) ? window.bookings
-    : (Array.isArray(globalThis.bookings) ? globalThis.bookings : []);
+  // Use imported `bookings` from state.js (ES module live binding). The local
+  // shadow that used to live here always read [] because nothing assigns
+  // bookings to window/globalThis. In-memory field for confirmation code is
+  // b.confirmCode (set in loadBookingsFromCloud), not confirmation_code.
   const bookingOptions = bookings
     .filter(b => b && b.status !== 'cancelled' && b._cloudId)
     .sort((a, b) => String(b.checkin || '').localeCompare(String(a.checkin || '')))
     .map(b => {
-      const code = b.confirmationCode || b.confirmation_code || '';
-      const label = `${b.name || b.guest_name || 'Guest'} · ${b.checkin || '?'} → ${b.checkout || '?'}${code ? ' · ' + code : ''}`;
+      const code = b.confirmCode || '';
+      const label = `${b.name || 'Guest'} · ${b.checkin || '?'} → ${b.checkout || '?'}${code ? ' · ' + code : ''}`;
       return { id: b._cloudId, label };
     });
 
