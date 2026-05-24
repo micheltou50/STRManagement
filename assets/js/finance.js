@@ -5319,36 +5319,126 @@ function resetPayoutPasteModal() {
 }
 window.resetPayoutPasteModal = resetPayoutPasteModal;
 
-function attachPayoutStatementFile(input) {
+async function attachPayoutStatementFile(input) {
   const file = input?.files?.[0];
   if (!file) return;
-  // Soft size guard — Anthropic vision practically tolerates up to ~10MB
   if (file.size > 12 * 1024 * 1024) {
-    _payoutPasteStatus('⚠ File is over 12MB — try a smaller PDF or screenshot', 'err');
+    _payoutPasteStatus('⚠ File is over 12MB — try a smaller PDF, screenshot, or export', 'err');
     input.value = '';
     return;
   }
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    const result = ev.target.result || '';
-    const commaIdx = result.indexOf(',');
-    _payoutFileBase64 = commaIdx >= 0 ? result.slice(commaIdx + 1) : '';
-    _payoutFileMediaType = file.type === 'application/pdf' ? 'application/pdf' : (file.type || 'image/jpeg');
-    _payoutFileName = file.name || 'statement';
-    const previewEl = document.getElementById('payout-paste-file-preview');
-    const nameEl = document.getElementById('payout-paste-file-name');
-    if (nameEl) {
-      const sizeKb = (file.size / 1024).toFixed(0);
-      nameEl.textContent = `📎 ${_payoutFileName} (${sizeKb} KB)`;
+
+  const name = (file.name || 'statement').toLowerCase();
+  const mime = file.type || '';
+  const isNumbers = name.endsWith('.numbers') || mime === 'application/vnd.apple.numbers';
+  const isCsvLike = name.endsWith('.csv') || name.endsWith('.tsv') || name.endsWith('.txt')
+                 || mime === 'text/csv' || mime === 'text/tab-separated-values' || mime === 'text/plain';
+  const isExcel   = name.endsWith('.xlsx') || name.endsWith('.xls')
+                 || mime.includes('spreadsheetml') || mime === 'application/vnd.ms-excel';
+  const isPdfImg  = mime === 'application/pdf' || mime.startsWith('image/')
+                 || name.endsWith('.pdf');
+
+  // Numbers files are a proprietary zip format SheetJS can't open.
+  // Apple's Numbers app exports cleanly to CSV or xlsx.
+  if (isNumbers) {
+    _payoutPasteStatus('⚠ Numbers files aren\'t supported directly. In Numbers: File → Export To → CSV (or Excel), then attach the exported file.', 'err');
+    input.value = '';
+    return;
+  }
+
+  // CSV / TSV / plain text — read as text, drop into the textarea so the
+  // user can review/edit before extraction. AI handles structured CSV well.
+  if (isCsvLike) {
+    try {
+      const text = await file.text();
+      _appendToPayoutTextarea(file.name, text);
+      _clearPayoutFileState();
+      _payoutPasteStatus('✓ Loaded ' + file.name + ' as text — click ✨ Extract', 'ok');
+    } catch (e) {
+      console.warn('[StayOps] CSV read failed', e);
+      _payoutPasteStatus('⚠ Could not read that file', 'err');
     }
-    if (previewEl) previewEl.style.display = 'flex';
-  };
-  reader.onerror = () => {
-    _payoutPasteStatus('⚠ Could not read that file', 'err');
-  };
-  reader.readAsDataURL(file);
+    input.value = '';
+    return;
+  }
+
+  // Excel — lazy-load SheetJS from CDN and convert each sheet to CSV text.
+  // Only loads the ~700KB library when the user actually uploads xlsx.
+  if (isExcel) {
+    _payoutPasteStatus('⏳ Reading spreadsheet...');
+    try {
+      const XLSX = await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      let allText = '';
+      for (const sheetName of wb.SheetNames) {
+        const csv = XLSX.utils.sheet_to_csv(wb.Sheets[sheetName]);
+        if (!csv.trim()) continue;
+        allText += (allText ? '\n\n' : '') + `=== Sheet: ${sheetName} ===\n` + csv;
+      }
+      if (!allText.trim()) {
+        _payoutPasteStatus('⚠ Spreadsheet is empty', 'err');
+        input.value = '';
+        return;
+      }
+      _appendToPayoutTextarea(file.name, allText);
+      _clearPayoutFileState();
+      _payoutPasteStatus('✓ Loaded ' + file.name + ' (' + wb.SheetNames.length + ' sheet' + (wb.SheetNames.length === 1 ? '' : 's') + ') — click ✨ Extract', 'ok');
+    } catch (e) {
+      console.warn('[StayOps] xlsx read failed', e);
+      _payoutPasteStatus('⚠ Could not read Excel file — try File → Save As → CSV in Excel and re-upload', 'err');
+    }
+    input.value = '';
+    return;
+  }
+
+  // PDF / image — keep the file as a binary blob, send to Claude vision
+  // via document/image content block (existing flow).
+  if (isPdfImg) {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const result = ev.target.result || '';
+      const commaIdx = result.indexOf(',');
+      _payoutFileBase64 = commaIdx >= 0 ? result.slice(commaIdx + 1) : '';
+      _payoutFileMediaType = mime === 'application/pdf' ? 'application/pdf' : (mime || 'image/jpeg');
+      _payoutFileName = file.name || 'statement';
+      const previewEl = document.getElementById('payout-paste-file-preview');
+      const nameEl = document.getElementById('payout-paste-file-name');
+      if (nameEl) {
+        const sizeKb = (file.size / 1024).toFixed(0);
+        nameEl.textContent = `📎 ${_payoutFileName} (${sizeKb} KB)`;
+      }
+      if (previewEl) previewEl.style.display = 'flex';
+    };
+    reader.onerror = () => { _payoutPasteStatus('⚠ Could not read that file', 'err'); };
+    reader.readAsDataURL(file);
+    return;
+  }
+
+  _payoutPasteStatus('⚠ Unsupported file type — use PDF, image, CSV, or Excel', 'err');
+  input.value = '';
 }
 window.attachPayoutStatementFile = attachPayoutStatementFile;
+
+/** Append extracted text-format file content into the textarea, labeled with
+ *  the original filename so the user can tell sources apart. */
+function _appendToPayoutTextarea(filename, content) {
+  const ta = document.getElementById('payout-paste-raw');
+  if (!ta) return;
+  const header = `--- ${filename} ---\n`;
+  ta.value = (ta.value && ta.value.trim())
+    ? ta.value.trim() + '\n\n' + header + content
+    : header + content;
+}
+
+/** Reset the binary-file state used by the PDF/image vision path. */
+function _clearPayoutFileState() {
+  _payoutFileBase64 = null;
+  _payoutFileMediaType = null;
+  _payoutFileName = null;
+  const previewEl = document.getElementById('payout-paste-file-preview');
+  if (previewEl) previewEl.style.display = 'none';
+}
 
 function clearPayoutStatementFile() {
   _payoutFileBase64 = null;
