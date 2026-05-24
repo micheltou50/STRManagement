@@ -2355,6 +2355,55 @@ label {
    ═══════════════════════════════════════════════════════════════════════════ */
 @media (min-width: 1024px) {
 
+  /* ── Cleaner-mode escape hatch (Phase 5 follow-up) ─────────────────────
+     The host app turns body into a CSS Grid with sidebar+header+content
+     areas at >= 1024px. The cleaner PWA shares the same body so it would
+     try to live inside that grid — but its UI (#cleaner-nav, #cleaner-content)
+     has no grid-area assignment, ending up rendered as anonymous items in
+     wrong positions and looking broken on desktop.
+
+     Fix: when body.cleaner-mode is active, opt OUT of the grid entirely
+     and re-centre as a mobile-style column (560px max — slightly wider
+     than the 430px mobile body to feel comfortable on a big monitor).
+     Also restores the bottom-tab nav (#cleaner-nav) to its mobile layout
+     instead of inheriting the host's left sidebar styling. */
+  body.cleaner-mode,
+  body.cleaner-pin-active {
+    display: block !important;
+    max-width: 560px !important;
+    margin: 0 auto !important;
+    grid-template-areas: none !important;
+    grid-template-columns: none !important;
+    grid-template-rows: none !important;
+  }
+  body.cleaner-mode #cleaner-nav.nav {
+    grid-area: unset !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: 100% !important;
+    max-width: 560px !important;
+    flex-direction: row !important;
+    align-items: stretch !important;
+    padding: 2px 2px calc(2px + env(safe-area-inset-bottom)) !important;
+    border-right: none !important;
+    border-top: 1px solid #e8e0d5 !important;
+    box-shadow: 0 -1px 8px rgba(0,0,0,0.04) !important;
+    overflow: visible !important;
+    z-index: 100 !important;
+  }
+  body.cleaner-mode #cleaner-nav.nav .nav-btn {
+    flex-direction: column !important;
+    border-bottom: 2px solid transparent !important;
+    border-right: none !important;
+    padding: 8px 0 !important;
+  }
+  body.cleaner-mode #cleaner-content {
+    padding-bottom: 100px !important;
+    grid-area: unset !important;
+  }
+
   /* ── Phase 1: Foundation — Layout Shell ─────────────────────────────── */
   :root {
     --sidebar-width: 240px;
