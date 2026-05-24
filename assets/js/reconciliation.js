@@ -212,6 +212,122 @@ export async function linkTransactionToExpense(transactionId, expenseId) {
   return { success: true };
 }
 
+// ── PHASE 2c: PAYOUT MATCHING ────────────────────────────────────────────────
+// Bank CREDITS (money in) match to platform_payouts (Phase 1 model), not to
+// expenses. The functions below mirror the expense matchers but target the
+// payouts table. The existing one-way FK platform_payouts.bank_transaction_id
+// is the source of truth; setting it = a bank_transactions.id marks both
+// "reconciled".
+
+/**
+ * Find platform_payouts (active, not yet bank-matched) that plausibly
+ * correspond to a given bank CREDIT. Scoring favours exact amount + nearby
+ * date, with a small bonus when the bank description name-drops the platform.
+ * @param {{ id?: string, date: string, amount: number, description?: string }} bankTxn
+ * @param {string} userId
+ * @returns {Promise<Array<{ payout: object, score: number, matchReason: string }>>}
+ */
+export async function findPayoutMatchesForBankTransaction(bankTxn, userId) {
+  const sb = getSb();
+  if (!sb || !userId || !bankTxn || !bankTxn.date || bankTxn.amount == null) return [];
+
+  // ±5 day window — platform-to-bank arrival can lag a few business days
+  const tDate = new Date(bankTxn.date);
+  const from = new Date(tDate); from.setDate(from.getDate() - 5);
+  const to   = new Date(tDate); to.setDate(to.getDate() + 5);
+  const fromStr = from.toISOString().split('T')[0];
+  const toStr   = to.toISOString().split('T')[0];
+
+  const { data, error } = await sb
+    .from('platform_payouts')
+    .select('id, platform, payout_reference, payout_date, expected_arrival_date, net_amount, currency, status, bank_transaction_id')
+    .eq('user_id', userId)
+    .is('bank_transaction_id', null)
+    .neq('status', 'deleted')
+    .gte('payout_date', fromStr)
+    .lte('payout_date', toStr);
+  if (error) {
+    console.log('[StayOps] findPayoutMatchesForBankTransaction error:', error.message || error);
+    return [];
+  }
+
+  const txnAmount = Number(bankTxn.amount) || 0;
+  const desc = String(bankTxn.description || '').toLowerCase();
+  const out = [];
+  for (const p of (data || [])) {
+    const net = Number(p.net_amount) || 0;
+    const diff = Math.abs(net - txnAmount);
+    if (diff > 1 && diff > txnAmount * 0.01) continue; // require ≤$1 or 1% match
+
+    // Date distance: prefer expected_arrival_date if set, otherwise payout_date
+    const refDate = new Date(p.expected_arrival_date || p.payout_date);
+    const dayDiff = Math.abs((tDate - refDate) / 86400000);
+
+    let score = 50;
+    if (diff < 0.01) score += 30; else if (diff < 0.50) score += 20;
+    if (dayDiff <= 1) score += 15;
+    else if (dayDiff <= 3) score += 10;
+    else if (dayDiff <= 5) score += 5;
+
+    // Bonus if the bank description mentions the platform name
+    if (p.platform && desc.includes(p.platform.replace('_', ''))) score += 10;
+    // Bonus if it mentions known platform aliases
+    if (desc.includes('airbnb') && p.platform === 'airbnb') score += 5;
+    if (desc.includes('booking.com') && p.platform === 'booking_com') score += 5;
+    if (desc.includes('vrbo') && p.platform === 'vrbo') score += 5;
+    if (desc.includes('stayz') && p.platform === 'stayz') score += 5;
+
+    const reason = `${diff < 0.01 ? 'exact $' : 'approx $'}${dayDiff <= 1 ? ' / ±1d' : ' / ±' + Math.round(dayDiff) + 'd'}`;
+    out.push({ payout: p, score: Math.min(100, score), matchReason: reason });
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out;
+}
+
+/**
+ * Set platform_payouts.bank_transaction_id = bankTxId — marks the payout
+ * reconciled to a real bank deposit. Does NOT touch the bank_transactions
+ * row (the reverse FK isn't on bank_transactions in the current schema; the
+ * relationship is denormalized through the platform_payouts side only).
+ * @param {string} bankTxId
+ * @param {string} payoutId
+ */
+export async function linkTransactionToPayout(bankTxId, payoutId) {
+  const sb = getSb();
+  if (!sb || !bankTxId || !payoutId) {
+    console.log('[StayOps] linkTransactionToPayout: missing id(s)');
+    return { success: false };
+  }
+  const { error } = await sb
+    .from('platform_payouts')
+    .update({ bank_transaction_id: bankTxId, updated_at: new Date().toISOString() })
+    .eq('id', payoutId);
+  if (error) {
+    console.log('[StayOps] linkTransactionToPayout error:', error.message || error);
+    return { success: false };
+  }
+  console.log(`[StayOps] Reconciled: payout ${payoutId} ↔ bank tx ${bankTxId}`);
+  return { success: true };
+}
+
+/** Reverse a payout↔bank link. */
+export async function unlinkPayoutFromTransaction(payoutId) {
+  const sb = getSb();
+  if (!sb || !payoutId) return { success: false };
+  const { error } = await sb
+    .from('platform_payouts')
+    .update({ bank_transaction_id: null, updated_at: new Date().toISOString() })
+    .eq('id', payoutId);
+  if (error) {
+    console.log('[StayOps] unlinkPayoutFromTransaction error:', error.message || error);
+    return { success: false };
+  }
+  return { success: true };
+}
+
+// ── END PHASE 2c PAYOUT MATCHING ─────────────────────────────────────────────
+
+
 /**
  * @param {string} transactionId
  */
@@ -329,7 +445,7 @@ export async function getAllTransactionsWithStatus(userId) {
 
   const { data: txns, error } = await sb
     .from('bank_transactions')
-    .select('id, date, description, amount, expense_id, is_personal, skipped')
+    .select('id, date, description, amount, expense_id, is_personal, skipped, direction')
     .eq('user_id', userId)
     .order('date', { ascending: false });
 
@@ -359,31 +475,55 @@ export async function getAllTransactionsWithStatus(userId) {
     }
   }
 
-  return txns.map(t => {
-    let status;
-    if (t.is_personal) {
-      status = 'personal';
-    } else if (t.skipped) {
-      status = 'skipped';
-    } else if (t.expense_id) {
-      status = 'matched';
-    } else {
-      status = 'unaccounted';
+  // Phase 2c: for credit rows, look up any platform_payout linked back to
+  // this bank tx (via platform_payouts.bank_transaction_id). One query for
+  // all credits at once, indexed.
+  const creditTxnIds = txns.filter(t => t.direction === 'credit').map(t => t.id);
+  let payoutMap = {};
+  if (creditTxnIds.length > 0) {
+    const { data: payRows, error: payErr } = await sb
+      .from('platform_payouts')
+      .select('id, platform, payout_reference, payout_date, net_amount, bank_transaction_id')
+      .in('bank_transaction_id', creditTxnIds);
+    if (!payErr && payRows) {
+      for (const p of payRows) {
+        if (!p.bank_transaction_id) continue;
+        payoutMap[p.bank_transaction_id] = {
+          id: p.id,
+          platform: p.platform || null,
+          payoutReference: p.payout_reference || null,
+          payoutDate: p.payout_date || null,
+          netAmount: Number(p.net_amount) || 0,
+        };
+      }
     }
+  }
 
-    const linked = t.expense_id ? expenseMap[t.expense_id] : null;
+  return txns.map(t => {
+    const isCredit = t.direction === 'credit';
+    const linkedPayout = isCredit ? payoutMap[t.id] || null : null;
+    let status;
+    if (t.is_personal) status = 'personal';
+    else if (t.skipped) status = 'skipped';
+    else if (linkedPayout) status = 'matched_payout';
+    else if (t.expense_id) status = 'matched';
+    else status = 'unaccounted';
+
+    const linkedExpense = t.expense_id ? expenseMap[t.expense_id] : null;
 
     return {
       id: t.id,
       date: t.date,
       description: t.description || '',
       amount: Number(t.amount) || 0,
+      direction: t.direction || 'debit',
       status,
-      expenseMerchant: linked ? linked.merchant : null,
-      expenseCategory: linked ? linked.category : null,
+      expenseMerchant: linkedExpense ? linkedExpense.merchant : null,
+      expenseCategory: linkedExpense ? linkedExpense.category : null,
       is_personal: !!t.is_personal,
       skipped: !!t.skipped,
       expense_id: t.expense_id || null,
+      payout: linkedPayout, // null for debits / unmatched credits
     };
   });
 }

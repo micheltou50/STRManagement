@@ -6,6 +6,8 @@ import {
   findMatchesForTransaction,
   linkTransactionToExpense,
   autoReconcile,
+  findPayoutMatchesForBankTransaction,
+  linkTransactionToPayout,
 } from './reconciliation.js';
 
 export { autoReconcile };
@@ -304,6 +306,7 @@ function parseRowsWithBankMapping(rows, mapping) {
         amountVal = Math.abs(deb);
       } else if (cred != null && Math.abs(cred) > 0) {
         type = 'credit';
+        amountVal = Math.abs(cred);
       } else continue;
     } else {
       const amt = parseAmount(cells[mapping.amount_col]);
@@ -311,17 +314,21 @@ function parseRowsWithBankMapping(rows, mapping) {
       if (amt < 0) {
         type = 'debit';
         amountVal = Math.abs(amt);
-      } else {
+      } else if (amt > 0) {
         type = 'credit';
-      }
+        amountVal = amt;
+      } else continue; // skip zero-amount rows
     }
 
-    if (!dateStr || type !== 'debit' || amountVal == null || amountVal <= 0 || !description) continue;
+    // Phase 2c: keep BOTH debits (expenses) and credits (platform payouts /
+    // refunds / owner top-ups). Previous behaviour dropped credits, which
+    // meant your Airbnb deposits could never be matched to a bank line.
+    if (!dateStr || amountVal == null || amountVal <= 0 || !description) continue;
     out.push({
       date: dateStr,
       description,
       amount: amountVal,
-      type: 'debit',
+      type,
       rawLine,
     });
   }
@@ -711,6 +718,7 @@ export async function confirmTransaction(transaction, userId, propertyId, catego
 
   const pattern = transaction.vendorPattern || normaliseVendorPattern(transaction.description);
   const localId = 'bank-' + hashDateAmountDesc(transaction.date, transaction.amount, transaction.description);
+  const direction = transaction.type === 'credit' ? 'credit' : 'debit';
 
   const bankPayload = {
     user_id: userId,
@@ -721,7 +729,39 @@ export async function confirmTransaction(transaction, userId, propertyId, catego
     import_batch_id: transaction.importBatchId || null,
     is_personal: false,
     skipped: false,
+    direction,
   };
+
+  // Credits (money in) route to platform_payouts matching instead of the
+  // expense create-or-match path. The user shouldn't have to pick a category
+  // for an Airbnb deposit — it's just a confirmation of a payout that's
+  // already in the system.
+  if (direction === 'credit') {
+    const { data: bankRow, error: bankErr } = await sb
+      .from('bank_transactions')
+      .insert(bankPayload)
+      .select()
+      .single();
+    if (bankErr) throw bankErr;
+    const bankTxId = bankRow.id;
+
+    const payoutMatches = await findPayoutMatchesForBankTransaction(transaction, userId);
+    const top = payoutMatches[0];
+    if (top && top.score >= 80) {
+      await linkTransactionToPayout(bankTxId, top.payout.id);
+      return {
+        bankTransactionId: bankTxId,
+        action: 'matched_payout',
+        payout: top.payout,
+        matchScore: top.score,
+      };
+    }
+    return {
+      bankTransactionId: bankTxId,
+      action: 'credit_unmatched',
+      payoutCandidates: payoutMatches.slice(0, 3),
+    };
+  }
 
   const { data: bankRow, error: bankErr } = await sb
     .from('bank_transactions')
