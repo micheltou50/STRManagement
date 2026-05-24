@@ -939,6 +939,11 @@ function showDetail(id) {
       </div>
     </div>
 
+    <!-- Phase 1d (moved to view): expected vs received against platform_payouts.
+         The renderer fills this slot in BOTH the mobile modal and the
+         desktop side panel via class selector, so duplicate-id is fine. -->
+    <div class="b-payouts-slot" id="b-payouts-section" style="margin-bottom:20px"></div>
+
     <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase;margin:0 0 8px 2px">Cleaner</div>
     <div style="background:white;border-radius:16px;border:1px solid var(--hairline-1);margin-bottom:20px;overflow:hidden">
       <div style="padding:14px 16px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
@@ -1011,6 +1016,13 @@ function showDetail(id) {
     }, 0);
   }
   _populateDetailConversation();
+  // Phase 1d (extended): lazy-fill the Platform Payouts panel after the
+  // modal/desktop-panel content is in the DOM. Non-blocking — the view
+  // is interactive immediately and the panel appears once the query lands.
+  if (b._cloudId) {
+    _renderBookingPayoutsSection(b._cloudId, Number(b.hostPayout) || 0)
+      .catch(err => console.warn('[StayOps] _renderBookingPayoutsSection (view) failed', err));
+  }
 }
 
 function showEditModal(id) {
@@ -1072,25 +1084,32 @@ function showEditModal(id) {
  * amounts (what the platform actually paid), with the variance highlighted.
  */
 async function _renderBookingPayoutsSection(bookingCloudId, expected) {
-  const el = document.getElementById('b-payouts-section');
-  if (!el) return;
-  el.innerHTML = `<div style="background:var(--surface2);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--muted-2);font-family:'Plus Jakarta Sans',sans-serif">⏳ Loading payouts...</div>`;
+  // Slot lives in BOTH the mobile modal (#detail-content) and the desktop
+  // side panel (#desktop-detail-panel) because showDetail copies the modal
+  // HTML over to the desktop panel. Use a class-based selector that fills
+  // both and tolerates either being absent (e.g. edit modal only has the
+  // one inside #detail-content).
+  const slots = document.querySelectorAll('.b-payouts-slot, #b-payouts-section');
+  if (!slots.length) return;
+  const setAll = (html) => slots.forEach(s => { s.innerHTML = html; });
+
+  setAll(`<div style="background:var(--surface2);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--muted-2);font-family:'Plus Jakarta Sans',sans-serif">⏳ Loading payouts...</div>`);
 
   let lines = [];
   try {
     lines = await loadPayoutLinesForBooking(bookingCloudId);
   } catch (err) {
     console.warn('[StayOps] loadPayoutLinesForBooking failed', err);
-    el.innerHTML = `<div style="background:#FDECEA;border-radius:10px;padding:10px 12px;font-size:12px;color:#991B1B;font-family:'Plus Jakarta Sans',sans-serif">⚠ Could not load payouts</div>`;
+    setAll(`<div style="background:#FDECEA;border-radius:10px;padding:10px 12px;font-size:12px;color:#991B1B;font-family:'Plus Jakarta Sans',sans-serif">⚠ Could not load payouts</div>`);
     return;
   }
 
   if (!lines.length) {
-    el.innerHTML = `
+    setAll(`
       <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;font-family:'Plus Jakarta Sans',sans-serif">
         <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:4px">Platform Payouts</div>
         <div style="font-size:13px;color:var(--ink-1)">No payouts linked yet. <span style="color:var(--muted-2)">Paste a platform statement in Finance → Transaction Map to match payouts to this booking.</span></div>
-      </div>`;
+      </div>`);
     return;
   }
 
@@ -1125,7 +1144,7 @@ async function _renderBookingPayoutsSection(bookingCloudId, expected) {
       </div>`;
   }).join('');
 
-  el.innerHTML = `
+  setAll(`
     <div style="background:#fff;border:1px solid var(--hairline-1);border-radius:12px;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif">
       <div style="padding:12px 14px;background:var(--surface2);border-bottom:0.5px solid var(--hairline-1)">
         <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:6px">Platform Payouts (${lines.length})</div>
@@ -1146,7 +1165,7 @@ async function _renderBookingPayoutsSection(bookingCloudId, expected) {
         <div style="margin-top:8px;padding:6px 10px;border-radius:6px;background:${varBg};color:${varColor};font-size:11px;font-weight:500">${varNote}</div>
       </div>
       <div>${lineRows}</div>
-    </div>`;
+    </div>`);
 }
 
 function editCalcNights() {
