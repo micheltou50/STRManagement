@@ -397,6 +397,60 @@ function exitBankImportReview() {
   }
 }
 
+/**
+ * Bulk action: mark every reviewable row in _bankImportRows as user-skipped.
+ * Rows that are locked to an existing expense match (_bankMatchLocked) are
+ * left alone — they're already known good and don't need skipping. Re-renders
+ * the review list with everything greyed out, so the user can then either
+ * Cancel Import or selectively Undo a few rows to keep.
+ */
+function bankImportSkipAll() {
+  if (!Array.isArray(_bankImportRows) || !_bankImportRows.length) return;
+  const skippable = _bankImportRows.filter(r => !r._bankMatchLocked);
+  if (!skippable.length) {
+    if (typeof globalThis.showBanner === 'function') {
+      globalThis.showBanner('Nothing to skip — all rows are locked matches', 'warn');
+    }
+    return;
+  }
+  for (const r of skippable) {
+    r.userMarkedSkip = true;
+    r.uiConfirmed = true;
+  }
+  renderBankImportReview();
+  if (typeof globalThis.showBanner === 'function') {
+    globalThis.showBanner('✓ Marked ' + skippable.length + ' rows to skip — click Cancel Import to discard, or Undo on individual rows to keep', 'ok');
+  }
+}
+globalThis.bankImportSkipAll = bankImportSkipAll;
+
+/**
+ * Bulk action: abandon the entire import session and return to Expenses
+ * without writing anything to the DB. Wraps exitBankImportReview with a
+ * confirm prompt so the user doesn't lose state by accident.
+ */
+async function bankImportCancel() {
+  const n = (_bankImportRows || []).length;
+  const msg = 'Cancel this import? ' + n + ' row' + (n === 1 ? '' : 's') + ' will be discarded — nothing saved to your books.';
+  let ok = false;
+  if (typeof globalThis.showAppModal === 'function') {
+    ok = await globalThis.showAppModal({
+      title: 'Cancel Import',
+      msg,
+      confirmText: 'Cancel Import',
+      confirmColor: 'var(--red)',
+    });
+  } else {
+    ok = window.confirm(msg);
+  }
+  if (!ok) return;
+  exitBankImportReview();
+  if (typeof globalThis.showBanner === 'function') {
+    globalThis.showBanner('Import cancelled — no transactions saved', 'ok');
+  }
+}
+globalThis.bankImportCancel = bankImportCancel;
+
 function bankImportRestoreBackup() {
   const container = bankImportGetContainer();
   if (container && _bankImportBackupHtml != null) {
@@ -515,6 +569,8 @@ function renderBankImportReview() {
           <strong>${ready}</strong> ready to import · <strong>${skipped}</strong> skipped · <strong>${dups}</strong> duplicates
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <button type="button" onclick="globalThis.bankImportSkipAll()" style="font-size:12px;padding:8px 14px;border-radius:8px;border:1px solid var(--hairline-1);background:#fff;color:var(--muted-2);font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Skip All</button>
+          <button type="button" onclick="globalThis.bankImportCancel()" style="font-size:12px;padding:8px 14px;border-radius:8px;border:1px solid #FCA5A5;background:#fff;color:#991B1B;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Cancel Import</button>
           <button type="button" id="bank-import-run-btn" onclick="globalThis.bankImportRunImport()" style="font-size:12px;padding:8px 14px;border-radius:8px;border:none;background:var(--primary);color:white;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Import All</button>
         </div>
       </div>
