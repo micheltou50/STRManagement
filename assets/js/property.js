@@ -1019,6 +1019,21 @@ function _updateOwnerReportToggleUI(on) {
   if (thumb) thumb.style.transform  = on ? 'translateX(18px)' : 'translateX(0)';
 }
 
+// Phase 6: "I manage this property for the owner" toggle. ON => the property
+// is owner-managed (statement renders as Owner Statement); OFF => self-owned.
+function _updatePropManagedToggleUI(on) {
+  const track = document.getElementById('prop-managed-for-owner-toggle');
+  const thumb = document.getElementById('prop-managed-for-owner-thumb');
+  if (track) track.style.background = on ? 'var(--primary)' : 'var(--border, #C7C7CC)';
+  if (thumb) thumb.style.transform  = on ? 'translateX(18px)' : 'translateX(0)';
+}
+
+function togglePropertyManagedMode() {
+  window._propManagedForOwner = !window._propManagedForOwner;
+  _updatePropManagedToggleUI(window._propManagedForOwner);
+}
+globalThis.togglePropertyManagedMode = togglePropertyManagedMode;
+
 function populateOwnerReportPanel() {
   const cfg = getActivePropertyConfig();
   const owner = cfg.owner || {};
@@ -1028,6 +1043,12 @@ function populateOwnerReportPanel() {
   _ownerReportSetVal('owner-report-phone',   owner.phone || '');
   _ownerReportSetVal('owner-report-subject', owner.reportEmailSubject || '');
   _ownerReportSetVal('owner-report-body',    owner.reportEmailBody    || '');
+
+  // Phase 6: "I manage this property for the owner" toggle.
+  // Reflects platform_payouts mode in the monthly statement view.
+  // cfg.isSelfManaged defaults to true; toggle ON when isSelfManaged === false.
+  window._propManagedForOwner = cfg.isSelfManaged === false;
+  _updatePropManagedToggleUI(window._propManagedForOwner);
 
   // Set state on the plain-div toggle (no checkbox)
   window._ownerAutoSend = !!owner.autoSendReport;

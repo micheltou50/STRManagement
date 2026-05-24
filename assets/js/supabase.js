@@ -516,6 +516,10 @@ export async function savePropertyToCloud(cfg) {
       stayz_url:            cfg.stayzUrl || null,
       vrbo_url:             cfg.vrboUrl || null,
       mgmt_fee_rate:     (window._appConfig && window._appConfig.mgmt_fee_rate != null) ? window._appConfig.mgmt_fee_rate : null,
+      // Phase 6: false = host manages this property for an owner (statement
+      // renders in owner-payable mode). true (or absent) = host owns it
+      // (statement renders in host-earned mode).
+      is_self_managed:   (cfg.isSelfManaged === false) ? false : true,
       updated_at:        cfg.updated_at || new Date().toISOString()
     };
 

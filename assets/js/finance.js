@@ -4034,11 +4034,15 @@ function saveOwnerReportSettings() {
   const body    = (document.getElementById('owner-report-body')    || {}).value || '';
   const autoSend = !!window._ownerAutoSend;
   const freq    = (document.getElementById('owner-report-frequency') || {}).value || 'monthly';
+  // Phase 6: ON toggle = host manages this property for the owner.
+  // isSelfManaged is the OPPOSITE: true when host owns it.
+  const isSelfManaged = !window._propManagedForOwner;
 
   // Preserve lastReportSentAt — don't overwrite it here
   const existing = getActivePropertyConfig().owner || {};
 
   savePropertyConfig({
+    isSelfManaged,
     owner: {
       name,
       email,
