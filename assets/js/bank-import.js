@@ -388,6 +388,100 @@ export async function parseCSV(fileText) {
 }
 
 /**
+ * Phase 2c+ : extract bank transactions from a PDF or image of a statement
+ * using Claude Sonnet vision. Mirrors the payout-paste AI flow: same
+ * document/image content block pattern, same Sonnet model. Returns rows
+ * in the EXACT shape parseCSV produces so the downstream pipeline
+ * (checkDuplicates -> categoriseTransactions -> review UI) is unchanged.
+ *
+ * @param {string} base64Data  bare base64 string (no data: URL prefix)
+ * @param {string} mediaType   'application/pdf' or 'image/jpeg' / 'image/png' etc.
+ * @returns {Promise<Array<{ date: string, description: string, amount: number, type: 'debit'|'credit', rawLine: string }>>}
+ */
+export async function parseBankFileWithAI(base64Data, mediaType) {
+  if (!base64Data) return [];
+  const aiUrl = '/.netlify/functions/ai-proxy';
+  const promptInstructions = `You extract bank transactions from a bank statement (Australian bank, AUD).
+Return ONLY valid JSON. No markdown, no commentary, no prose.
+
+OUTPUT SHAPE — an array of transaction objects:
+[
+  {"date":"YYYY-MM-DD","description":"...","amount":0,"type":"debit"|"credit"}
+]
+
+EXTRACTION RULES
+- One object per real transaction row in the statement
+- date: ISO YYYY-MM-DD. Infer the year from the statement period if the
+  row only shows day+month. Use posted/processed date if both are listed.
+- description: the merchant / narration / details column, trimmed.
+  Strip pure noise like card numbers (****1234) and trailing reference
+  codes when they're not informative; KEEP merchant names intact.
+- amount: positive number, no $, no commas
+- type: "debit" for money OUT of the account (purchases, fees, transfers
+  out), "credit" for money IN (deposits, refunds, transfers in, platform
+  payouts like Airbnb / Booking.com).
+
+SKIP these row types entirely (do not emit objects for them):
+- Opening balance, closing balance, running-balance-only rows
+- "Total debits", "Total credits", subtotal / summary rows
+- Page headers / footers / statement metadata
+- Continued-on-next-page markers
+- "Interest charged" / "Interest paid" lines? KEEP these — they are real
+
+If a row's amount is ambiguous (no clear sign / column), use your best
+judgement based on description (e.g. "PURCHASE" = debit, "DEPOSIT" /
+"PAYMENT FROM" = credit). When truly unsure, skip the row.
+
+Return JUST the array. Example:
+[{"date":"2026-03-09","description":"AIRBNB PAYMENTS","amount":1208.75,"type":"credit"},{"date":"2026-03-12","description":"BUNNINGS ROUSE HILL","amount":47.30,"type":"debit"}]`;
+
+  const fileBlock = mediaType === 'application/pdf'
+    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64Data } }
+    : { type: 'image',    source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: base64Data } };
+
+  const res = await fetch(aiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 8000,
+      messages: [{
+        role: 'user',
+        content: [fileBlock, { type: 'text', text: promptInstructions }],
+      }],
+    }),
+  });
+  if (!res.ok) {
+    console.log('[StayOps] parseBankFileWithAI HTTP error', res.status);
+    return [];
+  }
+  const data = await res.json();
+  const text = (data && data.content && data.content[0] && data.content[0].text) || '';
+  const cleaned = text.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (e) {
+    console.log('[StayOps] parseBankFileWithAI JSON parse error:', e && e.message);
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  // Coerce to the same shape parseCSV returns, filtering anything malformed.
+  const out = [];
+  for (const r of parsed) {
+    if (!r || typeof r !== 'object') continue;
+    const date = String(r.date || '').slice(0, 10);
+    const description = String(r.description || '').trim();
+    const amount = Math.abs(Number(r.amount) || 0);
+    const type = r.type === 'credit' ? 'credit' : 'debit';
+    if (!date || !description || amount <= 0) continue;
+    out.push({ date, description, amount, type, rawLine: JSON.stringify(r) });
+  }
+  console.log('[StayOps] parseBankFileWithAI extracted', out.length, 'transactions from', mediaType);
+  return out;
+}
+
+/**
  * Normalise description to a vendor pattern for mappings lookup.
  */
 function normaliseVendorPattern(description) {

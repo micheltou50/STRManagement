@@ -11,6 +11,7 @@ import {
 } from './config.js';
 import {
   parseCSV,
+  parseBankFileWithAI,
   categoriseTransactions,
   checkDuplicates,
   confirmTransaction,
@@ -177,11 +178,14 @@ function getOrCreateBankCsvFileInput() {
   input = document.createElement('input');
   input.type = 'file';
   input.id = 'bank-csv-file-input';
-  input.accept = '.csv,text/csv';
+  // Phase 2c+: also accept PDFs and images. The handler branches on type
+  // and routes PDF/image files through Claude vision (parseBankFileWithAI)
+  // instead of the synchronous CSV parser.
+  input.accept = '.csv,text/csv,application/pdf,image/*';
   input.style.display = 'none';
   input.onchange = (ev) => bankImportOnFileSelected(ev);
   document.body.appendChild(input);
-  console.log('[StayOps] Bank import: created shared CSV file input');
+  console.log('[StayOps] Bank import: created shared file input (CSV + PDF + image)');
   return input;
 }
 
@@ -615,13 +619,24 @@ async function bankImportOnFileSelected(ev) {
     _bankImportViewMode === 'portfolio' ? 'portfolio (all properties)' : 'single-property'
   );
 
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    const fileText = e.target && e.target.result ? String(e.target.result) : '';
-    const parsed = await parseCSV(fileText);
-    console.log('[StayOps] Bank CSV parsed:', parsed.length, 'rows from', fileText.length, 'chars');
+  // Branch on file type: text CSV uses the synchronous parser, PDF/image
+  // goes through Claude vision via parseBankFileWithAI (returns the same row
+  // shape so the downstream pipeline is unchanged).
+  const lowerName = (file.name || '').toLowerCase();
+  const mime = file.type || '';
+  const isPdf   = mime === 'application/pdf' || lowerName.endsWith('.pdf');
+  const isImage = mime.startsWith('image/');
+  const useAI   = isPdf || isImage;
+
+  const processParsed = async (parsed, sourceLabel) => {
+    console.log('[StayOps] Bank import parsed:', parsed.length, 'rows from', sourceLabel);
     if (!parsed.length) {
-      globalThis.showBanner('No expense transactions found — check the file format (CSV or tab-delimited)', 'warn');
+      globalThis.showBanner(
+        useAI
+          ? 'AI did not find transactions in that file — try a clearer PDF/screenshot, or use a CSV export'
+          : 'No expense transactions found — check the file format (CSV or tab-delimited)',
+        'warn'
+      );
       _bankImportViewMode =
         typeof isPortfolioMode === 'function' && isPortfolioMode() ? 'portfolio' : 'single';
       return;
@@ -653,7 +668,7 @@ async function bankImportOnFileSelected(ev) {
         userMarkedPersonal: false,
       }));
       await bankImportApplyMatchPreviews(_bankImportRows, userId);
-      _bankImportFilename = file.name || 'statement.csv';
+      _bankImportFilename = file.name || 'statement';
       _bankImportReviewActive = true;
 
       renderBankImportReview();
@@ -664,11 +679,39 @@ async function bankImportOnFileSelected(ev) {
       bankImportRestoreBackup();
     }
   };
+
+  const reader = new FileReader();
   reader.onerror = () => {
     globalThis.showBanner('Could not read file', 'warn');
     bankImportRestoreBackup();
   };
-  reader.readAsText(file);
+
+  if (useAI) {
+    globalThis.showBanner('⏳ Reading bank statement with AI — this can take 10-30 sec', 'info');
+    reader.onload = async (e) => {
+      const dataUrl = (e.target && e.target.result) ? String(e.target.result) : '';
+      const commaIdx = dataUrl.indexOf(',');
+      const base64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
+      const mediaType = isPdf ? 'application/pdf' : (mime || 'image/jpeg');
+      let parsed = [];
+      try {
+        parsed = await parseBankFileWithAI(base64, mediaType);
+      } catch (err) {
+        console.error('[StayOps] parseBankFileWithAI threw:', err);
+        globalThis.showBanner('AI extraction failed — see console', 'warn');
+        return;
+      }
+      await processParsed(parsed, (isPdf ? 'PDF' : 'image') + ' via AI');
+    };
+    reader.readAsDataURL(file);
+  } else {
+    reader.onload = async (e) => {
+      const fileText = e.target && e.target.result ? String(e.target.result) : '';
+      const parsed = await parseCSV(fileText);
+      await processParsed(parsed, fileText.length + ' chars of CSV');
+    };
+    reader.readAsText(file);
+  }
 }
 
 function bankImportOnPropChange(i) {
