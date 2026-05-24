@@ -17,7 +17,7 @@ import {
   skipTransaction,
   logImportSession,
 } from './bank-import.js';
-import { findMatchesForTransaction, getReconciliationSummary, getAllTransactionsWithStatus } from './reconciliation.js';
+import { findMatchesForTransaction, getReconciliationSummary, getAllTransactionsWithStatus, findPayoutMatchesForBankTransaction, linkTransactionToPayout } from './reconciliation.js';
 import { bookings, cleans, expenses, replaceArrayInPlace } from './state.js';
 import { escHtml, fmt, fmt2, fyLabel, fyMonths, escapeJsSingleQuotedHtmlAttr, fadeTransition } from './utils.js';
 import { renderPortfolioFinance, isPortfolioMode } from './property.js';
@@ -4750,19 +4750,29 @@ async function renderReconciliationView() {
     return;
   }
 
-  // Compute totals per status
-  const totals = { matched: 0, unaccounted: 0, personal: 0, skipped: 0 };
+  // Compute totals per status (Phase 2c: matched_payout is the new credit-side
+  // status — money in that's tied to a Phase 1 platform_payouts row).
+  const totals = { matched: 0, matched_payout: 0, unaccounted: 0, personal: 0, skipped: 0 };
   for (const t of _reconTxns) {
     totals[t.status] = (totals[t.status] || 0) + Math.abs(t.amount);
   }
+  const hasAnyCredits = _reconTxns.some(t => t.direction === 'credit');
 
-  // Render summary bar
+  // Render summary bar — Payouts tile only shows when there's at least one
+  // credit on file, so existing expense-only users keep the same layout.
+  const payoutsTile = hasAnyCredits
+    ? `<div style="flex:1;min-width:100px;background:#E3F2FD;border-radius:8px;padding:8px 12px;text-align:center">
+         <div style="font-size:18px;font-weight:600;color:#1565C0">$${_fmtAud(totals.matched_payout)}</div>
+         <div style="font-size:11px;color:#1976D2">Payouts</div>
+       </div>`
+    : '';
   summaryBar.innerHTML = `
     <div style="display:flex;gap:8px;padding:0 16px;margin:0 auto 12px;max-width:560px;flex-wrap:wrap">
       <div style="flex:1;min-width:100px;background:#E8F5E9;border-radius:8px;padding:8px 12px;text-align:center">
         <div style="font-size:18px;font-weight:600;color:#2E7D32">$${_fmtAud(totals.matched)}</div>
         <div style="font-size:11px;color:#388E3C">Matched</div>
       </div>
+      ${payoutsTile}
       <div style="flex:1;min-width:100px;background:#FFF3E0;border-radius:8px;padding:8px 12px;text-align:center">
         <div style="font-size:18px;font-weight:600;color:#E65100">$${_fmtAud(totals.unaccounted)}</div>
         <div style="font-size:11px;color:#F57C00">Unaccounted</div>
@@ -4781,9 +4791,13 @@ async function renderReconciliationView() {
 }
 
 function renderReconciliationFilters(container) {
+  // Only surface the Payouts pill when there's at least one credit row,
+  // otherwise it's noise for expense-only users.
+  const hasAnyCredits = (_reconTxns || []).some(t => t.direction === 'credit');
   const pills = [
     { key: 'all', label: 'All' },
     { key: 'matched', label: 'Matched' },
+    ...(hasAnyCredits ? [{ key: 'matched_payout', label: 'Payouts' }] : []),
     { key: 'unaccounted', label: 'Unaccounted' },
     { key: 'personal', label: 'Personal' },
     { key: 'skipped', label: 'Skipped' },
@@ -4828,6 +4842,16 @@ function renderReconciliationList(container) {
       const merchant = escHtml(t.expenseMerchant || 'Linked expense');
       badge = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#2E7D32"><span style="width:6px;height:6px;border-radius:50%;background:#4CAF50;display:inline-block"></span> ${merchant}</span>`;
       rightInfo = badge;
+    } else if (t.status === 'matched_payout') {
+      // Phase 2c: credit reconciled to a Phase 1 platform_payouts row.
+      const p = t.payout || {};
+      const platformLabel = escHtml((p.platform || 'platform').replace('_', '.'));
+      const refLabel = escHtml(p.payoutReference || 'no ref');
+      badge = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#1565C0"><span style="width:6px;height:6px;border-radius:50%;background:#2196F3;display:inline-block"></span> ${platformLabel} · ${refLabel}</span>`;
+      rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+        ${badge}
+        ${p.payoutDate ? `<span style="font-size:10px;color:var(--muted-2)">Payout ${escHtml(p.payoutDate)}</span>` : ''}
+      </div>`;
     } else if (t.status === 'personal') {
       badge = `<span style="display:inline-block;font-size:11px;background:#ECEFF1;color:#546E7A;border-radius:4px;padding:2px 8px">Personal</span>`;
       rightInfo = badge;
@@ -4835,13 +4859,22 @@ function renderReconciliationList(container) {
       badge = `<span style="display:inline-block;font-size:11px;background:#ECEFF1;color:#546E7A;border-radius:4px;padding:2px 8px">Skipped</span>`;
       rightInfo = badge;
     } else {
-      badge = `<span style="display:inline-block;font-size:11px;background:#FFF3E0;color:#E65100;border-radius:4px;padding:2px 8px;margin-bottom:4px">Unaccounted</span>`;
+      // Unaccounted — but credits and debits get different match buttons.
+      // A credit is a deposit (Airbnb payout etc.); matching to an expense
+      // makes no sense, so we route to platform_payouts instead.
+      const isCredit = t.direction === 'credit';
+      badge = `<span style="display:inline-block;font-size:11px;background:#FFF3E0;color:#E65100;border-radius:4px;padding:2px 8px;margin-bottom:4px">${isCredit ? 'Unmatched deposit' : 'Unaccounted'}</span>`;
       const safeDesc = escapeJsSingleQuotedHtmlAttr(t.description || '');
       const rawAmt = Math.abs(t.amount).toFixed(2);
       const rawDate = t.date || '';
-      rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badge}
-        <button onclick="reconMatchExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}')" style="font-size:11px;color:#1D9E75;background:none;border:1px solid #1D9E75;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Match Expense</button>
-        <button onclick="reconCreateExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}','${safeDesc}')" style="font-size:11px;color:#185FA5;background:none;border:1px solid #185FA5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Create New</button></div>`;
+      if (isCredit) {
+        rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badge}
+          <button onclick="reconMatchPayout('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}','${safeDesc}')" style="font-size:11px;color:#1565C0;background:none;border:1px solid #1565C0;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Match Payout</button></div>`;
+      } else {
+        rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badge}
+          <button onclick="reconMatchExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}')" style="font-size:11px;color:#1D9E75;background:none;border:1px solid #1D9E75;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Match Expense</button>
+          <button onclick="reconCreateExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}','${safeDesc}')" style="font-size:11px;color:#185FA5;background:none;border:1px solid #185FA5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Create New</button></div>`;
+      }
     }
 
     return `<div style="background:#fff;border-radius:10px;padding:12px 14px;margin-bottom:8px;border:0.5px solid rgba(0,0,0,0.06);display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
@@ -4922,6 +4955,107 @@ async function reconMatchExpense(txnId, date, amount) {
   document.body.style.overflow = 'hidden';
 }
 globalThis.reconMatchExpense = reconMatchExpense;
+
+/**
+ * Phase 2c: show platform_payouts within ±5 days / ±$1 of an unaccounted
+ * bank CREDIT and let the user pick one to link. Mirrors reconMatchExpense.
+ */
+async function reconMatchPayout(txnId, date, amount, description) {
+  const amt = Number(amount);
+  if (!Number.isFinite(amt) || amt <= 0) { globalThis.showBanner('Invalid amount', 'warn'); return; }
+  const txnDate = new Date(date + 'T00:00:00');
+  if (Number.isNaN(txnDate.getTime())) { globalThis.showBanner('Invalid date', 'warn'); return; }
+
+  const user = await getCurrentSupabaseUser();
+  if (!user) { globalThis.showBanner('Sign in to match payouts', 'warn'); return; }
+
+  const matches = await findPayoutMatchesForBankTransaction(
+    { id: txnId, date, amount: amt, description: description || '' },
+    user.id
+  );
+
+  if (!matches.length) {
+    globalThis.showBanner('No platform payouts within ±5 days / ±$1 — paste the statement in Finance → Transaction Map first', 'warn');
+    return;
+  }
+
+  const list = matches.slice(0, 8).map(m => {
+    const p = m.payout;
+    const platformLabel = escHtml((p.platform || 'platform').replace('_', '.'));
+    const refLabel = escHtml(p.payout_reference || '(no ref)');
+    const pAmt = Number(p.net_amount) || 0;
+    const exactBadge = Math.abs(pAmt - amt) < 0.02
+      ? '<span style="color:#1565C0;font-weight:600;font-size:10px;margin-left:4px">exact match</span>'
+      : '';
+    const pid = escapeJsSingleQuotedHtmlAttr(String(p.id));
+    const txnIdEsc = escapeJsSingleQuotedHtmlAttr(String(txnId));
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:0.5px solid rgba(0,0,0,0.06);cursor:pointer" onclick="reconLinkToPayout('${txnIdEsc}','${pid}')">
+      <div style="min-width:0;flex:1">
+        <div style="font-size:13px;font-weight:500;color:var(--text)">${platformLabel} · ${refLabel}${exactBadge}</div>
+        <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${escHtml(p.payout_date || '?')} · $${_fmtAud(pAmt)} · score ${m.score}</div>
+      </div>
+      <div style="flex-shrink:0;margin-left:8px;color:#1565C0;font-size:12px;font-weight:600">Link →</div>
+    </div>`;
+  }).join('');
+
+  let overlay = document.getElementById('recon-match-overlay');
+  if (!overlay) { overlay = document.createElement('div'); overlay.id = 'recon-match-overlay'; document.body.appendChild(overlay); }
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.4);display:flex;align-items:flex-end;justify-content:center';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:16px 16px 0 0;width:100%;max-width:500px;max-height:70vh;overflow-y:auto;padding:20px 16px 24px;animation:settingsPanelIn 0.28s cubic-bezier(0.32,0.72,0,1)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--primary)">Match to Platform Payout</div>
+          <div style="font-size:12px;color:var(--muted-2);margin-top:2px">Deposit: $${_fmtAud(amt)} on ${fmt(date)}</div>
+        </div>
+        <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--surface2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted-2)">×</button>
+      </div>
+      <div style="font-size:12px;color:var(--muted-2);margin-bottom:10px">${matches.length} candidate${matches.length !== 1 ? 's' : ''} — tap to link</div>
+      ${list}
+      <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--surface2);color:var(--muted-2);font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Cancel</button>
+    </div>`;
+  document.body.style.overflow = 'hidden';
+}
+globalThis.reconMatchPayout = reconMatchPayout;
+
+/** Link a bank credit row to a platform_payouts row and update UI in place. */
+async function reconLinkToPayout(txnId, payoutId) {
+  const result = await linkTransactionToPayout(txnId, payoutId);
+  if (!result.success) {
+    globalThis.showBanner('⚠ Link failed — see console', 'warn');
+    return;
+  }
+  const overlay = document.getElementById('recon-match-overlay');
+  if (overlay) overlay.style.display = 'none';
+  document.body.style.overflow = '';
+  globalThis.showBanner('✓ Deposit linked to payout', 'ok');
+
+  // Patch the in-memory row so the list updates without a full refetch.
+  const txn = _reconTxns.find(t => String(t.id) === String(txnId));
+  if (txn) {
+    txn.status = 'matched_payout';
+    // Fetch the payout fields we display so the badge renders correctly
+    if (window._sb) {
+      const { data } = await window._sb
+        .from('platform_payouts')
+        .select('id, platform, payout_reference, payout_date, net_amount')
+        .eq('id', payoutId)
+        .maybeSingle();
+      if (data) {
+        txn.payout = {
+          id: data.id,
+          platform: data.platform || null,
+          payoutReference: data.payout_reference || null,
+          payoutDate: data.payout_date || null,
+          netAmount: Number(data.net_amount) || 0,
+        };
+      }
+    }
+  }
+  // Full re-render so summary tile + filter pills + list all reflect the change
+  await renderReconciliationView();
+}
+globalThis.reconLinkToPayout = reconLinkToPayout;
 
 /** Link a bank transaction to an existing expense */
 async function reconLinkToExpense(txnId, expenseId) {
