@@ -3230,6 +3230,7 @@ function addExpense(opts = {}) {
     category,
     receiptType: opts.receiptType || document.getElementById('exp-receipt-type').value,
     receiptNum: opts.receiptNum || document.getElementById('exp-receipt-num').value.trim(),
+    taxNote: opts.taxNote || (document.getElementById('exp-tax-note')?.value.trim() || ''),
     photo: null,  // never store in localStorage — too large, causes silent crash
     awaitingReceipt: photoForUpload ? false : (opts.awaitingReceipt || false),
     driveLink: null,
@@ -3264,7 +3265,7 @@ function addExpense(opts = {}) {
 
   if (!opts.silent) {
     // Clear all form fields
-    ['exp-merchant','exp-description','exp-amount','exp-receipt-num'].forEach(id => {
+    ['exp-merchant','exp-description','exp-amount','exp-receipt-num','exp-tax-note'].forEach(id => {
       const el = document.getElementById(id); if (el) el.value = '';
     });
     const refundReset = document.getElementById('exp-is-refund');
@@ -3554,6 +3555,8 @@ function openExpenseEdit(id) {
   if (eeRefund) eeRefund.checked = eeAmt < 0;
   document.getElementById('ee-date').value = e.date || '';
   document.getElementById('ee-receipt-num').value = e.receiptNum || '';
+  const eeTaxNote = document.getElementById('ee-tax-note');
+  if (eeTaxNote) eeTaxNote.value = e.taxNote || '';
   const eeHidden = document.getElementById('ee-category');
   if (eeHidden) eeHidden.value = e.category || '';
   renderExpenseCatPickerFor('ee');
@@ -3646,6 +3649,7 @@ async function saveExpenseEdit() {
   e.category = document.getElementById('ee-category').value;
   e.receiptType = document.getElementById('ee-receipt-type').value;
   e.receiptNum = document.getElementById('ee-receipt-num').value.trim();
+  e.taxNote = (document.getElementById('ee-tax-note')?.value || '').trim();
   const prevBookingId = e.bookingId || null;
   e.bookingId = document.getElementById('ee-booking-link')?.value || null;
 
@@ -3755,7 +3759,22 @@ function getExpenseCats() {
 }
 globalThis.getExpenseCats = getExpenseCats;
 
-const EXPENSE_SUBCATS = {};
+// Subcategories rendered as <optgroup> children under the parent category in
+// the picker. Keep the parent value selectable as "<parent> (general)" so
+// pre-existing rows that just say "Mortgage" or "Furnishings & Linen" stay
+// valid — only new entries need to pick a subcat.
+//
+// Mortgage split: interest is a P&L expense, principal is a balance-sheet
+// item, fees are sometimes deductible. Lumping them all under "Mortgage"
+// inflates costs in the P&L. Split them so the accountant export is honest.
+//
+// Furnishings split: linen/towels are consumables; furniture and appliances
+// are usually depreciable capital assets — they need to be tracked separately
+// for the depreciation schedule.
+const EXPENSE_SUBCATS = {
+  'Mortgage': ['Interest', 'Principal', 'Bank/Loan Fees'],
+  'Furnishings & Linen': ['Linen & Towels', 'Furniture', 'Appliances'],
+};
 
 function renderExpenseCatPickerFor(prefix) {
   prefix = prefix || 'exp';

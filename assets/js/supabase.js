@@ -888,6 +888,15 @@ async function loadExpensesFromCloud() {
       driveLink:   normalizeDriveLinks(e.drive_link),
       photo:       e.photo || null,
       bookingId:   e.booking_id   || null,
+      // Phase 0 finance scaffolding:
+      taxNote:                e.tax_note || '',
+      paidBy:                 e.paid_by || 'host',
+      recoverableFromOwner:   e.recoverable_from_owner === true,
+      // Surface existing reconciliation columns so consumers can read them
+      // without going through the raw cloud row:
+      reconciled:             e.reconciled === true,
+      bank_transaction_id:    e.bank_transaction_id || null,
+      paymentStatus:          e.payment_status || 'unknown',
     }));
   } catch (e) {
     console.warn('[StayOps] loadExpensesFromCloud failed', e);
@@ -980,6 +989,10 @@ export async function saveExpenseToCloud(expense) {
         ? JSON.stringify(expense.driveLink)
         : (typeof expense.driveLink === 'string' && expense.driveLink ? expense.driveLink : ''),
       booking_id:   expense.bookingId || null,
+      // Phase 0 finance scaffolding (nullable / safe defaults in DB):
+      tax_note:                 expense.taxNote || null,
+      paid_by:                  expense.paidBy || 'host',
+      recoverable_from_owner:   expense.recoverableFromOwner === true,
       updated_at:   new Date().toISOString()
     };
     if (expense._cloudId) {
