@@ -50,10 +50,12 @@ function scoreExpenseToTransaction(expenseDate, expenseAmount, txnDate, txnAmoun
     return { score: 100, matchReason: 'Exact date and amount' };
   }
   if (days === 1 && exactAmt) {
-    return { score: 80, matchReason: 'Date within 1 day, exact amount' };
+    // Closer dates score higher. Previously 1-day=80 and 2-3 day=85 (inverted),
+    // which caused worse matches to outrank better ones.
+    return { score: 90, matchReason: 'Date within 1 day, exact amount' };
   }
   if (days >= 2 && days <= 3 && exactAmt) {
-    return { score: 85, matchReason: 'Date within 2-3 days, exact amount' };
+    return { score: 80, matchReason: 'Date within 2-3 days, exact amount' };
   }
   if (days === 0 && !exactAmt) {
     return { score: 50, matchReason: 'Exact date, amount within $0.50' };

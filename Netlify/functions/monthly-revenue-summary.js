@@ -71,9 +71,12 @@ function fmtDollar(n) {
 }
 
 async function sumBookingsForProperty(supabaseAdmin, propertyId, firstDay, lastDay) {
+  // Use host_payout (what the host actually receives) instead of total_price
+  // (which includes platform fees). Frontend dashboards use host_payout, so the
+  // monthly email number must match — otherwise hosts see inflated numbers.
   const { data, error } = await supabaseAdmin
     .from('bookings')
-    .select('total_price')
+    .select('host_payout')
     .eq('property_id', propertyId)
     .gte('checkin', firstDay)
     .lte('checkin', lastDay)
@@ -83,7 +86,7 @@ async function sumBookingsForProperty(supabaseAdmin, propertyId, firstDay, lastD
   const rows = Array.isArray(data) ? data : [];
   let gross = 0;
   for (const r of rows) {
-    gross += Number(r.total_price) || 0;
+    gross += Number(r.host_payout) || 0;
   }
   return { gross, bookingCount: rows.length };
 }

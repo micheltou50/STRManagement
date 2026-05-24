@@ -2351,8 +2351,8 @@ function renderMaintenance() {
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <div style="flex:1">
           <span class="maint-status-badge maint-${m.status}">${m.status==='open'?'🔴 Open':m.status==='inprogress'?'🔄 In Progress':'✅ Resolved'}</span>
-          <div style="font-weight:600;font-size:14px;margin-top:4px">${m.description}</div>
-          ${m.contractor?`<div style="font-size:12px;color:var(--muted-2);margin-top:2px">👤 ${m.contractor}</div>`:''}
+          <div style="font-weight:600;font-size:14px;margin-top:4px">${escHtml(m.description)}</div>
+          ${m.contractor?`<div style="font-size:12px;color:var(--muted-2);margin-top:2px">👤 ${escHtml(m.contractor)}</div>`:''}
           <div style="font-size:12px;color:var(--muted-2);margin-top:1px">${fmt(m.date)}${m.cost?` · $${Number(m.cost).toFixed(2)}`:''}
           </div>
         </div>
@@ -2467,7 +2467,7 @@ function renderInventory() {
       <div onclick="restockItem('${i.id}')" style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--hairline-2);cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
         <div style="width:22px;height:22px;border-radius:5px;border:2px solid var(--hairline-1);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--moss)">+</div>
         <div>
-          <div style="font-weight:600;font-size:14px">${i.name}${i.unit?` <span style="font-size:12px;font-weight:400;color:var(--muted-2)">(${i.unit})</span>`:''}</div>
+          <div style="font-weight:600;font-size:14px">${escHtml(i.name)}${i.unit?` <span style="font-size:12px;font-weight:400;color:var(--muted-2)">(${escHtml(i.unit)})</span>`:''}</div>
           <div style="font-size:11px;color:var(--muted-2);margin-top:2px">Stock: ${i.stock} · Reorder below ${i.threshold}</div>
         </div>
       </div>`).join('') + `</div>`;
@@ -2481,8 +2481,8 @@ function renderInventory() {
     return `
     <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--hairline-2);gap:8px">
       <div style="flex:1;min-width:0">
-        <div style="font-weight:600;font-size:14px;color:${isLow?'var(--red)':'var(--text)'}">${i.name}${isLow?' ⚠':''}</div>
-        <div style="font-size:12px;color:var(--muted-2);margin-top:1px">Reorder below ${i.threshold}${i.unit?' '+i.unit:''}</div>
+        <div style="font-weight:600;font-size:14px;color:${isLow?'var(--red)':'var(--text)'}">${escHtml(i.name)}${isLow?' ⚠':''}</div>
+        <div style="font-size:12px;color:var(--muted-2);margin-top:1px">Reorder below ${i.threshold}${i.unit?' '+escHtml(i.unit):''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
         <button onclick="adjustStock('${i.id}',-1)" style="width:30px;height:30px;border-radius:50%;border:1px solid var(--hairline-1);background:white;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;flex-shrink:0">−</button>
@@ -3420,7 +3420,7 @@ function renderCleanerInventory() {
   if (lowItems.length) {
     html += `<div class="card" style="margin-bottom:12px;border-left:4px solid var(--amber)">
       <div style="font-size:12px;font-weight:600;color:var(--amber);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">⚠ Needs Restocking</div>
-      <div style="font-size:13px;color:var(--muted-2)">${lowItems.map(i=>`<strong>${i.name}</strong>`).join(', ')} ${lowItems.length===1?'is':'are'} running low</div>
+      <div style="font-size:13px;color:var(--muted-2)">${lowItems.map(i=>`<strong>${escHtml(i.name)}</strong>`).join(', ')} ${lowItems.length===1?'is':'are'} running low</div>
     </div>`;
   }
   if (!inventory.length) {
@@ -3430,8 +3430,8 @@ function renderCleanerInventory() {
       const isLow = i.stock <= i.threshold;
       return `<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--hairline-2);gap:8px">
         <div style="flex:1;min-width:0">
-          <div style="font-weight:600;font-size:14px;color:${isLow?'var(--red)':'var(--text)'}">${i.name}${isLow?' ⚠':''}</div>
-          ${i.unit?`<div style="font-size:11px;color:var(--muted-2);margin-top:2px">${i.unit}</div>`:''}
+          <div style="font-weight:600;font-size:14px;color:${isLow?'var(--red)':'var(--text)'}">${escHtml(i.name)}${isLow?' ⚠':''}</div>
+          ${i.unit?`<div style="font-size:11px;color:var(--muted-2);margin-top:2px">${escHtml(i.unit)}</div>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
           <button onclick="cleanerAdjustStock('${i.id}',-1)" style="width:36px;height:36px;border-radius:50%;border:1.5px solid var(--hairline-1);background:white;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">−</button>

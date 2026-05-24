@@ -1041,8 +1041,12 @@ globalThis._selectDispatchClean = function(bookingId, cleanId) {
   if (!b) { panel.innerHTML = '<div class="dispatch-panel-hdr">Details</div><div class="dispatch-detail-empty">Booking not found</div>'; return; }
 
   const fmtD = d => { if (!d) return '—'; return new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' }); };
-  const cleanerName = c && c.cleaner_id ? ((window._cleaners || []).find(cl => String(cl.id) === String(c.cleaner_id))?.name || 'Unknown') : 'Unassigned';
-  const statusLabel = c ? (c.cleanerConfirmed ? 'Confirmed' : c.cleaner_id ? 'Awaiting' : 'Unassigned') : 'Unknown';
+  // loadCleansFromCloud maps the DB cleaner_id column to cleanerId (camelCase).
+  // Accept both so this works whether the clean came from cloud hydration or a
+  // server response that uses snake_case.
+  const cId = c && (c.cleanerId || c.cleaner_id);
+  const cleanerName = cId ? ((window._cleaners || []).find(cl => String(cl.id) === String(cId))?.name || 'Unknown') : 'Unassigned';
+  const statusLabel = c ? (c.cleanerConfirmed ? 'Confirmed' : cId ? 'Awaiting' : 'Unassigned') : 'Unknown';
   const statusColor = statusLabel === 'Confirmed' ? 'var(--moss)' : statusLabel === 'Awaiting' ? 'var(--warn)' : 'var(--red)';
 
   panel.innerHTML = '<div class="dispatch-panel-hdr">Details</div>' +

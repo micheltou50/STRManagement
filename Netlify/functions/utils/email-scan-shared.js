@@ -70,8 +70,12 @@ function looksLikeBookingEmail(subject, from, body) {
   const bookingPlatforms = ['airbnb.com', 'booking.com', 'vrbo.com', 'homeaway.com', 'stayz.com', 'expedia.com'];
   const isFromPlatform = bookingPlatforms.some(p => fromLo.includes(p));
 
-  // Allow the test address through unconditionally
-  if (fromLo.includes('mtoubia96@gmail.com')) return true;
+  // Optional dev bypass — set EMAIL_SCAN_DEV_BYPASS_FROM (comma-separated addresses)
+  // in Netlify env to allow specific senders through without keyword matching.
+  // Production should leave this unset.
+  const devBypass = (process.env.EMAIL_SCAN_DEV_BYPASS_FROM || '')
+    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  if (devBypass.length && devBypass.some(addr => fromLo.includes(addr))) return true;
 
   // If the sender isn't a known booking platform, definitely not a booking email
   if (!isFromPlatform) return false;

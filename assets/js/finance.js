@@ -4310,22 +4310,22 @@ function exportReportCSV() {
   const propertyBookings = _financeScopedBookings();
   const propertyExpenses = _financeScopedExpenses();
 
-  // Revenue table
+  // Revenue table — excludes cancelled bookings to stay consistent with on-screen reports.
   rows.push(['Revenue by Month & Platform']);
   rows.push(['Month','Airbnb','VRBO','Direct','Total']);
   months.forEach(({year,month}) => {
-    const bs = propertyBookings.filter(b => { const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; });
+    const bs = propertyBookings.filter(b => b.status !== 'cancelled' && (()=>{ const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; })());
     const rev = p => bs.filter(b=>_canonicalPlatformName(b.platform)===p).reduce((s,b)=>s+Number(b.hostPayout||0),0);
     const total = bs.reduce((s,b)=>s+Number(b.hostPayout||0),0);
     rows.push([mo[month], rev('Airbnb')||'', rev('VRBO')||'', rev('Direct')||'', total||'']);
   });
   rows.push([]);
 
-  // Occupancy table
+  // Occupancy table — also excludes cancelled bookings.
   rows.push(['Occupancy & Performance']);
   rows.push(['Month','Available Nights','Booked Nights','Occupancy%','ADR','RevPAR']);
   months.forEach(({year,month}) => {
-    const bs = propertyBookings.filter(b => { const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; });
+    const bs = propertyBookings.filter(b => b.status !== 'cancelled' && (()=>{ const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; })());
     const avail = new Date(year,month+1,0).getDate();
     const booked = bs.reduce((s,b)=>s+Number(b.nights||0),0);
     const rev = bs.reduce((s,b)=>s+Number(b.hostPayout||0),0);
@@ -6091,6 +6091,10 @@ async function savePayoutFromPasteModal() {
     const net = gross + platformFee + adjustments;
 
     const savedPayout = await savePlatformPayout({
+      // Scope payouts to the active property so per-property revenue/reconciliation
+      // queries can find them. Without this, payouts land with property_id=NULL
+      // and silently disappear from property-filtered reports.
+      propertyId: _financeActiveCloudPropertyId() || null,
       platform: payout.platform || platformSel,
       payoutReference: payout.payoutReference || null,
       payoutDate: payout.payoutDate || new Date().toISOString().split('T')[0],

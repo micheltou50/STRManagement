@@ -173,11 +173,21 @@ exports.handler = async (event) => {
     const afterDate = new Date(Date.now() - searchDays * 24 * 60 * 60 * 1000);
     const afterStr = afterDate.toISOString().split('T')[0].replace(/-/g, '/');
 
-    const senders = 'from:(airbnb.com OR vrbo.com OR homeaway.com OR messages.homeaway.com OR booking.com OR stayz.com OR expedia.com OR mtoubia96@gmail.com)';
+    // Booking platform senders. Additional senders can be added per-deployment via
+    // GMAIL_SCAN_EXTRA_SENDERS env var (comma-separated addresses). Production
+    // should leave this unset; the booking platforms list covers normal use.
+    const baseSenders = ['airbnb.com', 'vrbo.com', 'homeaway.com', 'messages.homeaway.com', 'booking.com', 'stayz.com', 'expedia.com'];
+    const extraSenders = (process.env.GMAIL_SCAN_EXTRA_SENDERS || '')
+      .split(',').map(s => s.trim()).filter(Boolean);
+    const allSenders = [...baseSenders, ...extraSenders];
+    const senders = 'from:(' + allSenders.join(' OR ') + ')';
     const searchQueries = [
       senders + ' subject:(reservation OR booking OR confirmed OR cancelled OR canceled OR modified OR updated OR alteration OR request OR arrival) after:' + afterStr,
-      'from:mtoubia96@gmail.com after:' + afterStr,
     ];
+    // Extra senders also get an unfiltered (any-subject) pass.
+    if (extraSenders.length) {
+      searchQueries.push('from:(' + extraSenders.join(' OR ') + ') after:' + afterStr);
+    }
 
     const allMessageIds = new Set();
     let gmailAuthFailed = false;

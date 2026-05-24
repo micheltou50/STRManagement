@@ -1549,6 +1549,11 @@ async function loadBookingsFromCloud() {
       status:           b.status       || 'confirmed',
       cleanerConfirmed: b.cleaner_confirmed || false,
       source:           b.source        || 'sheet',
+      // iCal stub fields — used by booking-list-card.js to show the
+      // "Reserved — awaiting details" pulse badge while enrichment is pending.
+      enrichment_status: b.enrichment_status || null,
+      ical_uid:          b.ical_uid          || null,
+      ical_feed_id:      b.ical_feed_id      || null,
       phone:            b.phone         || '',
       email:            b.email         || '',
       updatedAt:        b.updated_at    || '',

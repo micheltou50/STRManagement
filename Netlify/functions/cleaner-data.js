@@ -62,12 +62,15 @@ exports.handler = async (event) => {
     // 3. Get cleans assigned to this cleaner (recent + future)
     const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const cleanerName = cleaner.name || '';
-    // Match by cleaner_id OR cleaner name
+    // Match by cleaner_id primarily. Fall back to legacy name match ONLY for
+    // cleans where cleaner_id is NULL (otherwise two cleaners with the same
+    // first name cross-pollute each other's schedules).
     const cleansRes = await fetch(
       SUPABASE_URL + '/rest/v1/cleans?user_id=eq.' + enc(uid) +
         '&clean_date=gte.' + enc(twoDaysAgo) +
         '&done=eq.false' +
-        '&or=(cleaner_id.eq.' + enc(cleanerId) + ',cleaner.eq.' + enc(cleanerName) + ')' +
+        '&or=(cleaner_id.eq.' + enc(cleanerId) +
+        ',and(cleaner_id.is.null,cleaner.eq.' + enc(cleanerName) + '))' +
         '&select=*&order=clean_date.asc',
       { headers }
     );
@@ -126,7 +129,7 @@ exports.handler = async (event) => {
         email: cleaner.email || '',
         phone: cleaner.phone || '',
         role: cleaner.role || 'Cleaner',
-        pin: cleaner.pin || '',
+        // PIN intentionally NOT returned — server-side check belongs on the auth path, not in a data feed.
         permissions: permissions,
       },
       cleans: (Array.isArray(cleans) ? cleans : []).map(c => ({

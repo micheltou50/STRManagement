@@ -28,8 +28,16 @@ self.addEventListener('notificationclick', event => {
   const url = event.notification.data?.url || '/';
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      // Prefer an existing app window; navigate it to the notification's URL so
+      // the user lands on the intended screen (previously we focused without
+      // navigating, leaving the user wherever they last were).
       for (const c of list) {
-        if ('focus' in c) return c.focus();
+        if (c.url && c.url.startsWith(self.location.origin)) {
+          if ('navigate' in c) {
+            return c.navigate(url).then(() => c.focus()).catch(() => c.focus());
+          }
+          return c.focus();
+        }
       }
       if (clients.openWindow) return clients.openWindow(url);
     })
