@@ -884,7 +884,7 @@ async function loadExpensesFromCloud() {
       receiptNum:  e.receipt_num  || '',
       receiptType: e.receipt_type || '',
       driveLink:   normalizeDriveLinks(e.drive_link),
-      photo:       e.receipt_photo || null,
+      photo:       e.photo || null,
       bookingId:   e.booking_id   || null,
     }));
   } catch (e) {
@@ -977,21 +977,39 @@ export async function saveExpenseToCloud(expense) {
       drive_link:   Array.isArray(expense.driveLink) && expense.driveLink.length
         ? JSON.stringify(expense.driveLink)
         : (typeof expense.driveLink === 'string' && expense.driveLink ? expense.driveLink : ''),
-      receipt_photo: expense.photo || expense.receipt_photo || null,
       booking_id:   expense.bookingId || null,
       updated_at:   new Date().toISOString()
     };
     if (expense._cloudId) {
-      await window._sb.from('expenses').upsert({ id: expense._cloudId, ...payload });
+      const { data, error } = await window._sb
+        .from('expenses')
+        .upsert({ id: expense._cloudId, ...payload })
+        .select().single();
+      if (error) {
+        console.warn('[StayOps] saveExpenseToCloud upsert(by id) error', error);
+        _queueExpenseForRetry(expense);
+        if (typeof globalThis.showBanner === 'function') {
+          globalThis.showBanner('⚠ Expense changes queued — cloud sync will retry', 'warn');
+        }
+        return null;
+      }
+      return data || expense;
     } else {
-      const { data } = await window._sb
+      const { data, error } = await window._sb
         .from('expenses')
         .upsert(payload, { onConflict: 'local_id,user_id' })
         .select().single();
+      if (error) {
+        console.warn('[StayOps] saveExpenseToCloud upsert(by local_id) error', error);
+        _queueExpenseForRetry(expense);
+        if (typeof globalThis.showBanner === 'function') {
+          globalThis.showBanner('⚠ Expense saved locally — cloud sync will retry', 'warn');
+        }
+        return null;
+      }
       if (data) expense._cloudId = data.id;
       return data;
     }
-    return expense;
   } catch (e) {
     console.warn('[StayOps] saveExpenseToCloud failed', e);
     _queueExpenseForRetry(expense);

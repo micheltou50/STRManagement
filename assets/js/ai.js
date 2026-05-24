@@ -462,14 +462,38 @@ async function fetchExpenseSuggestion(prefix, { merchant, amount, date }) {
       max_tokens: 300,
       messages: [{
         role: 'user',
-        content: `You are a JSON API for a short-term rental property expense tracker. Return ONLY valid JSON, no markdown.
+        content: `You categorize short-term rental property expenses. Return ONLY valid JSON, no markdown, no commentary.
 
-Expense: merchant="${merchant}", description="${description}", amount=$${amount}, date=${date || 'unknown'}.
-Current category: "${currentCat}"
-Available categories: ${cats.join(', ')}${bookingsCtx}
+EXPENSE TO CATEGORIZE
+- Merchant: "${merchant}"
+- Description: "${description}"
+- Amount: $${amount}
+- Date: ${date || 'unknown'}
+- Currently selected category: "${currentCat || '(none)'}"
 
-Suggest the best match. Return JSON:
-{"bestCategory":"<from the available list>","bestBookingId":"<booking id if this is likely a cleaning or maintenance expense near a checkout, else null>","mgmtNote":"<if bestBookingId has mgmtFee% > 0, write: Linking to [guest] ([X]% fee) will add $${amount} to clean cost. Else null>","confidence":"high or low"}`
+AVAILABLE CATEGORIES (you MUST pick one of these, exact spelling):
+${cats.map(c => '- ' + c).join('\n')}
+
+CATEGORY GUIDE (use the merchant name as the primary signal):
+- Cleaning & Garden → cleaner names (people's names doing cleans), lawn/garden contractors, pool service, cleaning chemicals bought specifically for cleaners
+- Maintenance & Repairs → Bunnings, Mitre 10, hardware stores, plumbers, electricians, handymen, locksmiths, pest control, appliance repair, painters, builders, tradies
+- Supplies & Consumables → Woolworths, Coles, Aldi, IGA, Costco, Kmart, Big W, Target, Officeworks (consumables, toiletries, kitchen/bathroom supplies, paper goods)
+- Utilities → AGL, Origin, EnergyAustralia, Sydney Water, Optus, Telstra, internet/phone/electricity/gas/water bills
+- Council Rates & Strata → council rates, strata levies, body corporate fees
+- Insurance → Terri Scheer, NRMA, AAMI, Allianz, QBE, landlord insurance
+- Mortgage → ANZ, Commonwealth, NAB, Westpac, ING, Macquarie mortgage payments and interest
+- Furnishings & Linen → IKEA, Temple & Webster, Pillow Talk, Bed Bath N Table, Adairs, Spotlight, Harris Scarfe, Beacon Lighting, furniture/decor/linen retailers
+- Professional Services → accountants, lawyers, photographers, property managers, conveyancers, tax agents
+- Advertising → Airbnb service fees, listing fees, marketing, SEO, Google Ads, social media ads
+- Other → only if nothing above fits${bookingsCtx}
+
+RULES
+1. If the currently selected category already matches the merchant correctly, return it as bestCategory (the UI will not show a suggestion).
+2. Only suggest a different category when you are confident the current one is wrong based on the merchant name. Do NOT default to Cleaning & Garden — most expenses are NOT cleaning.
+3. Set bestBookingId only when this is plausibly a cleaning OR maintenance cost for a specific past stay (use checkout date proximity, max 5 days after checkout).
+
+Return EXACTLY this JSON shape:
+{"bestCategory":"<exact label from the list above>","bestBookingId":"<id from the bookings list or null>","mgmtNote":"<if bestBookingId set AND its mgmtFee% > 0: 'Linking to [guest] ([X]% fee) will add $${amount} to clean cost', else null>","confidence":"high or low"}`
       }]
     });
 
