@@ -24,6 +24,7 @@ import {
   isCleanerPerson,
 } from './cleaning.js';
 import { sendCleanerEmail } from './notifications.js';
+import { loadPayoutLinesForBooking } from './supabase.js';
 // ── DASHBOARD CALENDAR STATE ─────────────────────────────────────────────────
 let calYear = new Date().getFullYear();
 let calMonth = new Date().getMonth();
@@ -1043,6 +1044,8 @@ function showEditModal(id) {
     <div style="padding:10px 12px;background:var(--hairline-2);border-radius:var(--radius-sm);font-size:14px;color:var(--muted-2);font-style:italic">
       ${b.platform ? (b.platform === 'Airbnb' ? '🏠 Airbnb' : b.platform === 'VRBO' ? '🏡 VRBO' : '📋 Direct') : 'Not set'}
     </div>
+    <!-- Phase 1d: expected vs received from matched platform payout lines -->
+    <div id="b-payouts-section" style="margin-top:14px"></div>
     <button class="btn-primary" onclick="saveEdit('${safeId}')" id="save-edit-btn">Save & Sync</button>
     <button class="btn-secondary" onclick="closeDetailModal()">Cancel</button>
   `;
@@ -1051,6 +1054,99 @@ function showEditModal(id) {
   setTimeout(() => {
     if (typeof globalThis.attachModalHandleDrag === 'function') globalThis.attachModalHandleDrag();
   }, 50);
+  // Lazy-fetch any platform payout lines linked to this booking and render
+  // them into the placeholder. Non-blocking — modal opens immediately.
+  if (b._cloudId) {
+    _renderBookingPayoutsSection(b._cloudId, Number(b.hostPayout) || 0)
+      .catch(err => console.warn('[StayOps] _renderBookingPayoutsSection failed', err));
+  } else {
+    const el = document.getElementById('b-payouts-section');
+    if (el) el.innerHTML = '';
+  }
+}
+
+/**
+ * Phase 1d: fetch + render the "Expected vs Received" panel inside the
+ * booking detail modal. Shows the expected host_payout (the platform's
+ * promise at confirmation time) vs the sum of all matched payout-line
+ * amounts (what the platform actually paid), with the variance highlighted.
+ */
+async function _renderBookingPayoutsSection(bookingCloudId, expected) {
+  const el = document.getElementById('b-payouts-section');
+  if (!el) return;
+  el.innerHTML = `<div style="background:var(--surface2);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--muted-2);font-family:'Plus Jakarta Sans',sans-serif">⏳ Loading payouts...</div>`;
+
+  let lines = [];
+  try {
+    lines = await loadPayoutLinesForBooking(bookingCloudId);
+  } catch (err) {
+    console.warn('[StayOps] loadPayoutLinesForBooking failed', err);
+    el.innerHTML = `<div style="background:#FDECEA;border-radius:10px;padding:10px 12px;font-size:12px;color:#991B1B;font-family:'Plus Jakarta Sans',sans-serif">⚠ Could not load payouts</div>`;
+    return;
+  }
+
+  if (!lines.length) {
+    el.innerHTML = `
+      <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;font-family:'Plus Jakarta Sans',sans-serif">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:4px">Platform Payouts</div>
+        <div style="font-size:13px;color:var(--ink-1)">No payouts linked yet. <span style="color:var(--muted-2)">Paste a platform statement in Finance → Transaction Map to match payouts to this booking.</span></div>
+      </div>`;
+    return;
+  }
+
+  const received = lines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
+  const variance = Number(expected) - received;
+  const absVar = Math.abs(variance);
+  // Banding: matched (<$1), small (<$25), notable (else)
+  let varColor, varBg, varNote;
+  if (absVar < 1) {
+    varColor = '#166534'; varBg = '#DCFCE7'; varNote = '✓ Matches expected';
+  } else if (absVar < 25) {
+    varColor = '#92400E'; varBg = '#FEF3C7'; varNote = '~ Small variance — likely platform fee/rounding';
+  } else {
+    varColor = '#991B1B'; varBg = '#FEE2E2'; varNote = '⚠ Variance — investigate';
+  }
+  const fmtMoney = (n) => (n < 0 ? '−$' : '$') + Math.abs(Number(n) || 0).toFixed(2);
+
+  const lineRows = lines.map(l => {
+    const p = l._payout || {};
+    const dateStr = p.payoutDate || '';
+    const refStr = p.payoutReference || '(no ref)';
+    const platformStr = p.platform || '?';
+    const amtColor = (Number(l.amount) || 0) < 0 ? '#A32D2D' : '#1D9E75';
+    return `
+      <div style="display:flex;justify-content:space-between;gap:8px;padding:8px 10px;border-bottom:0.5px solid var(--hairline-1);font-family:'Plus Jakarta Sans',sans-serif">
+        <div style="min-width:0;flex:1">
+          <div style="font-size:11px;font-weight:600;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px">${escHtml(l.lineType || 'other')}</div>
+          <div style="font-size:13px;color:var(--ink-1);font-weight:500;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(l.description || '(no description)')}</div>
+          <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${escHtml(platformStr)} · ${escHtml(refStr)}${dateStr ? ' · ' + escHtml(dateStr) : ''}</div>
+        </div>
+        <div style="font-size:14px;font-weight:600;color:${amtColor};flex-shrink:0;align-self:center">${fmtMoney(l.amount)}</div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="background:#fff;border:1px solid var(--hairline-1);border-radius:12px;overflow:hidden;font-family:'Plus Jakarta Sans',sans-serif">
+      <div style="padding:12px 14px;background:var(--surface2);border-bottom:0.5px solid var(--hairline-1)">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:6px">Platform Payouts (${lines.length})</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <div>
+            <div style="font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px">Expected</div>
+            <div style="font-size:15px;font-weight:600;color:var(--ink-1);margin-top:2px">${fmtMoney(expected)}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px">Received</div>
+            <div style="font-size:15px;font-weight:600;color:var(--ink-1);margin-top:2px">${fmtMoney(received)}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px">Variance</div>
+            <div style="font-size:15px;font-weight:600;color:${varColor};margin-top:2px">${fmtMoney(variance)}</div>
+          </div>
+        </div>
+        <div style="margin-top:8px;padding:6px 10px;border-radius:6px;background:${varBg};color:${varColor};font-size:11px;font-weight:500">${varNote}</div>
+      </div>
+      <div>${lineRows}</div>
+    </div>`;
 }
 
 function editCalcNights() {
