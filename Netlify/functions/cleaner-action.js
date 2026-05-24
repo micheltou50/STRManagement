@@ -95,6 +95,26 @@ exports.handler = async (event) => {
       return json(500, { error: 'Update failed' });
     }
 
+    // Phase 5: auto-create a pending expense for the cleaner's fee when the
+    // clean is marked done. Idempotent — repeat 'done' calls won't create
+    // duplicates because we use a deterministic local_id and the existing
+    // expenses_local_id_user_id_key unique constraint with
+    // resolution=ignore-duplicates. Skips silently if the clean has no
+    // cost set (host hasn't entered a cleaner fee yet).
+    let autoExpense = null;
+    if (action === 'done') {
+      autoExpense = await autoCreateExpenseForCleanIfApplicable({
+        SUPABASE_URL,
+        SUPABASE_KEY,
+        uid,
+        cleanLocalId: cleanId,
+        cleanerName: cleaners[0].name,
+      }).catch(err => {
+        console.log('[cleaner-action] autoExpense errored (non-fatal):', err && err.message);
+        return { ok: false, error: String(err && err.message || err) };
+      });
+    }
+
     // Auto-message for the chat
     try {
       const cardTypes = { accept: 'clean_confirmed', decline: 'clean_declined', done: 'clean_complete', acknowledge_cancel: 'cancel_acknowledged' };
@@ -161,7 +181,7 @@ exports.handler = async (event) => {
       console.log('[StayOps] cleaner-action push failed (non-fatal):', pushErr.message);
     }
 
-    return json(200, { ok: true, action });
+    return json(200, { ok: true, action, autoExpense });
 
   } catch (err) {
     console.error('[cleaner-action] Error:', err);
@@ -170,6 +190,153 @@ exports.handler = async (event) => {
     return json(500, { error: 'Internal error' });
   }
 };
+
+/**
+ * Phase 5: when a clean is marked done, create a pending expense for the
+ * cleaner fee so the host has a real expense row to confirm / categorize
+ * / bank-match later. Eliminates the "I forgot to log Megan's payment"
+ * gap that Phase 6 (owner statements) would otherwise compound.
+ *
+ * Behaviour:
+ *  - Looks up the clean row to read cost / property / booking / dates
+ *  - Skips silently if cost is null or <= 0 (no fee set yet, nothing
+ *    meaningful to record)
+ *  - Picks a sensible category from the host's app_config.expense_cats
+ *    (any category whose name contains "clean", case-insensitive),
+ *    falls back to "Cleaning & Garden"
+ *  - Maps cleans.booking_id (TEXT, host's local_id) -> bookings.id (UUID)
+ *    so the expense links into the per-booking Expected vs Received view
+ *  - Uses local_id = "clean-<cleanLocalId>" + ignore-duplicates so the
+ *    second 'done' fires for the same clean are idempotent no-ops
+ *  - Sets paid_by='host', payment_status='pending' so the row is clearly
+ *    distinguishable in the expense list until the host reviews it
+ *
+ * All failures are caught and reported in the return value — never blocks
+ * the cleaner_action primary update.
+ */
+async function autoCreateExpenseForCleanIfApplicable({
+  SUPABASE_URL, SUPABASE_KEY, uid, cleanLocalId, cleanerName,
+}) {
+  const adminHeaders = {
+    apikey: SUPABASE_KEY,
+    Authorization: 'Bearer ' + SUPABASE_KEY,
+  };
+
+  // 1. Fetch the clean (need cost, property_id, booking_id, guest, date)
+  const cleanRes = await fetch(
+    SUPABASE_URL + '/rest/v1/cleans?user_id=eq.' + enc(uid) +
+      '&local_id=eq.' + enc(cleanLocalId) +
+      '&select=cost,property_id,booking_id,guest_name,clean_date&limit=1',
+    { headers: adminHeaders }
+  );
+  if (!cleanRes.ok) {
+    return { ok: false, skipped: true, reason: 'clean_fetch_failed' };
+  }
+  const cleanRows = await cleanRes.json();
+  const clean = Array.isArray(cleanRows) && cleanRows[0];
+  if (!clean) return { ok: false, skipped: true, reason: 'clean_not_found' };
+
+  const cost = Number(clean.cost) || 0;
+  if (cost <= 0) {
+    return { ok: true, skipped: true, reason: 'no_cost_set' };
+  }
+
+  // 2. Map cleans.booking_id (text local_id) -> bookings.id (uuid).
+  //    Non-fatal if it fails — the expense can still be created without
+  //    the booking link; the host can add it manually.
+  let bookingUuid = null;
+  if (clean.booking_id) {
+    try {
+      const bRes = await fetch(
+        SUPABASE_URL + '/rest/v1/bookings?user_id=eq.' + enc(uid) +
+          '&local_id=eq.' + enc(clean.booking_id) +
+          '&select=id&limit=1',
+        { headers: adminHeaders }
+      );
+      if (bRes.ok) {
+        const bRows = await bRes.json();
+        if (Array.isArray(bRows) && bRows[0] && bRows[0].id) {
+          bookingUuid = bRows[0].id;
+        }
+      }
+    } catch (_e) { /* non-fatal */ }
+  }
+
+  // 3. Pick the host's actual "Cleaning" category if they have one.
+  //    Default is "Cleaning & Garden" which matches the seeded DEFAULT_EXPENSE_CATS.
+  let category = 'Cleaning & Garden';
+  try {
+    const cfgRes = await fetch(
+      SUPABASE_URL + '/rest/v1/app_config?user_id=eq.' + enc(uid) +
+        '&select=expense_cats&limit=1',
+      { headers: adminHeaders }
+    );
+    if (cfgRes.ok) {
+      const cfgRows = await cfgRes.json();
+      const cats = cfgRows && cfgRows[0] && cfgRows[0].expense_cats;
+      if (Array.isArray(cats) && cats.length) {
+        const cleanCat = cats.find(c => typeof c === 'string' && /clean/i.test(c));
+        if (cleanCat) category = cleanCat;
+      }
+    }
+  } catch (_e) { /* non-fatal */ }
+
+  // 4. Build the expense payload with deterministic local_id for idempotency.
+  const expenseLocalId = 'clean-' + cleanLocalId;
+  const guestPart = clean.guest_name ? ' for ' + clean.guest_name : '';
+  const payload = {
+    user_id: uid,
+    property_id: clean.property_id || null,
+    local_id: expenseLocalId,
+    date: clean.clean_date || new Date().toISOString().split('T')[0],
+    merchant: cleanerName || 'Cleaner',
+    description: 'Cleaning' + guestPart + ' (auto-created from completed clean)',
+    category,
+    amount: cost,
+    receipt_type: 'missing',
+    receipt_num: '',
+    drive_link: '',
+    booking_id: bookingUuid,
+    paid_by: 'host',
+    recoverable_from_owner: false,
+    payment_status: 'pending',
+    status: 'active',
+  };
+
+  // 5. Insert with ignore-duplicates so repeat 'done' calls are no-ops.
+  const insertRes = await fetch(
+    SUPABASE_URL + '/rest/v1/expenses',
+    {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: 'Bearer ' + SUPABASE_KEY,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=ignore-duplicates,return=representation',
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+  if (!insertRes.ok) {
+    const errText = await insertRes.text();
+    return { ok: false, error: errText };
+  }
+  const inserted = await insertRes.json();
+  const newRow = Array.isArray(inserted) && inserted[0];
+  if (!newRow) {
+    // ignore-duplicates returns empty array when the row already existed
+    return { ok: true, action: 'already_exists', expenseLocalId };
+  }
+  return {
+    ok: true,
+    action: 'created',
+    expenseId: newRow.id,
+    expenseLocalId,
+    amount: cost,
+    category,
+    bookingLinked: !!bookingUuid,
+  };
+}
 
 function enc(s) { return encodeURIComponent(s); }
 function corsHeaders() {
