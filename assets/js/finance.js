@@ -4625,10 +4625,26 @@ function exportTaxCSV() {
   const allExp = _taxFYExpenses(fy);
   const rows = [];
 
-  // Header row
+  // Header row \u2014 extended with the Phase 0 / 2b columns the accountant cares about.
+  // Category is now split into Parent + Subcategory so values like
+  // "Mortgage > Interest" sort cleanly (interest is deductible, principal isn't).
   rows.push([getCurrentPropertyName() + ' \u2014 Tax Export \u2014 ' + fyLabel(fy)]);
   rows.push([]);
-  rows.push(['Date', 'Merchant', 'Description', 'Category', 'ATO Tax Field', 'Amount', 'Receipt Status', 'Reconciled']);
+  rows.push([
+    'Date',
+    'Merchant',
+    'Description',
+    'Category',
+    'Subcategory',
+    'ATO Tax Field',
+    'Amount',
+    'GST',
+    'Paid By',
+    'Recoverable from Owner',
+    'Tax Note',
+    'Receipt Status',
+    'Bank Reconciled',
+  ]);
 
   // Sort by date ascending
   const sorted = allExp.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
@@ -4636,13 +4652,27 @@ function exportTaxCSV() {
     const atoField = getAtoFieldLabel(e.category);
     const receiptStatus = expenseHasReceiptAttached(e) ? 'Yes' : 'No';
     const reconciled = e.reconciled ? 'Yes' : 'No';
+    // Split "Parent > Sub" into two columns; if there's no subcat, leave it empty
+    const catRaw = String(e.category || '');
+    const splitIdx = catRaw.indexOf(' > ');
+    const categoryParent = splitIdx >= 0 ? catRaw.slice(0, splitIdx) : catRaw;
+    const subcategory   = splitIdx >= 0 ? catRaw.slice(splitIdx + 3) : '';
+    const gstStr = (e.gst != null && Number.isFinite(Number(e.gst))) ? Number(e.gst).toFixed(2) : '';
+    const paidBy = e.paidBy || e.paid_by || 'host';
+    const recoverable = (e.recoverableFromOwner === true || e.recoverable_from_owner === true) ? 'Yes' : 'No';
+    const taxNote = e.taxNote || e.tax_note || '';
     rows.push([
       e.date || '',
       e.merchant || '',
       e.description || '',
-      e.category || '',
+      categoryParent,
+      subcategory,
       atoField,
       Number(e.amount || 0).toFixed(2),
+      gstStr,
+      paidBy,
+      recoverable,
+      taxNote,
       receiptStatus,
       reconciled
     ]);
