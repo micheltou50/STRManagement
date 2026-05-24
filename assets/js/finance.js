@@ -5204,6 +5204,15 @@ function _renderStatement() {
   const now = new Date();
   const prepared = now.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
 
+  // Phase 6: detect owner-statement mode for properties the host manages
+  // for someone else. Falls back to the existing host view for self-managed
+  // properties so nothing regresses for users who don't manage for owners.
+  const activeProp = (typeof getAllProperties === 'function' ? getAllProperties() : [])
+    .find(p => p && (p.propertyId === (typeof getActivePropertyId === 'function' ? getActivePropertyId() : null))) || null;
+  const ownerName = activeProp && activeProp.owner && activeProp.owner.name ? String(activeProp.owner.name).trim() : '';
+  const isOwnerManaged = !!(activeProp && activeProp.isSelfManaged === false && ownerName);
+  const mgmtFeeRate = Number((window._appConfig && window._appConfig.mgmt_fee_rate) || 0);
+
   const monthStart = new Date(y, m, 1);
   const monthEnd = new Date(y, m + 1, 0);
   const bk = (globalThis.bookings || []).filter(b => {
@@ -5220,16 +5229,40 @@ function _renderStatement() {
   const cleaningCollected = bk.reduce((s, b) => s + Number(b.cleaningFee || 0), 0);
   const platformFees = bk.reduce((s, b) => s + Number(b.platformFee || 0), 0);
   const cleanerPay = exp.filter(e => (e.category || '').toLowerCase().includes('clean')).reduce((s, e) => s + Number(e.amount || 0), 0);
-  const otherExpenses = exp.filter(e => !(e.category || '').toLowerCase().includes('clean')).reduce((s, e) => s + Number(e.amount || 0), 0);
-  const net = totalRevenue + cleaningCollected - platformFees - cleanerPay - otherExpenses;
+  // Owner mode splits expenses into recoverable (owner reimburses) and
+  // non-recoverable (host absorbs). Host mode lumps everything as "other".
+  const otherExpensesAll = exp.filter(e => !(e.category || '').toLowerCase().includes('clean'));
+  const recoverableExpenses = otherExpensesAll
+    .filter(e => e.recoverableFromOwner === true || e.recoverable_from_owner === true)
+    .reduce((s, e) => s + Number(e.amount || 0), 0);
+  const otherExpenses = isOwnerManaged
+    ? recoverableExpenses // only deduct what's actually recoverable from owner
+    : otherExpensesAll.reduce((s, e) => s + Number(e.amount || 0), 0);
 
-  const lineItems = [
-    ['Bookings (' + bk.length + ')', '$' + totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })],
-    ['Cleaning fees collected', '$' + cleaningCollected.toLocaleString(undefined, { minimumFractionDigits: 2 })],
-    ['Platform fees', '−$' + platformFees.toLocaleString(undefined, { minimumFractionDigits: 2 })],
-    ['Cleaner pay', '−$' + cleanerPay.toLocaleString(undefined, { minimumFractionDigits: 2 })],
-    ['Other expenses', '−$' + otherExpenses.toLocaleString(undefined, { minimumFractionDigits: 2 })],
-  ].map(([k, v]) =>
+  // Management fee: % of gross revenue collected on the owner's behalf.
+  // Only deducted in owner mode (host keeps it).
+  const mgmtFee = isOwnerManaged ? Math.round((totalRevenue * mgmtFeeRate) / 100 * 100) / 100 : 0;
+
+  const net = totalRevenue + cleaningCollected - platformFees - cleanerPay - otherExpenses - mgmtFee;
+
+  // Line-item table differs slightly between host vs owner mode.
+  const lineItemPairs = isOwnerManaged
+    ? [
+        ['Bookings (' + bk.length + ') · gross collected', '$' + totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+        ['Cleaning fees passed through', '$' + cleaningCollected.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+        ['Less: Platform fees', '−$' + platformFees.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+        ['Less: Cleaner pay', '−$' + cleanerPay.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+        ['Less: Reimbursable expenses', '−$' + otherExpenses.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+        ['Less: Management fee' + (mgmtFeeRate ? ' (' + mgmtFeeRate + '%)' : ''), '−$' + mgmtFee.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+      ]
+    : [
+        ['Bookings (' + bk.length + ')', '$' + totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+        ['Cleaning fees collected', '$' + cleaningCollected.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+        ['Platform fees', '−$' + platformFees.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+        ['Cleaner pay', '−$' + cleanerPay.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+        ['Other expenses', '−$' + otherExpenses.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+      ];
+  const lineItems = lineItemPairs.map(([k, v]) =>
     `<div style="display:flex;justify-content:space-between;padding:8px 0;font-size:13px">
       <span style="color:var(--ink-2,#4a5751)">${k}</span>
       <span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:${v.startsWith('−') ? 'var(--warn,#b56a3a)' : 'var(--ink-1,#1c2620)'}">${v}</span>
@@ -5250,9 +5283,16 @@ function _renderStatement() {
     </div>`;
   }).join('');
 
+  // Header / amount-label flip between host vs owner mode.
+  const headerChip = isOwnerManaged ? 'OWNER STATEMENT' : 'MONTHLY STATEMENT';
+  const subtitle   = isOwnerManaged
+    ? `${escHtml(propName)} · for ${escHtml(ownerName)} · prepared ${prepared}`
+    : `${escHtml(propName)} · prepared ${prepared}`;
+  const bigLabel   = isOwnerManaged ? `PAYABLE TO ${escHtml(ownerName.toUpperCase())}` : 'YOU EARNED';
+
   el.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-      <div style="display:inline-block;font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--primary-soft,#dde8e1);color:var(--primary,#2f5d4e);font-family:'JetBrains Mono',monospace;letter-spacing:0.3px">MONTHLY STATEMENT</div>
+      <div style="display:inline-block;font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--primary-soft,#dde8e1);color:var(--primary,#2f5d4e);font-family:'JetBrains Mono',monospace;letter-spacing:0.3px">${headerChip}</div>
       <div style="font-size:13px;color:var(--primary,#2f5d4e);font-weight:600;cursor:pointer" onclick="exportReportPDF()">Share</div>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
@@ -5264,9 +5304,9 @@ function _renderStatement() {
         <svg width="14" height="14" viewBox="0 0 14 14"><path d="M5 2l6 5-6 5" stroke="var(--ink-2)" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
-    <div style="font-size:13px;color:var(--ink-2,#4a5751);margin-bottom:22px">${propName} · prepared ${prepared}</div>
+    <div style="font-size:13px;color:var(--ink-2,#4a5751);margin-bottom:22px">${subtitle}</div>
     <div style="background:#fff;border-radius:20px;padding:20px;border:1px solid var(--hairline-1,#e8e1d3)">
-      <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2,#8a958f);letter-spacing:0.6px;text-transform:uppercase">YOU EARNED</div>
+      <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2,#8a958f);letter-spacing:0.6px;text-transform:uppercase">${bigLabel}</div>
       <div style="margin-top:4px;font-family:'Newsreader',serif;font-size:38px;font-weight:600;color:var(--primary,#2f5d4e);letter-spacing:-0.8px">$${net.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
       <div style="height:1px;background:var(--hairline-2,#efe9dc);margin:18px 0"></div>
       ${lineItems}

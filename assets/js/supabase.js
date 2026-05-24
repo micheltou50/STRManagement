@@ -328,6 +328,10 @@ function _toLocalPatch(row, existing) {
       reportFrequency:    row.report_frequency || exOwner.reportFrequency || 'monthly',
       lastReportSentAt:   row.last_report_sent_at || exOwner.lastReportSentAt || null
     },
+    // Phase 0 / Phase 6: distinguishes properties the host owns themselves
+    // (true) from properties the host manages for someone else (false).
+    // Drives the owner-statement view in _renderStatement.
+    isSelfManaged: row.is_self_managed != null ? !!row.is_self_managed : (existing.isSelfManaged !== false),
     integrations: {
       sheetCsvUrl:    row.sheets_url || exInteg.sheetCsvUrl || '',
       syncUrl:        row.script_url || exInteg.syncUrl || '',
