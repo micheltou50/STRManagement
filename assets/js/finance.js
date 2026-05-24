@@ -5287,6 +5287,9 @@ window.taxExportFYNext = taxExportFYNext;
 
 let _payoutExtracted = null;     // last AI-parsed payload (state B)
 let _payoutMatchOverrides = {};  // user-edited booking matches by line index
+let _payoutFileBase64 = null;    // base64 of attached statement file (PDF or image)
+let _payoutFileMediaType = null; // 'application/pdf' or 'image/png' / 'image/jpeg' etc.
+let _payoutFileName = null;      // for display
 
 function openPayoutPasteModal() {
   document.getElementById('payout-paste-modal').classList.add('open');
@@ -5300,6 +5303,7 @@ function closePayoutPasteModal() {
   if (typeof globalThis._checkModalsClosed === 'function') globalThis._checkModalsClosed();
   _payoutExtracted = null;
   _payoutMatchOverrides = {};
+  clearPayoutStatementFile();
 }
 window.closePayoutPasteModal = closePayoutPasteModal;
 
@@ -5313,6 +5317,48 @@ function resetPayoutPasteModal() {
   status.textContent = '';
 }
 window.resetPayoutPasteModal = resetPayoutPasteModal;
+
+function attachPayoutStatementFile(input) {
+  const file = input?.files?.[0];
+  if (!file) return;
+  // Soft size guard — Anthropic vision practically tolerates up to ~10MB
+  if (file.size > 12 * 1024 * 1024) {
+    _payoutPasteStatus('⚠ File is over 12MB — try a smaller PDF or screenshot', 'err');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const result = ev.target.result || '';
+    const commaIdx = result.indexOf(',');
+    _payoutFileBase64 = commaIdx >= 0 ? result.slice(commaIdx + 1) : '';
+    _payoutFileMediaType = file.type === 'application/pdf' ? 'application/pdf' : (file.type || 'image/jpeg');
+    _payoutFileName = file.name || 'statement';
+    const previewEl = document.getElementById('payout-paste-file-preview');
+    const nameEl = document.getElementById('payout-paste-file-name');
+    if (nameEl) {
+      const sizeKb = (file.size / 1024).toFixed(0);
+      nameEl.textContent = `📎 ${_payoutFileName} (${sizeKb} KB)`;
+    }
+    if (previewEl) previewEl.style.display = 'flex';
+  };
+  reader.onerror = () => {
+    _payoutPasteStatus('⚠ Could not read that file', 'err');
+  };
+  reader.readAsDataURL(file);
+}
+window.attachPayoutStatementFile = attachPayoutStatementFile;
+
+function clearPayoutStatementFile() {
+  _payoutFileBase64 = null;
+  _payoutFileMediaType = null;
+  _payoutFileName = null;
+  const input = document.getElementById('payout-paste-file-input');
+  if (input) input.value = '';
+  const previewEl = document.getElementById('payout-paste-file-preview');
+  if (previewEl) previewEl.style.display = 'none';
+}
+window.clearPayoutStatementFile = clearPayoutStatementFile;
 
 function _payoutPasteStatus(msg, kind) {
   const el = document.getElementById('payout-paste-status');
@@ -5347,11 +5393,13 @@ function _matchPayoutLineToBooking(confirmationCode) {
 async function extractPayoutWithAI() {
   const platform = document.getElementById('payout-platform').value || 'other';
   const rawText = (document.getElementById('payout-paste-raw').value || '').trim();
-  if (!rawText) {
-    _payoutPasteStatus('⚠ Paste the statement text first', 'err');
+  const hasFile = !!_payoutFileBase64;
+
+  if (!hasFile && !rawText) {
+    _payoutPasteStatus('⚠ Attach a statement file OR paste statement text first', 'err');
     return;
   }
-  if (rawText.length < 30) {
+  if (!hasFile && rawText.length < 30) {
     _payoutPasteStatus('⚠ That looks too short — paste the full statement', 'err');
     return;
   }
@@ -5359,21 +5407,17 @@ async function extractPayoutWithAI() {
     _payoutPasteStatus('⚠ AI service not available', 'err');
     return;
   }
-  _payoutPasteStatus('⏳ Reading statement with AI...');
+  _payoutPasteStatus(hasFile ? '⏳ Reading statement file with AI...' : '⏳ Reading statement with AI...');
 
-  const prompt = `You parse short-term-rental platform payout statements into JSON.
+  const promptInstructions = `You parse short-term-rental platform payout statements into JSON.
 Return ONLY valid JSON. No markdown, no commentary, no prose.
 
 PLATFORM (user-selected hint): ${platform}
-RAW STATEMENT TEXT:
-"""
-${rawText}
-"""
 
 Extract:
-- platform: one of "airbnb" / "booking_com" / "vrbo" / "stayz" / "direct" / "other" — use the user hint unless the text obviously says otherwise
-- payoutReference: the platform's own ID (Airbnb "PAY-XXXXXXXX", Booking.com invoice number) — null if not in text
-- payoutDate: YYYY-MM-DD — the date the platform issued the payout — null if not in text
+- platform: one of "airbnb" / "booking_com" / "vrbo" / "stayz" / "direct" / "other" — use the user hint unless the statement obviously says otherwise
+- payoutReference: the platform's own ID (Airbnb "PAY-XXXXXXXX", Booking.com invoice number) — null if not visible
+- payoutDate: YYYY-MM-DD — the date the platform issued the payout — null if not visible
 - expectedArrivalDate: YYYY-MM-DD if a bank arrival ETA is mentioned, else null
 - currency: ISO code (default "AUD")
 - totalNet: the final net amount (number, no commas, no $)
@@ -5397,13 +5441,32 @@ RULES
 Return EXACTLY:
 {"platform":"...","payoutReference":...,"payoutDate":...,"expectedArrivalDate":...,"currency":"AUD","totalNet":0,"lines":[{"lineType":"accommodation","description":"...","amount":0,"confirmationCode":...,"guestName":...}]}`;
 
+  // When a file is attached, send it as a vision/document content block.
+  // Use Sonnet for vision (Haiku's vision is weaker) and for text-only
+  // (multi-line statements need careful parsing). Mirrors receipt-reader.
+  let messages;
+  if (hasFile) {
+    const fileBlock = _payoutFileMediaType === 'application/pdf'
+      ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: _payoutFileBase64 } }
+      : { type: 'image',    source: { type: 'base64', media_type: _payoutFileMediaType, data: _payoutFileBase64 } };
+    const textBlock = { type: 'text', text: rawText
+      ? promptInstructions + '\n\nADDITIONAL CONTEXT (pasted by user):\n"""\n' + rawText + '\n"""'
+      : promptInstructions };
+    messages = [{ role: 'user', content: [fileBlock, textBlock] }];
+  } else {
+    messages = [{
+      role: 'user',
+      content: promptInstructions + '\n\nRAW STATEMENT TEXT:\n"""\n' + rawText + '\n"""'
+    }];
+  }
+
   try {
     const { response, data } = await window.AIService.request({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
-      messages: [{ role: 'user', content: prompt }]
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2000,
+      messages
     });
-    if (!response.ok) throw new Error('AI service returned HTTP ' + response.status);
+    if (!response.ok) throw new Error(data?.error?.message || 'AI service returned HTTP ' + response.status);
     const text = data?.content?.[0]?.text || '';
     if (!text) throw new Error('AI returned an empty response');
     const cleaned = text.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
@@ -5411,7 +5474,7 @@ Return EXACTLY:
     try {
       parsed = JSON.parse(cleaned);
     } catch (_e) {
-      throw new Error('AI did not return valid JSON — try re-pasting with more context');
+      throw new Error('AI did not return valid JSON — try re-uploading or pasting with more context');
     }
     if (!Array.isArray(parsed.lines) || !parsed.lines.length) {
       throw new Error('AI did not find any line items — the statement might be incomplete');
