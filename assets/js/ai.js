@@ -471,25 +471,27 @@ EXPENSE TO CATEGORIZE
 - Date: ${date || 'unknown'}
 - Currently selected category: "${currentCat || '(none)'}"
 
-AVAILABLE CATEGORIES (you MUST pick one of these, exact spelling):
+AVAILABLE CATEGORIES (you MUST return exactly one of these strings, character-for-character — case, punctuation, spacing all matter):
 ${cats.map(c => '- ' + c).join('\n')}
 
-CATEGORY GUIDE (use the merchant name as the primary signal):
-- Cleaning & Garden → cleaner names (people's names doing cleans), lawn/garden contractors, pool service, cleaning chemicals bought specifically for cleaners
-- Maintenance & Repairs → Bunnings, Mitre 10, hardware stores, plumbers, electricians, handymen, locksmiths, pest control, appliance repair, painters, builders, tradies
-- Supplies & Consumables → Woolworths, Coles, Aldi, IGA, Costco, Kmart, Big W, Target, Officeworks (consumables, toiletries, kitchen/bathroom supplies, paper goods)
-- Utilities → AGL, Origin, EnergyAustralia, Sydney Water, Optus, Telstra, internet/phone/electricity/gas/water bills
-- Council Rates & Strata → council rates, strata levies, body corporate fees
-- Insurance → Terri Scheer, NRMA, AAMI, Allianz, QBE, landlord insurance
-- Mortgage → ANZ, Commonwealth, NAB, Westpac, ING, Macquarie mortgage payments and interest
-- Furnishings & Linen → IKEA, Temple & Webster, Pillow Talk, Bed Bath N Table, Adairs, Spotlight, Harris Scarfe, Beacon Lighting, furniture/decor/linen retailers
-- Professional Services → accountants, lawyers, photographers, property managers, conveyancers, tax agents
-- Advertising → Airbnb service fees, listing fees, marketing, SEO, Google Ads, social media ads
-- Other → only if nothing above fits${bookingsCtx}
+MERCHANT → MEANING GUIDE — pick the AVAILABLE CATEGORY whose NAME OR MEANING best matches the merchant's domain. The category names below are SEMANTIC HINTS, not literal targets — the user may have customized their list (e.g. "Utilities & Rates" instead of "Utilities", "Furnishings & Equipment" instead of "Furnishings & Linen", "Repairs" instead of "Maintenance & Repairs"). Map semantically:
+
+- Hardware / repairs / tradie merchants (Bunnings, Mitre 10, hardware stores, plumbers, electricians, handymen, locksmiths, pest control, appliance repair, painters, builders, tile/timber/paint suppliers) → maintenance / repairs / renovation category
+- Cleaner names / lawn & garden contractors / pool service / window cleaners / cleaning-product purchases for cleaners → cleaning / garden / cleaner-payment category
+- Grocery / general retail / consumables (Woolworths, Coles, Aldi, IGA, Costco, Kmart, Big W, Target, Officeworks, Daiso) → supplies / consumables / guest-supplies category
+- Utility & telco providers (AGL, Origin, EnergyAustralia, Red Energy, Sydney Water, Yarra Valley Water, Optus, Telstra, Vodafone, internet/phone/electricity/gas/water bills) → utilities / bills category
+- Council / strata / body-corporate / land-tax statements → council / strata / rates category
+- Insurance providers (Terri Scheer, NRMA, AAMI, Allianz, QBE, Suncorp landlord insurance) → insurance category
+- Bank mortgage statements (ANZ, Commonwealth, NAB, Westpac, ING, Macquarie home-loan repayments) → mortgage category — if subcategories exist for interest/principal/fees, pick the most appropriate one
+- Furniture / decor / linen / homeware retailers (IKEA, Temple & Webster, Pillow Talk, Bed Bath N Table, Adairs, Spotlight, Harvey Norman, Harris Scarfe, Beacon Lighting, Fantastic Furniture) → furnishings / furniture / equipment / linen category
+- Accountants / lawyers / photographers / property managers / conveyancers / tax agents / bookkeepers → professional services category
+- Platform fees & marketing (Airbnb service fees, Booking.com commission, Google/Meta ads, SEO, listing fees) → advertising / marketing / platform-fees category
+- Anything you cannot confidently map → the most generic catch-all in the list (usually "Other")${bookingsCtx}
 
 RULES
-1. If the currently selected category already matches the merchant correctly, return it as bestCategory (the UI will not show a suggestion).
-2. Only suggest a different category when you are confident the current one is wrong based on the merchant name. Do NOT default to Cleaning & Garden — most expenses are NOT cleaning.
+1. Return ONLY a category that appears verbatim in the AVAILABLE CATEGORIES list above. NEVER invent or paraphrase a category name. If the closest semantic match has different spelling (e.g. you think "Utilities" but the list has "Utilities & Rates"), return the list's spelling.
+2. If the currently selected category already matches the merchant correctly, return it as bestCategory (the UI will not show a suggestion).
+3. Only suggest a different category when you are confident the current one is wrong based on the merchant name. Do NOT default to a Cleaning-style category — most expenses are NOT cleaning.
 3. Set bestBookingId only when this is plausibly a cleaning OR maintenance cost for a specific past stay (use checkout date proximity, max 5 days after checkout).
 
 Return EXACTLY this JSON shape:

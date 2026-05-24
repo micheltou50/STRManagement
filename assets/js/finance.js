@@ -2443,64 +2443,20 @@ function buildInvoicePDF(selected, client) {
 function bindExpenseCatRowHandlers(i, name) {
   const wrap = document.querySelector(`[data-expcat-idx="${i}"]`);
   const inner = document.querySelector(`[data-expcat-inner="${i}"]`);
-  const delBtn = document.querySelector(`[data-expcat-del="${i}"]`);
   if (!wrap || !inner) return;
-  let sx = 0;
-  let revealed = false;
-  wrap.addEventListener(
-    'touchstart',
-    (e) => {
-      sx = e.touches[0].clientX;
-    },
-    { passive: true }
-  );
-  wrap.addEventListener(
-    'touchend',
-    (e) => {
-      const ex = e.changedTouches[0].clientX;
-      if (sx - ex > 55) {
-        revealed = true;
-        inner.style.transform = 'translateX(-64px)';
-        if (delBtn) delBtn.style.transform = 'translateX(0)';
-      } else if (ex - sx > 45) {
-        revealed = false;
-        inner.style.transform = '';
-        if (delBtn) delBtn.style.transform = 'translateX(100%)';
-      }
-    },
-    { passive: true }
-  );
+
+  // Delete button is always visible now (rendered with a × icon on the right).
+  // The old swipe-left-to-reveal flow is gone — desktop users had no way to
+  // trigger it. Long-press on touch still works as a power-user shortcut.
   let lp = null;
-  wrap.addEventListener(
-    'touchstart',
-    () => {
-      lp = setTimeout(() => {
-        deleteExpenseCat(i);
-      }, 550);
-    },
-    { passive: true }
-  );
-  wrap.addEventListener(
-    'touchend',
-    () => {
-      if (lp) clearTimeout(lp);
-    },
-    { passive: true }
-  );
-  wrap.addEventListener(
-    'touchmove',
-    () => {
-      if (lp) clearTimeout(lp);
-    },
-    { passive: true }
-  );
+  wrap.addEventListener('touchstart', () => {
+    lp = setTimeout(() => { deleteExpenseCat(i); }, 550);
+  }, { passive: true });
+  wrap.addEventListener('touchend',  () => { if (lp) clearTimeout(lp); }, { passive: true });
+  wrap.addEventListener('touchmove', () => { if (lp) clearTimeout(lp); }, { passive: true });
+
+  // Clicking the row turns the category name into an inline rename input.
   inner.addEventListener('click', () => {
-    if (revealed) {
-      inner.style.transform = '';
-      if (delBtn) delBtn.style.transform = 'translateX(100%)';
-      revealed = false;
-      return;
-    }
     const sp = inner.querySelector(`[data-expcat-txt="${i}"]`);
     if (!sp || inner.querySelector('input')) return;
     const inp = document.createElement('input');
@@ -2536,9 +2492,9 @@ function renderExpenseCatSettings() {
       .map(
         (c, i) => `
       <div class="expcat-swipe-wrap" data-expcat-idx="${i}" style="position:relative;overflow:hidden;touch-action:pan-y">
-        <button type="button" data-expcat-del="${i}" onclick="event.stopPropagation();deleteExpenseCat(${i})"
-          style="position:absolute;right:0;top:0;bottom:0;width:64px;border:none;background:#FEE2E2;color:#991B1B;font-weight:600;font-size:12px;font-family:'Plus Jakarta Sans',sans-serif;transform:translateX(100%);transition:transform 0.2s ease;cursor:pointer">Delete</button>
-        <div data-expcat-inner="${i}" style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:0.5px solid rgba(0,0,0,0.08);background:#fff;transition:transform 0.2s ease;cursor:pointer">
+        <button type="button" data-expcat-del="${i}" aria-label="Delete category" onclick="event.stopPropagation();deleteExpenseCat(${i})"
+          style="position:absolute;right:8px;top:50%;transform:translateY(-50%);width:32px;height:32px;border:none;border-radius:8px;background:transparent;color:#991B1B;font-size:18px;line-height:1;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.15s ease" onmouseover="this.style.background='#FEE2E2'" onmouseout="this.style.background='transparent'">×</button>
+        <div data-expcat-inner="${i}" style="display:flex;align-items:center;justify-content:space-between;padding:14px 52px 14px 16px;border-bottom:0.5px solid rgba(0,0,0,0.08);background:#fff;cursor:pointer">
           <span data-expcat-txt="${i}" style="font-size:14px;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif">${escHtml(c)}</span>
           <span style="font-size:12px;color:var(--muted-2);font-family:'Plus Jakarta Sans',sans-serif">${counts[c] != null ? counts[c] : 0} expenses</span>
         </div>
