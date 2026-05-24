@@ -26,7 +26,7 @@ import {
   getExpensePhotoUploadSnapshot,
   isExpensePhotoConverting,
 } from './ai.js';
-import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud, getCurrentSupabaseUser } from './supabase.js';
+import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud, getCurrentSupabaseUser, savePlatformPayout, insertPayoutLines } from './supabase.js';
 
 let _financeTab = 'expenses';
 /** Keeps Finance hub vs sub-screens across renderFinance() / sync refresh. */
@@ -5276,3 +5276,313 @@ window.exportTaxPDF = exportTaxPDF;
 window.exportTaxCSV = exportTaxCSV;
 window.taxExportFYPrev = taxExportFYPrev;
 window.taxExportFYNext = taxExportFYNext;
+
+
+// ── PAYOUT PASTE FLOW (Phase 1c) ─────────────────────────────────────────────
+//
+// User pastes a platform earnings statement (Airbnb, Booking.com, etc.),
+// Claude Haiku extracts the line items into structured JSON, we auto-match
+// accommodation lines to bookings by confirmation_code, the user reviews,
+// then we persist via savePlatformPayout + insertPayoutLines.
+
+let _payoutExtracted = null;     // last AI-parsed payload (state B)
+let _payoutMatchOverrides = {};  // user-edited booking matches by line index
+
+function openPayoutPasteModal() {
+  document.getElementById('payout-paste-modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  resetPayoutPasteModal();
+}
+window.openPayoutPasteModal = openPayoutPasteModal;
+
+function closePayoutPasteModal() {
+  document.getElementById('payout-paste-modal').classList.remove('open');
+  if (typeof globalThis._checkModalsClosed === 'function') globalThis._checkModalsClosed();
+  _payoutExtracted = null;
+  _payoutMatchOverrides = {};
+}
+window.closePayoutPasteModal = closePayoutPasteModal;
+
+function resetPayoutPasteModal() {
+  _payoutExtracted = null;
+  _payoutMatchOverrides = {};
+  document.getElementById('payout-paste-input-section').style.display = 'block';
+  document.getElementById('payout-paste-review-section').style.display = 'none';
+  const status = document.getElementById('payout-paste-status');
+  status.style.display = 'none';
+  status.textContent = '';
+}
+window.resetPayoutPasteModal = resetPayoutPasteModal;
+
+function _payoutPasteStatus(msg, kind) {
+  const el = document.getElementById('payout-paste-status');
+  if (!el) return;
+  el.style.display = 'block';
+  el.textContent = msg;
+  if (kind === 'err') {
+    el.style.background = '#FEE2E2';
+    el.style.color = '#991B1B';
+  } else if (kind === 'ok') {
+    el.style.background = '#DCFCE7';
+    el.style.color = '#166534';
+  } else {
+    el.style.background = 'var(--surface2)';
+    el.style.color = 'var(--ink-1)';
+  }
+}
+
+/** Find a booking whose confirmation_code matches the line's code (case-insensitive). */
+function _matchPayoutLineToBooking(confirmationCode) {
+  if (!confirmationCode) return null;
+  const target = String(confirmationCode).trim().toLowerCase();
+  if (!target) return null;
+  const list = Array.isArray(window.bookings) ? window.bookings
+    : (Array.isArray(globalThis.bookings) ? globalThis.bookings : []);
+  return list.find(b => {
+    const code = String(b.confirmationCode || b.confirmation_code || '').trim().toLowerCase();
+    return code && code === target;
+  }) || null;
+}
+
+async function extractPayoutWithAI() {
+  const platform = document.getElementById('payout-platform').value || 'other';
+  const rawText = (document.getElementById('payout-paste-raw').value || '').trim();
+  if (!rawText) {
+    _payoutPasteStatus('⚠ Paste the statement text first', 'err');
+    return;
+  }
+  if (rawText.length < 30) {
+    _payoutPasteStatus('⚠ That looks too short — paste the full statement', 'err');
+    return;
+  }
+  if (!window.AIService) {
+    _payoutPasteStatus('⚠ AI service not available', 'err');
+    return;
+  }
+  _payoutPasteStatus('⏳ Reading statement with AI...');
+
+  const prompt = `You parse short-term-rental platform payout statements into JSON.
+Return ONLY valid JSON. No markdown, no commentary, no prose.
+
+PLATFORM (user-selected hint): ${platform}
+RAW STATEMENT TEXT:
+"""
+${rawText}
+"""
+
+Extract:
+- platform: one of "airbnb" / "booking_com" / "vrbo" / "stayz" / "direct" / "other" — use the user hint unless the text obviously says otherwise
+- payoutReference: the platform's own ID (Airbnb "PAY-XXXXXXXX", Booking.com invoice number) — null if not in text
+- payoutDate: YYYY-MM-DD — the date the platform issued the payout — null if not in text
+- expectedArrivalDate: YYYY-MM-DD if a bank arrival ETA is mentioned, else null
+- currency: ISO code (default "AUD")
+- totalNet: the final net amount (number, no commas, no $)
+- lines: ordered array of line items
+
+Each line:
+- lineType: one of "accommodation" / "cleaning_fee" / "host_fee" / "adjustment" / "cancellation" / "resolution" / "tax" / "other"
+- description: short human description (e.g. "Sarah L · 3 nights", "Airbnb host service fee")
+- amount: number. POSITIVE for income (accommodation, cleaning_fee). NEGATIVE for fees/deductions (host_fee, tax, cancellation reducing payout, adjustment if it reduces payout). No currency symbols, no commas.
+- confirmationCode: the booking/reservation code if visible (e.g. "HMABC123"), else null
+- guestName: if visible, else null
+
+RULES
+- Sum of all lines.amount should approximately equal totalNet (within ~$1 rounding)
+- Host service fees are NEGATIVE (deducted from gross)
+- A guest cancellation refund leaving the host's payout is NEGATIVE
+- Resolution Center payouts are POSITIVE, lineType="resolution"
+- If a line is just "Reservation HMABC123 · $X · Y nights" treat it as accommodation
+- Do not invent values; null fields you cannot read
+
+Return EXACTLY:
+{"platform":"...","payoutReference":...,"payoutDate":...,"expectedArrivalDate":...,"currency":"AUD","totalNet":0,"lines":[{"lineType":"accommodation","description":"...","amount":0,"confirmationCode":...,"guestName":...}]}`;
+
+  try {
+    const { response, data } = await window.AIService.request({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: prompt }]
+    });
+    if (!response.ok) throw new Error('AI service returned HTTP ' + response.status);
+    const text = data?.content?.[0]?.text || '';
+    if (!text) throw new Error('AI returned an empty response');
+    const cleaned = text.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (_e) {
+      throw new Error('AI did not return valid JSON — try re-pasting with more context');
+    }
+    if (!Array.isArray(parsed.lines) || !parsed.lines.length) {
+      throw new Error('AI did not find any line items — the statement might be incomplete');
+    }
+    _payoutExtracted = parsed;
+    _payoutMatchOverrides = {};
+    _renderPayoutPasteReview(parsed);
+  } catch (err) {
+    console.warn('[StayOps] extractPayoutWithAI failed', err);
+    _payoutPasteStatus('⚠ ' + (err.message || 'AI extraction failed'), 'err');
+  }
+}
+window.extractPayoutWithAI = extractPayoutWithAI;
+
+function _renderPayoutPasteReview(extracted) {
+  document.getElementById('payout-paste-input-section').style.display = 'none';
+  document.getElementById('payout-paste-review-section').style.display = 'block';
+  const status = document.getElementById('payout-paste-status');
+  status.style.display = 'none';
+
+  const fmtMoney = (n) => (n < 0 ? '−$' : '$') + Math.abs(Number(n) || 0).toFixed(2);
+
+  const linesSum = extracted.lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+  const totalNet = Number(extracted.totalNet) || 0;
+  const variance = Math.abs(linesSum - totalNet);
+  const varianceWarn = totalNet && variance > 1
+    ? `<div style="margin-top:6px;font-size:11px;color:#A32D2D;font-family:'Plus Jakarta Sans',sans-serif">⚠ Lines sum (${fmtMoney(linesSum)}) doesn't match stated total (${fmtMoney(totalNet)}) — review below</div>`
+    : '';
+
+  document.getElementById('payout-paste-header').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;font-family:'Plus Jakarta Sans',sans-serif">
+      <div style="min-width:0">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2)">${escHtml(extracted.platform || 'platform')}</div>
+        <div style="font-size:15px;font-weight:600;color:var(--ink-1);margin-top:2px">${escHtml(extracted.payoutReference || '(no reference)')}</div>
+        <div style="font-size:12px;color:var(--muted-2);margin-top:2px">Date: ${escHtml(extracted.payoutDate || '?')}${extracted.expectedArrivalDate ? ' · arrives ' + escHtml(extracted.expectedArrivalDate) : ''}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:11px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px">Net</div>
+        <div style="font-size:18px;font-weight:600;color:var(--ink-1)">${fmtMoney(totalNet)}</div>
+      </div>
+    </div>${varianceWarn}`;
+
+  const bookings = Array.isArray(window.bookings) ? window.bookings
+    : (Array.isArray(globalThis.bookings) ? globalThis.bookings : []);
+  const bookingOptions = bookings
+    .filter(b => b && b.status !== 'cancelled' && b._cloudId)
+    .sort((a, b) => String(b.checkin || '').localeCompare(String(a.checkin || '')))
+    .map(b => {
+      const code = b.confirmationCode || b.confirmation_code || '';
+      const label = `${b.name || b.guest_name || 'Guest'} · ${b.checkin || '?'} → ${b.checkout || '?'}${code ? ' · ' + code : ''}`;
+      return { id: b._cloudId, label };
+    });
+
+  const linesHtml = extracted.lines.map((line, idx) => {
+    const matched = _matchPayoutLineToBooking(line.confirmationCode);
+    const matchedId = matched ? matched._cloudId : null;
+    const matchedLabel = matched ? `${matched.name || matched.guest_name || 'Guest'} · ${matched.checkin || '?'}` : null;
+    const showsBookingPicker = ['accommodation', 'cleaning_fee', 'cancellation', 'resolution'].includes(line.lineType);
+    const amtColor = (Number(line.amount) || 0) < 0 ? '#A32D2D' : '#1D9E75';
+    const sel = showsBookingPicker
+      ? `<select data-payout-line-match="${idx}" style="width:100%;font-size:12px;padding:6px 8px;border-radius:6px;border:1px solid var(--hairline-1);background:#fff;font-family:'Plus Jakarta Sans',sans-serif;margin-top:4px">
+          <option value="">— No booking link —</option>
+          ${bookingOptions.map(b => `<option value="${escHtml(b.id)}"${matchedId === b.id ? ' selected' : ''}>${escHtml(b.label)}</option>`).join('')}
+        </select>`
+      : '';
+    const matchBadge = matched
+      ? `<div style="font-size:11px;color:#1D9E75;margin-top:2px;font-family:'Plus Jakarta Sans',sans-serif">✓ Auto-matched: ${escHtml(matchedLabel)}</div>`
+      : (line.confirmationCode && showsBookingPicker
+        ? `<div style="font-size:11px;color:#A32D2D;margin-top:2px;font-family:'Plus Jakarta Sans',sans-serif">No booking with code ${escHtml(line.confirmationCode)}</div>`
+        : '');
+    return `<div style="background:#fff;border:1px solid var(--hairline-1);border-radius:8px;padding:10px 12px;margin-bottom:6px;font-family:'Plus Jakarta Sans',sans-serif">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;font-weight:600;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px">${escHtml(line.lineType || 'other')}</div>
+          <div style="font-size:14px;color:var(--ink-1);font-weight:500;margin-top:2px">${escHtml(line.description || '(no description)')}</div>
+          ${line.confirmationCode ? `<div style="font-size:11px;color:var(--muted-2);margin-top:2px">Code: ${escHtml(line.confirmationCode)}</div>` : ''}
+          ${matchBadge}
+        </div>
+        <div style="font-size:14px;font-weight:600;color:${amtColor};flex-shrink:0">${fmtMoney(line.amount)}</div>
+      </div>
+      ${sel}
+    </div>`;
+  }).join('');
+
+  document.getElementById('payout-paste-lines').innerHTML = linesHtml;
+
+  // Track manual booking overrides
+  document.querySelectorAll('[data-payout-line-match]').forEach(sel => {
+    sel.addEventListener('change', (ev) => {
+      const idx = Number(ev.target.getAttribute('data-payout-line-match'));
+      _payoutMatchOverrides[idx] = ev.target.value || null;
+    });
+  });
+}
+
+async function savePayoutFromPasteModal() {
+  if (!_payoutExtracted) {
+    _payoutPasteStatus('⚠ Nothing to save — extract first', 'err');
+    return;
+  }
+  _payoutPasteStatus('⏳ Saving payout...');
+
+  // Roll up totals from lines (source of truth — even if AI's totalNet is off)
+  const lines = _payoutExtracted.lines || [];
+  let gross = 0, platformFee = 0, adjustments = 0;
+  for (const l of lines) {
+    const amt = Number(l.amount) || 0;
+    if (['accommodation', 'cleaning_fee'].includes(l.lineType)) gross += amt;
+    else if (l.lineType === 'host_fee' || l.lineType === 'tax') platformFee += amt;
+    else adjustments += amt;
+  }
+  const net = gross + platformFee + adjustments;
+
+  const rawText = (document.getElementById('payout-paste-raw').value || '').trim();
+  const platformSel = document.getElementById('payout-platform').value || 'other';
+
+  const savedPayout = await savePlatformPayout({
+    platform: _payoutExtracted.platform || platformSel,
+    payoutReference: _payoutExtracted.payoutReference || null,
+    payoutDate: _payoutExtracted.payoutDate || new Date().toISOString().split('T')[0],
+    expectedArrivalDate: _payoutExtracted.expectedArrivalDate || null,
+    gross,
+    platformFee,
+    adjustments,
+    net,
+    currency: _payoutExtracted.currency || 'AUD',
+    source: 'paste_ai',
+    rawSourceText: rawText,
+  });
+  if (!savedPayout) {
+    _payoutPasteStatus('⚠ Save failed — see console', 'err');
+    return;
+  }
+
+  // Resolve booking matches: overrides win over auto-match
+  const linesToInsert = lines.map((l, idx) => {
+    let bookingId, matchedBy, confidence;
+    if (idx in _payoutMatchOverrides) {
+      bookingId = _payoutMatchOverrides[idx] || null;
+      matchedBy = bookingId ? 'manual' : null;
+      confidence = bookingId ? 'high' : 'low';
+    } else {
+      const auto = _matchPayoutLineToBooking(l.confirmationCode);
+      bookingId = auto ? auto._cloudId : null;
+      matchedBy = bookingId ? 'confirmation_code' : null;
+      confidence = bookingId ? 'high' : 'low';
+    }
+    return {
+      lineType: l.lineType || 'other',
+      description: l.description || null,
+      amount: Number(l.amount) || 0,
+      confirmationCode: l.confirmationCode || null,
+      bookingId,
+      matchedBy,
+      confidence,
+    };
+  });
+
+  const insertedLines = await insertPayoutLines(savedPayout._cloudId, linesToInsert);
+  const matchedCount = linesToInsert.filter(l => l.bookingId).length;
+
+  if (typeof globalThis.showBanner === 'function') {
+    globalThis.showBanner(
+      `✓ Payout saved · ${insertedLines.length} line${insertedLines.length === 1 ? '' : 's'} (${matchedCount} matched to booking${matchedCount === 1 ? '' : 's'})`,
+      'ok'
+    );
+  }
+  closePayoutPasteModal();
+  // Refresh the reconciliation view if it's visible
+  if (typeof globalThis.refreshFinanceReconciliationSummary === 'function') {
+    try { globalThis.refreshFinanceReconciliationSummary(); } catch (_e) { /* non-fatal */ }
+  }
+}
+window.savePayoutFromPasteModal = savePayoutFromPasteModal;

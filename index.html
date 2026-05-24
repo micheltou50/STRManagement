@@ -1514,9 +1514,12 @@
     <div id="finance-reconciliation-view" style="display:none">
       <div class="settings-back" onclick="backToFinanceHub()" style="color:var(--primary)">&#8249; Finance</div>
       <div style="padding:4px 16px 8px;max-width:560px;margin:0 auto">
-        <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
           <h2 style="margin:0;font-family:'Newsreader',serif;font-size:22px;font-weight:600;color:var(--ink-1);letter-spacing:-0.3px">Transaction Map</h2>
-          <button type="button" onclick="bankImportPickFile()" style="font-size:12px;color:var(--primary);background:transparent;border:1px solid var(--primary);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;white-space:nowrap">Import Statement</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="button" onclick="openPayoutPasteModal()" style="font-size:12px;color:var(--primary);background:transparent;border:1px solid var(--primary);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;white-space:nowrap">Paste Payout</button>
+            <button type="button" onclick="bankImportPickFile()" style="font-size:12px;color:var(--primary);background:transparent;border:1px solid var(--primary);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;white-space:nowrap">Import Statement</button>
+          </div>
         </div>
         <p style="margin:4px 0 12px;font-size:13px;color:var(--muted-2);font-family:'Plus Jakarta Sans',sans-serif">Every imported bank transaction and what it's linked to.</p>
       </div>
@@ -2559,6 +2562,47 @@
 
     <button class="btn-primary" onclick="saveExpenseEdit()" style="margin-top:12px">💾 Save Changes</button>
     <button class="btn-secondary" onclick="closeExpenseEdit()">Cancel</button>
+  </div>
+</div>
+
+<!-- ── PASTE PAYOUT STATEMENT MODAL (Phase 1c) ── -->
+<div class="modal-overlay" id="payout-paste-modal" onclick="if(event.target===this)closePayoutPasteModal()">
+  <div class="modal" style="max-height:92vh;overflow-y:auto;max-width:680px">
+    <div class="modal-drag-zone"><div class="modal-handle"></div></div>
+    <div class="modal-title">Paste Payout Statement</div>
+    <p style="margin:-4px 0 12px;font-size:12px;color:var(--muted-2);font-family:'Plus Jakarta Sans',sans-serif">Copy the full payout details from your platform (Airbnb Transactions, Booking.com statements, etc.) and paste below. AI will extract the line items.</p>
+
+    <!-- STATE A: paste & extract -->
+    <div id="payout-paste-input-section">
+      <label>Platform</label>
+      <select id="payout-platform" style="margin-bottom:12px">
+        <option value="airbnb">Airbnb</option>
+        <option value="booking_com">Booking.com</option>
+        <option value="vrbo">VRBO</option>
+        <option value="stayz">Stayz</option>
+        <option value="direct">Direct booking</option>
+        <option value="other">Other</option>
+      </select>
+      <label>Statement text</label>
+      <textarea id="payout-paste-raw" rows="12"
+        placeholder="Paste the payout details here — guest names, dates, amounts, fees, totals..."
+        style="width:100%;font-family:'SF Mono',ui-monospace,Menlo,monospace;font-size:12px;padding:10px;border-radius:8px;border:1px solid var(--hairline-1);background:var(--surface2);resize:vertical;box-sizing:border-box"></textarea>
+      <button class="btn-primary" onclick="extractPayoutWithAI()" style="margin-top:12px;width:100%">✨ Extract with AI</button>
+    </div>
+
+    <!-- STATE B: review parsed lines -->
+    <div id="payout-paste-review-section" style="display:none">
+      <div id="payout-paste-header" style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:12px"></div>
+      <div style="font-size:12px;font-weight:600;color:var(--muted-2);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.4px">Line items</div>
+      <div id="payout-paste-lines"></div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn-primary" onclick="savePayoutFromPasteModal()" style="flex:1">💾 Save Payout</button>
+        <button class="btn-secondary" onclick="resetPayoutPasteModal()">← Re-edit</button>
+      </div>
+    </div>
+
+    <div id="payout-paste-status" style="display:none;padding:10px 12px;border-radius:8px;margin-top:12px;font-size:13px;font-family:'Plus Jakarta Sans',sans-serif"></div>
+    <button class="btn-secondary" onclick="closePayoutPasteModal()" style="margin-top:12px;width:100%">Cancel</button>
   </div>
 </div>
 
