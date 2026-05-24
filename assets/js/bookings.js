@@ -24,7 +24,7 @@ import {
   isCleanerPerson,
 } from './cleaning.js';
 import { sendCleanerEmail } from './notifications.js';
-import { loadPayoutLinesForBooking } from './supabase.js';
+import { loadPayoutLinesForBooking, markPayoutReceived } from './supabase.js';
 // ── DASHBOARD CALENDAR STATE ─────────────────────────────────────────────────
 let calYear = new Date().getFullYear();
 let calMonth = new Date().getMonth();
@@ -1127,18 +1127,48 @@ async function _renderBookingPayoutsSection(bookingCloudId, expected) {
   }
   const fmtMoney = (n) => (n < 0 ? '−$' : '$') + Math.abs(Number(n) || 0).toFixed(2);
 
-  const lineRows = lines.map(l => {
+  // Phase 2-lite: dedupe the unique payouts so each gets ONE "received"
+  // status row (with badge or button) rather than one per line item.
+  const seenPayouts = new Set();
+  const uniquePayouts = [];
+  for (const l of lines) {
     const p = l._payout || {};
-    const dateStr = p.payoutDate || '';
+    if (!p.cloudId || seenPayouts.has(p.cloudId)) continue;
+    seenPayouts.add(p.cloudId);
+    uniquePayouts.push(p);
+  }
+
+  const payoutStatusRows = uniquePayouts.map(p => {
+    const platformStr = (p.platform || 'platform').replace('_', '.');
     const refStr = p.payoutReference || '(no ref)';
-    const platformStr = p.platform || '?';
+    const confirmed = !!(p.receivedAt || p.bankTransactionId);
+    const confirmedDate = p.receivedAt || (p.bankTransactionId ? 'bank-matched' : null);
+    const right = confirmed
+      ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#166534;font-weight:600">
+           <span style="width:8px;height:8px;border-radius:50%;background:#22c55e"></span>
+           Received${confirmedDate && confirmedDate !== 'bank-matched' ? ' ' + escHtml(confirmedDate) : ''}
+         </span>`
+      : `<button onclick="markPayoutAsReceivedForBooking('${escHtml(p.cloudId)}','${escHtml(bookingCloudId)}',${expected})"
+             style="background:var(--moss,#166534);color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">
+           ✓ Mark received
+         </button>`;
+    return `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 12px;border-bottom:0.5px solid var(--hairline-1);background:#fafafa;font-family:'Plus Jakarta Sans',sans-serif">
+        <div style="min-width:0;flex:1">
+          <div style="font-size:12px;font-weight:600;color:var(--ink-1)">${escHtml(platformStr)} · ${escHtml(refStr)}</div>
+          <div style="font-size:11px;color:var(--muted-2);margin-top:2px">Statement date ${escHtml(p.payoutDate || '?')}</div>
+        </div>
+        ${right}
+      </div>`;
+  }).join('');
+
+  const lineRows = lines.map(l => {
     const amtColor = (Number(l.amount) || 0) < 0 ? '#A32D2D' : '#1D9E75';
     return `
       <div style="display:flex;justify-content:space-between;gap:8px;padding:8px 10px;border-bottom:0.5px solid var(--hairline-1);font-family:'Plus Jakarta Sans',sans-serif">
         <div style="min-width:0;flex:1">
           <div style="font-size:11px;font-weight:600;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px">${escHtml(l.lineType || 'other')}</div>
           <div style="font-size:13px;color:var(--ink-1);font-weight:500;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(l.description || '(no description)')}</div>
-          <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${escHtml(platformStr)} · ${escHtml(refStr)}${dateStr ? ' · ' + escHtml(dateStr) : ''}</div>
         </div>
         <div style="font-size:14px;font-weight:600;color:${amtColor};flex-shrink:0;align-self:center">${fmtMoney(l.amount)}</div>
       </div>`;
@@ -1164,9 +1194,35 @@ async function _renderBookingPayoutsSection(bookingCloudId, expected) {
         </div>
         <div style="margin-top:8px;padding:6px 10px;border-radius:6px;background:${varBg};color:${varColor};font-size:11px;font-weight:500">${varNote}</div>
       </div>
+      ${payoutStatusRows}
       <div>${lineRows}</div>
     </div>`);
 }
+
+/**
+ * Phase 2-lite: 1-click "mark this payout as received" — used in the
+ * booking-detail Platform Payouts panel. Bypasses the bank-CSV/PDF import
+ * flow entirely. Default date = today; user can later set a specific date
+ * via SQL or a future date-picker if needed.
+ */
+async function markPayoutAsReceivedForBooking(payoutId, bookingCloudId, expected) {
+  if (!payoutId) return;
+  const today = new Date().toISOString().split('T')[0];
+  const ok = await markPayoutReceived(payoutId, today);
+  if (!ok) {
+    if (typeof globalThis.showBanner === 'function') {
+      globalThis.showBanner('⚠ Could not mark received — see console', 'warn');
+    }
+    return;
+  }
+  if (typeof globalThis.showBanner === 'function') {
+    globalThis.showBanner('✓ Marked received ' + today, 'ok');
+  }
+  // Re-fetch and re-render the panel so the badge/button updates
+  _renderBookingPayoutsSection(bookingCloudId, expected)
+    .catch(err => console.warn('[StayOps] re-render after mark-received failed', err));
+}
+globalThis.markPayoutAsReceivedForBooking = markPayoutAsReceivedForBooking;
 
 function editCalcNights() {
   const ci = document.getElementById('e-checkin').value;

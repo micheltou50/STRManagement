@@ -1164,7 +1164,7 @@ export async function loadPayoutLinesForBooking(bookingCloudId) {
     // Single round-trip: join via the FK, RLS already restricts to user's data
     const { data, error } = await window._sb
       .from('platform_payout_lines')
-      .select('*, platform_payouts!inner(id,platform,payout_date,payout_reference,status,bank_transaction_id)')
+      .select('*, platform_payouts!inner(id,platform,payout_date,payout_reference,status,bank_transaction_id,received_at)')
       .eq('booking_id', bookingCloudId);
     if (error) { console.warn('[StayOps] loadPayoutLinesForBooking error', error); return []; }
     return (data || [])
@@ -1176,6 +1176,7 @@ export async function loadPayoutLinesForBooking(bookingCloudId) {
           payoutDate:        row.platform_payouts?.payout_date,
           payoutReference:   row.platform_payouts?.payout_reference,
           bankTransactionId: row.platform_payouts?.bank_transaction_id,
+          receivedAt:        row.platform_payouts?.received_at,
         }
       }));
   } catch (e) {
@@ -1307,6 +1308,31 @@ export async function deletePlatformPayout(payoutCloudId) {
     return true;
   } catch (e) {
     console.warn('[StayOps] deletePlatformPayout failed', e);
+    return false;
+  }
+}
+
+/**
+ * Phase 2-lite: mark a payout as received without the full bank-CSV
+ * reconciliation flow. Stores a date on platform_payouts.received_at.
+ * Pass dateStr=null to clear.
+ * @param {string} payoutCloudId
+ * @param {string|null} dateStr 'YYYY-MM-DD' or null
+ */
+export async function markPayoutReceived(payoutCloudId, dateStr) {
+  try {
+    if (!payoutCloudId) return false;
+    const { error } = await window._sb
+      .from('platform_payouts')
+      .update({
+        received_at: dateStr || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', payoutCloudId);
+    if (error) { console.warn('[StayOps] markPayoutReceived error', error); return false; }
+    return true;
+  } catch (e) {
+    console.warn('[StayOps] markPayoutReceived failed', e);
     return false;
   }
 }
