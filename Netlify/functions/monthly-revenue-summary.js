@@ -76,19 +76,22 @@ async function sumBookingsForProperty(supabaseAdmin, propertyId, firstDay, lastD
   // monthly email number must match — otherwise hosts see inflated numbers.
   const { data, error } = await supabaseAdmin
     .from('bookings')
-    .select('host_payout')
+    .select('host_payout,status,cancellation_billable')
     .eq('property_id', propertyId)
     .gte('checkin', firstDay)
-    .lte('checkin', lastDay)
-    .neq('status', 'cancelled');
+    .lte('checkin', lastDay);
 
   if (error) throw error;
   const rows = Array.isArray(data) ? data : [];
   let gross = 0;
   for (const r of rows) {
+    if (String(r.status || '').toLowerCase() === 'cancelled' && r.cancellation_billable !== true) continue;
     gross += Number(r.host_payout) || 0;
   }
-  return { gross, bookingCount: rows.length };
+  return {
+    gross,
+    bookingCount: rows.filter(r => String(r.status || '').toLowerCase() !== 'cancelled' || r.cancellation_billable === true).length,
+  };
 }
 
 async function sumExpensesForProperty(supabaseAdmin, propertyId, firstDay, lastDay) {

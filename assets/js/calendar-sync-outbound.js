@@ -78,6 +78,22 @@ function wrapOnce() {
   wrap('saveBookingToCloud',     'bookings',    'upsert');
   wrap('deleteBookingFromCloud', 'bookings',    'delete');
   wrap('saveCleanToCloud',       'cleans',      'upsert');
+
+  const origSaveBookings = globalThis.saveBookingsToCloud;
+  if (typeof origSaveBookings === 'function') {
+    globalThis.saveBookingsToCloud = async function (list) {
+      const result = await origSaveBookings.apply(this, arguments);
+      try {
+        if (Array.isArray(list)) {
+          list.forEach(b => {
+            const id = b && (b.id != null ? b.id : (b.local_id != null ? b.local_id : null));
+            if (id != null) enqueue('bookings', id, 'upsert');
+          });
+        }
+      } catch (_) { void 0; }
+      return result;
+    };
+  }
   // No deleteCleanFromCloud in the codebase; cleans are removed via update of done flag → upsert covers it.
 
   // saveMaintenanceItemToCloud is not exposed globally; saveMaintenanceToCloud takes a list.

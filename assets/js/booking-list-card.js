@@ -3,6 +3,7 @@
  */
 import { cleans } from './state.js';
 import { escHtml, escapeJsSingleQuotedHtmlAttr, fmtShort, _normName } from './utils.js';
+import { bookingRevenue, bookingStatusLabel, getCancellationBillable } from './booking-revenue.js';
 
 function findMatchingCleanForBookingCard(booking) {
   if (!booking) return null;
@@ -120,10 +121,15 @@ export function buildBookingListCardFromBooking(b, options = {}) {
   const isStub = String(b.enrichment_status || '').toLowerCase() === 'pending';
   const sourceKey = _bookingSourceKey(b.platform);
   const id = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
-  const payout = Number(b.hostPayout ?? b.total_price ?? 0);
+  const payout = bookingRevenue(b);
 
   const platformMeta = getBookingListPlatformPillMeta(b.platform);
   const bookStatus = getBookingListBookingStatusMeta(isCancelled, isPast);
+  if (isCancelled && getCancellationBillable(b)) {
+    bookStatus.label = bookingStatusLabel(b, isPast);
+    bookStatus.color = '#166534';
+    bookStatus.bg = '#DCFCE7';
+  }
   const cleanerMeta = isCancelled ? null : getBookingListCleanerBadgeMeta(b, matchedClean);
 
   const dateLine =
@@ -141,7 +147,7 @@ export function buildBookingListCardFromBooking(b, options = {}) {
 
   const row1WrapOpacity = isCancelled ? ';opacity:0.6' : '';
   const nameSpanStyle = 'font-weight:700;font-size:14.5px;color:var(--ink-1);font-family:\'Newsreader\',serif';
-  const priceSpanStyle = isCancelled
+  const priceSpanStyle = isCancelled && !getCancellationBillable(b)
     ? 'font-weight:600;font-size:16px;color:var(--muted-2);text-decoration:line-through;font-family:\'Newsreader\',serif'
     : 'font-weight:600;font-size:16px;color:var(--ink-1);font-family:\'Newsreader\',serif';
   const row2Style = isCancelled

@@ -10,6 +10,14 @@
 const { sbHeaders } = require('./utils/calendar-token');
 const { pushChange } = require('./utils/calendar-push-core');
 
+function activeBookingQuery(uid) {
+  return process.env.SUPABASE_URL + '/rest/v1/bookings' +
+    '?user_id=eq.' + encodeURIComponent(uid) +
+    '&status=neq.cancelled' +
+    '&or=(enrichment_status.is.null,enrichment_status.neq.pending)' +
+    '&select=local_id';
+}
+
 function json(status, body) {
   return {
     statusCode: status,
@@ -34,9 +42,7 @@ exports.handler = async (event) => {
 
   // Bookings
   try {
-    const res = await fetch(SUPABASE_URL + '/rest/v1/bookings' +
-      '?user_id=eq.' + encodeURIComponent(uid) +
-      '&status=eq.confirmed&select=local_id', { headers: sbHeaders() });
+    const res = await fetch(activeBookingQuery(uid), { headers: sbHeaders() });
     const bookings = await res.json();
     for (const b of (bookings || [])) {
       if (!b.local_id) continue;

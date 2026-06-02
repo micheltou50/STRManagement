@@ -82,6 +82,7 @@ import {
   buildBookingListCardFromBooking,
   normalizePlatformLabel,
 } from './booking-list-card.js';
+import { bookingRevenue, isRevenueBearingBooking } from './booking-revenue.js';
 import {
   analyseExpenses,
   renderAIIgnoreList,
@@ -683,7 +684,7 @@ function buildTodayBookingCardHtml(b, options) {
   const matchedClean = findMatchingCleanForBooking(b);
   const isCancelled = b.status === 'cancelled';
   const id = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
-  const payout = Number(b.hostPayout ?? b.total_price ?? 0);
+  const payout = bookingRevenue(b);
   const platformMeta = _todayPlatformPill(b.platform);
   const cleanerMeta = isCancelled ? null : _todayCardCleanerMeta(b, matchedClean);
   const dateLine =
@@ -1524,11 +1525,9 @@ function buildSinglePropertyTodayDashboardMarkup() {
   const activeBookings = activePid
     ? activeBookingsAll.filter(b => String(b._propertyId || '') === String(activePid))
     : activeBookingsAll.slice();
-
-  const safeNum = (value) => {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : 0;
-  };
+  const revenueBookings = activePid
+    ? bookings.filter(b => String(b._propertyId || '') === String(activePid))
+    : bookings.slice();
 
   const next30End = new Date(todayStart);
   next30End.setDate(next30End.getDate() + 30);
@@ -1546,19 +1545,19 @@ function buildSinglePropertyTodayDashboardMarkup() {
   });
   const occupancyThisMonth = Math.max(0, Math.min(100, Math.round((bookedNightsMonth / daysThisMonth) * 100)));
 
-  const revenueThisMonth = activeBookings
+  const revenueThisMonth = revenueBookings
     .filter(b => {
       const ci = parseLocalDayStart(b.checkin);
       return !Number.isNaN(ci.getTime()) && ci >= monthStart && ci < monthEnd;
     })
-    .reduce((s, b) => s + safeNum(b.hostPayout), 0);
+    .reduce((s, b) => s + bookingRevenue(b), 0);
 
-  const revenueNext30 = activeBookings
+  const revenueNext30 = revenueBookings
     .filter(b => {
       const ci = parseLocalDayStart(b.checkin);
       return !Number.isNaN(ci.getTime()) && ci >= todayStart && ci < next30End;
     })
-    .reduce((s, b) => s + safeNum(b.hostPayout), 0);
+    .reduce((s, b) => s + bookingRevenue(b), 0);
 
   let statusHtml;
   const currentGuest = activeBookings.find(b => {
@@ -1786,7 +1785,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
     };
     const tblRows = upcoming.map(b => {
       const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
-      return `<tr onclick="showDetail('${bid}')" style="cursor:pointer"><td><strong>${escHtml(b.name)}</strong></td><td>${fmtSh(b.checkin)}</td><td>${fmtSh(b.checkout)}</td><td>$${Number(b.hostPayout||0).toLocaleString()}</td><td><span class="dt-platform ${platformCls(b.platform)}">${escHtml(normalizePlatformLabel(b.platform))}</span></td><td>${statusBdg(b)}</td></tr>`;
+      return `<tr onclick="showDetail('${bid}')" style="cursor:pointer"><td><strong>${escHtml(b.name)}</strong></td><td>${fmtSh(b.checkin)}</td><td>${fmtSh(b.checkout)}</td><td>$${bookingRevenue(b).toLocaleString()}</td><td><span class="dt-platform ${platformCls(b.platform)}">${escHtml(normalizePlatformLabel(b.platform))}</span></td><td>${statusBdg(b)}</td></tr>`;
     }).join('');
 
     const upcomingTable = `<div class="card" style="padding:0;overflow:hidden">
@@ -1952,11 +1951,7 @@ function buildPortfolioTodayDashboardMarkup() {
 
   const activeBookingsAll = bookings.filter(b => b.status !== 'cancelled');
   const activeBookings = activeBookingsAll.slice();
-
-  const safeNum = (value) => {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : 0;
-  };
+  const revenueBookings = bookings.slice();
 
   let bookedNightsMonth = 0;
   activeBookings.forEach(b => {
@@ -1968,19 +1963,19 @@ function buildPortfolioTodayDashboardMarkup() {
   const denomDays = props.length > 1 ? daysThisMonth * props.length : daysThisMonth;
   const occupancyThisMonth = Math.max(0, Math.min(100, Math.round((bookedNightsMonth / denomDays) * 100)));
 
-  const revenueThisMonth = activeBookings
+  const revenueThisMonth = revenueBookings
     .filter(b => {
       const ci = parseLocalDayStart(b.checkin);
       return !Number.isNaN(ci.getTime()) && ci >= monthStart && ci < monthEnd;
     })
-    .reduce((s, b) => s + safeNum(b.hostPayout), 0);
+    .reduce((s, b) => s + bookingRevenue(b), 0);
 
-  const revenueNext30 = activeBookings
+  const revenueNext30 = revenueBookings
     .filter(b => {
       const ci = parseLocalDayStart(b.checkin);
       return !Number.isNaN(ci.getTime()) && ci >= todayStart && ci < next30End;
     })
-    .reduce((s, b) => s + safeNum(b.hostPayout), 0);
+    .reduce((s, b) => s + bookingRevenue(b), 0);
 
   const propertyRows = props.map((p, i) => ({
     name: p.name || p.propertyId,
@@ -2124,7 +2119,7 @@ function buildPortfolioTodayDashboardMarkup() {
     };
     const tblRows = upcoming.map(b => {
       const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
-      return `<tr onclick="showDetail('${bid}')" style="cursor:pointer"><td><strong>${escHtml(b.name)}</strong></td><td style="font-size:12px;color:var(--muted-2)">${escHtml(propNameFor(b))}</td><td>${fmtSh(b.checkin)}</td><td>${fmtSh(b.checkout)}</td><td>$${Number(b.hostPayout||0).toLocaleString()}</td><td><span class="dt-platform ${platformCls(b.platform)}">${escHtml(normalizePlatformLabel(b.platform))}</span></td><td>${statusBdg(b)}</td></tr>`;
+      return `<tr onclick="showDetail('${bid}')" style="cursor:pointer"><td><strong>${escHtml(b.name)}</strong></td><td style="font-size:12px;color:var(--muted-2)">${escHtml(propNameFor(b))}</td><td>${fmtSh(b.checkin)}</td><td>${fmtSh(b.checkout)}</td><td>$${bookingRevenue(b).toLocaleString()}</td><td><span class="dt-platform ${platformCls(b.platform)}">${escHtml(normalizePlatformLabel(b.platform))}</span></td><td>${statusBdg(b)}</td></tr>`;
     }).join('');
 
     const upcomingTable = `<div class="card" style="padding:0;overflow:hidden">

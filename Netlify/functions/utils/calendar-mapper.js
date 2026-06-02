@@ -35,20 +35,29 @@ function withMarker(description, table, id) {
 }
 
 function bookingToEvent(b) {
-  const guests = b.guests ? ' (' + b.guests + ')' : '';
-  const platform = b.platform ? ' [' + b.platform + ']' : '';
   const lines = [];
+  if (b.guests) lines.push('Guests: ' + b.guests);
+  if (b.platform) lines.push('Platform: ' + b.platform);
   if (b.confirmation_code) lines.push('Confirmation: ' + b.confirmation_code);
   if (b.host_payout) lines.push('Host payout: $' + Number(b.host_payout).toFixed(2));
   if (b.cleaning_fee) lines.push('Cleaning fee: $' + Number(b.cleaning_fee).toFixed(2));
   if (b.notes) lines.push('', b.notes);
   return {
-    summary: TITLE_PREFIX.bookings + (b.guest_name || 'Guest') + guests + platform,
+    summary: TITLE_PREFIX.bookings + (b.guest_name || 'Guest'),
     description: withMarker(lines.join('\n'), 'bookings', b.id),
     start: { dateTime: b.checkin  + 'T' + BOOKING_CHECKIN_TIME,  timeZone: EVENT_TZ },
     end:   { dateTime: b.checkout + 'T' + BOOKING_CHECKOUT_TIME, timeZone: EVENT_TZ },
     extendedProperties: { private: { stayops_table: 'bookings', stayops_id: String(b.id) } },
   };
+}
+
+function cleanBookingTitle(title) {
+  return String(title || '')
+    .replace(/^(Booking)\s*[:\-—â€”]\s*/i, '')
+    .replace(/(\s*\(\d+\)\s*\[[^\]]*\])+\s*$/i, '')
+    .replace(/\s*\(\d+\)\s*$/i, '')
+    .replace(/\s*\[[^\]]+\]\s*$/i, '')
+    .trim();
 }
 
 function cleanToEvent(c, propertyName) {
@@ -127,8 +136,7 @@ function eventToLocal(table, event) {
     return { date: startDate, description: title || notes || 'Untitled', notes };
   }
   if (table === 'bookings') {
-    // Per plan: phone edits to bookings update only title→guest_name and notes.
-    return { guest_name: title || 'Guest', notes };
+    return { guest_name: cleanBookingTitle(event.summary) || 'Guest' };
   }
   return null;
 }

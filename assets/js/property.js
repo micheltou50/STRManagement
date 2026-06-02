@@ -21,6 +21,7 @@ import {
   fadeTransition,
 } from './utils.js';
 import { buildBookingListCardFromBooking } from './booking-list-card.js';
+import { bookingRevenue, bookingMgmtFee, isRevenueBearingBooking } from './booking-revenue.js';
 
 export let portfolioMode = false;
 export let bookingFilter = 'upcoming';
@@ -241,7 +242,7 @@ function renderPortfolioFinance() {
 
   const props = typeof getAllProperties === 'function' ? getAllProperties() : [];
   const cloudIds = window._cloudPropertyIds || {};
-  const activeBookings = bookings.filter(b => b.status !== 'cancelled');
+  const activeBookings = bookings.filter(b => isRevenueBearingBooking(b));
 
   let totalRevenue = 0, totalMgmt = 0, totalExpenses = 0;
   const perProp = props.map((p, i) => {
@@ -251,8 +252,8 @@ function renderPortfolioFinance() {
       String(b._propertyId || '') === String(pid || '') && b.checkin &&
       new Date(b.checkin) >= monthStart && new Date(b.checkin) < monthEnd
     );
-    const revenue = propBookings.reduce((sum, b) => sum + Number(b.hostPayout || 0), 0);
-    const mgmt = propBookings.reduce((sum, b) => sum + Number(b.mgmtFee || 0), 0);
+    const revenue = propBookings.reduce((sum, b) => sum + bookingRevenue(b), 0);
+    const mgmt = propBookings.reduce((sum, b) => sum + bookingMgmtFee(b), 0);
     const propExp = expenses.filter(e =>
       String(e._propertyId || '') === String(pid || '') && e.date && e.date >= monthStartStr && e.date < monthEndStr
     );
@@ -849,6 +850,8 @@ async function loadPortfolioData() {
         platform:         b.platform     || '',
         confirmCode:      b.confirmation_code || '',
         status:           b.status       || 'confirmed',
+        cancelledAt:      b.cancelled_at || null,
+        cancellationBillable: b.cancellation_billable == null ? null : !!b.cancellation_billable,
         cleanerConfirmed: b.cleaner_confirmed || false,
         source:           b.source        || 'sheet',
         phone:            b.phone         || '',

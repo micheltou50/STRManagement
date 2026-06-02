@@ -16,6 +16,7 @@
 const { parseICS } = require('./utils/ical-parse');
 const { pushChange: pushCalendarChange } = require('./utils/calendar-push-core');
 const { notifyCleanerCancellation } = require('./utils/notify-cleaner-cancellation');
+const { isCancellationBillable, loadCancellationConfig } = require('./utils/cancellation-policy');
 
 // Best-effort outbound calendar push — never throws. Failures are queued
 // inside pushChange via pending_direction='to_provider' for the reconciler.
@@ -54,6 +55,7 @@ async function fetchFeed(url) {
 
 async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
   const result = { feedId: feed.id, imported: 0, updated: 0, cancelled: 0, errors: 0 };
+  const cancellationConfig = await loadCancellationConfig(supabaseUrl, sbHeaders, feed.user_id);
 
   let icsText;
   try {
@@ -88,10 +90,16 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
 
     if (ev.cancelled) {
       if (prior && prior.status !== 'cancelled') {
+        const cancelledAt = new Date().toISOString();
         await fetch(supabaseUrl + '/rest/v1/bookings?id=eq.' + encodeURIComponent(prior.id), {
           method: 'PATCH',
           headers: { ...sbHeaders, Prefer: 'return=minimal' },
-          body: JSON.stringify({ status: 'cancelled', updated_at: new Date().toISOString() }),
+          body: JSON.stringify({
+            status: 'cancelled',
+            cancelled_at: cancelledAt,
+            cancellation_billable: isCancellationBillable(prior, cancelledAt, cancellationConfig),
+            updated_at: cancelledAt,
+          }),
         });
         pushBookingToCalendar(feed.user_id, prior.local_id, 'delete');
         await notifyCleanerCancellation({
@@ -168,10 +176,16 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
   for (const uid in byUid) {
     if (!liveUids.has(uid) && byUid[uid].status !== 'cancelled') {
       const stale = byUid[uid];
+      const cancelledAt = new Date().toISOString();
       await fetch(supabaseUrl + '/rest/v1/bookings?id=eq.' + encodeURIComponent(stale.id), {
         method: 'PATCH',
         headers: { ...sbHeaders, Prefer: 'return=minimal' },
-        body: JSON.stringify({ status: 'cancelled', updated_at: new Date().toISOString() }),
+        body: JSON.stringify({
+          status: 'cancelled',
+          cancelled_at: cancelledAt,
+          cancellation_billable: isCancellationBillable(stale, cancelledAt, cancellationConfig),
+          updated_at: cancelledAt,
+        }),
       });
       pushBookingToCalendar(feed.user_id, stale.local_id, 'delete');
       await notifyCleanerCancellation({

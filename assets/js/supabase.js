@@ -1547,6 +1547,8 @@ async function loadBookingsFromCloud() {
       platform:         b.platform     || '',
       confirmCode:      b.confirmation_code || '',
       status:           b.status       || 'confirmed',
+      cancelledAt:      b.cancelled_at || null,
+      cancellationBillable: b.cancellation_billable == null ? null : !!b.cancellation_billable,
       cleanerConfirmed: b.cleaner_confirmed || false,
       source:           b.source        || 'sheet',
       // iCal stub fields — used by booking-list-card.js to show the
@@ -1586,6 +1588,8 @@ export async function saveBookingToCloud(booking) {
     platform:           booking.platform    || '',
     confirmation_code:  booking.confirmCode || null,
     status:             booking.status      || 'confirmed',
+    cancelled_at:       booking.cancelledAt || booking.cancelled_at || null,
+    cancellation_billable: booking.cancellationBillable ?? booking.cancellation_billable ?? null,
     cleaner_confirmed:  booking.cleanerConfirmed || false,
     source:             booking.source      || 'sheet',
     phone:              booking.phone       || null,
@@ -1648,6 +1652,8 @@ export async function saveBookingsToCloud(bookingsList) {
     platform:           b.platform    || '',
     confirmation_code:  b.confirmCode || null,
     status:             b.status      || 'confirmed',
+    cancelled_at:       b.cancelledAt || b.cancelled_at || null,
+    cancellation_billable: b.cancellationBillable ?? b.cancellation_billable ?? null,
     cleaner_confirmed:  b.cleanerConfirmed || false,
     source:             b.source      || 'sheet',
     phone:              b.phone       || null,
@@ -1976,6 +1982,8 @@ export async function hydrateFromCloud() {
         ical_last_sync: cloudAppConfig.ical_last_sync || null,
         ical_last_error: cloudAppConfig.ical_last_error || null,
         cancellation_last_seen: cloudAppConfig.cancellation_last_seen || null,
+        cancellation_window_days: cloudAppConfig.cancellation_window_days,
+        cancellation_policy: cloudAppConfig.cancellation_policy || {},
       };
       console.log('[StayOps] Hydrated app config from cloud');
 

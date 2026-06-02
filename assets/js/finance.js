@@ -29,6 +29,14 @@ import {
 } from './ai.js';
 import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud, getCurrentSupabaseUser, savePlatformPayout, insertPayoutLines } from './supabase.js';
 import { AIService } from './ai-logic.js';
+import {
+  bookingRevenue,
+  bookingCleaningFee,
+  bookingMgmtFee,
+  bookingMgmtPayout,
+  bookingNetPayout,
+  isRevenueBearingBooking,
+} from './booking-revenue.js';
 
 /**
  * Normalize a booking's platform field to a stable canonical name. Real
@@ -1111,13 +1119,12 @@ function renderFinanceHubCounts() {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    const activeBookings = (bookings || []).filter(b => b.status !== 'cancelled');
-    const revenueThisMonth = activeBookings
+    const revenueThisMonth = (bookings || [])
       .filter(b => {
         const ci = new Date(b.checkin + 'T00:00:00');
         return !Number.isNaN(ci.getTime()) && ci >= monthStart && ci < monthEnd;
       })
-      .reduce((s, b) => s + (Number(b.hostPayout) || 0), 0);
+      .reduce((s, b) => s + bookingRevenue(b), 0);
     const expensesThisMonth = (expenses || [])
       .filter(e => {
         const d = new Date((e.date || '') + 'T00:00:00');
@@ -1131,13 +1138,12 @@ function renderFinanceHubCounts() {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    const activeBookings = (bookings || []).filter(b => b.status !== 'cancelled');
-    const revenueThisMonth = activeBookings
+    const revenueThisMonth = (bookings || [])
       .filter(b => {
         const ci = new Date(b.checkin + 'T00:00:00');
         return !Number.isNaN(ci.getTime()) && ci >= monthStart && ci < monthEnd;
       })
-      .reduce((s, b) => s + (Number(b.hostPayout) || 0), 0);
+      .reduce((s, b) => s + bookingRevenue(b), 0);
     const expensesThisMonth = (expenses || [])
       .filter(e => {
         const d = new Date((e.date || '') + 'T00:00:00');
@@ -1389,7 +1395,7 @@ function _mgmtFYMonthKey(year, month) { return year + '-' + month; }
 
 function _mgmtFYGetMonthBookings(year, month) {
   return _financeScopedBookings().filter(b => {
-    if (b.status === 'cancelled') return false;
+    if (!isRevenueBearingBooking(b)) return false;
     const d = new Date(b.checkin);
     return d.getFullYear() === year && d.getMonth() === month;
   });
@@ -1418,16 +1424,16 @@ function renderMgmtFY() {
   const propertyBookings = _financeScopedBookings();
   const invMap = _getBookingInvoiceMap();
   const mdata = months.map(({year, month}) => {
-    const bs = propertyBookings.filter(b => b.status !== 'cancelled' && (()=>{ const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; })());
+    const bs = propertyBookings.filter(b => isRevenueBearingBooking(b) && (()=>{ const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; })());
     const key = _mgmtFYMonthKey(year, month);
     const invoicedCount = bs.filter(b => invMap.has(String(b.id))).length;
     const uninvoicedCount = bs.length - invoicedCount;
-    return { label: mo[month], year, month, key, total: bs.reduce((s,b)=>s+Number(b.mgmtPayout||0),0), count: bs.length, invoicedCount, uninvoicedCount, bookings: bs };
+    return { label: mo[month], year, month, key, total: bs.reduce((s,b)=>s+bookingMgmtPayout(b),0), count: bs.length, invoicedCount, uninvoicedCount, bookings: bs };
   });
   const fyTotal = mdata.reduce((s,m)=>s+m.total, 0);
 
   const selBookings = propertyBookings.filter(b => mgmtSelected.has(_mgmtBookingKey(b)));
-  const selTotal = selBookings.reduce((s,b)=>s+Number(b.mgmtPayout||0),0);
+  const selTotal = selBookings.reduce((s,b)=>s+bookingMgmtPayout(b),0);
   const hasSelection = selBookings.length > 0;
 
   el.innerHTML = `
@@ -1599,7 +1605,7 @@ function renderReport() {
 
   // Helper: bookings in a given month
   function monthBookings(year, month) {
-    return propertyBookings.filter(b => b.status !== 'cancelled' && (function(){ const d = new Date(b.checkin); return d.getFullYear()===year && d.getMonth()===month; })());
+    return propertyBookings.filter(b => isRevenueBearingBooking(b) && (function(){ const d = new Date(b.checkin); return d.getFullYear()===year && d.getMonth()===month; })());
   }
   // Helper: expenses in FY — use live array, not stale localStorage read
   function fyExpenses() {
@@ -1615,10 +1621,10 @@ function renderReport() {
     const bs = monthBookings(year, month);
     const availNights = new Date(year, month+1, 0).getDate();
     const bookedNights = bs.reduce((s,b) => s + Number(b.nights||0), 0);
-    const revenue = bs.reduce((s,b) => s + Number(b.hostPayout||0), 0);
-    const netPayout = bs.reduce((s,b) => s + Number(b.netPayout||0), 0);
+    const revenue = bs.reduce((s,b) => s + bookingRevenue(b), 0);
+    const netPayout = bs.reduce((s,b) => s + bookingNetPayout(b), 0);
     const platformRev = {};
-    platforms.forEach(p => { platformRev[p] = bs.filter(b=>_canonicalPlatformName(b.platform)===p).reduce((s,b)=>s+Number(b.hostPayout||0),0); });
+    platforms.forEach(p => { platformRev[p] = bs.filter(b=>_canonicalPlatformName(b.platform)===p).reduce((s,b)=>s+bookingRevenue(b),0); });
     return { label: mo[month], year, month, bs, availNights, bookedNights, revenue, netPayout, platformRev, bookingCount: bs.length };
   });
 
@@ -1808,10 +1814,10 @@ function renderRevenue() {
   const propertyBookings = _financeScopedBookings();
   const monthBookings = propertyBookings.filter(b => {
     const d = new Date(b.checkin);
-    return b.status !== 'cancelled' && d.getMonth()===revMonth && d.getFullYear()===revYear;
+    return isRevenueBearingBooking(b) && d.getMonth()===revMonth && d.getFullYear()===revYear;
   });
-  const totalHost = monthBookings.reduce((s,b)=>s+Number(b.hostPayout||0),0);
-  const totalMgmt = monthBookings.reduce((s,b)=>s+Number(b.mgmtFee||0),0);
+  const totalHost = monthBookings.reduce((s,b)=>s+bookingRevenue(b),0);
+  const totalMgmt = monthBookings.reduce((s,b)=>s+bookingMgmtFee(b),0);
 
   // ── Expenses for this month — split into operational vs owner-paid ──
   const monthExpenses = _financeScopedExpenses().filter(e => {
@@ -1918,15 +1924,15 @@ function renderRevenue() {
       _revBreakdownEl.innerHTML = '<div style="color:var(--muted-2);font-size:13px;padding:14px 0">No bookings this month.</div>';
     } else if (window.innerWidth >= 1024) {
       const _fmtSh = d => { if (!d) return ''; return new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day:'numeric', month:'short' }); };
-      const _revRows = _revSorted.map(b => `<tr><td><strong>${escHtml(b.name||'')}</strong></td><td>${_fmtSh(b.checkin)}</td><td>${_fmtSh(b.checkout)}</td><td>${b.nights||''}</td><td>$${_fmtAud(Number(b.hostPayout||0))}</td><td style="color:#E24B4A">$${_fmtAud(Number(b.cleaningFee||0))}</td><td style="color:#E24B4A">$${_fmtAud(Number(b.mgmtFee||0))}</td><td style="color:#1D9E75;font-weight:600">$${_fmtAud(Number(b.netPayout||0))}</td></tr>`).join('');
+      const _revRows = _revSorted.map(b => `<tr><td><strong>${escHtml(b.name||'')}</strong></td><td>${_fmtSh(b.checkin)}</td><td>${_fmtSh(b.checkout)}</td><td>${b.nights||''}</td><td>$${_fmtAud(bookingRevenue(b))}</td><td style="color:#E24B4A">$${_fmtAud(bookingCleaningFee(b))}</td><td style="color:#E24B4A">$${_fmtAud(bookingMgmtFee(b))}</td><td style="color:#1D9E75;font-weight:600">$${_fmtAud(bookingNetPayout(b))}</td></tr>`).join('');
       _revBreakdownEl.innerHTML = '<div class="card" style="padding:0;overflow:hidden;overflow-x:auto"><table class="desktop-table"><thead><tr><th>Guest</th><th>Check-in</th><th>Check-out</th><th>Nights</th><th>Gross</th><th>Clean</th><th>Mgmt Fee</th><th>Net Payout</th></tr></thead><tbody>' + _revRows + '</tbody></table></div>';
     } else {
       _revBreakdownEl.innerHTML = _revSorted.map(b=>`
         <div class="fin-rev-row">
           <div style="min-width:0"><div style="font-weight:500;font-size:14px;color:var(--ink-1)">${escHtml(b.name||'')}</div><div style="font-size:11px;color:var(--muted-2);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n</div></div>
           <div style="text-align:right;flex-shrink:0">
-            <div style="font-size:14px;font-weight:500;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif">$${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-            <div style="font-size:11px;color:#1D9E75;margin-top:2px;font-family:'Plus Jakarta Sans',sans-serif">$${Number(b.netPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+            <div style="font-size:14px;font-weight:500;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif">$${bookingRevenue(b).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+            <div style="font-size:11px;color:#1D9E75;margin-top:2px;font-family:'Plus Jakarta Sans',sans-serif">$${bookingNetPayout(b).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
           </div>
         </div>`).join('');
     }
@@ -1947,7 +1953,7 @@ function _getMgmtMonthBookings() {
   const propertyBookings = _financeScopedBookings();
   return propertyBookings.filter((b) => {
     const d = new Date(b.checkin);
-    return b.status !== 'cancelled' && d.getMonth() === mgmtMonth && d.getFullYear() === mgmtYear;
+    return isRevenueBearingBooking(b) && d.getMonth() === mgmtMonth && d.getFullYear() === mgmtYear;
   });
 }
 
@@ -2008,7 +2014,7 @@ function renderManagement() {
   const titleEl = document.getElementById('mgmt-month-title');
   if (titleEl) titleEl.textContent = monthNames[mgmtMonth] + ' ' + mgmtYear;
   const monthBookings = _getMgmtMonthBookings();
-  const totalMgmtPayout = monthBookings.reduce((s,b)=>s+Number(b.mgmtPayout||0),0);
+  const totalMgmtPayout = monthBookings.reduce((s,b)=>s+bookingMgmtPayout(b),0);
   const totalEl = document.getElementById('total-mgmt');
   if (totalEl) totalEl.textContent = '$' + totalMgmtPayout.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
   const pctSample = monthBookings.length
@@ -2041,7 +2047,7 @@ function renderManagement() {
         if (invoiced) mgmtSelected.delete(_mgmtBookingKey(b));
         const invNums = invoiced ? invMap.get(String(b.id)) : null;
         const invBadge = invNums ? ' <span class="mgmt-invoiced-badge">' + escHtml(invNums[invNums.length - 1]) + '</span>' : '';
-        return `<tr style="${invoiced ? 'opacity:0.45' : 'cursor:pointer'}"><td style="width:36px"><label style="margin:0;cursor:pointer;display:flex"><span class="mgmt-booking-check-wrap" style="position:relative;display:inline-flex;width:20px;height:20px"><input class="mgmt-booking-check" data-booking-id="${bookingId}" type="checkbox" ${checked} ${invoiced ? 'disabled' : ''} style="position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:2"><span class="mgmt-booking-box" style="width:20px;height:20px;border:1.5px solid ${invoiced ? '#ddd' : '#C8C6BF'};border-radius:4px;background:${invoiced ? '#f0f0f0' : '#fff'};display:flex;align-items:center;justify-content:center;box-sizing:border-box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="display:none"><polyline points="20 6 9 17 4 12"></polyline></svg></span></span></label></td><td><strong>${escHtml(b.name||'')}</strong>${invBadge}</td><td>${_fmtSh(b.checkin)}</td><td>${_fmtSh(b.checkout)}</td><td>${b.nights||''}</td><td>$${_fmtAud(Number(b.hostPayout||0))}</td><td style="color:${invoiced ? 'var(--muted-2)' : '#1D9E75'};font-weight:600">$${_fmtAud(Number(b.mgmtPayout||0))}</td></tr>`;
+        return `<tr style="${invoiced ? 'opacity:0.45' : 'cursor:pointer'}"><td style="width:36px"><label style="margin:0;cursor:pointer;display:flex"><span class="mgmt-booking-check-wrap" style="position:relative;display:inline-flex;width:20px;height:20px"><input class="mgmt-booking-check" data-booking-id="${bookingId}" type="checkbox" ${checked} ${invoiced ? 'disabled' : ''} style="position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:2"><span class="mgmt-booking-box" style="width:20px;height:20px;border:1.5px solid ${invoiced ? '#ddd' : '#C8C6BF'};border-radius:4px;background:${invoiced ? '#f0f0f0' : '#fff'};display:flex;align-items:center;justify-content:center;box-sizing:border-box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="display:none"><polyline points="20 6 9 17 4 12"></polyline></svg></span></span></label></td><td><strong>${escHtml(b.name||'')}</strong>${invBadge}</td><td>${_fmtSh(b.checkin)}</td><td>${_fmtSh(b.checkout)}</td><td>${b.nights||''}</td><td>$${_fmtAud(bookingRevenue(b))}</td><td style="color:${invoiced ? 'var(--muted-2)' : '#1D9E75'};font-weight:600">$${_fmtAud(bookingMgmtPayout(b))}</td></tr>`;
       }).join('');
       bd.innerHTML = '<div class="card" style="padding:0;overflow:hidden;overflow-x:auto"><table class="desktop-table"><thead><tr><th style="width:36px"></th><th>Guest</th><th>Check-in</th><th>Check-out</th><th>Nights</th><th>Gross</th><th>Mgmt Payout</th></tr></thead><tbody>' + _mgmtRows + '</tbody></table></div>';
     } else {
@@ -2064,9 +2070,9 @@ function renderManagement() {
           </span>
           <div style="flex:1;min-width:0">
             <div style="font-weight:500;font-size:14px;color:var(--ink-1);text-transform:none">${escHtml(b.name||'')}${invBadge}</div>
-            <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n · Host $${Number(b.hostPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}${invoiced ? ' · Invoiced' : ''}</div>
+            <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n · Host $${bookingRevenue(b).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}${invoiced ? ' · Invoiced' : ''}</div>
           </div>
-          <div style="font-size:14px;font-weight:500;color:${invoiced ? 'var(--muted-2)' : '#1D9E75'};font-family:'Plus Jakarta Sans',sans-serif;flex-shrink:0">$${Number(b.mgmtPayout||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+          <div style="font-size:14px;font-weight:500;color:${invoiced ? 'var(--muted-2)' : '#1D9E75'};font-family:'Plus Jakarta Sans',sans-serif;flex-shrink:0">$${bookingMgmtPayout(b).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
         </label>`;
       }).join('');
     }
@@ -2104,7 +2110,7 @@ function updateMgmtGenInvoiceBtn() {
   const meta = document.getElementById('mgmt-gen-invoice-meta');
   if (!btn || !meta) return;
   const sel = _financeScopedBookings().filter((b) => mgmtSelected.has(_mgmtBookingKey(b)));
-  const sum = sel.reduce((s,b)=>s+Number(b.mgmtPayout||0),0);
+  const sum = sel.reduce((s,b)=>s+bookingMgmtPayout(b),0);
   meta.textContent = `${sel.length} selected · $${sum.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
   const active = sel.length > 0;
   btn.disabled = !active;
@@ -2318,7 +2324,7 @@ function renderInvoiceHistory(containerId) {
         ? matchedBookings.map(b => {
             const ci = new Date(b.checkin);
             const ciStr = isNaN(ci) ? '' : ci.toLocaleDateString('en-AU', { day:'numeric', month:'short' });
-            return `<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;color:var(--ink-1)"><span>${escHtml(b.name||'Guest')} · ${ciStr}</span><span style="color:#1D9E75;font-weight:500">$${Number(b.mgmtPayout||0).toFixed(2)}</span></div>`;
+            return `<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;color:var(--ink-1)"><span>${escHtml(b.name||'Guest')} · ${ciStr}</span><span style="color:#1D9E75;font-weight:500">$${bookingMgmtPayout(b).toFixed(2)}</span></div>`;
           }).join('')
         : (inv.bookingIds.length
             ? '<div style="font-size:12px;color:var(--muted-2);padding:6px 0">Booking details no longer available</div>'
@@ -2369,9 +2375,9 @@ function buildInvoicePDF(selected, client) {
   // Management fee is calculated on booking revenue EXCLUDING cleaning fees.
   let invoiceTotal = 0;
   const rows = selected.map(b => {
-    const amt = Number(b.mgmtPayout || 0);
-    const gross = Number(b.hostPayout || 0);
-    const cleaning = Number(b.cleaningFee || 0);
+    const amt = bookingMgmtPayout(b);
+    const gross = bookingRevenue(b);
+    const cleaning = bookingCleaningFee(b);
     const feeBase = gross - cleaning;
     const pct = b.mgmtFeeRaw != null ? Number(b.mgmtFeeRaw) : (b.mgmtFee && feeBase ? Math.round((b.mgmtFee / feeBase) * 1000) / 10 : 0);
     invoiceTotal += amt;
@@ -3811,7 +3817,7 @@ function renderExpenseBookingPicker(prefix, currentValue) {
   const todayStr = new Date().toISOString().split('T')[0];
   const cutoff = new Date(Date.now() - 120 * 86400000).toISOString().split('T')[0];
   const list = (Array.isArray(bookings) ? bookings : [])
-    .filter(b => b && b.status !== 'cancelled' && b.checkout && b.checkout <= todayStr && b.checkout >= cutoff)
+    .filter(b => b && isRevenueBearingBooking(b) && b.checkout && b.checkout <= todayStr && b.checkout >= cutoff)
     .sort((a, b) => String(b.checkout).localeCompare(String(a.checkout)));
 
   sel.innerHTML = '<option value="">— No booking —</option>' + list.map(b => {
@@ -4167,11 +4173,11 @@ function _buildReportDoc(fy) {
   const propertyBookings = _financeScopedBookings();
   const propertyExpenses = _financeScopedExpenses();
   function mdata(yr, mo) {
-    const bs = propertyBookings.filter(b => b.status !== 'cancelled' && (function(){ const d=new Date(b.checkin); return d.getFullYear()===yr&&d.getMonth()===mo; })());
+    const bs = propertyBookings.filter(b => isRevenueBearingBooking(b) && (function(){ const d=new Date(b.checkin); return d.getFullYear()===yr&&d.getMonth()===mo; })());
     const avail = new Date(yr,mo+1,0).getDate();
     const booked = bs.reduce((s,b)=>s+Number(b.nights||0),0);
-    const rev = bs.reduce((s,b)=>s+Number(b.hostPayout||0),0);
-    const net = bs.reduce((s,b)=>s+Number(b.netPayout||0),0);
+    const rev = bs.reduce((s,b)=>s+bookingRevenue(b),0);
+    const net = bs.reduce((s,b)=>s+bookingNetPayout(b),0);
     return { bs, avail, booked, rev, net };
   }
   const allM = months.map(({year,month}) => ({ ...mdata(year,month), label:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][month] }));
@@ -4215,10 +4221,10 @@ function _buildReportDoc(fy) {
     body: [
       ...allM.map(m => [
         m.label,
-        ...platforms.map(p => { const r=m.bs.filter(b=>_canonicalPlatformName(b.platform)===p).reduce((s,b)=>s+Number(b.hostPayout||0),0); return r?fmt2(r):'—'; }),
+        ...platforms.map(p => { const r=m.bs.filter(b=>_canonicalPlatformName(b.platform)===p).reduce((s,b)=>s+bookingRevenue(b),0); return r?fmt2(r):'—'; }),
         m.rev ? fmt2(m.rev) : '—'
       ]),
-      ['Total', ...platforms.map(p=>fmt2(allM.reduce((s,m)=>s+m.bs.filter(b=>_canonicalPlatformName(b.platform)===p).reduce((ss,b)=>ss+Number(b.hostPayout||0),0),0))), fmt2(fyRev)]
+      ['Total', ...platforms.map(p=>fmt2(allM.reduce((s,m)=>s+m.bs.filter(b=>_canonicalPlatformName(b.platform)===p).reduce((ss,b)=>ss+bookingRevenue(b),0),0))), fmt2(fyRev)]
     ],
     headStyles: { fillColor: FOREST, textColor:[255,255,255], fontSize:8, fontStyle:'bold' },
     bodyStyles: { fontSize:9 },
@@ -4314,9 +4320,9 @@ function exportReportCSV() {
   rows.push(['Revenue by Month & Platform']);
   rows.push(['Month','Airbnb','VRBO','Direct','Total']);
   months.forEach(({year,month}) => {
-    const bs = propertyBookings.filter(b => b.status !== 'cancelled' && (()=>{ const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; })());
-    const rev = p => bs.filter(b=>_canonicalPlatformName(b.platform)===p).reduce((s,b)=>s+Number(b.hostPayout||0),0);
-    const total = bs.reduce((s,b)=>s+Number(b.hostPayout||0),0);
+    const bs = propertyBookings.filter(b => isRevenueBearingBooking(b) && (()=>{ const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; })());
+    const rev = p => bs.filter(b=>_canonicalPlatformName(b.platform)===p).reduce((s,b)=>s+bookingRevenue(b),0);
+    const total = bs.reduce((s,b)=>s+bookingRevenue(b),0);
     rows.push([mo[month], rev('Airbnb')||'', rev('VRBO')||'', rev('Direct')||'', total||'']);
   });
   rows.push([]);
@@ -4325,10 +4331,10 @@ function exportReportCSV() {
   rows.push(['Occupancy & Performance']);
   rows.push(['Month','Available Nights','Booked Nights','Occupancy%','ADR','RevPAR']);
   months.forEach(({year,month}) => {
-    const bs = propertyBookings.filter(b => b.status !== 'cancelled' && (()=>{ const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; })());
+    const bs = propertyBookings.filter(b => isRevenueBearingBooking(b) && (()=>{ const d=new Date(b.checkin); return d.getFullYear()===year&&d.getMonth()===month; })());
     const avail = new Date(year,month+1,0).getDate();
     const booked = bs.reduce((s,b)=>s+Number(b.nights||0),0);
-    const rev = bs.reduce((s,b)=>s+Number(b.hostPayout||0),0);
+    const rev = bs.reduce((s,b)=>s+bookingRevenue(b),0);
     rows.push([mo[month], avail, booked,
       avail ? (booked/avail*100).toFixed(1)+'%' : '',
       booked ? (rev/booked).toFixed(2) : '',
@@ -4418,11 +4424,11 @@ function _hostMgmtIncomeForFY(fy) {
   const totals = {}; // propertyId -> total
   months.forEach(({ year, month }) => {
     allBookings.forEach(b => {
-      if (b.status === 'cancelled') return;
+      if (!isRevenueBearingBooking(b)) return;
       const d = new Date(b.checkin);
       if (d.getFullYear() !== year || d.getMonth() !== month) return;
       const pid = _bookingPropertyId(b) || 'unknown';
-      const amt = Number(b.mgmtPayout || 0);
+      const amt = bookingMgmtPayout(b);
       if (amt <= 0) return;
       totals[pid] = (totals[pid] || 0) + amt;
     });
@@ -4567,9 +4573,9 @@ function exportTaxPDF() {
   let fyTotalRev = 0;
   platforms.forEach(p => { platRevs[p] = 0; });
   months.forEach(({ year, month }) => {
-    const bs = propertyBookings.filter(b => b.status !== 'cancelled' && (() => { const d = new Date(b.checkin); return d.getFullYear() === year && d.getMonth() === month; })());
+    const bs = propertyBookings.filter(b => isRevenueBearingBooking(b) && (() => { const d = new Date(b.checkin); return d.getFullYear() === year && d.getMonth() === month; })());
     bs.forEach(b => {
-      const amt = Number(b.hostPayout || 0);
+      const amt = bookingRevenue(b);
       fyTotalRev += amt;
       const p = _canonicalPlatformName(b.platform); // normalises "airbnb" -> "Airbnb" etc
       if (platRevs[p] !== undefined) platRevs[p] += amt;
@@ -5340,7 +5346,7 @@ function _renderStatement() {
   const monthStart = new Date(y, m, 1);
   const monthEnd = new Date(y, m + 1, 0);
   const bk = (globalThis.bookings || []).filter(b => {
-    if (b.status === 'cancelled') return false;
+    if (!isRevenueBearingBooking(b)) return false;
     const ci = new Date(b.checkin);
     return ci >= monthStart && ci <= monthEnd;
   });
@@ -5349,8 +5355,8 @@ function _renderStatement() {
     return d >= monthStart && d <= monthEnd;
   });
 
-  const totalRevenue = bk.reduce((s, b) => s + Number(b.hostPayout || 0), 0);
-  const cleaningCollected = bk.reduce((s, b) => s + Number(b.cleaningFee || 0), 0);
+  const totalRevenue = bk.reduce((s, b) => s + bookingRevenue(b), 0);
+  const cleaningCollected = bk.reduce((s, b) => s + bookingCleaningFee(b), 0);
   const platformFees = bk.reduce((s, b) => s + Number(b.platformFee || 0), 0);
   const cleanerPay = exp.filter(e => (e.category || '').toLowerCase().includes('clean')).reduce((s, e) => s + Number(e.amount || 0), 0);
   // Owner mode splits expenses into recoverable (owner reimburses) and
@@ -5403,7 +5409,7 @@ function _renderStatement() {
         <div style="font-size:13px;font-weight:600;color:var(--ink-1,#1c2620)">${plat}</div>
         <div style="font-size:11px;color:var(--muted-2,#8a958f);font-family:'JetBrains Mono',monospace">${d} · ${paid ? 'Settled' : 'Pending'}</div>
       </div>
-      <div style="font-family:'Newsreader',serif;font-size:15px;font-weight:600;color:var(--ink-1,#1c2620)">$${Number(b.hostPayout || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+      <div style="font-family:'Newsreader',serif;font-size:15px;font-weight:600;color:var(--ink-1,#1c2620)">$${bookingRevenue(b).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
     </div>`;
   }).join('');
 
@@ -5954,7 +5960,7 @@ function _renderPayoutPasteReview(extracted) {
   // Uses imported `bookings` (state.js ES module binding). In-memory field
   // for confirmation code is b.confirmCode.
   const bookingOptions = bookings
-    .filter(b => b && b.status !== 'cancelled' && b._cloudId)
+    .filter(b => b && isRevenueBearingBooking(b) && b._cloudId)
     .sort((a, b) => String(b.checkin || '').localeCompare(String(a.checkin || '')))
     .map(b => {
       const code = b.confirmCode || '';

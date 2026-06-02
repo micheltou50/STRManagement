@@ -11,6 +11,7 @@
 const { getFreshAccessToken, sbHeaders, patchConnection } = require('./calendar-token');
 const out = require('./outlook-cal-client');
 const mapper = require('./calendar-mapper');
+const { isCancellationBillable, loadCancellationConfig } = require('./cancellation-policy');
 
 async function rest(path, init) {
   const url = process.env.SUPABASE_URL + '/rest/v1' + path;
@@ -60,6 +61,16 @@ function newLocalId() {
   return 'ocal-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
 }
 
+function changedPatchOnly(patch, local) {
+  const changed = {};
+  for (const [key, value] of Object.entries(patch || {})) {
+    const next = value == null ? '' : String(value).trim();
+    const prev = local && local[key] != null ? String(local[key]).trim() : '';
+    if (next !== prev) changed[key] = value;
+  }
+  return changed;
+}
+
 async function applyEventToLocal(userId, ev, classification, state, calendarId) {
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const table = classification.table;
@@ -78,11 +89,29 @@ async function applyEventToLocal(userId, ev, classification, state, calendarId) 
     const remoteUpdated = new Date(eventUpdated).getTime();
     if (remoteUpdated <= localUpdated) return { op: 'skip', reason: 'local newer' };
 
+    const changedPatch = changedPatchOnly(patch, local);
+    if (!Object.keys(changedPatch).length) {
+      await upsertSyncState({
+        user_id: userId,
+        provider: 'outlook_calendar',
+        local_table: table,
+        local_id: state.local_id,
+        provider_event_id: ev.id,
+        provider_calendar_id: calendarId,
+        provider_etag: ev.etag || null,
+        local_updated_at: local.updated_at || new Date().toISOString(),
+        provider_updated_at: eventUpdated,
+        last_synced_at: new Date().toISOString(),
+        pending_direction: null,
+      });
+      return { op: 'skip', reason: 'no local changes' };
+    }
+
     await fetch(SUPABASE_URL + '/rest/v1/' + table +
       '?id=eq.' + encodeURIComponent(local.id), {
       method: 'PATCH',
       headers: { ...sbHeaders(), Prefer: 'return=minimal' },
-      body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
+      body: JSON.stringify({ ...changedPatch, updated_at: new Date().toISOString() }),
     });
     await upsertSyncState({
       user_id: userId,
@@ -164,12 +193,24 @@ async function applyEventDeletion(userId, eventId) {
 
   if (state.local_id) {
     if (state.local_table === 'bookings') {
+      const existingRows = await rest('/bookings' +
+        '?user_id=eq.' + encodeURIComponent(userId) +
+        '&local_id=eq.' + encodeURIComponent(state.local_id) +
+        '&select=id,checkin');
+      const booking = Array.isArray(existingRows) ? existingRows[0] : null;
+      const cancelledAt = new Date().toISOString();
+      const cancellationConfig = await loadCancellationConfig(process.env.SUPABASE_URL, sbHeaders(), userId);
       await fetch(process.env.SUPABASE_URL + '/rest/v1/bookings' +
         '?user_id=eq.' + encodeURIComponent(userId) +
         '&local_id=eq.' + encodeURIComponent(state.local_id), {
         method: 'PATCH',
         headers: { ...sbHeaders(), Prefer: 'return=minimal' },
-        body: JSON.stringify({ status: 'cancelled', updated_at: new Date().toISOString() }),
+        body: JSON.stringify({
+          status: 'cancelled',
+          cancelled_at: cancelledAt,
+          cancellation_billable: isCancellationBillable(booking, cancelledAt, cancellationConfig),
+          updated_at: cancelledAt,
+        }),
       });
     } else {
       await fetch(process.env.SUPABASE_URL + '/rest/v1/' + state.local_table +

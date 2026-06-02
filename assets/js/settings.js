@@ -142,6 +142,8 @@ function _renderCalendarSyncCard() {
         <div style="display:flex;gap:6px;margin-top:8px">
           <button onclick="syncCalendarNow()" id="cal-sync-btn"
             style="flex:1;background:var(--primary);color:white;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">🔄 Sync now</button>
+          <button onclick="resyncStayOpsCalendar()" id="cal-resync-btn"
+            style="flex:1;background:white;color:var(--primary);border:1px solid var(--hairline-1);border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Resync StayOps</button>
         </div>
         <div id="cal-sync-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;line-height:1.5"></div>
         <div id="cal-inbox" style="margin-top:10px"></div>
@@ -247,6 +249,47 @@ async function syncCalendarNow() {
     }
   }
   if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync now'; }
+}
+
+async function resyncStayOpsCalendar() {
+  const btn = document.getElementById('cal-resync-btn');
+  const statusEl = document.getElementById('cal-sync-status');
+  if (btn) { btn.disabled = true; btn.textContent = 'Resyncing...'; }
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.style.background = '#FFF8E1';
+    statusEl.style.color = '#E65100';
+    statusEl.textContent = 'Pushing StayOps bookings and cleans to connected calendars...';
+  }
+  try {
+    const user = window._supabaseUser;
+    const res = await fetch('/.netlify/functions/calendar-resync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: user && user.id }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data && data.error ? data.error : 'Calendar resync failed');
+    const bookingResults = Array.isArray(data.bookings) ? data.bookings : [];
+    const cleanResults = Array.isArray(data.cleans) ? data.cleans : [];
+    const bookingErrors = bookingResults.filter(r => r && r.error).length;
+    const cleanErrors = cleanResults.filter(r => r && r.error).length;
+    if (statusEl) {
+      statusEl.style.background = bookingErrors || cleanErrors ? '#FFF8E1' : '#EDF7ED';
+      statusEl.style.color = bookingErrors || cleanErrors ? '#E65100' : 'var(--primary)';
+      statusEl.textContent = 'Resynced ' + bookingResults.length + ' bookings and ' + cleanResults.length + ' cleans' +
+        ((bookingErrors || cleanErrors) ? ' with ' + (bookingErrors + cleanErrors) + ' errors' : '');
+    }
+    globalThis.showBanner('Calendar resync complete', 'ok');
+  } catch (e) {
+    if (statusEl) {
+      statusEl.style.background = '#FEF2F2';
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '⚠ ' + (e && e.message);
+    }
+    globalThis.showBanner('Calendar resync failed: ' + (e && e.message), 'warn');
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'Resync StayOps'; }
 }
 
 async function renderCalendarInbox() {
@@ -1937,6 +1980,7 @@ export {
   connectOutlookCalendar,
   disconnectOutlookCalendar,
   syncCalendarNow,
+  resyncStayOpsCalendar,
   renderCalendarInbox,
   classifyInboxEvent,
   getEmailContentConfig,

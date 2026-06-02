@@ -10,6 +10,13 @@ import {
 } from './utils.js';
 import { buildBookingListCardFromBooking, normalizePlatformLabel } from './booking-list-card.js';
 import {
+  applyCancellationPolicy,
+  bookingRevenue,
+  getCancellationWindowDays,
+  isCancellationInsideWindow,
+  getCancellationBillable,
+} from './booking-revenue.js';
+import {
   bookingFilter,
   setBookingFilter,
   renderPortfolioBookings,
@@ -422,8 +429,8 @@ function updateCalStats() {
 
   const monthRev = bookings.filter(b => {
     const d = new Date(b.checkin);
-    return b.status !== 'cancelled' && d.getMonth() === calMonth && d.getFullYear() === calYear;
-  }).reduce((s, b) => s + Number(b.hostPayout || 0), 0);
+    return d.getMonth() === calMonth && d.getFullYear() === calYear;
+  }).reduce((s, b) => s + bookingRevenue(b), 0);
 
   const occEl = document.getElementById('stat-occupancy');
   const revEl = document.getElementById('stat-revenue');
@@ -578,7 +585,9 @@ function renderBookings(filter) {
       const today = new Date().toISOString().split('T')[0];
       const ci = (b.checkin||'').slice(0,10);
       const co = (b.checkout||'').slice(0,10);
-      if (b.status === 'cancelled') return '<span class="dt-badge dt-badge-gray">Cancelled</span>';
+      if (b.status === 'cancelled') return getCancellationBillable(b)
+        ? '<span class="dt-badge dt-badge-green">Late cancel - billed</span>'
+        : '<span class="dt-badge dt-badge-gray">Cancelled</span>';
       if (ci === today) return '<span class="dt-badge dt-badge-green">Arriving</span>';
       if (co === today) return '<span class="dt-badge dt-badge-amber">Departing</span>';
       if (ci < today && co > today) return '<span class="dt-badge dt-badge-green">In-house</span>';
@@ -598,7 +607,7 @@ function renderBookings(filter) {
         <td>${fmtShort(b.checkin)}</td>
         <td>${fmtShort(b.checkout)}</td>
         <td>${b.nights || ''}</td>
-        <td>$${Number(b.hostPayout||0).toLocaleString()}</td>
+        <td>$${bookingRevenue(b).toLocaleString()}</td>
         <td><span class="dt-platform ${platformClass(b.platform)}">${escHtml(normalizePlatformLabel(b.platform))}</span></td>
         <td>${cleanerForBooking(b)}</td>
         <td>${statusBadge(b)}</td>
@@ -681,9 +690,12 @@ function _bookingDetailPlatformPill(platform) {
   return `<span style="${base};color:#5F5E5A;background:#F1EFE8">${escHtml(p)}</span>`;
 }
 
-function _bookingDetailStayStatusBadge(isCancelled, isPast) {
+function _bookingDetailStayStatusBadge(isCancelled, isPast, booking = null) {
   if (isCancelled) {
-    return '<span style="font-size:11px;padding:3px 10px;border-radius:999px;display:inline-block;font-weight:600;color:#A32D2D;background:#FCEBEB">Cancelled</span>';
+    const billed = getCancellationBillable(booking);
+    return billed
+      ? '<span style="font-size:11px;padding:3px 10px;border-radius:999px;display:inline-block;font-weight:600;color:#166534;background:#DCFCE7">Late cancel - billed</span>'
+      : '<span style="font-size:11px;padding:3px 10px;border-radius:999px;display:inline-block;font-weight:600;color:#A32D2D;background:#FCEBEB">Cancelled</span>';
   }
   if (isPast) {
     return '<span style="font-size:11px;padding:3px 10px;border-radius:999px;display:inline-block;font-weight:600;color:#5F5E5A;background:#F1EFE8">Past</span>';
@@ -765,6 +777,20 @@ function showDetail(id) {
 
   if (isCancelled) {
     const cancelledInitial = escHtml(String(b.name || '').charAt(0).toUpperCase());
+    const cancellationBilled = getCancellationBillable(b);
+    const cancellationAmount = Number(b.hostPayout || 0);
+    const cancellationAmountText = '$' + cancellationAmount.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const cancelBillableBlock = `
+      <div style="background:white;border-radius:16px;border:1px solid var(--hairline-1);margin-bottom:20px;overflow:hidden">
+        <div style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px">
+          <span style="font-size:13px;color:var(--ink-2)">Cancellation billing</span>
+          <span style="font-size:13px;font-weight:700;color:${cancellationBilled ? 'var(--good,#3f7a5e)' : 'var(--muted-2)'}">${cancellationBilled ? 'Billed as late cancel - ' + cancellationAmountText : 'Refunded - $0'}</span>
+        </div>
+        <div style="border-top:1px solid var(--hairline-2)"></div>
+        <button type="button" onclick="setCancellationBillable('${safeIdEsc}', ${cancellationBilled ? 'false' : 'true'})" style="width:100%;border:none;background:var(--surface2);padding:14px 16px;text-align:center;color:var(--primary);font-size:14px;font-weight:700;cursor:pointer;box-sizing:border-box;touch-action:manipulation;font-family:'Plus Jakarta Sans',sans-serif">
+          ${cancellationBilled ? 'Mark as refunded ($0)' : 'Mark as billed (' + cancellationAmountText + ')'}
+        </button>
+      </div>`;
     document.getElementById('detail-content').innerHTML = `
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px">
         <div style="width:52px;height:52px;border-radius:14px;background:#FCEBEB;display:flex;align-items:center;justify-content:center;font-family:'Newsreader',serif;font-weight:700;font-size:22px;color:#A32D2D;flex-shrink:0">${cancelledInitial}</div>
@@ -775,7 +801,7 @@ function showDetail(id) {
       </div>
       <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:20px">
         ${b.platform ? _bookingDetailPlatformPill(b.platform) : ''}
-        ${_bookingDetailStayStatusBadge(true, false)}
+        ${_bookingDetailStayStatusBadge(true, false, b)}
       </div>
       <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase;margin:0 0 8px 2px">Stay</div>
       <div style="background:white;border-radius:16px;border:1px solid var(--hairline-1);margin-bottom:20px;overflow:hidden">
@@ -795,9 +821,9 @@ function showDetail(id) {
           <span style="font-size:13px;font-weight:600;color:var(--ink-1)">${_bookingDetailPlatformPlain(b.platform)}</span>
         </div>
       </div>
+      ${cancelBillableBlock}
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:20px">
         <div onclick="closeDetailModal()" style="width:100%;border:1px solid var(--hairline-1);border-radius:14px;padding:14px;text-align:center;color:var(--ink-2);font-size:14px;font-weight:600;cursor:pointer;box-sizing:border-box;touch-action:manipulation;font-family:'Plus Jakarta Sans',sans-serif">Close</div>
-        <div onclick="deleteBooking('${safeIdEsc}')" style="width:100%;border-radius:14px;padding:14px;text-align:center;color:var(--warn,#b56a3a);font-size:14px;font-weight:600;cursor:pointer;box-sizing:border-box;touch-action:manipulation;font-family:'Plus Jakarta Sans',sans-serif">Delete booking</div>
       </div>
     `;
     const _dp = window.innerWidth >= 1024 && document.getElementById('desktop-detail-panel');
@@ -888,7 +914,7 @@ function showDetail(id) {
     </div>
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:20px">
       ${b.platform ? _bookingDetailPlatformPill(b.platform) : ''}
-      ${_bookingDetailStayStatusBadge(false, isPast)}
+      ${_bookingDetailStayStatusBadge(false, isPast, b)}
     </div>
 
     ${modBanner}
@@ -1000,7 +1026,7 @@ function showDetail(id) {
     </div>` : ''}
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:20px">
       <div onclick="closeDetailModal()" style="width:100%;border:1px solid var(--hairline-1);border-radius:14px;padding:14px;text-align:center;color:var(--ink-2);font-size:14px;font-weight:600;cursor:pointer;box-sizing:border-box;touch-action:manipulation;font-family:'Plus Jakarta Sans',sans-serif">Close</div>
-      <div onclick="deleteBooking('${safeIdEsc}')" style="width:100%;border-radius:14px;padding:14px;text-align:center;color:var(--warn,#b56a3a);font-size:14px;font-weight:600;cursor:pointer;box-sizing:border-box;touch-action:manipulation;font-family:'Plus Jakarta Sans',sans-serif">Delete booking</div>
+      <div onclick="deleteBooking('${safeIdEsc}')" style="width:100%;border-radius:14px;padding:14px;text-align:center;color:var(--warn,#b56a3a);font-size:14px;font-weight:600;cursor:pointer;box-sizing:border-box;touch-action:manipulation;font-family:'Plus Jakarta Sans',sans-serif">Cancel booking</div>
     </div>
   `;
   const _dp2 = window.innerWidth >= 1024 && document.getElementById('desktop-detail-panel');
@@ -1406,14 +1432,49 @@ async function addNote() {
   globalThis.showBanner('✅ Note saved', 'ok');
 }
 
-async function deleteBooking(id) {
-  const _okBk = await globalThis.showAppModal({
-    title: 'Delete Booking',
-    msg: 'Remove this booking? This cannot be undone.',
-    confirmText: 'Delete',
-    confirmColor: 'var(--red)',
+function showCancelBookingDialog(booking) {
+  return new Promise(resolve => {
+    const cancelledAt = new Date().toISOString();
+    const windowDays = getCancellationWindowDays();
+    const suggested = isCancellationInsideWindow(booking, cancelledAt, windowDays);
+    const days = Math.max(0, Math.ceil((new Date(String(booking.checkin || '').slice(0, 10) + 'T00:00:00') - new Date(cancelledAt.slice(0, 10) + 'T00:00:00')) / 86400000));
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:10020;background:rgba(28,38,32,0.38);display:flex;align-items:center;justify-content:center;padding:18px;font-family:\'Plus Jakarta Sans\',sans-serif';
+    overlay.innerHTML = `
+      <div style="width:min(430px,100%);background:#fff;border-radius:16px;box-shadow:0 18px 60px rgba(0,0,0,0.18);padding:18px">
+        <div style="font-size:18px;font-weight:700;color:var(--ink-1);margin-bottom:6px">Cancel booking</div>
+        <div style="font-size:13px;color:var(--muted-2);line-height:1.45;margin-bottom:16px">${escHtml(booking.name || 'This guest')} checks in ${days} day${days === 1 ? '' : 's'} from now. The cancellation window is ${windowDays} day${windowDays === 1 ? '' : 's'}.</div>
+        <label style="display:flex;align-items:center;justify-content:space-between;gap:14px;border:1px solid var(--hairline-1);border-radius:12px;padding:14px;margin:0 0 10px;text-transform:none;cursor:pointer">
+          <span style="min-width:0">
+            <span style="display:block;font-size:14px;font-weight:700;color:var(--ink-1)">Still bill this cancellation?</span>
+            <span style="display:block;font-size:12px;color:var(--muted-2);margin-top:3px">${suggested ? 'Suggested on: inside the cancellation window.' : 'Suggested off: outside the cancellation window.'}</span>
+          </span>
+          <button type="button" id="cancel-billable-toggle" class="toggle ${suggested ? 'on' : ''}" aria-label="Still bill this cancellation?" style="flex-shrink:0"></button>
+        </label>
+        <div style="display:flex;gap:8px;margin-top:16px">
+          <button type="button" id="cancel-booking-dismiss" style="flex:1;border:1px solid var(--hairline-1);background:#fff;color:var(--ink-2);border-radius:12px;padding:12px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer">Keep booking</button>
+          <button type="button" id="cancel-booking-confirm" style="flex:1;border:none;background:var(--red);color:#fff;border-radius:12px;padding:12px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer">Cancel booking</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    let billable = suggested;
+    const done = (value) => {
+      overlay.remove();
+      resolve(value);
+    };
+    overlay.querySelector('#cancel-billable-toggle').onclick = (e) => {
+      e.preventDefault();
+      billable = !billable;
+      e.currentTarget.classList.toggle('on', billable);
+    };
+    overlay.querySelector('#cancel-booking-dismiss').onclick = () => done(null);
+    overlay.querySelector('#cancel-booking-confirm').onclick = () => done({ cancelledAt, billable });
+    overlay.onclick = (e) => { if (e.target === overlay) done(null); };
   });
-  if (!_okBk) return;
+}
+
+async function deleteBooking(id) {
   const deletedBooking = bookings.find(
     b => String(b._cloudId || '') === String(id) || String(b.id) === String(id)
   );
@@ -1422,20 +1483,25 @@ async function deleteBooking(id) {
     globalThis.showBanner('Booking not found', 'warn');
     return;
   }
+  const cancelChoice = await showCancelBookingDialog(deletedBooking);
+  if (!cancelChoice) return;
 
-  console.log('[StayOps] deleteBooking: local delete requested', {
+  console.log('[StayOps] deleteBooking: cancellation requested', {
     id,
     localId: deletedBooking ? deletedBooking.id : null,
     cloudId: deletedBooking ? deletedBooking._cloudId : null,
   });
 
-  // Cloud delete FIRST (avoid local state corruption if cloud delete fails)
-  if (typeof globalThis.deleteBookingFromCloud === 'function') {
+  applyCancellationPolicy(deletedBooking, {
+    cancelledAt: cancelChoice.cancelledAt,
+    billable: cancelChoice.billable,
+  });
+  if (typeof globalThis.saveBookingToCloud === 'function') {
     try {
-      await globalThis.deleteBookingFromCloud(deletedBooking);
+      await globalThis.saveBookingToCloud(deletedBooking);
     } catch (e) {
-      console.error('[StayOps] deleteBooking: cloud delete failed', e);
-      globalThis.showBanner('Could not delete booking — please try again', 'warn');
+      console.error('[StayOps] deleteBooking: cloud cancellation failed', e);
+      globalThis.showBanner('Could not cancel booking - please try again', 'warn');
       return;
     }
   }
@@ -1455,14 +1521,7 @@ async function deleteBooking(id) {
     (deletedGuestName && n.guestName === deletedGuestName)
   );
 
-  // Only after cloud delete succeeds: remove from in-memory arrays
-  replaceArrayInPlace(
-    bookings,
-    bookings.filter(b =>
-      String(b.id) !== deletedLocalId &&
-      String(b._cloudId || '') !== deletedCloudId
-    )
-  );
+  // Cancelled bookings stay in memory so revenue and the Cancelled tab reflect the new state immediately.
   replaceArrayInPlace(
     cleans,
     cleans.filter(c =>
@@ -1554,7 +1613,42 @@ async function deleteBooking(id) {
   if (typeof globalThis.closeDetailModal === 'function') globalThis.closeDetailModal();
 
   console.log('[StayOps] deleteBooking: done');
-  globalThis.showBanner('✅ Booking deleted', 'ok');
+  globalThis.showBanner(cancelChoice.billable ? 'Booking cancelled - late cancel billed' : 'Booking cancelled', 'ok');
+}
+
+async function setCancellationBillable(id, billable) {
+  const booking = bookings.find(
+    b => String(b._cloudId || '') === String(id) || String(b.id) === String(id)
+  );
+  if (!booking) {
+    globalThis.showBanner('Booking not found', 'warn');
+    return;
+  }
+  if (booking.status !== 'cancelled') {
+    globalThis.showBanner('Only cancelled bookings can be marked billed or refunded', 'warn');
+    return;
+  }
+
+  const keepCancelledAt = booking.cancelledAt || booking.cancelled_at || new Date().toISOString();
+  applyCancellationPolicy(booking, { cancelledAt: keepCancelledAt, billable });
+
+  if (typeof globalThis.saveBookingToCloud === 'function') {
+    try {
+      await globalThis.saveBookingToCloud(booking);
+    } catch (e) {
+      console.error('[StayOps] setCancellationBillable: cloud sync failed', e);
+      globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+      return;
+    }
+  }
+
+  if (typeof globalThis.renderAll === 'function') globalThis.renderAll();
+  else renderBookings();
+  showDetail(String(booking._cloudId || booking.id));
+  globalThis.showBanner(
+    (booking.name || 'Booking') + (billable ? ' marked as billed' : ' marked as refunded'),
+    'ok'
+  );
 }
 
 function importAirbnbCSV(input) {
@@ -2125,6 +2219,7 @@ export {
   filterBookings,
   addBooking,
   deleteBooking,
+  setCancellationBillable,
   importAirbnbCSV,
   importCSV,
   switchModalTab,

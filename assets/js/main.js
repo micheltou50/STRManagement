@@ -64,13 +64,13 @@ import {
   initFxSettings, initSettingsSwipeBack, toggleAutoAssignCleaner, resetConnectionCheckerResults, openCleanerSettings, renderCleanerAccessList, saveCleanerPinById, clearCleanerPinById, saveCleanerPerm, copyCleanerLinkById,
   populateICalFeedsPanel, addICalFeed, removeICalFeed, syncICalFeedsNow, maybeAutoSyncICal,
   connectGoogleCalendar, disconnectGoogleCalendar, connectOutlookCalendar, disconnectOutlookCalendar,
-  syncCalendarNow, renderCalendarInbox, classifyInboxEvent,
+  syncCalendarNow, resyncStayOpsCalendar, renderCalendarInbox, classifyInboxEvent,
   getEmailContentConfig, toggleEmailContent, saveEmailContentConfig
 } from './settings.js';
 import { installCalendarSyncOutbound, triggerCalendarReconcileNow } from './calendar-sync-outbound.js';
 import {
   calPrev, calNext, openCalPreview, closeCalPreview, addNote, showDetail, showEditModal, saveEdit, editCalcNights, editCalcNet, filterBookings, addBooking,
-  deleteBooking, importAirbnbCSV, importCSV, switchModalTab, saveCleaningFee, saveCleanCost, applyExpenseToBookingClean, clearExpenseFromBookingClean, clearModificationFlag, renderBookings, switchBookingsView, renderBookingsCalendarView,
+  deleteBooking, setCancellationBillable, importAirbnbCSV, importCSV, switchModalTab, saveCleaningFee, saveCleanCost, applyExpenseToBookingClean, clearExpenseFromBookingClean, clearModificationFlag, renderBookings, switchBookingsView, renderBookingsCalendarView,
   openBookingFilterSheet, closeBookingFilterSheet, cycleBookingFilterDateRange, resetBookingFilters, applyBookingFilters
 } from './bookings.js';
 import {
@@ -353,6 +353,7 @@ window.connectOutlook           = connectOutlook;
 window.copyCalendarFeedUrl      = copyCalendarFeedUrl;
 window.copyCleanerLinkById      = copyCleanerLinkById;
 window.deleteBooking            = deleteBooking;
+window.setCancellationBillable  = setCancellationBillable;
 window.deleteCleaner            = deleteCleaner;
 window.deleteClient             = deleteClient;
 window.deleteExpenseCat         = deleteExpenseCat;
@@ -454,6 +455,7 @@ window.disconnectGoogleCalendar = disconnectGoogleCalendar;
 window.connectOutlookCalendar   = connectOutlookCalendar;
 window.disconnectOutlookCalendar = disconnectOutlookCalendar;
 window.syncCalendarNow          = syncCalendarNow;
+window.resyncStayOpsCalendar    = resyncStayOpsCalendar;
 window.renderCalendarInbox      = renderCalendarInbox;
 window.classifyInboxEvent       = classifyInboxEvent;
 window._obGoToStep              = _obGoToStep;

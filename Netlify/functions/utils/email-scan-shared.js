@@ -8,6 +8,7 @@
 const { sendPushToHost, hasRecentNotification } = require('./push-helper');
 const { pushChange: pushCalendarChange } = require('./calendar-push-core');
 const { notifyCleanerCancellation } = require('./notify-cleaner-cancellation');
+const { isCancellationBillable, loadCancellationConfig } = require('./cancellation-policy');
 
 // Best-effort outbound calendar push. Never throws — failures are logged
 // inside pushChange and queued via pending_direction='to_provider' for the
@@ -583,12 +584,20 @@ async function processEmailResult(parsed, msgId, source, ctx) {
     const match = findExistingBooking(existingBookings, confCode, parsed.guestName, parsed.checkin, propertyId);
     if (match) {
       const wasCancelled = String(match.status || '').toLowerCase() === 'cancelled';
+      const cancelledAt = new Date().toISOString();
+      const cancellationConfig = await loadCancellationConfig(supabaseUrl, sbHeaders, uid);
       await fetch(
         supabaseUrl + '/rest/v1/bookings?id=eq.' + enc(match.id),
         {
           method: 'PATCH',
           headers: { ...sbHeaders, Prefer: 'return=minimal' },
-          body: JSON.stringify({ status: 'cancelled', gmail_message_id: msgId, updated_at: new Date().toISOString() }),
+          body: JSON.stringify({
+            status: 'cancelled',
+            cancelled_at: cancelledAt,
+            cancellation_billable: isCancellationBillable(match, cancelledAt, cancellationConfig),
+            gmail_message_id: msgId,
+            updated_at: cancelledAt,
+          }),
         }
       );
       pushBookingToCalendar(uid, match.local_id, 'delete');
