@@ -3094,23 +3094,44 @@ label {
     min-width: 120px;
     max-width: 220px;
   }
-  /* Expense table — fit all columns without horizontal scroll */
+  /* Expense table — fixed side columns; the Description column takes whatever
+     width is left over and truncates with an ellipsis. All five columns
+     (including Amount) always stay visible — no horizontal scroll. */
   #expenses-list .desktop-table {
     table-layout: fixed;
+    width: 100%;
   }
+  #expenses-list .desktop-table th,
+  #expenses-list .desktop-table td { white-space: nowrap; }
   #expenses-list .desktop-table th:nth-child(1),
   #expenses-list .desktop-table td:nth-child(1) { width: 100px; }
   #expenses-list .desktop-table th:nth-child(3),
-  #expenses-list .desktop-table td:nth-child(3) { width: 170px; }
+  #expenses-list .desktop-table td:nth-child(3) { width: 160px; }
   #expenses-list .desktop-table th:nth-child(4),
-  #expenses-list .desktop-table td:nth-child(4) { width: 80px; }
+  #expenses-list .desktop-table td:nth-child(4) { width: 90px; }
   #expenses-list .desktop-table th:nth-child(5),
-  #expenses-list .desktop-table td:nth-child(5) { width: 100px; }
+  #expenses-list .desktop-table td:nth-child(5) { width: 110px; }
+  /* Description/merchant column flexes and truncates rather than collapsing. */
+  #expenses-list .desktop-table th:nth-child(2),
   #expenses-list .desktop-table td:nth-child(2) {
+    width: auto;
+    min-width: 120px;
     max-width: none;
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  /* Expenses desktop layout — table beside a summary panel. The panel drops
+     below the table while the pane is still wide enough that the table keeps
+     a comfortable Description column, so it never gets crushed in between. */
+  .expenses-desktop-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    align-items: flex-start;
+  }
+  .expenses-desktop-grid > .expenses-table-card { flex: 1 1 600px; min-width: 0; }
+  .expenses-desktop-grid > .expenses-summary { flex: 1 1 280px; max-width: 320px; }
 
   /* ── Phase 6: Typography & Spacing Polish ──────────────────────────── */
   .section-heading h2,
@@ -3167,7 +3188,7 @@ label {
 
   /* ── Desktop Tables ─────────────────────────────────────────────────── */
   .desktop-table { width:100%; border-collapse:collapse; font-size:13px; }
-  .desktop-table th { text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted-2); padding:10px 14px; border-bottom:1px solid var(--hairline-2); background:var(--surface2); }
+  .desktop-table th { text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted-2); padding:10px 14px; border-bottom:1px solid var(--hairline-2); background:var(--surface2); white-space:nowrap; }
   .desktop-table td { padding:12px 14px; border-bottom:1px solid #f0ede8; vertical-align:middle; }
   .desktop-table tr:hover td { background:rgba(31,90,67,0.03); }
   .desktop-table tr:last-child td { border-bottom:none; }

@@ -3233,7 +3233,7 @@ function renderExpenses() {
       const descShort = (e.description || '').length > 40 ? (e.description || '').slice(0, 40) + '...' : (e.description || '');
       return `<tr onclick="openExpenseView('${escapeJsSingleQuotedHtmlAttr(String(e.id))}')" style="cursor:pointer">
         <td style="white-space:nowrap">${fmt(e.date)}</td>
-        <td style="max-width:200px"><strong>${escHtml(e.merchant || 'Unknown')}</strong>${descShort ? '<div style="font-size:11px;color:var(--muted-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(descShort) + '</div>' : ''}</td>
+        <td><strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(e.merchant || 'Unknown')}</strong>${descShort ? '<div style="font-size:11px;color:var(--muted-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(descShort) + '</div>' : ''}</td>
         <td style="white-space:nowrap"><span style="font-size:11px;font-weight:600;color:${catCol};background:${catCol}15;padding:2px 8px;border-radius:6px">${escHtml(e.category || '')}</span></td>
         <td style="white-space:nowrap">${recHtml}</td>
         <td style="text-align:right;font-weight:500;color:${amtColor};white-space:nowrap">${prefix}$${Math.abs(Number(e.amount)).toFixed(2)}</td>
@@ -3253,9 +3253,9 @@ function renderExpenses() {
         return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0ede8;font-size:13px"><span style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:' + col + '"></span>' + escHtml(cat) + '</span><span style="font-weight:500">$' + total.toFixed(0) + '</span></div>';
       }).join('');
 
-    listEl.innerHTML = _missingReceiptCard + '<div style="display:grid;grid-template-columns:1fr minmax(260px,300px);gap:20px">' +
-      '<div class="card" style="padding:0;overflow:hidden;overflow-x:auto"><table class="desktop-table"><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Receipt</th><th style="text-align:right">Amount</th></tr></thead><tbody>' + tblRows + '</tbody></table></div>' +
-      '<div style="display:flex;flex-direction:column;gap:16px">' +
+    listEl.innerHTML = _missingReceiptCard + '<div class="expenses-desktop-grid">' +
+      '<div class="card expenses-table-card" style="padding:0;overflow:hidden;overflow-x:auto"><table class="desktop-table"><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Receipt</th><th style="text-align:right">Amount</th></tr></thead><tbody>' + tblRows + '</tbody></table></div>' +
+      '<div class="expenses-summary" style="display:flex;flex-direction:column;gap:16px">' +
         '<div class="card"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted-2);margin-bottom:12px">This Month</div>' +
           '<div style="font-family:\'Newsreader\',serif;font-size:28px;color:var(--primary)">$' + Math.abs(monthSum).toFixed(0) + '</div>' +
           '<div style="font-size:12px;color:var(--muted-2);margin-top:4px">' + monthCnt + ' expenses</div></div>' +
