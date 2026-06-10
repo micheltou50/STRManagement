@@ -18,13 +18,15 @@ import {
   skipTransaction,
   logImportSession,
 } from './bank-import.js';
-import { findMatchesForTransaction, getReconciliationSummary, getAllTransactionsWithStatus, findPayoutMatchesForBankTransaction, linkTransactionToPayout } from './reconciliation.js';
+import { findMatchesForTransaction, getReconciliationSummary, getAllTransactionsWithStatus, findPayoutMatchesForBankTransaction, linkTransactionToPayout, setTransactionClassification } from './reconciliation.js';
 import { bookings, cleans, expenses, replaceArrayInPlace } from './state.js';
 import { escHtml, fmt, fmt2, fyLabel, fyMonths, escapeJsSingleQuotedHtmlAttr, fadeTransition } from './utils.js';
 import { renderPortfolioFinance, isPortfolioMode } from './property.js';
 import {
   clearExpensePhoto,
+  clearExpensePhoto2,
   getExpensePhotoUploadSnapshot,
+  getExpensePhoto2UploadSnapshot,
   isExpensePhotoConverting,
 } from './ai.js';
 import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud, getCurrentSupabaseUser, savePlatformPayout, insertPayoutLines } from './supabase.js';
@@ -1171,6 +1173,11 @@ function toggleExpenseAddForm() {
     populateExpenseCatSelect();
     // Scroll the form into view
     setTimeout(() => panel.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+  } else {
+    // Collapsing without saving — discard any staged (unuploaded) receipts so
+    // they don't linger into the next expense.
+    clearExpensePhoto();
+    clearExpensePhoto2();
   }
 }
 
@@ -1182,6 +1189,9 @@ function closeExpenseAddForm() {
   if (chevron) chevron.textContent = '›';
   const suggestCard = document.getElementById('exp-ai-suggest-card');
   if (suggestCard) suggestCard.style.display = 'none';
+  // Discard any staged receipts that weren't attached to a saved expense.
+  clearExpensePhoto();
+  clearExpensePhoto2();
 }
 
 /** Navigate into a Finance sub-view (expenses, reports, reconciliation, or recurring). */
@@ -3303,7 +3313,9 @@ function addExpense(opts = {}) {
     : (document.getElementById('exp-booking-link')?.value || null);
   if (!merchant || !amount) { globalThis.showBanner('⚠ Please fill in merchant and amount', 'warn'); return; }
   if (isExpensePhotoConverting()) { globalThis.showBanner('⟳ Please wait — receipt is still converting...', 'warn'); return; }
-  const { base64: photoForUpload, mediaType: mediaTypeForUpload } = getExpensePhotoUploadSnapshot();
+  // Collect up to 2 staged receipts (slot 0 = primary, slot 1 = optional second).
+  const pendingReceipts = [getExpensePhotoUploadSnapshot(), getExpensePhoto2UploadSnapshot()]
+    .filter(snap => snap && snap.base64);
   const exp = {
     id: Date.now(),
     merchant,
@@ -3315,7 +3327,7 @@ function addExpense(opts = {}) {
     receiptNum: opts.receiptNum || document.getElementById('exp-receipt-num').value.trim(),
     taxNote: opts.taxNote || (document.getElementById('exp-tax-note')?.value.trim() || ''),
     photo: null,  // never store in localStorage — too large, causes silent crash
-    awaitingReceipt: photoForUpload ? false : (opts.awaitingReceipt || false),
+    awaitingReceipt: pendingReceipts.length ? false : (opts.awaitingReceipt || false),
     driveLink: null,
     bookingId: bookingId || null,
   };
@@ -3342,9 +3354,8 @@ function addExpense(opts = {}) {
       .catch(e => console.warn('[StayOps] applyExpenseToBookingClean failed:', e));
   }
 
-  // Try to upload photo to Drive and push to sheet
-  const expWithPhoto = Object.assign({}, exp, { photo: photoForUpload, _mediaType: mediaTypeForUpload });
-  saveExpenseToDriveAndSheet(expWithPhoto);
+  // Upload any staged receipts (up to 2) to Supabase Storage.
+  saveExpenseReceipts(exp, pendingReceipts);
 
   if (!opts.silent) {
     // Clear all form fields
@@ -3360,15 +3371,59 @@ function addExpense(opts = {}) {
     const typeSel = document.getElementById('exp-receipt-type');
     if (typeSel) typeSel.selectedIndex = 0;
     clearExpensePhoto();
+    clearExpensePhoto2();
     // Close the add form and scroll receipts into view
     closeExpenseAddForm();
     renderExpenses();
     document.getElementById('expenses-main-block')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    if (!exp.photo) globalThis.showBanner('✓ Expense saved', 'ok');
-    // receipt handled separately via Supabase Storage
-    else globalThis.showBanner('⟳ Uploading receipt...', 'info');
+    // Receipts (if any) are uploaded separately via Supabase Storage by saveExpenseReceipts().
+    if (!pendingReceipts.length) globalThis.showBanner('✓ Expense saved', 'ok');
+    else globalThis.showBanner('⟳ Uploading receipt' + (pendingReceipts.length > 1 ? 's' : '') + '...', 'info');
   }
   return exp;
+}
+
+/**
+ * Upload up to 2 staged receipts for a freshly-created expense to Supabase
+ * Storage and persist their paths as the expense's driveLink array.
+ * @param {object} exp - the saved expense (already in the `expenses` array)
+ * @param {Array<{base64:string, mediaType:string}>} pendingReceipts - staged receipts
+ */
+async function saveExpenseReceipts(exp, pendingReceipts) {
+  if (!pendingReceipts || !pendingReceipts.length) return;
+  if (typeof uploadReceiptToStorage !== 'function') return;
+  try {
+    globalThis.showBanner('⟳ Uploading receipt' + (pendingReceipts.length > 1 ? 's' : '') + '...', 'info');
+    const urls = [];
+    for (let i = 0; i < pendingReceipts.length; i++) {
+      const snap = pendingReceipts[i];
+      const fakeExp = Object.assign({}, exp, { photo: snap.base64, _mediaType: snap.mediaType });
+      const imgBlob = await receiptImageToPDF(fakeExp);
+      const fileName = generateReceiptFileName(exp);
+      const file = new File([imgBlob], fileName, { type: 'application/pdf' });
+      // Upload to the compacted slot index so there are never holes in the array.
+      const url = await uploadReceiptToStorage(file, exp.id, urls.length);
+      if (url) urls.push(url);
+    }
+    if (urls.length) {
+      const saved = expenses.find(e => String(e.id) === String(exp.id));
+      if (saved) {
+        saved.driveLink = urls;
+        globalThis.savePropertyData();
+        renderExpenses();
+        if (typeof saveExpenseToCloud === 'function') saveExpenseToCloud(saved).catch(e => console.warn("[StayOps] silent error:", e));
+        globalThis.showBanner('✓ Receipt' + (urls.length > 1 ? 's' : '') + ' uploaded', 'ok');
+      } else {
+        // The expense vanished mid-upload (deleted or app rehydrated) — don't
+        // claim success when the receipts couldn't actually be linked.
+        globalThis.showBanner('⚠ Receipt uploaded but the expense was no longer available to link', 'warn');
+      }
+    } else {
+      globalThis.showBanner('⚠ Receipt upload failed', 'warn');
+    }
+  } catch (e) {
+    globalThis.showBanner('⚠ Receipt upload failed: ' + e.message, 'warn');
+  }
 }
 
 async function saveExpenseToDriveAndSheet(exp) {
@@ -5013,11 +5068,13 @@ function renderReconciliationList(container) {
         ${p.payoutDate ? `<span style="font-size:10px;color:var(--muted-2)">Payout ${escHtml(p.payoutDate)}</span>` : ''}
       </div>`;
     } else if (t.status === 'personal') {
-      badge = `<span style="display:inline-block;font-size:11px;background:#ECEFF1;color:#546E7A;border-radius:4px;padding:2px 8px">Personal</span>`;
-      rightInfo = badge;
+      badge = `<span style="display:inline-block;font-size:11px;background:#F3E5F5;color:#9C27B0;border-radius:4px;padding:2px 8px">Personal</span>`;
+      rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badge}
+        <button onclick="reconRestoreTxn('${t.id}')" style="font-size:11px;color:#78909C;background:none;border:1px solid #B0BEC5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">↩ Move back</button></div>`;
     } else if (t.status === 'skipped') {
       badge = `<span style="display:inline-block;font-size:11px;background:#ECEFF1;color:#546E7A;border-radius:4px;padding:2px 8px">Skipped</span>`;
-      rightInfo = badge;
+      rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badge}
+        <button onclick="reconRestoreTxn('${t.id}')" style="font-size:11px;color:#78909C;background:none;border:1px solid #B0BEC5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">↩ Move back</button></div>`;
     } else {
       // Unaccounted — but credits and debits get different match buttons.
       // A credit is a deposit (Airbnb payout etc.); matching to an expense
@@ -5033,7 +5090,11 @@ function renderReconciliationList(container) {
       } else {
         rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badge}
           <button onclick="reconMatchExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}')" style="font-size:11px;color:#1D9E75;background:none;border:1px solid #1D9E75;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Match Expense</button>
-          <button onclick="reconCreateExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}','${safeDesc}')" style="font-size:11px;color:#185FA5;background:none;border:1px solid #185FA5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Create New</button></div>`;
+          <button onclick="reconCreateExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}','${safeDesc}')" style="font-size:11px;color:#185FA5;background:none;border:1px solid #185FA5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Create New</button>
+          <div style="display:flex;gap:4px">
+            <button onclick="reconMarkPersonal('${t.id}')" style="font-size:11px;color:#9C27B0;background:none;border:1px solid #9C27B0;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Personal</button>
+            <button onclick="reconMarkSkipped('${t.id}')" style="font-size:11px;color:#78909C;background:none;border:1px solid #B0BEC5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Skip</button>
+          </div></div>`;
       }
     }
 
@@ -5300,6 +5361,33 @@ function reconCreateExpense(txnId, date, amount, description) {
     if (refundEl) refundEl.checked = Number.isFinite(numAmount) && numAmount < 0;
   }, 100);
 }
+
+/** Mark an unaccounted bank transaction as a personal (non-business) charge. */
+async function reconMarkPersonal(txnId) {
+  const { success } = await setTransactionClassification(txnId, { isPersonal: true });
+  if (!success) { globalThis.showBanner('⚠ Could not update transaction', 'warn'); return; }
+  globalThis.showBanner('✓ Marked as personal', 'ok');
+  await renderReconciliationView();
+}
+globalThis.reconMarkPersonal = reconMarkPersonal;
+
+/** Skip an unaccounted bank transaction (dismiss it from reconciliation). */
+async function reconMarkSkipped(txnId) {
+  const { success } = await setTransactionClassification(txnId, { skipped: true });
+  if (!success) { globalThis.showBanner('⚠ Could not update transaction', 'warn'); return; }
+  globalThis.showBanner('✓ Skipped', 'ok');
+  await renderReconciliationView();
+}
+globalThis.reconMarkSkipped = reconMarkSkipped;
+
+/** Restore a personal/skipped transaction back to the Unaccounted list. */
+async function reconRestoreTxn(txnId) {
+  const { success } = await setTransactionClassification(txnId, { isPersonal: false, skipped: false });
+  if (!success) { globalThis.showBanner('⚠ Could not update transaction', 'warn'); return; }
+  globalThis.showBanner('✓ Moved back to Unaccounted', 'ok');
+  await renderReconciliationView();
+}
+globalThis.reconRestoreTxn = reconRestoreTxn;
 
 /** Called after addExpense() saves — auto-links to pending bank transaction if any */
 async function _autoLinkPendingReconTxn(expenseId) {

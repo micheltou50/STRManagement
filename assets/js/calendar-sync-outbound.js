@@ -78,6 +78,7 @@ function wrapOnce() {
   wrap('saveBookingToCloud',     'bookings',    'upsert');
   wrap('deleteBookingFromCloud', 'bookings',    'delete');
   wrap('saveCleanToCloud',       'cleans',      'upsert');
+  wrap('deleteCleanFromCloud',   'cleans',      'delete');
 
   const origSaveBookings = globalThis.saveBookingsToCloud;
   if (typeof origSaveBookings === 'function') {
@@ -94,7 +95,10 @@ function wrapOnce() {
       return result;
     };
   }
-  // No deleteCleanFromCloud in the codebase; cleans are removed via update of done flag → upsert covers it.
+  // deleteCleanFromCloud is wrapped above so removing a clean (e.g. when its
+  // booking is cancelled) enqueues a 'cleans' delete push — otherwise the
+  // clean's calendar event would be orphaned. A 'done' flag change still goes
+  // through saveCleanToCloud → upsert.
 
   // saveMaintenanceItemToCloud is not exposed globally; saveMaintenanceToCloud takes a list.
   const origM = globalThis.saveMaintenanceToCloud;

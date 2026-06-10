@@ -1340,6 +1340,17 @@
             </div>
             <button onclick="extractExpenseFromReceipt()" id="ai-read-btn" style="width:100%;margin-top:6px;background:var(--primary);color:white;border:none;border-radius:8px;padding:9px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">✨ Read with AI</button>
           </div>
+          <!-- Optional second receipt (max 2 per expense) -->
+          <button type="button" id="expense-add-second-btn" onclick="document.getElementById('expense-file-input-2').click()" style="display:none;margin-bottom:8px;background:var(--surface2);border:1.5px solid var(--moss);color:var(--moss);padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">+ Add another receipt</button>
+          <input type="file" id="expense-file-input-2" accept="image/*,.pdf" style="display:none" onchange="attachExpenseFile2(this)">
+          <div id="expense-photo-preview-2" style="display:none;margin-bottom:8px">
+            <div style="font-size:12px;font-weight:600;color:var(--muted-2);margin-bottom:4px">Receipt 2</div>
+            <div style="position:relative">
+              <img id="expense-photo-img-2" style="width:100%;border-radius:var(--radius-sm);max-height:140px;object-fit:cover">
+              <div id="expense-pdf-preview-2" style="display:none;padding:10px;background:var(--surface2);border-radius:var(--radius-sm);font-size:13px;color:var(--primary);font-weight:600"></div>
+              <button onclick="clearExpensePhoto2()" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.5);color:white;border:none;border-radius:50%;width:24px;height:24px;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">✕</button>
+            </div>
+          </div>
           <div id="expense-extract-status" style="display:none;padding:8px;border-radius:var(--radius-sm);font-size:12px;margin-bottom:8px"></div>
           <label>Store / Merchant</label>
           <div style="position:relative">

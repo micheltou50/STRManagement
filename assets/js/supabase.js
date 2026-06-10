@@ -782,6 +782,23 @@ export async function saveCleansToCloud(cleansList) {
   for (const c of cleansList) await saveCleanToCloud(c);
 }
 
+// Hard-delete a clean row from the cloud. Wrapped by calendar-sync-outbound so
+// the clean's calendar event is also deleted (enqueues a 'cleans' delete push).
+// Resolving the row by _cloudId, falling back to (user_id, local_id).
+export async function deleteCleanFromCloud(clean) {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user || !clean || !window._sb) return;
+    if (clean._cloudId) {
+      await window._sb.from('cleans').delete().eq('id', clean._cloudId);
+    } else {
+      await window._sb.from('cleans').delete().eq('user_id', user.id).eq('local_id', String(clean.id));
+    }
+  } catch (e) {
+    console.warn('[StayOps] deleteCleanFromCloud failed', e);
+  }
+}
+
 // Keep old name working for backward compat
 export async function saveCleaningJobToCloud(job) { return saveCleanToCloud(job); }
 // eslint-disable-next-line no-unused-vars

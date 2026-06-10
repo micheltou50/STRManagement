@@ -214,6 +214,30 @@ export async function linkTransactionToExpense(transactionId, expenseId) {
   return { success: true };
 }
 
+/**
+ * Set the classification flags on a bank transaction. `personal` and `skipped`
+ * are mutually exclusive statuses; both false restores the row to "unaccounted".
+ * @param {string} transactionId
+ * @param {{isPersonal?: boolean, skipped?: boolean}} flags
+ * @returns {Promise<{success: boolean}>}
+ */
+export async function setTransactionClassification(transactionId, flags = {}) {
+  const sb = getSb();
+  if (!sb || !transactionId) {
+    console.log('[StayOps] setTransactionClassification: missing id');
+    return { success: false };
+  }
+  const { error } = await sb
+    .from('bank_transactions')
+    .update({ is_personal: !!flags.isPersonal, skipped: !!flags.skipped })
+    .eq('id', transactionId);
+  if (error) {
+    console.log('[StayOps] setTransactionClassification error:', error.message || error);
+    return { success: false };
+  }
+  return { success: true };
+}
+
 // ── PHASE 2c: PAYOUT MATCHING ────────────────────────────────────────────────
 // Bank CREDITS (money in) match to platform_payouts (Phase 1 model), not to
 // expenses. The functions below mirror the expense matchers but target the

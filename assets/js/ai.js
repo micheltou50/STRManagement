@@ -228,16 +228,48 @@ function renderExpenseAnalysis(data) {
 }
 
 // ── RECEIPT PHOTO READER ──────────────────────────────────────────────────
+// The Add Expense form supports up to 2 receipts. Slot 0 is the primary one
+// (also used by "Read with AI"); slot 1 is the optional second receipt.
 let expensePhotoBase64 = null;
 let expensePhotoMediaType = 'image/jpeg';
 let expensePhotoConverting = false;
+let expensePhoto2Base64 = null;
+let expensePhoto2MediaType = 'image/jpeg';
+let expensePhoto2Converting = false;
 
 export function isExpensePhotoConverting() {
-  return expensePhotoConverting;
+  return expensePhotoConverting || expensePhoto2Converting;
 }
 
 export function getExpensePhotoUploadSnapshot() {
   return { base64: expensePhotoBase64, mediaType: expensePhotoMediaType || 'image/jpeg' };
+}
+
+export function getExpensePhoto2UploadSnapshot() {
+  return { base64: expensePhoto2Base64, mediaType: expensePhoto2MediaType || 'image/jpeg' };
+}
+
+/** DOM element ids for each Add-form receipt slot. Slot 1 has no AI-extract status. */
+const EXPENSE_PHOTO_SLOTS = {
+  0: { preview: 'expense-photo-preview',   img: 'expense-photo-img',   pdf: 'expense-pdf-preview',   input: 'expense-file-input',   status: 'expense-extract-status' },
+  1: { preview: 'expense-photo-preview-2', img: 'expense-photo-img-2', pdf: 'expense-pdf-preview-2', input: 'expense-file-input-2', status: null },
+};
+
+function _setExpensePhotoSlot(slot, base64, mediaType) {
+  if (slot === 1) { expensePhoto2Base64 = base64; expensePhoto2MediaType = mediaType; }
+  else { expensePhotoBase64 = base64; expensePhotoMediaType = mediaType; }
+}
+function _setExpensePhotoConverting(slot, val) {
+  if (slot === 1) expensePhoto2Converting = val; else expensePhotoConverting = val;
+}
+
+/** Show the "+ Add another receipt" button only when slot 0 has a file and slot 1 is still empty. */
+export function updateAddReceiptUI() {
+  const addBtn = document.getElementById('expense-add-second-btn');
+  if (!addBtn) return;
+  const slot0Present = !!expensePhotoBase64 || expensePhotoConverting;
+  const slot1Present = !!expensePhoto2Base64 || expensePhoto2Converting;
+  addBtn.style.display = (slot0Present && !slot1Present) ? 'inline-block' : 'none';
 }
 
 export function attachExpensePhoto(input) {
@@ -274,36 +306,38 @@ export function attachExpensePhoto(input) {
   reader.readAsDataURL(file);
 }
 
-export function attachExpenseFile(input) {
+function attachExpenseFileSlot(input, slot) {
   const file = input.files[0];
   if (!file) return;
+  const dom = EXPENSE_PHOTO_SLOTS[slot] || EXPENSE_PHOTO_SLOTS[0];
   const isPDF = file.type === 'application/pdf';
-  const pdfDiv = document.getElementById('expense-pdf-preview');
-  const img = document.getElementById('expense-photo-img');
-  const status = document.getElementById('expense-extract-status');
+  const pdfDiv = document.getElementById(dom.pdf);
+  const img = document.getElementById(dom.img);
+  const status = dom.status ? document.getElementById(dom.status) : null;
 
   if (isPDF) {
     const reader = new FileReader();
     reader.onload = function(e) {
-      expensePhotoBase64 = e.target.result.split(',')[1];
-      expensePhotoMediaType = 'application/pdf';
+      _setExpensePhotoSlot(slot, e.target.result.split(',')[1], 'application/pdf');
       img.style.display = 'none';
       pdfDiv.style.display = 'block';
       pdfDiv.textContent = '📄 ' + file.name;
-      document.getElementById('expense-photo-preview').style.display = 'block';
-      status.style.display = 'none'; status.textContent = '';
+      document.getElementById(dom.preview).style.display = 'block';
+      if (status) { status.style.display = 'none'; status.textContent = ''; }
+      updateAddReceiptUI();
     };
     reader.readAsDataURL(file);
   } else {
     const reader = new FileReader();
     reader.onload = function(e) {
       const dataUrl = e.target.result;
-      expensePhotoConverting = true;
+      _setExpensePhotoConverting(slot, true);
       pdfDiv.style.display = 'block';
       pdfDiv.textContent = '⟳ Converting to PDF...';
       img.style.display = 'none';
-      document.getElementById('expense-photo-preview').style.display = 'block';
-      status.style.display = 'none'; status.textContent = '';
+      document.getElementById(dom.preview).style.display = 'block';
+      if (status) { status.style.display = 'none'; status.textContent = ''; }
+      updateAddReceiptUI();
 
       const image = new Image();
       image.onload = function() {
@@ -320,23 +354,27 @@ export function attachExpenseFile(input) {
         canvas.toBlob(function(blob) {
           const fr = new FileReader();
           fr.onload = function(ev) {
-            expensePhotoBase64 = ev.target.result.split(',')[1];
-            expensePhotoMediaType = 'image/jpeg';
-            expensePhotoConverting = false;
+            _setExpensePhotoSlot(slot, ev.target.result.split(',')[1], 'image/jpeg');
+            _setExpensePhotoConverting(slot, false);
             pdfDiv.textContent = '📄 Receipt (converted to PDF)';
+            updateAddReceiptUI();
           };
           fr.readAsDataURL(blob);
         }, 'image/jpeg', 0.92);
       };
       image.onerror = function() {
-        expensePhotoConverting = false;
+        _setExpensePhotoConverting(slot, false);
         pdfDiv.textContent = '⚠ Could not load image';
+        updateAddReceiptUI();
       };
       image.src = dataUrl;
     };
     reader.readAsDataURL(file);
   }
 }
+
+export function attachExpenseFile(input) { attachExpenseFileSlot(input, 0); }
+export function attachExpenseFile2(input) { attachExpenseFileSlot(input, 1); }
 
 export function clearExpensePhoto() {
   expensePhotoBase64 = null;
@@ -350,6 +388,22 @@ export function clearExpensePhoto() {
   const img = document.getElementById('expense-photo-img');
   if (img) img.style.display = 'block';
   document.getElementById('expense-extract-status').style.display = 'none';
+  updateAddReceiptUI();
+}
+
+export function clearExpensePhoto2() {
+  expensePhoto2Base64 = null;
+  expensePhoto2MediaType = 'image/jpeg';
+  expensePhoto2Converting = false;
+  const prev = document.getElementById('expense-photo-preview-2');
+  if (prev) prev.style.display = 'none';
+  const fileInput = document.getElementById('expense-file-input-2');
+  if (fileInput) fileInput.value = '';
+  const pdfDiv = document.getElementById('expense-pdf-preview-2');
+  if (pdfDiv) { pdfDiv.style.display = 'none'; pdfDiv.textContent = ''; }
+  const img = document.getElementById('expense-photo-img-2');
+  if (img) img.style.display = 'block';
+  updateAddReceiptUI();
 }
 
 export async function extractExpenseFromReceipt() {

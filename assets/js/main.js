@@ -7,7 +7,7 @@ import {
 } from './config.js';
 import {
   getSupabaseSession, getCurrentSupabaseUser, seedLocalConfigFromCloud, hydrateFromCloud, savePropertyToCloud, saveHostConfigToCloud,
-  loadCleansFromCloud, saveCleanToCloud, saveCleansToCloud, saveCleanersToCloud, saveInventoryToCloud, saveMaintenanceToCloud, deleteMaintenanceFromCloud,
+  loadCleansFromCloud, saveCleanToCloud, saveCleansToCloud, deleteCleanFromCloud, saveCleanersToCloud, saveInventoryToCloud, saveMaintenanceToCloud, deleteMaintenanceFromCloud,
   saveBookingToCloud, saveBookingsToCloud, deleteBookingFromCloud, saveHostConfigToSupabase, loadHostConfigFromSupabase, saveAppConfigToCloud, saveExpenseToCloud, retryQueuedExpenses,
   showLoadingScreen, hideLoadingScreen, setLoadingStatus, showLoginScreen, handleAuthFailure, showAppChrome,
   handleLoginSubmit, handleSignUpSubmit, handleMagicLinkSubmit, handleVerifySubmit, handleResendCode, toggleSignUp, hostSignOut,
@@ -24,7 +24,7 @@ import {
   getPropertyColour, getPropertyColourById, getPropertyNameById, isPortfolioMode, enterPortfolioMode, exitPortfolioMode, applyPortfolioModeAfterHostHydrate
 } from './property.js';
 import {
-  getSmartPricing, analyseExpenses, renderAIIgnoreList, promptIgnore, removeAIIgnoreItem, attachExpensePhoto, attachExpenseFile, clearExpensePhoto, extractExpenseFromReceipt, isExpensePhotoConverting, getExpensePhotoUploadSnapshot, readBookingScreenshot,
+  getSmartPricing, analyseExpenses, renderAIIgnoreList, promptIgnore, removeAIIgnoreItem, attachExpensePhoto, attachExpenseFile, attachExpenseFile2, clearExpensePhoto, clearExpensePhoto2, extractExpenseFromReceipt, isExpensePhotoConverting, getExpensePhotoUploadSnapshot, readBookingScreenshot,
   extractBookingFromScreenshot, triggerExpenseSuggestion, acceptAISuggestCategory, acceptAISuggestBooking, dismissAISuggest
 } from './ai.js';
 import {
@@ -132,6 +132,7 @@ globalThis.saveBookingsToCloud = saveBookingsToCloud;
 globalThis.deleteBookingFromCloud = deleteBookingFromCloud;
 globalThis.saveCleanToCloud = saveCleanToCloud;
 globalThis.saveCleansToCloud = saveCleansToCloud;
+globalThis.deleteCleanFromCloud = deleteCleanFromCloud;
 globalThis.saveCleanersToCloud = saveCleanersToCloud;
 globalThis.getCurrentSupabaseUser = getCurrentSupabaseUser;
 globalThis.getFreshHostSub = getFreshHostSub;
@@ -182,6 +183,7 @@ window.appModalCancel           = appModalCancel;
 window.appModalConfirm          = appModalConfirm;
 window.attachEditExpensePhoto   = attachEditExpensePhoto;
 window.attachExpenseFile        = attachExpenseFile;
+window.attachExpenseFile2       = attachExpenseFile2;
 window.autoFillCleanDate        = autoFillCleanDate;
 window.resetFinanceSubViewToHub = resetFinanceSubViewToHub;
 window.backToFinanceHub         = backToFinanceHub;
@@ -195,6 +197,7 @@ window.clearCacheAndResync      = clearCacheAndResync;
 window.clearEditExpensePhoto    = clearEditExpensePhoto;
 window.clearExpenseFilters      = clearExpenseFilters;
 window.clearExpensePhoto        = clearExpensePhoto;
+window.clearExpensePhoto2       = clearExpensePhoto2;
 window.closeActionSheet         = closeActionSheet;
 window.closeCalPreview          = closeCalPreview;
 window.closeDetailModal         = closeDetailModal;

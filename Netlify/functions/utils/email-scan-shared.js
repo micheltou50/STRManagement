@@ -308,16 +308,22 @@ async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, 
 
   const res = await fetch(supabaseUrl + '/rest/v1/bookings', {
     method: 'POST',
-    headers: { ...sbHeaders, Prefer: 'resolution=merge-duplicates,return=minimal' },
+    headers: { ...sbHeaders, Prefer: 'resolution=merge-duplicates,return=representation' },
     body: JSON.stringify(booking),
   });
 
   if (!res.ok && res.status !== 201) {
     const errText = await res.text();
     console.warn('[' + source + '-scan] Insert failed for', msgId, errText);
-    return false;
+    return null;
   }
-  return true;
+  // Return the persisted row (with its real DB id) so callers can keep the
+  // in-memory existingBookings list in sync within the same scan batch —
+  // otherwise a second email about the same reservation in this batch won't
+  // match and gets inserted as a duplicate. Fall back to the local object if
+  // the response body can't be parsed (id absent, but still enables matching).
+  const rows = await safeJson(res, source + '-scan insert');
+  return (Array.isArray(rows) && rows[0]) ? rows[0] : { ...booking };
 }
 
 // ── Push notifications ──────────────────────────────────────────────────────
@@ -699,7 +705,8 @@ async function processEmailResult(parsed, msgId, source, ctx) {
       }
     } else if (parsed.checkin && parsed.checkout) {
       // Modification with no matching original — insert as new
-      await insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed, emailFrom, source);
+      const insertedMod = await insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed, emailFrom, source);
+      if (insertedMod) existingBookings.push(insertedMod);
       pushBookingToCalendar(uid, source + '-' + msgId, 'upsert');
       results.imported++;
       results.details.push({ msgId, status: 'imported', guest: parsed.guestName, checkin: parsed.checkin, note: 'modification without matching original' });
@@ -860,6 +867,10 @@ async function processEmailResult(parsed, msgId, source, ctx) {
         supabaseUrl + '/rest/v1/bookings?id=eq.' + enc(stub.id),
         { method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=minimal' }, body: JSON.stringify(patch) }
       );
+      // Sync the in-memory snapshot: a second email about this reservation in
+      // the same batch now matches an enriched booking and skips as a duplicate
+      // rather than re-enriching (or worse, inserting).
+      Object.assign(stub, patch);
       pushBookingToCalendar(uid, stub.local_id, 'upsert');
       results.updated++;
       results.details.push({ msgId, status: 'enriched', guest: parsed.guestName, checkin: parsed.checkin });
@@ -893,6 +904,9 @@ async function processEmailResult(parsed, msgId, source, ctx) {
   }
 
   const inserted = await insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed, emailFrom, source);
+  // Keep the in-memory snapshot current so a later email in this same batch
+  // about the same reservation matches and dedupes instead of inserting again.
+  if (inserted) existingBookings.push(inserted);
   if (inserted) pushBookingToCalendar(uid, source + '-' + msgId, 'upsert');
   if (inserted && supabaseAdmin) {
     results.imported++;

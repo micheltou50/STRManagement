@@ -17,6 +17,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const { cancellation: buildCancellationHtml } = require('./email-templates');
+const { pushChange } = require('./calendar-push-core');
 
 function enc(s) { return encodeURIComponent(s); }
 
@@ -60,7 +61,7 @@ async function notifyCleanerCancellation({ supabaseUrl, sbHeaders, userId, booki
       supabaseUrl + '/rest/v1/cleans?user_id=eq.' + enc(userId) +
         '&booking_id=eq.' + enc(String(bookingId)) +
         '&cleaner_cancel_notified=is.false' +
-        '&select=id,cleaner,cleaner_id,clean_date,property_id',
+        '&select=id,local_id,cleaner,cleaner_id,clean_date,property_id',
       { headers: sbHeaders }
     );
     const cleans = await cleansRes.json();
@@ -177,6 +178,20 @@ async function notifyCleanerCancellation({ supabaseUrl, sbHeaders, userId, booki
       } catch (e) {
         console.warn('[notify-cleaner-cancellation] clean PATCH failed:', e && e.message);
         result.skipped++;
+      }
+
+      // 6. Remove the clean's calendar event (best-effort). The clean row is
+      // kept (soft-cancelled via cleaner_cancel_notified) so a booking revival
+      // can recover it, but its calendar event must not linger. pushChange
+      // no-ops when no sync_state row exists and swallows 404/410 (already
+      // gone). Never throw — a calendar failure must not break the
+      // cancellation or the cleaner notification.
+      if (clean.local_id) {
+        try {
+          await pushChange(userId, 'cleans', clean.local_id, 'delete');
+        } catch (e) {
+          console.warn('[notify-cleaner-cancellation] calendar delete failed:', e && e.message);
+        }
       }
     }
   } catch (e) {

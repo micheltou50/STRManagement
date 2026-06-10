@@ -1581,7 +1581,11 @@ async function deleteBooking(id) {
       console.log('[StayOps] Deleting orphaned cleans from Supabase:', orphanedCleans.map(c => c._cloudId || String(c.id)));
       for (const c of orphanedCleans) {
         try {
-          if (c._cloudId) {
+          // Route through deleteCleanFromCloud (wrapped by calendar-sync-outbound)
+          // so the clean's calendar event is also deleted, not just the DB row.
+          if (typeof globalThis.deleteCleanFromCloud === 'function') {
+            await globalThis.deleteCleanFromCloud(c);
+          } else if (c._cloudId) {
             await window._sb.from('cleans').delete().eq('id', c._cloudId);
           } else {
             await window._sb.from('cleans').delete().eq('user_id', user.id).eq('local_id', String(c.id));

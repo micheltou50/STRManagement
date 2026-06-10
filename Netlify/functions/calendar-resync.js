@@ -26,6 +26,23 @@ function json(status, body) {
   };
 }
 
+// Set of ids identifying cancelled bookings. Includes both the cloud id and
+// local_id so a clean's booking_id matches regardless of which one was stored.
+async function loadCancelledBookingIds(supabaseUrl, uid) {
+  const set = new Set();
+  try {
+    const res = await fetch(supabaseUrl + '/rest/v1/bookings' +
+      '?user_id=eq.' + encodeURIComponent(uid) +
+      '&status=eq.cancelled&select=id,local_id', { headers: sbHeaders() });
+    const rows = await res.json();
+    for (const b of (rows || [])) {
+      if (b.id != null) set.add(String(b.id));
+      if (b.local_id != null) set.add(String(b.local_id));
+    }
+  } catch (_) { /* best-effort — on failure, guard simply lets cleans through */ }
+  return set;
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return json(200, { ok: true });
   if (event.httpMethod !== 'POST') return json(405, { error: 'POST only' });
@@ -55,12 +72,22 @@ exports.handler = async (event) => {
   }
 
   try {
+    // Cleans linked to a cancelled booking must not be re-pushed — that would
+    // resurrect a calendar event we deleted on cancellation. Build a set of
+    // cancelled booking ids (match on both id and local_id since cleans.booking_id
+    // may store either, depending on the path that created the clean).
+    const cancelledIds = await loadCancelledBookingIds(SUPABASE_URL, uid);
+
     const res = await fetch(SUPABASE_URL + '/rest/v1/cleans' +
       '?user_id=eq.' + encodeURIComponent(uid) +
-      '&done=eq.false&select=local_id', { headers: sbHeaders() });
+      '&done=eq.false&select=local_id,booking_id', { headers: sbHeaders() });
     const cleans = await res.json();
     for (const c of (cleans || [])) {
       if (!c.local_id) continue;
+      if (c.booking_id && cancelledIds.has(String(c.booking_id))) {
+        out.cleans.push({ local_id: c.local_id, skipped: 'booking cancelled' });
+        continue;
+      }
       try {
         const r = await pushChange(uid, 'cleans', c.local_id, 'upsert');
         out.cleans.push({ local_id: c.local_id, result: r });
