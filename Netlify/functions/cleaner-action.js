@@ -31,7 +31,7 @@ exports.handler = async (event) => {
     return json(400, { error: 'Invalid JSON' });
   }
 
-  const { uid, cleanerId, cleanId, action } = body || {};
+  const { uid, cleanerId, cleanId, action, pin } = body || {};
   if (!uid || !cleanerId || !cleanId || !action) {
     return json(400, { error: 'Missing uid, cleanerId, cleanId, or action' });
   }
@@ -57,7 +57,7 @@ exports.handler = async (event) => {
     const cleanerRes = await fetch(
       SUPABASE_URL + '/rest/v1/cleaners?user_id=eq.' + enc(uid) +
         '&local_id=eq.' + enc(cleanerId) +
-        '&active=eq.true&select=id,name&limit=1',
+        '&active=eq.true&select=id,name,pin&limit=1',
       { headers: { ...headers, Prefer: undefined } }
     );
     const cleaners = await cleanerRes.json();
@@ -65,6 +65,20 @@ exports.handler = async (event) => {
       return json(403, { error: 'Cleaner not found' });
     }
     const cleanerUuid = cleaners[0].id;
+
+    // 1b. Verify the cleaner's PIN. The client-side PIN gate is decorative
+    // (the PIN is base64-encoded in the share link), so enforce it here:
+    // when the cleaner has a PIN on file, the caller must present it.
+    // Cleaners without a stored PIN are let through (their share link carries
+    // no PIN either) — flagged so hosts can be nudged to set one.
+    const storedPin = cleaners[0].pin != null ? String(cleaners[0].pin) : '';
+    if (storedPin) {
+      if (String(pin || '') !== storedPin) {
+        return json(403, { error: 'Invalid PIN' });
+      }
+    } else {
+      console.warn('[cleaner-action] cleaner', cleanerId, 'has no PIN set — action allowed without PIN verification');
+    }
 
     // 2. Build update payload
     let patch = {};
@@ -78,13 +92,18 @@ exports.handler = async (event) => {
       patch = { cleaner_cancel_acknowledged: true, cleaner_cancel_acknowledged_at: new Date().toISOString() };
     }
 
-    // 3. Update the clean
+    // 3. Update the clean — scoped to the ACTING cleaner (IDOR fix).
+    // cleans.cleaner_id stores the cleaner's local_id (see saveCleanToCloud),
+    // so filtering on it ensures Cleaner A can never accept/decline/complete
+    // Cleaner B's clean. return=representation lets us detect a zero-row match
+    // (clean not assigned to this cleaner) instead of reporting a false success.
     const updateRes = await fetch(
       SUPABASE_URL + '/rest/v1/cleans?user_id=eq.' + enc(uid) +
-        '&local_id=eq.' + enc(cleanId),
+        '&local_id=eq.' + enc(cleanId) +
+        '&cleaner_id=eq.' + enc(cleanerId),
       {
         method: 'PATCH',
-        headers,
+        headers: { ...headers, Prefer: 'return=representation' },
         body: JSON.stringify(patch),
       }
     );
@@ -93,6 +112,13 @@ exports.handler = async (event) => {
       const errText = await updateRes.text();
       console.error('[cleaner-action] Update failed:', errText);
       return json(500, { error: 'Update failed' });
+    }
+
+    const updatedRows = await updateRes.json().catch(() => null);
+    if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
+      // No row matched user_id + clean local_id + this cleaner_id → the clean
+      // either doesn't exist or isn't assigned to this cleaner. Refuse.
+      return json(403, { error: 'Clean not found or not assigned to you' });
     }
 
     // Phase 5: auto-create a pending expense for the cleaner's fee when the

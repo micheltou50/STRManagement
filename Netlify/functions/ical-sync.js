@@ -17,6 +17,7 @@ const { parseICS } = require('./utils/ical-parse');
 const { pushChange: pushCalendarChange } = require('./utils/calendar-push-core');
 const { notifyCleanerCancellation } = require('./utils/notify-cleaner-cancellation');
 const { isCancellationBillable, loadCancellationConfig } = require('./utils/cancellation-policy');
+const { verifyAuth } = require('./utils/auth');
 
 // Best-effort outbound calendar push — never throws. Failures are queued
 // inside pushChange via pending_direction='to_provider' for the reconciler.
@@ -171,6 +172,35 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
     }
   }
 
+  // Guard against empty / garbage feeds before the disappearance sweep.
+  // A 200 response that is truncated, an HTML error page, or an empty body
+  // parses to ZERO events — which would make the sweep below soft-cancel
+  // EVERY booking on this feed (and notify cleaners + delete calendar events).
+  // A feed that legitimately has no upcoming bookings is indistinguishable
+  // from a transient bad fetch here, so we err on the safe side: only run the
+  // disappearance sweep when the body looks like real iCal AND parsed at least
+  // one live event. A genuine single cancellation still flips via the
+  // STATUS:CANCELLED path above, or is caught on a later healthy sync.
+  const looksLikeICal = /BEGIN:VCALENDAR/i.test(icsText || '');
+  const hasLiveEvents = liveUids.size > 0;
+  if (!looksLikeICal || !hasLiveEvents) {
+    console.warn(
+      '[ical-sync] feed', feed.id,
+      '— skipping disappearance sweep (looksLikeICal=' + looksLikeICal +
+      ', liveEvents=' + liveUids.size + ', parsedEvents=' + events.length +
+      ', bytes=' + (icsText ? icsText.length : 0) + ')'
+    );
+    await fetch(supabaseUrl + '/rest/v1/property_ical_feeds?id=eq.' + encodeURIComponent(feed.id), {
+      method: 'PATCH',
+      headers: { ...sbHeaders, Prefer: 'return=minimal' },
+      body: JSON.stringify({
+        last_error: looksLikeICal ? null : 'Feed did not look like valid iCal (no BEGIN:VCALENDAR)',
+        last_synced_at: new Date().toISOString(),
+      }),
+    });
+    return result;
+  }
+
   // Bookings whose UID has disappeared from the feed → soft-cancel.
   // (Some platforms remove cancelled events instead of marking STATUS:CANCELLED.)
   for (const uid in byUid) {
@@ -234,7 +264,23 @@ exports.handler = async (event) => {
     'Content-Type': 'application/json',
   };
 
-  const uidFilter = body && body.uid ? '&user_id=eq.' + encodeURIComponent(body.uid) : '';
+  // Auth model:
+  //  • Manual call (frontend "Sync now" / boot auto-sync) sends { uid }. Require
+  //    a valid JWT and derive the user from it — never trust the body uid (it's
+  //    a non-secret leaked in cleaner links + the public calendar feed). This is
+  //    what closes the per-user trigger/false-cancel abuse vector.
+  //  • Scheduled cron (netlify.toml, every 15 min) sends no body/uid and runs
+  //    over ALL users' feeds server-side. That path is intentionally left open
+  //    here because Netlify's internal scheduler can't attach an Authorization
+  //    header; it returns only aggregate totals (no PII). See note in summary.
+  let scopedUid = null;
+  if (body && body.uid) {
+    const auth = await verifyAuth(event);
+    if (auth.error) return auth.error;
+    scopedUid = auth.id;
+  }
+
+  const uidFilter = scopedUid ? '&user_id=eq.' + encodeURIComponent(scopedUid) : '';
   const feedRes = await fetch(
     SUPABASE_URL + '/rest/v1/property_ical_feeds?active=eq.true' + uidFilter +
       '&select=id,user_id,property_id,platform,ical_url',

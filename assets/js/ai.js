@@ -2,9 +2,11 @@
  * AI features: smart pricing, expense analysis, ignore list, receipt OCR, booking screenshot import.
  */
 import { AIService } from './ai-logic.js';
-import { expenses } from './state.js';
+import { expenses, bookings } from './state.js';
 import { calcNights } from './utils.js';
-import { getCurrentPropertyName } from './config.js';
+import { getCurrentPropertyName, getActivePropertyConfig } from './config.js';
+import { isRevenueBearingBooking } from './booking-revenue.js';
+import { findMatchingCleanForBooking } from './cleaning.js';
 import { saveAppConfigToCloud } from './supabase.js';
 
 export { renderSmartPricingPanel, getSmartPricing } from './smart-pricing.js';
@@ -406,6 +408,65 @@ export function clearExpensePhoto2() {
   updateAddReceiptUI();
 }
 
+// ── RECEIPT ↔ BOOKING MATCHING ────────────────────────────────────────────
+/** Recent revenue-bearing stays (checked out, last 120 days, newest first),
+ *  each joined with its clean record. Mirrors renderExpenseBookingPicker's
+ *  eligibility filter so every id returned here is selectable in the
+ *  booking-link picker. */
+function getBookingMatchCandidates() {
+  const todayStr = new Date().toISOString().split('T')[0];
+  const cutoff = new Date(Date.now() - 120 * 86400000).toISOString().split('T')[0];
+  return (Array.isArray(bookings) ? bookings : [])
+    .filter(b => b && isRevenueBearingBooking(b) && b.checkout && b.checkout <= todayStr && b.checkout >= cutoff)
+    .sort((a, b) => String(b.checkout).localeCompare(String(a.checkout)))
+    .slice(0, 15)
+    .map(b => ({ booking: b, clean: findMatchingCleanForBooking(b) }));
+}
+
+function formatBookingCandidatesCtx(cands) {
+  if (!cands.length) return '';
+  const address = String(getActivePropertyConfig()?.address || '').trim();
+  const header = `Recent completed stays at this property ("${getCurrentPropertyName()}"${address ? ', ' + address : ''}) — bookingId | guest | checkin → checkout | host payout | mgmt fee | clean:`;
+  const rows = cands.map(({ booking: b, clean: c }) => {
+    const id = String(b._cloudId || b.id);
+    const cleanInfo = c && c.date
+      ? `cleaned ${String(c.date).slice(0, 10)}${c.cleaner ? ' by ' + c.cleaner : ''}`
+      : 'no clean recorded';
+    return `${id} | ${b.name || 'Guest'} | ${b.checkin} → ${b.checkout} | $${b.hostPayout || 0} | ${b.mgmtFeeRaw || 0}% | ${cleanInfo}`;
+  });
+  return header + '\n' + rows.join('\n');
+}
+
+function _normLoose(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+function _dayDiff(a, b) {
+  const ta = Date.parse(String(a).slice(0, 10));
+  const tb = Date.parse(String(b).slice(0, 10));
+  return Number.isFinite(ta) && Number.isFinite(tb) ? Math.abs(ta - tb) / 86400000 : Infinity;
+}
+
+/** Deterministic receipt→booking match: the receipt's merchant is the cleaner
+ *  who has a clean within 2 days of the receipt date. Returns the booking, or
+ *  null when there is no single unambiguous hit. */
+function findCleanerReceiptBooking(merchant, dateStr, cands) {
+  const m = _normLoose(merchant);
+  if (m.length < 3 || !dateStr) return null;
+  const hits = cands
+    .filter(({ clean: c }) => {
+      if (!c || !c.date) return false;
+      const cl = _normLoose(c.cleaner);
+      if (cl.length < 3) return false;
+      if (!m.includes(cl) && !cl.includes(m)) return false;
+      return _dayDiff(c.date, dateStr) <= 2;
+    })
+    .sort((a, b) => _dayDiff(a.clean.date, dateStr) - _dayDiff(b.clean.date, dateStr));
+  if (!hits.length) return null;
+  // Two cleans by this cleaner equally close to the receipt date → ambiguous.
+  if (hits.length > 1 && _dayDiff(hits[0].clean.date, dateStr) === _dayDiff(hits[1].clean.date, dateStr)) return null;
+  return hits[0].booking;
+}
+
 export async function extractExpenseFromReceipt() {
   const status = document.getElementById('expense-extract-status');
   status.style.display = 'block';
@@ -419,8 +480,12 @@ export async function extractExpenseFromReceipt() {
   try {
     const getCats = globalThis.getExpenseCats;
     const cats = typeof getCats === 'function' ? getCats() : [];
+    const candidates = getBookingMatchCandidates();
+    const bookingCtx = candidates.length
+      ? `\n\n${formatBookingCandidatesCtx(candidates)}\n\nbookingId rules: set bookingId ONLY when this receipt is a cleaning or post-stay service charge that clearly belongs to ONE stay above — the merchant is that stay's cleaner and the receipt date is on/near the clean date, or within 5 days after that stay's checkout. If the receipt shows a service address it must match this property — a different address, or no single clear match, means bookingId must be null.`
+      : '';
     const { response, data } = await AIService.request({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 500,
       messages: [{
         role: 'user',
@@ -428,7 +493,7 @@ export async function extractExpenseFromReceipt() {
           expensePhotoMediaType === 'application/pdf'
             ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: expensePhotoBase64 } }
             : { type: 'image', source: { type: 'base64', media_type: expensePhotoMediaType, data: expensePhotoBase64 } },
-          { type: 'text', text: `This is a receipt or invoice. Return ONLY a JSON object with no markdown. Fields: merchant (store name), description (brief), amount (number, no $ sign, negative if refund), date (YYYY-MM-DD), receiptNum (or null), category (best match from: ${cats.join(', ')}). Null for missing.` }
+          { type: 'text', text: `This is a receipt or invoice. Return ONLY a JSON object with no markdown. Fields: merchant (store name), description (brief), amount (number, no $ sign, negative if refund), date (YYYY-MM-DD), receiptNum (or null), category (best match from: ${cats.join(', ')})${candidates.length ? ', bookingId (see rules below, or null)' : ''}. Null for missing.${bookingCtx}` }
         ]
       }]
     });
@@ -450,10 +515,37 @@ export async function extractExpenseFromReceipt() {
     if (parsed.category) {
       const sel = document.getElementById('exp-category');
       for (let opt of sel.options) { if (opt.value === parsed.category) { sel.value = parsed.category; break; } }
-      if (typeof globalThis.renderExpenseBookingPicker === 'function') globalThis.renderExpenseBookingPicker('exp', '');
+      if (typeof globalThis.renderExpenseBookingPicker === 'function') globalThis.renderExpenseBookingPicker('exp', document.getElementById('exp-booking-link')?.value || '');
+    }
+    // Auto-link the receipt to its stay: deterministic cleaner-name +
+    // clean-date match first, then the model's pick (validated against the
+    // candidate list). Refunds never auto-link — saving a linked expense
+    // overwrites the clean's actual cost with the expense amount.
+    let linkedBooking = null;
+    const amt = Number(parsed.amount);
+    if (candidates.length && !(Number.isFinite(amt) && amt < 0)) {
+      const matchDate = parsed.date || document.getElementById('exp-date').value || '';
+      linkedBooking = findCleanerReceiptBooking(parsed.merchant, matchDate, candidates);
+      if (!linkedBooking && parsed.bookingId != null) {
+        const hit = candidates.find(({ booking: b }) => String(b._cloudId || b.id) === String(parsed.bookingId));
+        if (hit) linkedBooking = hit.booking;
+      }
+    }
+    if (linkedBooking) {
+      const linkedId = String(linkedBooking._cloudId || linkedBooking.id);
+      if (typeof globalThis.renderExpenseBookingPicker === 'function') globalThis.renderExpenseBookingPicker('exp', linkedId);
+      const sel = document.getElementById('exp-booking-link');
+      if (sel && sel.value === linkedId) {
+        const wrap = document.getElementById('exp-booking-link-wrap');
+        if (wrap) wrap.style.display = 'block';
+      } else {
+        linkedBooking = null; // not selectable in the picker — don't claim a link
+      }
     }
     status.style.background = '#E8F5E9'; status.style.color = '#2E7D32';
-    status.textContent = '✓ Receipt read — review details, then tap Save Expense';
+    status.textContent = linkedBooking
+      ? `✓ Receipt read — linked to ${linkedBooking.name || 'Guest'}'s stay (${linkedBooking.checkin} → ${linkedBooking.checkout}). Review, then tap Save Expense`
+      : '✓ Receipt read — review details, then tap Save Expense';
     const panel = document.getElementById('expense-add-form-panel');
     const chevron = document.getElementById('expense-add-chevron');
     if (panel) panel.style.display = 'block';
@@ -498,18 +590,9 @@ async function fetchExpenseSuggestion(prefix, { merchant, amount, date }) {
     const currentCat = document.getElementById(prefix + '-category')?.value || '';
     const description = document.getElementById(prefix + '-description')?.value || '';
 
-    const allBookings = Array.isArray(window.bookings) ? window.bookings : [];
-    const todayStr = new Date().toISOString().split('T')[0];
-    const cutoff = new Date(Date.now() - 120 * 86400000).toISOString().split('T')[0];
-    const recentBookings = allBookings
-      .filter(b => b && b.status !== 'cancelled' && b.checkout && b.checkout <= todayStr && b.checkout >= cutoff)
-      .sort((a, b) => String(b.checkout).localeCompare(String(a.checkout)))
-      .slice(0, 15);
-
-    const bookingsCtx = recentBookings.length
-      ? '\n\nRecent bookings (id|guest|checkin|checkout|hostPayout|mgmtFee%):\n' +
-        recentBookings.map(b => `${b._cloudId || b.id}|${b.name || 'Guest'}|${b.checkin}|${b.checkout}|${b.hostPayout || 0}|${b.mgmtFeeRaw || 0}%`).join('\n')
-      : '';
+    const candidates = getBookingMatchCandidates();
+    const recentBookings = candidates.map(c => c.booking);
+    const bookingsCtx = candidates.length ? '\n\n' + formatBookingCandidatesCtx(candidates) : '';
 
     const { response, data } = await AIService.request({
       model: 'claude-haiku-4-5-20251001',
@@ -546,7 +629,7 @@ RULES
 1. Return ONLY a category that appears verbatim in the AVAILABLE CATEGORIES list above. NEVER invent or paraphrase a category name. If the closest semantic match has different spelling (e.g. you think "Utilities" but the list has "Utilities & Rates"), return the list's spelling.
 2. If the currently selected category already matches the merchant correctly, return it as bestCategory (the UI will not show a suggestion).
 3. Only suggest a different category when you are confident the current one is wrong based on the merchant name. Do NOT default to a Cleaning-style category — most expenses are NOT cleaning.
-3. Set bestBookingId only when this is plausibly a cleaning OR maintenance cost for a specific past stay (use checkout date proximity, max 5 days after checkout).
+4. Set bestBookingId only when this is plausibly a cleaning OR maintenance cost for ONE specific past stay. Strongest signal: the merchant is that stay's cleaner and the expense date is on/near the clean date shown for the stay. Otherwise use checkout-date proximity (max 5 days after checkout). No single clear match → null.
 
 Return EXACTLY this JSON shape:
 {"bestCategory":"<exact label from the list above>","bestBookingId":"<id from the bookings list or null>","mgmtNote":"<if bestBookingId set AND its mgmtFee% > 0: 'Linking to [guest] ([X]% fee) will add $${amount} to clean cost', else null>","confidence":"high or low"}`
@@ -559,7 +642,8 @@ Return EXACTLY this JSON shape:
     const result = JSON.parse(cleaned);
 
     _lastSuggestKey = `${merchant}|${amount}|${date}`;
-    renderSuggestionCard(prefix, result, cats, recentBookings, currentCat);
+    const currentBookingSel = document.getElementById(prefix + '-booking-link')?.value || '';
+    renderSuggestionCard(prefix, result, cats, recentBookings, currentCat, currentBookingSel);
   } catch (_err) {
     cardEl.style.display = 'none';
   } finally {
@@ -567,7 +651,7 @@ Return EXACTLY this JSON shape:
   }
 }
 
-function renderSuggestionCard(prefix, result, cats, recentBookings, currentCat) {
+function renderSuggestionCard(prefix, result, cats, recentBookings, currentCat, currentBookingSel) {
   const cardEl = document.getElementById(prefix + '-ai-suggest-card');
   if (!cardEl) return;
 
@@ -576,8 +660,11 @@ function renderSuggestionCard(prefix, result, cats, recentBookings, currentCat) 
   const matchedBooking = result.bestBookingId
     ? recentBookings.find(b => String(b._cloudId || b.id) === String(result.bestBookingId))
     : null;
+  // Don't re-suggest a booking that's already selected (e.g. auto-linked by the receipt reader).
+  const bookingDiffers = !!matchedBooking
+    && String(matchedBooking._cloudId || matchedBooking.id) !== String(currentBookingSel || '');
 
-  if (!catDiffers && !matchedBooking) {
+  if (!catDiffers && !bookingDiffers) {
     cardEl.style.display = 'none';
     return;
   }
@@ -593,7 +680,7 @@ function renderSuggestionCard(prefix, result, cats, recentBookings, currentCat) 
     </div>`;
   }
 
-  if (matchedBooking) {
+  if (bookingDiffers) {
     const label = `${matchedBooking.name || 'Guest'} (${matchedBooking.checkin} → ${matchedBooking.checkout})`;
     html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
       <span style="font-size:12px;color:var(--ink-2)">Link to: <strong>${label}</strong></span>
@@ -601,7 +688,7 @@ function renderSuggestionCard(prefix, result, cats, recentBookings, currentCat) 
     </div>`;
   }
 
-  if (result.mgmtNote && matchedBooking) {
+  if (result.mgmtNote && bookingDiffers) {
     html += `<div style="font-size:11px;color:var(--muted-2);margin-top:4px;font-style:italic">ℹ️ ${result.mgmtNote}</div>`;
   }
 
@@ -614,7 +701,7 @@ export function acceptAISuggestCategory(prefix, category) {
   const sel = document.getElementById(prefix + '-category');
   if (sel) {
     sel.value = category;
-    if (typeof globalThis.renderExpenseBookingPicker === 'function') globalThis.renderExpenseBookingPicker(prefix, '');
+    if (typeof globalThis.renderExpenseBookingPicker === 'function') globalThis.renderExpenseBookingPicker(prefix, document.getElementById(prefix + '-booking-link')?.value || '');
   }
   const cardEl = document.getElementById(prefix + '-ai-suggest-card');
   if (cardEl) {
@@ -694,7 +781,7 @@ export async function extractBookingFromScreenshot() {
 
   try {
     const { response, data } = await AIService.request({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1000,
       messages: [{
         role: 'user',

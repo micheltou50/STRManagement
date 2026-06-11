@@ -3,9 +3,18 @@
 const AI_ENDPOINT = '/.netlify/functions/ai-proxy';
 
 async function request(payload) {
+  // ai-proxy now requires a Supabase JWT. getAuthHeaders() (exposed on
+  // globalThis by supabase.js) returns the Authorization header when signed in.
+  let headers = { 'Content-Type': 'application/json' };
+  try {
+    if (typeof globalThis.getAuthHeaders === 'function') {
+      headers = await globalThis.getAuthHeaders();
+    }
+  } catch (_) { /* fall back to unauthenticated; proxy will 401 */ }
+
   const response = await fetch(AI_ENDPOINT, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(payload)
   });
 

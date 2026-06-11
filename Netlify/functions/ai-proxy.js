@@ -1,19 +1,34 @@
-// Proxies Anthropic /v1/messages for browser clients (CORS). Set ANTHROPIC_API_KEY in Netlify.
+// Proxies Anthropic /v1/messages for browser clients. Set ANTHROPIC_API_KEY in Netlify.
+//
+// Auth: requires a valid Supabase JWT (same verifyAuth pattern as send-email /
+// send-push / fetch-listing). The frontend AI layer (ai-logic.js, bank-import.js)
+// sends the user's access token as a Bearer Authorization header. This stops the
+// proxy from being an open relay to the Anthropic API on the host's bill.
+//
+// CORS is locked to the deployment's own origin (Netlify sets process.env.URL).
+// The app and the function are same-origin, so this never affects legitimate
+// callers; it only denies cross-origin browser abuse.
 
 const { captureError, flush } = require('./utils/sentry');
+const { verifyAuth } = require('./utils/auth');
 
+const SITE_ORIGIN = process.env.SITE_URL || process.env.URL || '';
 const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Origin': SITE_ORIGIN || '*',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 const DEFAULT_MAX_TOKENS = 1000;
+// Hard server-side ceiling. The largest legitimate caller asks for 8000
+// (bank-import PDF parsing), so 8192 accommodates every real call while
+// preventing a caller from requesting an unbounded (cost-amplifying) value.
+const MAX_MAX_TOKENS = 8192;
 
 const ALLOWED_MODELS = [
   'claude-haiku-4-5-20251001',
-  'claude-sonnet-4-20250514',
+  'claude-sonnet-4-6',
 ];
 
 exports.handler = async (event) => {
@@ -27,6 +42,12 @@ exports.handler = async (event) => {
       headers: CORS,
       body: JSON.stringify({ error: 'Method not allowed' }),
     };
+  }
+
+  // Require an authenticated Supabase session.
+  const auth = await verifyAuth(event);
+  if (auth.error) {
+    return { ...auth.error, headers: { ...CORS, ...(auth.error.headers || {}), 'Content-Type': 'application/json' } };
   }
 
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -51,14 +72,20 @@ exports.handler = async (event) => {
 
   const system = body.system;
   const messages = body.messages;
-  const max_tokens =
+  const requestedMaxTokens =
     typeof body.max_tokens === 'number' && Number.isFinite(body.max_tokens)
       ? body.max_tokens
       : DEFAULT_MAX_TOKENS;
+  // Clamp to [1, MAX_MAX_TOKENS] — never trust a caller-supplied ceiling.
+  const max_tokens = Math.min(Math.max(1, Math.floor(requestedMaxTokens)), MAX_MAX_TOKENS);
   const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : DEFAULT_MODEL;
 
-  if (model && !ALLOWED_MODELS.includes(model)) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Model not allowed' }) };
+  if (!ALLOWED_MODELS.includes(model)) {
+    return {
+      statusCode: 400,
+      headers: { ...CORS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'Model not allowed' }),
+    };
   }
 
   const payload = { model, max_tokens, messages };

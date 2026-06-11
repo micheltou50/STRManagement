@@ -8,6 +8,7 @@ import {
   saveAppConfigToCloud,
   saveCleanersToCloud,
   saveHostConfigToSupabase,
+  authFetch,
 } from './supabase.js';
 import { updateNotifStatus, cleanerLinkForId } from './notifications.js';
 import { renderPropertySwitcher, populateOwnerReportPanel } from './property.js';
@@ -225,7 +226,7 @@ async function syncCalendarNow() {
   }
   try {
     const user = window._supabaseUser;
-    const res = await fetch('/.netlify/functions/calendar-sync-reconcile', {
+    const res = await authFetch('/.netlify/functions/calendar-sync-reconcile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: user && user.id }),
@@ -263,7 +264,7 @@ async function resyncStayOpsCalendar() {
   }
   try {
     const user = window._supabaseUser;
-    const res = await fetch('/.netlify/functions/calendar-resync', {
+    const res = await authFetch('/.netlify/functions/calendar-resync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: user && user.id }),
@@ -397,7 +398,7 @@ async function maybeAutoScanGmail() {
     // No throttle — scan runs every time the app is opened
 
     const _pid = (window._cloudPropertyIds && window._cloudPropertyIds[getActivePropertyId()]) || '';
-    const res = await fetch('/.netlify/functions/gmail-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
+    const res = await authFetch('/.netlify/functions/gmail-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
     if (!res.ok) {
       if (res.status === 401) {
         globalThis.showBanner('⚠ Gmail disconnected — reconnect in Settings → Integrations', 'warn');
@@ -442,7 +443,7 @@ async function scanGmailBookings() {
 
   try {
     const _pid = (window._cloudPropertyIds && window._cloudPropertyIds[getActivePropertyId()]) || '';
-    const res = await fetch('/.netlify/functions/gmail-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
+    const res = await authFetch('/.netlify/functions/gmail-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
     const data = await res.json();
 
     if (!res.ok) {
@@ -515,7 +516,7 @@ async function maybeAutoScanOutlook() {
     if (!user) return;
 
     const _pid = (window._cloudPropertyIds && window._cloudPropertyIds[getActivePropertyId()]) || '';
-    const res = await fetch('/.netlify/functions/outlook-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
+    const res = await authFetch('/.netlify/functions/outlook-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
     if (!res.ok) {
       if (res.status === 401) {
         globalThis.showBanner('⚠ Outlook disconnected — reconnect in Settings → Integrations', 'warn');
@@ -565,7 +566,7 @@ async function scanOutlookBookings() {
 
   try {
     const _pid = (window._cloudPropertyIds && window._cloudPropertyIds[getActivePropertyId()]) || '';
-    const res = await fetch('/.netlify/functions/outlook-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
+    const res = await authFetch('/.netlify/functions/outlook-scan-bookings?uid=' + encodeURIComponent(user.id) + (_pid ? '&pid=' + encodeURIComponent(_pid) : ''));
     const data = await res.json();
 
     if (!res.ok) {
@@ -1807,7 +1808,7 @@ async function syncICalFeedsNow() {
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing…'; }
   if (statusEl) { statusEl.style.color = 'var(--muted-2)'; statusEl.textContent = 'Fetching feeds…'; }
   try {
-    const res = await fetch('/.netlify/functions/ical-sync', {
+    const res = await authFetch('/.netlify/functions/ical-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: user.id }),
@@ -1850,7 +1851,7 @@ async function maybeAutoSyncICal() {
       .limit(1);
     if (!feeds || !feeds.length) return;
 
-    const res = await fetch('/.netlify/functions/ical-sync', {
+    const res = await authFetch('/.netlify/functions/ical-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: user.id }),

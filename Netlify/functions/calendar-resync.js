@@ -9,6 +9,7 @@
 
 const { sbHeaders } = require('./utils/calendar-token');
 const { pushChange } = require('./utils/calendar-push-core');
+const { verifyAuth } = require('./utils/auth');
 
 function activeBookingQuery(uid) {
   return process.env.SUPABASE_URL + '/rest/v1/bookings' +
@@ -49,8 +50,13 @@ exports.handler = async (event) => {
 
   let body;
   try { body = JSON.parse(event.body || '{}'); } catch (_e) { return json(400, { error: 'Invalid JSON' }); }
-  const uid = body.uid;
-  if (!uid) return json(400, { error: 'Missing uid' });
+
+  // Require a real authenticated session; derive the user from the JWT rather
+  // than trusting the caller-supplied uid (this endpoint pushes a user's whole
+  // booking/clean set to their connected calendars).
+  const auth = await verifyAuth(event);
+  if (auth.error) return auth.error;
+  const uid = auth.id;
 
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const out = { bookings: [], cleans: [] };

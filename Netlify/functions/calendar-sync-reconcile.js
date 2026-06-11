@@ -17,6 +17,7 @@ const { getFreshAccessToken, sbHeaders, patchConnection } = require('./utils/cal
 const gcal = require('./utils/gcal-client');
 const ocal = require('./utils/outlook-cal-client');
 const crypto = require('crypto');
+const { verifyAuth } = require('./utils/auth');
 
 function json(status, body) {
   return {
@@ -142,6 +143,16 @@ exports.handler = async (event) => {
 
   if (!process.env.SUPABASE_URL || !(process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)) {
     return json(500, { error: 'Server not configured' });
+  }
+
+  // Manual "Sync now" calls supply { uid } — require a valid JWT and derive the
+  // user from it (never trust the caller-supplied uid). The header-less Netlify
+  // cron path (no uid) reconciles all connected users and is left open; it
+  // returns only per-user counts, no booking PII. See summary note.
+  if (uid) {
+    const auth = await verifyAuth(event);
+    if (auth.error) return auth.error;
+    uid = auth.id;
   }
 
   const results = [];

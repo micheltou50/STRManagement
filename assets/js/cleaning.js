@@ -1393,16 +1393,20 @@ export async function toggleClean(id) {
   renderCleaning(); globalThis.renderDashboard();
 }
 export async function postCleanerAction(cleanId, action) {
-  const { id: cleanerId, uid } = globalThis.getCleanerParams();
+  const { id: cleanerId, uid, encoded } = globalThis.getCleanerParams();
   if (!uid || !cleanerId) {
     console.warn('[StayOps] postCleanerAction: missing uid or cleanerId, skipping cloud write');
     return false;
   }
+  // The share link carries the cleaner's PIN base64-encoded; decode it so the
+  // server can verify it (cleaner-action enforces the PIN server-side now).
+  let pin = '';
+  try { if (encoded) pin = atob(encoded); } catch (_e) { pin = ''; }
   try {
     const res = await fetch('/.netlify/functions/cleaner-action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid, cleanerId: String(cleanerId), cleanId: String(cleanId), action })
+      body: JSON.stringify({ uid, cleanerId: String(cleanerId), cleanId: String(cleanId), action, pin })
     });
     if (!res.ok) {
       console.warn('[StayOps] postCleanerAction failed: HTTP ' + res.status);

@@ -45,6 +45,21 @@ test('ai-proxy: GET → 405', async () => {
   assert.equal(r.statusCode, 405);
 });
 
+test('ai-proxy: missing auth → 401 (with envs set)', async () => {
+  const prevUrl = process.env.SUPABASE_URL;
+  const prevKey = process.env.SUPABASE_SERVICE_KEY;
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
+  process.env.SUPABASE_SERVICE_KEY = 'test-key';
+  try {
+    const { handler } = load('ai-proxy');
+    const r = await handler(event({ httpMethod: 'POST', body: '{}' }));
+    assert.equal(r.statusCode, 401);
+  } finally {
+    if (prevUrl === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = prevUrl;
+    if (prevKey === undefined) delete process.env.SUPABASE_SERVICE_KEY; else process.env.SUPABASE_SERVICE_KEY = prevKey;
+  }
+});
+
 // ── calendar-feed ────────────────────────────────────────────────────────────
 test('calendar-feed: missing uid → 401', async () => {
   const { handler } = load('calendar-feed');
@@ -114,6 +129,21 @@ test('ical-sync: bad JSON → 400', async () => {
   const { handler } = load('ical-sync');
   const r = await handler(event({ httpMethod: 'POST', body: 'not-json' }));
   assert.equal(r.statusCode, 400);
+});
+
+test('ical-sync: uid without auth → 401 (with envs set)', async () => {
+  const prevUrl = process.env.SUPABASE_URL;
+  const prevKey = process.env.SUPABASE_SERVICE_KEY;
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
+  process.env.SUPABASE_SERVICE_KEY = 'test-key';
+  try {
+    const { handler } = load('ical-sync');
+    const r = await handler(event({ httpMethod: 'POST', body: JSON.stringify({ uid: 'some-user' }) }));
+    assert.equal(r.statusCode, 401);
+  } finally {
+    if (prevUrl === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = prevUrl;
+    if (prevKey === undefined) delete process.env.SUPABASE_SERVICE_KEY; else process.env.SUPABASE_SERVICE_KEY = prevKey;
+  }
 });
 
 // ── daily-notifications ──────────────────────────────────────────────────────
@@ -194,10 +224,19 @@ test('gmail-oauth-start: missing state → 400', async () => {
 });
 
 // ── gmail-scan-bookings ──────────────────────────────────────────────────────
-test('gmail-scan-bookings: missing uid → 400', async () => {
-  const { handler } = load('gmail-scan-bookings');
-  const r = await handler(event({ httpMethod: 'POST' }));
-  assert.equal(r.statusCode, 400);
+test('gmail-scan-bookings: missing auth → 401 (with envs set)', async () => {
+  const prevUrl = process.env.SUPABASE_URL;
+  const prevKey = process.env.SUPABASE_SERVICE_KEY;
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
+  process.env.SUPABASE_SERVICE_KEY = 'test-key';
+  try {
+    const { handler } = load('gmail-scan-bookings');
+    const r = await handler(event({ httpMethod: 'GET' }));
+    assert.equal(r.statusCode, 401);
+  } finally {
+    if (prevUrl === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = prevUrl;
+    if (prevKey === undefined) delete process.env.SUPABASE_SERVICE_KEY; else process.env.SUPABASE_SERVICE_KEY = prevKey;
+  }
 });
 
 // ── monthly-revenue-summary ──────────────────────────────────────────────────
@@ -240,10 +279,19 @@ test('outlook-oauth-start: with no env vars → 500 misconfigured', async () => 
 });
 
 // ── outlook-scan-bookings ────────────────────────────────────────────────────
-test('outlook-scan-bookings: missing uid → 400', async () => {
-  const { handler } = load('outlook-scan-bookings');
-  const r = await handler(event({ httpMethod: 'POST' }));
-  assert.equal(r.statusCode, 400);
+test('outlook-scan-bookings: missing auth → 401 (with envs set)', async () => {
+  const prevUrl = process.env.SUPABASE_URL;
+  const prevKey = process.env.SUPABASE_SERVICE_KEY;
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
+  process.env.SUPABASE_SERVICE_KEY = 'test-key';
+  try {
+    const { handler } = load('outlook-scan-bookings');
+    const r = await handler(event({ httpMethod: 'GET' }));
+    assert.equal(r.statusCode, 401);
+  } finally {
+    if (prevUrl === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = prevUrl;
+    if (prevKey === undefined) delete process.env.SUPABASE_SERVICE_KEY; else process.env.SUPABASE_SERVICE_KEY = prevKey;
+  }
 });
 
 // ── send-email ───────────────────────────────────────────────────────────────

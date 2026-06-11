@@ -201,7 +201,7 @@ Respond ONLY in JSON, no markdown:\n\
 }';
   const userMsg = 'Here are the first rows of the CSV:\n' + sampleLines.join('\n');
   try {
-    const res = await fetch('/.netlify/functions/ai-proxy', {
+    const res = await (globalThis.authFetch || fetch)('/.netlify/functions/ai-proxy', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -439,11 +439,11 @@ Return JUST the array. Example:
     ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64Data } }
     : { type: 'image',    source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: base64Data } };
 
-  const res = await fetch(aiUrl, {
+  const res = await (globalThis.authFetch || fetch)(aiUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 8000,
       messages: [{
         role: 'user',
@@ -566,7 +566,7 @@ async function callHaikuBatch(items, propertyListStr) {
     items.map((t) => ({ index: t.batchIndex, description: t.description, amount: t.amount, date: t.date }))
   );
 
-  const res = await fetch('/.netlify/functions/ai-proxy', {
+  const res = await (globalThis.authFetch || fetch)('/.netlify/functions/ai-proxy', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

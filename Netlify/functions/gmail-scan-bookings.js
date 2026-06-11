@@ -17,6 +17,7 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const { captureError, captureMessage, flush } = require('./utils/sentry');
+const { verifyAuth } = require('./utils/auth');
 const {
   enc, json, safeJson, looksLikeBookingEmail,
   loadProperties, loadExistingBookings, loadProcessedIds,
@@ -98,8 +99,13 @@ async function updateLastScan(supabaseUrl, headers, uid, skippedIds) {
 // ── Handler ─────────────────────────────────────────────────────────────────
 
 exports.handler = async (event) => {
-  const uid = (event.queryStringParameters || {}).uid;
-  if (!uid) return json(400, { error: 'Missing uid' });
+  // Require a real authenticated Supabase session and derive the user from the
+  // JWT. The old `?uid=` query param was not a secret — it's embedded in every
+  // shareable cleaner link and the public calendar feed — so trusting it let
+  // anyone trigger a scan for, and read the booking summary of, any user.
+  const auth = await verifyAuth(event);
+  if (auth.error) return auth.error;
+  const uid = auth.id;
 
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;

@@ -131,9 +131,12 @@ export async function triggerCalendarReconcileNow() {
   const user = window._supabaseUser;
   if (!user) return null;
   try {
+    // calendar-sync-reconcile now requires a JWT for the per-uid path.
+    const token = await getAuthToken();
+    if (!token) return null;
     const res = await fetch('/.netlify/functions/calendar-sync-reconcile', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
       body: JSON.stringify({ uid: user.id }),
     });
     return res.ok ? res.json() : null;

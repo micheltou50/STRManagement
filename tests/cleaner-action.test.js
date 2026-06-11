@@ -41,7 +41,14 @@ function setupEnv() {
   delete process.env.RESEND_API_KEY;
 }
 
-function buildFetchMock({ cleaners = [{ id: 'cl-uuid-1', name: 'Sam' }], cleanRows = [{ property_id: 'prop-1', guest_name: 'Alice', clean_date: '2026-05-01' }] } = {}) {
+function buildFetchMock({
+  cleaners = [{ id: 'cl-uuid-1', name: 'Sam' }],
+  cleanRows = [{ property_id: 'prop-1', guest_name: 'Alice', clean_date: '2026-05-01' }],
+  // PATCH now uses return=representation; a non-empty array means a row matched
+  // (user_id + clean local_id + acting cleaner_id). [] simulates the IDOR case
+  // where the clean isn't assigned to this cleaner.
+  patchRows = [{ id: 'cn-row-1' }],
+} = {}) {
   const calls = [];
   const fetchMock = async (url, init) => {
     calls.push({ url, method: (init && init.method) || 'GET', body: init && init.body });
@@ -56,7 +63,7 @@ function buildFetchMock({ cleaners = [{ id: 'cl-uuid-1', name: 'Sam' }], cleanRo
     }
     // PATCH clean
     if (url.includes('/rest/v1/cleans?') && (init && init.method) === 'PATCH') {
-      return { status: 204, body: '' };
+      return { status: 200, body: patchRows };
     }
     // Insert message
     if (url.includes('/rest/v1/messages')) {
@@ -194,4 +201,53 @@ test('cleaner-action: done patches done=true and pushes clean_done', async () =>
 
   const payload = JSON.parse(wp._sent[0].payload);
   assert.equal(payload.type, 'clean_done');
+});
+
+test('cleaner-action: wrong PIN → 403, no clean PATCH', async () => {
+  setupEnv();
+  installModuleMocks({ supabase: makeFakeSupabase(), webpush: makeFakeWebPush(), nodemailer: makeFakeNodemailer() });
+  // Cleaner has a PIN on file; caller presents the wrong one.
+  const { fetchMock, calls } = buildFetchMock({ cleaners: [{ id: 'cl-uuid-1', name: 'Sam', pin: '1234' }] });
+  installFetchMock(fetchMock);
+
+  const { handler } = loadFn();
+  const res = await handler(event({ uid: 'user-1', cleanerId: 'cl-1', cleanId: 'cn-1', action: 'accept', pin: '9999' }));
+
+  assert.equal(res.statusCode, 403);
+  assert.match(res.body, /Invalid PIN/);
+  // The clean must NOT have been touched.
+  assert.equal(calls.find(c => c.method === 'PATCH' && c.url.includes('/rest/v1/cleans')), undefined);
+});
+
+test('cleaner-action: correct PIN → 200', async () => {
+  setupEnv();
+  const sb = makeFakeSupabase({
+    tables: {
+      properties: [{ id: 'prop-1', user_id: 'user-1', name: 'House' }],
+      app_config: [{ user_id: 'user-1', push_subscriptions: [], notification_config: {} }],
+      notification_log: [],
+    },
+  });
+  installModuleMocks({ supabase: sb, webpush: makeFakeWebPush(), nodemailer: makeFakeNodemailer() });
+  const { fetchMock } = buildFetchMock({ cleaners: [{ id: 'cl-uuid-1', name: 'Sam', pin: '1234' }] });
+  installFetchMock(fetchMock);
+
+  const { handler } = loadFn();
+  const res = await handler(event({ uid: 'user-1', cleanerId: 'cl-1', cleanId: 'cn-1', action: 'accept', pin: '1234' }));
+
+  assert.equal(res.statusCode, 200);
+});
+
+test('cleaner-action: clean not assigned to this cleaner (IDOR) → 403', async () => {
+  setupEnv();
+  installModuleMocks({ supabase: makeFakeSupabase(), webpush: makeFakeWebPush(), nodemailer: makeFakeNodemailer() });
+  // PATCH scoped by cleaner_id matches zero rows → handler must refuse.
+  const { fetchMock } = buildFetchMock({ patchRows: [] });
+  installFetchMock(fetchMock);
+
+  const { handler } = loadFn();
+  const res = await handler(event({ uid: 'user-1', cleanerId: 'cl-1', cleanId: 'cn-1', action: 'accept' }));
+
+  assert.equal(res.statusCode, 403);
+  assert.match(res.body, /not assigned/);
 });
