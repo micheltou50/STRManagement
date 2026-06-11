@@ -60,7 +60,10 @@ async function refreshGoogle(refreshToken) {
   });
   const tokens = await res.json();
   if (!res.ok || !tokens.access_token) {
-    const err = new Error('Google token refresh failed: ' + JSON.stringify(tokens));
+    // Redact: never serialize the whole token response (it can echo token
+    // values). Surface only the OAuth error fields for diagnostics.
+    const detail = (tokens && (tokens.error_description || tokens.error)) || ('HTTP ' + res.status);
+    const err = new Error('Google token refresh failed: ' + detail);
     err.statusCode = res.status;
     throw err;
   }
@@ -81,7 +84,10 @@ async function refreshMicrosoft(refreshToken) {
   });
   const tokens = await res.json();
   if (!res.ok || !tokens.access_token) {
-    const err = new Error('Microsoft token refresh failed: ' + JSON.stringify(tokens));
+    // Redact: never serialize the whole token response (it can echo token
+    // values). Surface only the OAuth error fields for diagnostics.
+    const detail = (tokens && (tokens.error_description || tokens.error)) || ('HTTP ' + res.status);
+    const err = new Error('Microsoft token refresh failed: ' + detail);
     err.statusCode = res.status;
     throw err;
   }

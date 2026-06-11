@@ -931,21 +931,30 @@ async function bankImportRunImport() {
           if (row.expense && row.expense.id) _bankImportCreatedExpenseIds.push({ id: row.expense.id, description: r.description, amount: r.amount, date: r.date });
         }
         imported++;
-        const local = {
-          id: Date.now() + n,
-          _cloudId: row && row.id,
-          _propertyId: row && row.property_id,
-          merchant: (row && row.vendor) || r.vendor || '',
-          description: (row && row.description) || r.description || '',
-          amount: Number((row && row.amount) != null ? row.amount : r.amount),
-          date: (row && row.date) || r.date,
-          category: (row && row.category) || r.category,
-          receiptType: 'missing',
-          receiptNum: '',
-          driveLink: '',
-          photo: null,
-        };
-        expenses.push(local);
+        // Only mirror a NEWLY-CREATED debit expense into the in-memory array.
+        // - action 'matched': the expense already lives in `expenses` (it was
+        //   matched to it); pushing again double-counts totals/tax until reload.
+        // - credit rows (Airbnb payouts / deposits → action 'matched_payout' or
+        //   'credit_unmatched') carry no expense id/amount and must never be
+        //   booked as an expense — they'd fall back to r.amount and persist a
+        //   payout as a cost.
+        if (row && row.action === 'created') {
+          const local = {
+            id: Date.now() + n,
+            _cloudId: row.id,
+            _propertyId: row.property_id,
+            merchant: row.vendor || r.vendor || '',
+            description: row.description || r.description || '',
+            amount: Number(row.amount != null ? row.amount : r.amount),
+            date: row.date || r.date,
+            category: row.category || r.category,
+            receiptType: 'missing',
+            receiptNum: '',
+            driveLink: '',
+            photo: null,
+          };
+          expenses.push(local);
+        }
       } catch (err) {
         console.log('[StayOps] confirmTransaction failed:', err && err.message ? err.message : err);
         globalThis.showBanner('Some rows failed to import — check console', 'warn');

@@ -135,7 +135,7 @@ exports.handler = async (event) => {
     const connRows = await safeJson(connRes, 'Supabase email_connections');
     console.log('[gmail-scan] uid:', uid);
     console.log('[gmail-scan] connRes status:', connRes.status);
-    console.log('[gmail-scan] connRows:', JSON.stringify(connRows));
+    // Do NOT log connRows verbatim — it contains the OAuth refresh_token.
     console.log('[gmail-scan] has refresh token:', !!(connRows && connRows.length && connRows[0] && connRows[0].refresh_token));
     if (!connRows || !connRows.length || !connRows[0].refresh_token) {
       return json(400, { error: 'Gmail not connected — connect in Settings first' });
@@ -161,7 +161,8 @@ exports.handler = async (event) => {
     });
     const tokenData = await safeJson(tokenRes, 'Google OAuth');
     if (!tokenRes.ok || !tokenData.access_token) {
-      console.error('[gmail-scan] Token refresh failed:', tokenData);
+      // Redact the token-endpoint body; log only the OAuth error fields.
+      console.error('[gmail-scan] Token refresh failed:', (tokenData && (tokenData.error_description || tokenData.error)) || ('HTTP ' + tokenRes.status));
       captureMessage('Gmail token expired — user needs to reconnect', 'warning', { user_id: uid, tags: { function: 'gmail-scan-bookings' } });
       await flush();
       return json(401, { error: 'Gmail token expired — reconnect Gmail in Settings' });

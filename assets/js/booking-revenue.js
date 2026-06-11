@@ -8,7 +8,13 @@ function _num(v) {
 function _dateOnly(value) {
   if (!value) return '';
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10);
+    // Local Y-M-D, NOT toISOString(): UTC would shift the 14-day window back a
+    // day for AEST users before ~10am (booking cancelled "today" reads as
+    // yesterday in UTC). The window comparison must be done in local time.
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   }
   return String(value).slice(0, 10);
 }
@@ -45,13 +51,32 @@ export function isCancellationInsideWindow(booking, cancelledAt, windowDays = ge
 
 export function getCancellationBillable(booking) {
   if (!booking || String(booking.status || '').toLowerCase() !== 'cancelled') return false;
-  return booking.cancellationBillable === true || booking.cancellation_billable === true;
+  // Explicit flag wins in either direction.
+  if (booking.cancellationBillable === true || booking.cancellation_billable === true) return true;
+  if (booking.cancellationBillable === false || booking.cancellation_billable === false) return false;
+  // Flag is null/unset. This is the common case for a soft-cancel that reached
+  // the DB via the trigger that just sets status='cancelled' (it never stamps
+  // cancellation_billable). Don't treat "unknown" as "$0" — fall back to the
+  // policy window: a cancellation inside the billable window still counts.
+  const cancelledAt = booking.cancelledAt || booking.cancelled_at || null;
+  return isCancellationInsideWindow(booking, cancelledAt);
 }
 
 export function isRevenueBearingBooking(booking) {
   if (!booking) return false;
   if (String(booking.status || '').toLowerCase() !== 'cancelled') return true;
   return getCancellationBillable(booking);
+}
+
+// A revenue-bearing (billable) cancellation whose host_payout is still 0 —
+// typically an iCal stub cancelled before email enrichment ever filled in the
+// money fields. Its rollup contribution is a misleading $0. Callers (UI) use
+// this to flag "billable, payout pending" rather than presenting $0 as final.
+export function isBillableButMissingPayout(booking) {
+  if (!booking) return false;
+  if (String(booking.status || '').toLowerCase() !== 'cancelled') return false;
+  if (!isRevenueBearingBooking(booking)) return false;
+  return _num(booking.hostPayout) <= 0;
 }
 
 export function bookingAmount(booking, field) {

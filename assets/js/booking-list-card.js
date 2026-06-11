@@ -3,7 +3,7 @@
  */
 import { cleans } from './state.js';
 import { escHtml, escapeJsSingleQuotedHtmlAttr, fmtShort, _normName } from './utils.js';
-import { bookingRevenue, bookingStatusLabel, getCancellationBillable } from './booking-revenue.js';
+import { bookingRevenue, bookingStatusLabel, getCancellationBillable, isBillableButMissingPayout } from './booking-revenue.js';
 
 function findMatchingCleanForBookingCard(booking) {
   if (!booking) return null;
@@ -150,6 +150,12 @@ export function buildBookingListCardFromBooking(b, options = {}) {
   const priceSpanStyle = isCancelled && !getCancellationBillable(b)
     ? 'font-weight:600;font-size:16px;color:var(--muted-2);text-decoration:line-through;font-family:\'Newsreader\',serif'
     : 'font-weight:600;font-size:16px;color:var(--ink-1);font-family:\'Newsreader\',serif';
+  // Billable late-cancel whose host_payout was never enriched: showing "$0"
+  // would read as "no revenue" when it's really "amount not yet known".
+  const missingPayout = isBillableButMissingPayout(b);
+  const priceHtml = missingPayout
+    ? `<span style="font-weight:600;font-size:12.5px;color:var(--warn,#b56a3a)" title="Late cancel is billable — host payout not yet enriched from the confirmation email">Billable · payout pending</span>`
+    : `<span style="${priceSpanStyle}">$${payout.toLocaleString()}</span>`;
   const row2Style = isCancelled
     ? 'font-size:12px;color:var(--muted-2);margin-top:2px;opacity:0.6'
     : 'font-size:12px;color:var(--muted-2);margin-top:2px';
@@ -193,7 +199,7 @@ export function buildBookingListCardFromBooking(b, options = {}) {
     `<div class="${cardClasses}" onclick="showDetail('${id}')" style="${outerStyle}" data-booking-id="${b.id}" data-source="${sourceKey}">` +
     `<div style="display:flex;justify-content:space-between;align-items:baseline${row1WrapOpacity}">` +
     `<span class="guest-name" style="${nameSpanStyle}"><span class="source-dot" aria-hidden="true"></span>${escHtml(b.name)}</span>` +
-    `<span style="${priceSpanStyle}">$${payout.toLocaleString()}</span>` +
+    priceHtml +
     `</div>` +
     `<div style="${row2Style}">${dateLine}</div>` +
     (isStub ? `<div style="margin-top:6px;display:flex;align-items:center">${stubBadge}</div>` : '') +
