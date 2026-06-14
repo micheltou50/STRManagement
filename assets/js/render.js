@@ -2538,9 +2538,15 @@ async function restockItem(id) {
 async function deleteInventoryItem(id) {
   const ok = await showAppModal({ title: 'Remove Item', msg: 'Remove this item from inventory?', confirmText: 'Remove', confirmColor: 'var(--red)' });
   if (!ok) return;
+  const removed = inventory.find(i => String(i.id) === String(id));
   replaceArrayInPlace(inventory, inventory.filter(i => i.id !== id));
   savePropertyData();
   renderInventory();
+  // Inventory has no soft-delete trigger — without an explicit cloud delete the
+  // row resurrects on next hydration (report 1.26 / 3.2).
+  if (removed && typeof globalThis.deleteInventoryFromCloud === 'function') {
+    globalThis.deleteInventoryFromCloud(removed).catch(e => console.warn('[StayOps] silent error:', e));
+  }
 }
 
 
@@ -2573,10 +2579,14 @@ function saveInvEdit() {
 async function deleteInventoryItemFromEdit() {
   const _okInvEdit = await showAppModal({ title: 'Remove Item', msg: 'Remove this item from inventory?', confirmText: 'Remove', confirmColor: 'var(--red)' });
   if (!_okInvEdit) return;
+  const removed = inventory.find(i => String(i.id) === String(editingInvId));
   replaceArrayInPlace(inventory, inventory.filter(i => i.id !== editingInvId));
   savePropertyData();
   closeInvEdit();
   renderInventory();
+  if (removed && typeof globalThis.deleteInventoryFromCloud === 'function') {
+    globalThis.deleteInventoryFromCloud(removed).catch(e => console.warn('[StayOps] silent error:', e));
+  }
 }
 
 
@@ -3332,7 +3342,7 @@ function renderCleanerCleans() {
     const showGuests    = perm.guests    && booking;
     const showNotes     = perm.notes;
     const showPayout    = perm.payout    && booking;
-    const nameDisplay   = showFullName ? booking.name : showFirstName ? (booking.name||'').split(' ')[0] : null;
+    const nameDisplay   = showFullName ? escHtml(booking.name) : showFirstName ? escHtml((booking.name||'').split(' ')[0]) : null;
     const urgency = daysUntil(c.date);
 
     return `<div class="clean-job-card ${isToday ? 'urgent' : ''}">
@@ -3355,11 +3365,11 @@ function renderCleanerCleans() {
         </div>
         ${showGuests ? `<div style="background:var(--surface2);border-radius:8px;padding:8px 10px">
           <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:3px">Guests</div>
-          <div style="font-size:12px;font-weight:600">${booking.guests}</div>
+          <div style="font-size:12px;font-weight:600">${escHtml(String(booking.guests))}</div>
         </div>` : ''}
       </div>
       ${showPayout ? `<div style="background:#EDF7ED;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px;color:var(--primary);font-weight:600">💰 Cleaning fee: $${Number(booking.cleaningFee||0).toLocaleString()}</div>` : ''}
-      ${showNotes && c.notes ? `<div style="background:var(--surface2);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:var(--muted-2)">📝 ${c.notes}</div>` : ''}
+      ${showNotes && c.notes ? `<div style="background:var(--surface2);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:var(--muted-2)">📝 ${escHtml(c.notes)}</div>` : ''}
       BUTTONS_PLACEHOLDER
     </div>`;
   }
@@ -4276,7 +4286,7 @@ function renderNewCleanerView(data) {
 
     cancelled.forEach(c => {
       const prop = c.properties || {};
-      const guestLine = (c.guest_name || 'Guest');
+      const guestLine = escHtml(c.guest_name || 'Guest');
       const acked = c.cleaner_cancel_acknowledged;
 
       html += '<div style="background:white;border:0.5px solid #eee;border-left:3px solid #C0392B;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px">';
@@ -4288,8 +4298,8 @@ function renderNewCleanerView(data) {
       html += '<div style="font-size:11px;font-weight:500;background:#FCEBEB;color:#A32D2D;padding:3px 10px;border-radius:12px;white-space:nowrap">Booking cancelled</div>';
       html += '</div>';
       html += '<div style="margin-top:10px;padding:10px 12px;background:#f7f7f5;border-radius:6px">';
-      html += '<div style="font-size:13px;font-weight:500;color:#333">' + (prop.name || 'Property') + '</div>';
-      html += '<div style="font-size:12px;color:#888;margin-top:1px">' + (prop.address || '') + '</div>';
+      html += '<div style="font-size:13px;font-weight:500;color:#333">' + escHtml(prop.name || 'Property') + '</div>';
+      html += '<div style="font-size:12px;color:#888;margin-top:1px">' + escHtml(prop.address || '') + '</div>';
       html += '</div>';
       if (acked) {
         html += '<div style="margin-top:10px;font-size:12px;color:#0F6E56;font-weight:500">✓ Acknowledged</div>';
@@ -4312,7 +4322,7 @@ function renderNewCleanerView(data) {
       const prop = c.properties || {};
       const days = daysUntil(c.clean_date);
       const guests = c.guests || '';
-      const guestLine = (c.guest_name || 'Guest') + (guests ? ' · ' + guests + ' guests' : '');
+      const guestLine = escHtml(c.guest_name || 'Guest') + (guests ? ' · ' + escHtml(String(guests)) + ' guests' : '');
 
       html += '<div style="background:white;border:0.5px solid #eee;border-left:3px solid #E24B4A;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px">';
       html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
@@ -4323,8 +4333,8 @@ function renderNewCleanerView(data) {
       html += urgencyPill(days);
       html += '</div>';
       html += '<div style="margin-top:10px;padding:10px 12px;background:#f7f7f5;border-radius:6px">';
-      html += '<div style="font-size:13px;font-weight:500;color:#333">' + (prop.name || 'Property') + '</div>';
-      html += '<div style="font-size:12px;color:#888;margin-top:1px">' + (prop.address || '') + '</div>';
+      html += '<div style="font-size:13px;font-weight:500;color:#333">' + escHtml(prop.name || 'Property') + '</div>';
+      html += '<div style="font-size:12px;color:#888;margin-top:1px">' + escHtml(prop.address || '') + '</div>';
       html += '</div>';
       html += '<div style="display:flex;gap:8px;margin-top:12px">';
       html += '<button type="button" data-action="accept" data-clean-id="' + String(c.id) + '" style="flex:1;padding:10px;background:#2f5d4e;color:white;border:none;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Accept</button>';
@@ -4346,7 +4356,7 @@ function renderNewCleanerView(data) {
       const days = daysUntil(c.clean_date);
       const checkInInfo = prop.check_in_info || {};
       const guests = c.guests || '';
-      const guestLine = (c.guest_name || 'Guest') + (guests ? ' · ' + guests + ' guests' : '');
+      const guestLine = escHtml(c.guest_name || 'Guest') + (guests ? ' · ' + escHtml(String(guests)) + ' guests' : '');
 
       html += '<div style="background:white;border:0.5px solid #eee;border-left:3px solid #1D9E75;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px">';
       html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
@@ -4357,16 +4367,16 @@ function renderNewCleanerView(data) {
       html += urgencyPill(days);
       html += '</div>';
       html += '<div style="margin-top:10px;padding:10px 12px;background:#f7f7f5;border-radius:6px">';
-      html += '<div style="font-size:13px;font-weight:500;color:#333">' + (prop.name || 'Property') + '</div>';
-      html += '<div style="font-size:12px;color:#888;margin-top:1px">' + (prop.address || '') + '</div>';
+      html += '<div style="font-size:13px;font-weight:500;color:#333">' + escHtml(prop.name || 'Property') + '</div>';
+      html += '<div style="font-size:12px;color:#888;margin-top:1px">' + escHtml(prop.address || '') + '</div>';
       html += '</div>';
 
       if (checkInInfo.lockbox_code || checkInInfo.instructions) {
         html += '<div style="margin-top:8px;padding:10px 12px;background:#f7f7f5;border-radius:6px;font-size:12px;color:#666">';
         html += '<div style="font-weight:500;margin-bottom:2px;color:#333">Access info</div>';
         let accessParts = [];
-        if (checkInInfo.lockbox_code) accessParts.push('Lockbox: ' + checkInInfo.lockbox_code);
-        if (checkInInfo.instructions) accessParts.push(checkInInfo.instructions);
+        if (checkInInfo.lockbox_code) accessParts.push('Lockbox: ' + escHtml(checkInInfo.lockbox_code));
+        if (checkInInfo.instructions) accessParts.push(escHtml(checkInInfo.instructions));
         html += accessParts.join(' · ');
         html += '</div>';
       }
@@ -4394,7 +4404,7 @@ function renderNewCleanerView(data) {
       html += '<div style="display:flex;justify-content:space-between;align-items:center">';
       html += '<div>';
       html += '<div style="font-size:14px;font-weight:500;color:#555">' + formatDate(c.clean_date) + '</div>';
-      html += '<div style="font-size:12px;color:#999;margin-top:1px">' + (c.guest_name || '') + ' · ' + (prop.name || '') + '</div>';
+      html += '<div style="font-size:12px;color:#999;margin-top:1px">' + escHtml(c.guest_name || '') + ' · ' + escHtml(prop.name || '') + '</div>';
       html += '</div>';
       html += '<div style="font-size:11px;color:#999">Done</div>';
       html += '</div></div>';
@@ -4704,17 +4714,17 @@ function renderCleanerProfile() {
   let html = '';
   html += '<div style="background:white;border-radius:16px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">';
   html += '<div style="text-align:center;margin-bottom:20px">';
-  html += '<div style="width:64px;height:64px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;margin:0 auto 10px">' + ((cr.name || 'C')[0].toUpperCase()) + '</div>';
-  html += '<div style="font-weight:700;font-size:18px;color:var(--primary)">' + (cr.name || 'Cleaner') + '</div>';
+  html += '<div style="width:64px;height:64px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;margin:0 auto 10px">' + escHtml((cr.name || 'C')[0].toUpperCase()) + '</div>';
+  html += '<div style="font-weight:700;font-size:18px;color:var(--primary)">' + escHtml(cr.name || 'Cleaner') + '</div>';
   html += '</div>';
   html += '<div style="border-top:1px solid #f0f0f0;padding-top:16px">';
   html += '<div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #f5f5f3">';
   html += '<span style="font-size:13px;color:#999">Email</span>';
-  html += '<span style="font-size:13px;font-weight:600;color:#333">' + (cr.email || '—') + '</span>';
+  html += '<span style="font-size:13px;font-weight:600;color:#333">' + escHtml(cr.email || '—') + '</span>';
   html += '</div>';
   html += '<div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #f5f5f3">';
   html += '<span style="font-size:13px;color:#999">Phone</span>';
-  html += '<span style="font-size:13px;font-weight:600;color:#333">' + (cr.phone || '—') + '</span>';
+  html += '<span style="font-size:13px;font-weight:600;color:#333">' + escHtml(cr.phone || '—') + '</span>';
   html += '</div>';
   html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #f5f5f3">';
   html += '<span style="font-size:13px;color:#999">Notifications</span>';

@@ -2405,7 +2405,7 @@ function buildInvoicePDF(selected, client) {
     const co = new Date(b.checkout);
     const fmtShort = d => isNaN(d) ? '' : d.toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' });
     const dates = `${fmtShort(ci)}–${fmtShort(co)}`;
-    const desc = `Management fee — ${guest} booking, ${dates}`;
+    const desc = escHtml(`Management fee — ${guest} booking, ${dates}`);
     return `<tr>
       <td class="cell desc">${desc}</td>
       <td class="cell num">$${feeBase > 0 ? feeBase.toFixed(2) : amt.toFixed(2)}</td>
@@ -2414,15 +2414,15 @@ function buildInvoicePDF(selected, client) {
     </tr>`;
   }).join('');
 
-  const reference = (client && (client.reference || client.po)) ? String(client.reference || client.po) : '';
+  const reference = (client && (client.reference || client.po)) ? escHtml(String(client.reference || client.po)) : '';
 
   const billToBlock = client ? `
     <div class="bill-to">
       <div class="meta-label">Bill To</div>
-      <div class="bill-to-name">${client.name || ''}</div>
-      ${client.contact?`<div class="muted">${client.contact}</div>`:''}
-      ${client.email?`<div class="muted">${client.email}</div>`:''}
-      ${client.address?`<div class="muted">${client.address}</div>`:''}
+      <div class="bill-to-name">${escHtml(client.name || '')}</div>
+      ${client.contact?`<div class="muted">${escHtml(client.contact)}</div>`:''}
+      ${client.email?`<div class="muted">${escHtml(client.email)}</div>`:''}
+      ${client.address?`<div class="muted">${escHtml(client.address)}</div>`:''}
     </div>` : '';
 
   const bankBlock = (bank.bsb && bank.acc) ? `
@@ -2486,10 +2486,10 @@ function buildInvoicePDF(selected, client) {
   <div class="header">
     <div class="sender">
       <h1>INVOICE</h1>
-      ${inv.company ? `<div class="biz-line"><strong>${inv.company}</strong></div>` : ''}
-      ${inv.name && inv.name !== inv.company ? `<div class="biz-line">${inv.name}</div>` : ''}
-      ${inv.address ? `<div class="biz-line">${inv.address}</div>` : ''}
-      ${inv.abn ? `<div class="biz-line">ABN: ${inv.abn}</div>` : ''}
+      ${inv.company ? `<div class="biz-line"><strong>${escHtml(inv.company)}</strong></div>` : ''}
+      ${inv.name && inv.name !== inv.company ? `<div class="biz-line">${escHtml(inv.name)}</div>` : ''}
+      ${inv.address ? `<div class="biz-line">${escHtml(inv.address)}</div>` : ''}
+      ${inv.abn ? `<div class="biz-line">ABN: ${escHtml(inv.abn)}</div>` : ''}
     </div>
     <div class="meta-col">
       <div class="meta-row"><div class="meta-label">Invoice Date</div><div class="meta-val">${today}</div></div>
@@ -2498,10 +2498,10 @@ function buildInvoicePDF(selected, client) {
     </div>
     <div class="right-block">
       ${inv.logo ? `<div style="margin-bottom:8px"><img src="${inv.logo}" style="max-width:100px;max-height:70px" alt="Logo"></div>` : ''}
-      ${inv.company || inv.name ? `<div class="biz-name">${inv.company || inv.name}</div>` : ''}
-      ${inv.address ? `<div>${inv.address}</div>` : ''}
-      ${inv.phone ? `<div>${inv.phone}</div>` : ''}
-      ${inv.email ? `<div>${inv.email}</div>` : ''}
+      ${inv.company || inv.name ? `<div class="biz-name">${escHtml(inv.company || inv.name)}</div>` : ''}
+      ${inv.address ? `<div>${escHtml(inv.address)}</div>` : ''}
+      ${inv.phone ? `<div>${escHtml(inv.phone)}</div>` : ''}
+      ${inv.email ? `<div>${escHtml(inv.email)}</div>` : ''}
       ${inv.abn ? `<div>A.B.N ${inv.abn}</div>` : ''}
       ${inv.acn ? `<div>ACN: ${inv.acn}</div>` : ''}
     </div>
@@ -2731,9 +2731,9 @@ function renderClientsList() {
   el.innerHTML = clients.map((c,i) => `
     <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--hairline-2)">
       <div>
-        <div style="font-weight:600;font-size:14px">${c.name}</div>
-        ${c.contact?`<div style="font-size:12px;color:var(--muted-2)">${c.contact}</div>`:''}
-        ${c.email?`<div style="font-size:12px;color:var(--muted-2)">${c.email}</div>`:''}
+        <div style="font-weight:600;font-size:14px">${escHtml(c.name)}</div>
+        ${c.contact?`<div style="font-size:12px;color:var(--muted-2)">${escHtml(c.contact)}</div>`:''}
+        ${c.email?`<div style="font-size:12px;color:var(--muted-2)">${escHtml(c.email)}</div>`:''}
       </div>
       <button onclick="deleteClient(${i})" style="background:none;border:none;color:var(--red);font-size:18px;cursor:pointer;padding:4px">✕</button>
     </div>`).join('');
@@ -2808,8 +2808,8 @@ function merchantAutocomplete(val) {
     <div onmousedown="selectMerchantSuggest(${i})" style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--hairline-2);display:flex;justify-content:space-between;align-items:center"
       onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='white'">
       <div>
-        <div style="font-weight:600;font-size:13px">${m.merchant}</div>
-        ${m.description ? `<div style="font-size:11px;color:var(--muted-2)">${m.description}</div>` : ''}
+        <div style="font-weight:600;font-size:13px">${escHtml(m.merchant)}</div>
+        ${m.description ? `<div style="font-size:11px;color:var(--muted-2)">${escHtml(m.description)}</div>` : ''}
       </div>
       <div style="font-size:11px;color:var(--muted-2);text-align:right;flex-shrink:0;margin-left:8px">
         <div>${m.category}</div>
@@ -5292,8 +5292,15 @@ async function reconLinkToExpense(txnId, expenseId) {
   const sb = window._sb;
   if (!sb) return;
   try {
-    await sb.from('bank_transactions').update({ expense_id: expenseId }).eq('id', txnId);
-    await sb.from('expenses').update({ reconciled: true, bank_transaction_id: txnId, payment_status: 'paid' }).eq('id', expenseId);
+    // supabase-js does not throw on a failed write — check each result so we
+    // never falsely banner "linked" while the link did not persist (report 3.2).
+    const w = (typeof globalThis.sbWrite === 'function')
+      ? globalThis.sbWrite
+      : async (builder, _opts) => { const { error } = await builder; return { ok: !error, error }; };
+    const r1 = await w(sb.from('bank_transactions').update({ expense_id: expenseId }).eq('id', txnId), { label: 'reconciliation link' });
+    if (!r1.ok) return;
+    const r2 = await w(sb.from('expenses').update({ reconciled: true, bank_transaction_id: txnId, payment_status: 'paid' }).eq('id', expenseId), { label: 'reconciliation link' });
+    if (!r2.ok) return;
     const overlay = document.getElementById('recon-match-overlay');
     if (overlay) { overlay.style.display = 'none'; }
     document.body.style.overflow = '';

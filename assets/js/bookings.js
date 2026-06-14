@@ -665,8 +665,8 @@ function renderNotes() {
     .map(
       n => `
     <div class="note-item">
-      <div class="note-guest"><span class="note-tag tag-${n.tag}">${n.tag}</span>${n.guestName}</div>
-      <div class="note-text">${n.text}</div>
+      <div class="note-guest"><span class="note-tag tag-${escHtml(n.tag)}">${escHtml(n.tag)}</span>${escHtml(n.guestName)}</div>
+      <div class="note-text">${escHtml(n.text)}</div>
       <div class="note-date">${fmt(n.date)}</div>
     </div>`
     )
@@ -1013,7 +1013,7 @@ function showDetail(id) {
     ${bn.length
       ? `<div style="font-size:12px;font-weight:500;color:#999;margin:0 0 6px 2px">Notes</div>
       <div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden;padding:12px 14px">
-      ${bn.map(n => `<div class="note-item" style="margin-bottom:8px"><span class="note-tag tag-${n.tag}">${n.tag}</span><div class="note-text">${n.text}</div></div>`).join('')}
+      ${bn.map(n => `<div class="note-item" style="margin-bottom:8px"><span class="note-tag tag-${escHtml(n.tag)}">${escHtml(n.tag)}</span><div class="note-text">${escHtml(n.text)}</div></div>`).join('')}
     </div>`
       : ''}
     ${matchedClean ? `<div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase;margin:0 0 8px 2px">Conversation</div>
@@ -1059,7 +1059,7 @@ function showEditModal(id) {
   if (typeof globalThis.closeDetailModal === 'function') globalThis.closeDetailModal();
   document.getElementById('detail-content').innerHTML = `
     <div style="font-family:inherit;font-size:16px;font-weight:500;color:var(--ink-1);margin-bottom:16px">Edit Booking</div>
-    <label>Guest Name</label><input type="text" id="e-name" value="${b.name}">
+    <label>Guest Name</label><input type="text" id="e-name" value="${escHtml(b.name)}">
     <div class="form-row">
       <div class="field"><label>Check-in</label><input type="date" id="e-checkin" value="${b.checkin}" onchange="editCalcNights()"></div>
       <div class="field"><label>Check-out</label><input type="date" id="e-checkout" value="${b.checkout}" onchange="editCalcNights()"></div>

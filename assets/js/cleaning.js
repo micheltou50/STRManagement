@@ -1130,7 +1130,7 @@ export function populateSelects() {
   const upcomingForNotes = bookings
     .filter(b => b.status !== 'cancelled' && new Date(b.checkout) >= now)
     .sort((a,b) => new Date(a.checkin) - new Date(b.checkin));
-  const allOpts = '<option value="">Select upcoming booking...</option>' + upcomingForNotes.map(b=>`<option value="${b.id}">${b.name} (${fmt(b.checkin)})</option>`).join('');
+  const allOpts = '<option value="">Select upcoming booking...</option>' + upcomingForNotes.map(b=>`<option value="${escHtml(String(b.id))}">${escHtml(b.name)} (${fmt(b.checkin)})</option>`).join('');
   // For clean form: exclude bookings that already have a confirmed or done clean
   const cleanBookings = bookings
     .filter(b => {
@@ -1139,7 +1139,7 @@ export function populateSelects() {
       return st !== 'confirmed' && st !== 'done';
     })
     .sort((a,b) => new Date(a.checkin) - new Date(b.checkin));
-  const cleanOpts = '<option value="">Select booking...</option>' + cleanBookings.map(b=>`<option value="${b.id}">${b.name} (${fmt(b.checkin)})</option>`).join('');
+  const cleanOpts = '<option value="">Select booking...</option>' + cleanBookings.map(b=>`<option value="${escHtml(String(b.id))}">${escHtml(b.name)} (${fmt(b.checkin)})</option>`).join('');
   document.getElementById('clean-booking-select').innerHTML = cleanOpts;
   document.getElementById('note-booking-select').innerHTML = allOpts;
   populateCleanerSelect();
@@ -1150,7 +1150,7 @@ export function populateCleanerSelect() {
   if (!sel) return;
   if (cleaners.length > 0) {
     const lastCleaner = '';
-    sel.innerHTML = cleaners.map(c => `<option value="${c.name}" data-phone="${c.phone||''}" ${c.name===lastCleaner?'selected':''}>${c.name}${c.phone?' — '+c.phone:''}</option>`).join('');
+    sel.innerHTML = cleaners.map(c => `<option value="${escHtml(c.name)}" data-phone="${escHtml(c.phone||'')}" ${c.name===lastCleaner?'selected':''}>${escHtml(c.name)}${c.phone?' — '+escHtml(c.phone):''}</option>`).join('');
   } else {
     sel.innerHTML = '<option value="">No cleaners saved — add in Settings</option>';
   }
@@ -1423,22 +1423,31 @@ export async function cleanerAccept(cleanId) {
   if (!acquireCleaningLock(lockKey)) return;
   const c = cleans.find(cl => String(cl.id) === String(cleanId));
   if (!c) { releaseCleaningLock(lockKey); return; }
+  const _prev = { confirmed: c.cleanerConfirmed, declined: c.cleanerDeclined };
   c.cleanerConfirmed = true;
   c.cleanerDeclined = false;
   // Also update booking so owner sees confirmed status in detail
   const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)) || _normName(bk.name) === _normName(c.guestName));
+  const _prevB = b ? b.cleanerConfirmed : undefined;
   if (b) b.cleanerConfirmed = true;
   try {
     normalizeBookingCleanState();
-    try {
-      await saveCleanToCloud(c);
-    } catch (e) {
-      console.error('[StayOps] Cloud save failed:', e);
-    }
-    // Try direct Supabase first (works in Safari), fall back to Netlify function (home screen PWA)
-    if (typeof saveCleansToCloud === 'function' && window._supabaseUser) {
-      saveCleansToCloud(cleans).catch(e => console.warn("[StayOps] silent error:", e));
+    // When the cleaner has a real session, saveCleanToCloud is the persistence
+    // path — honour its result so we never show "accepted" on a failed save.
+    if (window._supabaseUser) {
+      const r = await saveCleanToCloud(c);
+      if (r && r.ok === false) {
+        c.cleanerConfirmed = _prev.confirmed; c.cleanerDeclined = _prev.declined;
+        if (b) b.cleanerConfirmed = _prevB;
+        normalizeBookingCleanState();
+        renderCleanerCleans();
+        return; // failure already bannered by saveCleanToCloud
+      }
+      if (typeof saveCleansToCloud === 'function') {
+        saveCleansToCloud(cleans).catch(e => console.warn("[StayOps] silent error:", e));
+      }
     } else {
+      // Cleaner-link mode (no session): the Netlify function is the persistence path.
       postCleanerAction(cleanId, 'accept');
     }
     renderCleanerCleans();
@@ -1479,23 +1488,29 @@ export async function cleanerDecline(cleanId) {
     cancelText: 'Cancel'
   });
   if (!ok) { releaseCleaningLock(lockKey); return; }
+  const _prev = { confirmed: c.cleanerConfirmed, declined: c.cleanerDeclined };
   c.cleanerDeclined = true;
   c.cleanerConfirmed = false;
   const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)) || _normName(bk.name) === _normName(c.guestName));
+  const _prevB = b ? b.cleanerConfirmed : undefined;
   if (b) b.cleanerConfirmed = false;
   try {
     normalizeBookingCleanState();
-    try {
-      await saveCleanToCloud(c);
-    } catch (e) {
-      console.error('[StayOps] Cloud save failed:', e);
-    }
-    if (typeof saveCleansToCloud === 'function' && window._supabaseUser) {
-      saveCleansToCloud(cleans).catch(e => console.warn("[StayOps] silent error:", e));
+    if (window._supabaseUser) {
+      const r = await saveCleanToCloud(c);
+      if (r && r.ok === false) {
+        c.cleanerConfirmed = _prev.confirmed; c.cleanerDeclined = _prev.declined;
+        if (b) b.cleanerConfirmed = _prevB;
+        normalizeBookingCleanState();
+        renderCleanerCleans();
+        return; // failure already bannered by saveCleanToCloud
+      }
+      if (typeof saveCleansToCloud === 'function') {
+        saveCleansToCloud(cleans).catch(e => console.warn("[StayOps] silent error:", e));
+      }
     } else {
       postCleanerAction(cleanId, 'decline');
     }
-    if (typeof saveCleaningJobToCloud === 'function' && window._supabaseUser) saveCleaningJobToCloud(c);
     renderCleanerCleans();
     globalThis.showBanner('Clean declined', 'ok');
     // Push owner via user_id mode (cleaner doesn't have owner's local sub)
@@ -1528,23 +1543,29 @@ export async function cleanerMarkDone(cleanId) {
   if (!c) { releaseCleaningLock(lockKey); return; }
   const ok = await globalThis.showAppModal({ title: '✅ Mark Complete', msg: 'Mark this clean as completed?', confirmText: 'Yes, done!', cancelText: 'Not yet' });
   if (!ok) { releaseCleaningLock(lockKey); return; }
+  const _prev = { done: c.done, confirmed: c.cleanerConfirmed };
   c.done = true; c.cleanerConfirmed = true;
   const b = bookings.find(bk => String(bk.id) === String(c.bookingId) || (bk._cloudId && String(bk._cloudId) === String(c.bookingId)) || _normName(bk.name) === _normName(c.guestName));
+  const _prevB = b ? b.cleanerConfirmed : undefined;
   if (b) b.cleanerConfirmed = true;
   try {
     normalizeBookingCleanState();
-    try {
-      await saveCleanToCloud(c);
-    } catch (e) {
-      console.error('[StayOps] Cloud save failed:', e);
-    }
-    if (typeof saveCleansToCloud === 'function' && window._supabaseUser) {
-      saveCleansToCloud(cleans).catch(e => console.warn("[StayOps] silent error:", e));
+    if (window._supabaseUser) {
+      const r = await saveCleanToCloud(c);
+      if (r && r.ok === false) {
+        c.done = _prev.done; c.cleanerConfirmed = _prev.confirmed;
+        if (b) b.cleanerConfirmed = _prevB;
+        normalizeBookingCleanState();
+        renderCleanerCleans();
+        return; // failure already bannered by saveCleanToCloud
+      }
+      if (typeof saveCleansToCloud === 'function') {
+        saveCleansToCloud(cleans).catch(e => console.warn("[StayOps] silent error:", e));
+      }
     } else {
       postCleanerAction(cleanId, 'done');
     }
     renderCleanerCleans();
-    if (typeof saveCleaningJobToCloud === 'function' && window._supabaseUser) saveCleaningJobToCloud(c);
     globalThis.showBanner('✓ Clean marked as complete', 'ok');
     // Push owner via user_id mode (cleaner doesn't have owner's local sub)
     try {

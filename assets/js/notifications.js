@@ -12,7 +12,7 @@ import {
 } from './config.js';
 import { saveAppConfigToCloud, getCurrentSupabaseUser } from './supabase.js';
 import { bookings, cleans } from './state.js';
-import { fmt, _normName } from './utils.js';
+import { fmt, _normName, escHtml } from './utils.js';
 import { getEmailContentConfig } from './settings.js';
 
 function loadCleaners() {
@@ -892,17 +892,17 @@ export function applyEmailTemplate(type, vars) {
     rows += detailRow('Clean date',      vars.cleanDate || vars.checkout || '');
     rows += detailRow('Available from',  vars.checkoutTime ? vars.checkoutTime + ' (after checkout)' : 'After checkout');
     rows += detailRow('Required by',     vars.checkinTime  ? vars.checkinTime  + ' (next check-in)'  : '');
-    rows += detailRow('Departing guest', vars.guestName || '');
-    rows += detailRow('Party size',      vars.guests && vars.nights ? `${vars.guests} guests · ${vars.nights} night${vars.nights!=='1'?'s':''}` : (vars.guests ? `${vars.guests} guests` : ''));
+    rows += detailRow('Departing guest', escHtml(vars.guestName || ''));
+    rows += detailRow('Party size',      vars.guests && vars.nights ? `${escHtml(String(vars.guests))} guests · ${escHtml(String(vars.nights))} night${vars.nights!=='1'?'s':''}` : (vars.guests ? `${escHtml(String(vars.guests))} guests` : ''));
   } else if (type === 'reminder') {
     rows += detailRow('Clean date',      vars.cleanDate || vars.checkout || '');
     rows += detailRow('Available from',  vars.checkoutTime ? vars.checkoutTime + ' (after checkout)' : 'After checkout');
     rows += detailRow('Required by',     vars.checkinTime  ? vars.checkinTime  + (vars.windowHours ? ` · ${vars.windowHours}-hour window` : ' (next check-in)') : '');
-    rows += detailRow('Departing guest', vars.guestName || '');
-    rows += detailRow('Arriving guest',  vars.nextGuestName ? vars.nextGuestName + (vars.nextGuests ? ` · ${vars.nextGuests} guests` : '') : '');
+    rows += detailRow('Departing guest', escHtml(vars.guestName || ''));
+    rows += detailRow('Arriving guest',  vars.nextGuestName ? escHtml(vars.nextGuestName) + (vars.nextGuests ? ` · ${escHtml(String(vars.nextGuests))} guests` : '') : '');
   } else if (type === 'cancellation') {
     rows += detailRow('Clean date', `<span style="text-decoration:line-through;color:#bbb">${vars.cleanDate || vars.checkout || ''}</span>`);
-    rows += detailRow('Guest',      `<span style="text-decoration:line-through;color:#bbb">${vars.guestName || ''}</span>`);
+    rows += detailRow('Guest',      `<span style="text-decoration:line-through;color:#bbb">${escHtml(vars.guestName || '')}</span>`);
   }
   rows = rows.replace(/border-bottom:1px solid #f0ede8([^"]*)"([^>]*)>(?![\s\S]*border-bottom:1px solid #f0ede8)/g, (m) => m.replace('border-bottom:1px solid #f0ede8', 'border-bottom:none'));
 
@@ -929,14 +929,14 @@ export function applyEmailTemplate(type, vars) {
   const html = `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;color:var(--ink-1)">
     <div style="background:${color};padding:20px 24px 16px;border-radius:10px 10px 0 0">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
-        <span style="font-size:17px;font-weight:700;color:#fff">${propName}</span>
+        <span style="font-size:17px;font-weight:700;color:#fff">${escHtml(propName)}</span>
         <span style="font-size:10px;font-weight:600;padding:3px 9px;border-radius:20px;background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.8);letter-spacing:0.5px;text-transform:uppercase">${pill}</span>
       </div>
-      ${addressLine ? `<div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:1px">${addressLine}</div>` : ''}
+      ${addressLine ? `<div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:1px">${escHtml(addressLine)}</div>` : ''}
     </div>
     <div style="background:white;padding:22px 24px;border:1px solid #ebe7e2;border-top:none">
-      <p style="font-size:14px;color:var(--ink-1);margin:0 0 10px">Dear ${cleanerFirst},</p>
-      <p style="font-size:13px;color:#444;margin:0 0 16px;line-height:1.55">${intros[type]}</p>
+      <p style="font-size:14px;color:var(--ink-1);margin:0 0 10px">Dear ${escHtml(cleanerFirst)},</p>
+      <p style="font-size:13px;color:#444;margin:0 0 16px;line-height:1.55">${escHtml(intros[type])}</p>
       ${rows ? `<table style="width:100%;border-collapse:collapse;border:1px solid #ebe7e2;border-radius:8px;overflow:hidden;margin-bottom:16px;${detailsOpacity}">${rows}</table>` : ''}
       ${noteHtml}
       ${ctaHtml}

@@ -3016,9 +3016,17 @@
       if (m) {
         var bid = m[1];
         var guestName = bookingRow.querySelector('td strong')?.textContent || '';
+        // it.onclick lands in a double-quoted HTML attribute that the browser
+        // HTML-decodes before executing as JS — a two-context sink. Escape for
+        // the JS single-quoted string first, then HTML-encode the attribute so a
+        // guest name containing " or < cannot break out (report 4.7).
+        var gnSafe = guestName
+          .replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+          .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;').replace(/>/g, '&gt;');
         showCtx(e, [
           { label: '📋 View Details', onclick: "showDetail('" + bid + "')" },
-          { label: '📄 Copy Guest Name', onclick: "navigator.clipboard.writeText('" + guestName.replace(/'/g, "\\'") + "')" },
+          { label: '📄 Copy Guest Name', onclick: "navigator.clipboard.writeText('" + gnSafe + "')" },
           '---',
           { label: '❌ Cancel Booking', onclick: "if(confirm('Cancel this booking?')) deleteBooking('" + bid + "')" }
         ]);

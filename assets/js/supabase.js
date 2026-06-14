@@ -621,6 +621,42 @@ async function getCloudPropertyId() {
   return match.id;
 }
 
+// ── SHARED WRITE HELPER ─────────────────────────────────────────────────────
+//
+// supabase-js v2 returns { data, error } and does NOT throw on a failed write.
+// Helpers that ignore `.error` make failed saves/deletes look successful while
+// the UI shows "✓ Saved". sbWrite() awaits a supabase write builder, checks
+// `.error`, surfaces a real failure to the user, and returns a clear ok/fail
+// result so call sites can avoid showing a success banner or optimistically
+// mutating local state. Modelled on the expenses retry-queue pattern above.
+//
+// Usage: const r = await sbWrite(sb.from('x').update(...).eq(...), { label: 'change' });
+//        if (!r.ok) return;   // failure already bannered
+export async function sbWrite(builder, opts = {}) {
+  const label = opts.label || 'change';
+  try {
+    const { data, error } = await builder;
+    if (error) {
+      console.warn('[StayOps] sbWrite failed:', label, error);
+      if (!opts.silent) _notifyWriteFailure(label);
+      return { ok: false, data: null, error };
+    }
+    return { ok: true, data: data || null, error: null };
+  } catch (error) {
+    console.warn('[StayOps] sbWrite threw:', label, error);
+    if (!opts.silent) _notifyWriteFailure(label);
+    return { ok: false, data: null, error };
+  }
+}
+
+function _notifyWriteFailure(label) {
+  try {
+    if (typeof globalThis.showBanner === 'function') {
+      globalThis.showBanner('⚠ Failed to save ' + label + ' — check your connection and try again', 'error');
+    }
+  } catch (_e) { /* banner UI not ready */ }
+}
+
 // ── HOST CONFIG ───────────────────────────────────────────────────────────────
 
 export async function saveHostConfigToCloud(configData) {
@@ -664,7 +700,8 @@ async function loadCleanersFromCloud() {
 export async function saveCleanersToCloud(cleanerList) {
   try {
     const user = await getCurrentSupabaseUser();
-    if (!user || !Array.isArray(cleanerList)) return;
+    if (!user || !Array.isArray(cleanerList)) return { ok: true, noUser: true };
+    let ok = true;
     for (const c of cleanerList) {
       if (!c || !c.name) continue;
       const payload = {
@@ -680,16 +717,23 @@ export async function saveCleanersToCloud(cleanerList) {
         updated_at:  new Date().toISOString()
       };
       if (c._cloudId) {
-        await window._sb.from('cleaners').upsert({ id: c._cloudId, ...payload });
+        const r = await sbWrite(
+          window._sb.from('cleaners').upsert({ id: c._cloudId, ...payload }),
+          { label: 'cleaner' });
+        if (!r.ok) ok = false;
       } else {
-        const { data } = await window._sb.from('cleaners')
-          .upsert(payload, { onConflict: 'user_id,local_id' })
-          .select().single();
-        if (data) c._cloudId = data.id;
+        const r = await sbWrite(
+          window._sb.from('cleaners').upsert(payload, { onConflict: 'user_id,local_id' }).select().single(),
+          { label: 'cleaner' });
+        if (!r.ok) ok = false;
+        else if (r.data) c._cloudId = r.data.id;
       }
     }
+    return { ok };
   } catch (e) {
     console.warn('[StayOps] saveCleanersToCloud failed', e);
+    _notifyWriteFailure('cleaner');
+    return { ok: false, error: e };
   }
 }
 
@@ -736,7 +780,7 @@ export async function loadCleansFromCloud() {
 export async function saveCleanToCloud(clean) {
   try {
     const user = await getCurrentSupabaseUser();
-    if (!user || !clean) return;
+    if (!user || !clean) return { ok: true, noUser: true };
     const propertyId = await getCloudPropertyId();
     const cleanersList = window._cleaners || [];
     const matchedCleaner = cleanersList.find(cl => String(cl.id) === String(clean.cleanerId) || String(cl._cloudId) === String(clean.cleanerId));
@@ -769,6 +813,7 @@ export async function saveCleanToCloud(clean) {
       console.log('[StayOps] GUARD: property_id stripped from cleans update:', clean._cloudId);
       const { error } = await window._sb.from('cleans').update(basePayload).eq('id', clean._cloudId);
       if (error) throw error;
+      return { ok: true };
     } else {
       const insertPayload = { ...basePayload, property_id: propertyId || null };
       const { data: insData, error: insErr } = await window._sb
@@ -778,7 +823,7 @@ export async function saveCleanToCloud(clean) {
         .single();
       if (!insErr && insData) {
         clean._cloudId = insData.id;
-        return;
+        return { ok: true };
       }
       // Conflict fallback: upsert without property_id
       console.log('[StayOps] GUARD: property_id stripped from cleans update:', String(clean.id));
@@ -789,32 +834,35 @@ export async function saveCleanToCloud(clean) {
         .single();
       if (upErr) throw upErr;
       if (upData) clean._cloudId = upData.id;
+      return { ok: true };
     }
   } catch (e) {
     console.warn('[StayOps] saveCleanToCloud failed', e);
+    _notifyWriteFailure('clean');
+    return { ok: false, error: e };
   }
 }
 
 export async function saveCleansToCloud(cleansList) {
-  if (!Array.isArray(cleansList)) return;
-  for (const c of cleansList) await saveCleanToCloud(c);
+  if (!Array.isArray(cleansList)) return { ok: true };
+  let ok = true;
+  for (const c of cleansList) {
+    const r = await saveCleanToCloud(c);
+    if (r && r.ok === false) ok = false;
+  }
+  return { ok };
 }
 
 // Hard-delete a clean row from the cloud. Wrapped by calendar-sync-outbound so
 // the clean's calendar event is also deleted (enqueues a 'cleans' delete push).
 // Resolving the row by _cloudId, falling back to (user_id, local_id).
 export async function deleteCleanFromCloud(clean) {
-  try {
-    const user = await getCurrentSupabaseUser();
-    if (!user || !clean || !window._sb) return;
-    if (clean._cloudId) {
-      await window._sb.from('cleans').delete().eq('id', clean._cloudId);
-    } else {
-      await window._sb.from('cleans').delete().eq('user_id', user.id).eq('local_id', String(clean.id));
-    }
-  } catch (e) {
-    console.warn('[StayOps] deleteCleanFromCloud failed', e);
-  }
+  const user = await getCurrentSupabaseUser();
+  if (!user || !clean || !window._sb) return { ok: true, noUser: true };
+  const builder = clean._cloudId
+    ? window._sb.from('cleans').delete().eq('id', clean._cloudId)
+    : window._sb.from('cleans').delete().eq('user_id', user.id).eq('local_id', String(clean.id));
+  return sbWrite(builder, { label: 'clean removal' });
 }
 
 // Keep old name working for backward compat
@@ -850,7 +898,7 @@ async function loadNotesFromCloud() {
 async function saveNoteToCloud(note) {
   try {
     const user = await getCurrentSupabaseUser();
-    if (!user || !note) return;
+    if (!user || !note) return { ok: true, noUser: true };
     const propertyId = await getCloudPropertyId();
     const basePayload = {
       user_id:     user.id,
@@ -862,6 +910,7 @@ async function saveNoteToCloud(note) {
       console.log('[StayOps] GUARD: property_id stripped from notes update:', note._cloudId);
       const { error } = await window._sb.from('notes').update(basePayload).eq('id', note._cloudId);
       if (error) throw error;
+      return { ok: true };
     } else {
       const insertPayload = { ...basePayload, property_id: propertyId || null };
       const { data: insData, error: insErr } = await window._sb
@@ -871,7 +920,7 @@ async function saveNoteToCloud(note) {
         .single();
       if (!insErr && insData) {
         note._cloudId = insData.id;
-        return;
+        return { ok: true };
       }
       console.log('[StayOps] GUARD: property_id stripped from notes update:', String(note.id));
       const { data: upData, error: upErr } = await window._sb
@@ -881,15 +930,23 @@ async function saveNoteToCloud(note) {
         .single();
       if (upErr) throw upErr;
       if (upData) note._cloudId = upData.id;
+      return { ok: true };
     }
   } catch (e) {
     console.warn('[StayOps] saveNoteToCloud failed', e);
+    _notifyWriteFailure('note');
+    return { ok: false, error: e };
   }
 }
 
 export async function saveNotesToCloud(notesList) {
-  if (!Array.isArray(notesList)) return;
-  for (const n of notesList) await saveNoteToCloud(n);
+  if (!Array.isArray(notesList)) return { ok: true };
+  let ok = true;
+  for (const n of notesList) {
+    const r = await saveNoteToCloud(n);
+    if (r && r.ok === false) ok = false;
+  }
+  return { ok };
 }
 
 
@@ -1080,19 +1137,12 @@ export async function saveExpenseToCloud(expense) {
 
 
 export async function deleteExpenseFromCloud(expense) {
-  try {
-    const user = await getCurrentSupabaseUser();
-    if (!user || !expense) return;
-    if (expense._cloudId) {
-      await window._sb.from('expenses').delete().eq('id', expense._cloudId);
-    } else {
-      await window._sb.from('expenses').delete()
-        .eq('user_id', user.id)
-        .eq('local_id', String(expense.id));
-    }
-  } catch (e) {
-    console.warn('[StayOps] deleteExpenseFromCloud failed', e);
-  }
+  const user = await getCurrentSupabaseUser();
+  if (!user || !expense) return { ok: true, noUser: true };
+  const builder = expense._cloudId
+    ? window._sb.from('expenses').delete().eq('id', expense._cloudId)
+    : window._sb.from('expenses').delete().eq('user_id', user.id).eq('local_id', String(expense.id));
+  return sbWrite(builder, { label: 'expense removal' });
 }
 
 
@@ -1406,7 +1456,7 @@ async function loadInventoryFromCloud() {
 async function saveInventoryItemToCloud(item) {
   try {
     const user = await getCurrentSupabaseUser();
-    if (!user || !item) return;
+    if (!user || !item) return { ok: true, noUser: true };
     const propertyId = await getCloudPropertyId();
     const basePayload = {
       user_id:     user.id,
@@ -1421,6 +1471,7 @@ async function saveInventoryItemToCloud(item) {
       console.log('[StayOps] GUARD: property_id stripped from inventory update:', item._cloudId);
       const { error } = await window._sb.from('inventory').update(basePayload).eq('id', item._cloudId);
       if (error) throw error;
+      return { ok: true };
     } else {
       const insertPayload = { ...basePayload, property_id: propertyId || null };
       const { data: insData, error: insErr } = await window._sb
@@ -1430,7 +1481,7 @@ async function saveInventoryItemToCloud(item) {
         .single();
       if (!insErr && insData) {
         item._cloudId = insData.id;
-        return;
+        return { ok: true };
       }
       console.log('[StayOps] GUARD: property_id stripped from inventory update:', String(item.id));
       const { data: upData, error: upErr } = await window._sb
@@ -1440,15 +1491,36 @@ async function saveInventoryItemToCloud(item) {
         .single();
       if (upErr) throw upErr;
       if (upData) item._cloudId = upData.id;
+      return { ok: true };
     }
   } catch (e) {
     console.warn('[StayOps] saveInventoryItemToCloud failed', e);
+    _notifyWriteFailure('inventory item');
+    return { ok: false, error: e };
   }
 }
 
 export async function saveInventoryToCloud(inventoryList) {
-  if (!Array.isArray(inventoryList)) return;
-  for (const i of inventoryList) await saveInventoryItemToCloud(i);
+  if (!Array.isArray(inventoryList)) return { ok: true };
+  let ok = true;
+  for (const i of inventoryList) {
+    const r = await saveInventoryItemToCloud(i);
+    if (r && r.ok === false) ok = false;
+  }
+  return { ok };
+}
+
+// Hard-delete an inventory row from the cloud. Without this, removed items
+// were only dropped from the in-memory array — saveInventoryToCloud upserts the
+// survivors but never deletes the removed row, so it resurrected on next
+// hydration (report 1.26 / 3.2).
+export async function deleteInventoryFromCloud(item) {
+  const user = await getCurrentSupabaseUser();
+  if (!user || !item) return { ok: true, noUser: true };
+  const builder = item._cloudId
+    ? window._sb.from('inventory').delete().eq('id', item._cloudId)
+    : window._sb.from('inventory').delete().eq('user_id', user.id).eq('local_id', String(item.id));
+  return sbWrite(builder, { label: 'inventory removal' });
 }
 
 
@@ -1482,7 +1554,7 @@ async function loadMaintenanceFromCloud() {
 async function saveMaintenanceItemToCloud(item) {
   try {
     const user = await getCurrentSupabaseUser();
-    if (!user || !item) return;
+    if (!user || !item) return { ok: true, noUser: true };
     const propertyId = await getCloudPropertyId();
     const basePayload = {
       user_id:     user.id,
@@ -1498,6 +1570,7 @@ async function saveMaintenanceItemToCloud(item) {
       console.log('[StayOps] GUARD: property_id stripped from maintenance update:', item._cloudId);
       const { error } = await window._sb.from('maintenance').update(basePayload).eq('id', item._cloudId);
       if (error) throw error;
+      return { ok: true };
     } else {
       const insertPayload = { ...basePayload, property_id: propertyId || null };
       const { data: insData, error: insErr } = await window._sb
@@ -1507,7 +1580,7 @@ async function saveMaintenanceItemToCloud(item) {
         .single();
       if (!insErr && insData) {
         item._cloudId = insData.id;
-        return;
+        return { ok: true };
       }
       console.log('[StayOps] GUARD: property_id stripped from maintenance update:', String(item.id));
       const { data: upData, error: upErr } = await window._sb
@@ -1517,31 +1590,32 @@ async function saveMaintenanceItemToCloud(item) {
         .single();
       if (upErr) throw upErr;
       if (upData) item._cloudId = upData.id;
+      return { ok: true };
     }
   } catch (e) {
     console.warn('[StayOps] saveMaintenanceItemToCloud failed', e);
+    _notifyWriteFailure('maintenance item');
+    return { ok: false, error: e };
   }
 }
 
 export async function saveMaintenanceToCloud(maintenanceList) {
-  if (!Array.isArray(maintenanceList)) return;
-  for (const m of maintenanceList) await saveMaintenanceItemToCloud(m);
+  if (!Array.isArray(maintenanceList)) return { ok: true };
+  let ok = true;
+  for (const m of maintenanceList) {
+    const r = await saveMaintenanceItemToCloud(m);
+    if (r && r.ok === false) ok = false;
+  }
+  return { ok };
 }
 
 export async function deleteMaintenanceFromCloud(item) {
-  try {
-    const user = await getCurrentSupabaseUser();
-    if (!user || !item) return;
-    if (item._cloudId) {
-      await window._sb.from('maintenance').delete().eq('id', item._cloudId);
-    } else {
-      await window._sb.from('maintenance').delete()
-        .eq('user_id', user.id)
-        .eq('local_id', String(item.id));
-    }
-  } catch (e) {
-    console.warn('[StayOps] deleteMaintenanceFromCloud failed', e);
-  }
+  const user = await getCurrentSupabaseUser();
+  if (!user || !item) return { ok: true, noUser: true };
+  const builder = item._cloudId
+    ? window._sb.from('maintenance').delete().eq('id', item._cloudId)
+    : window._sb.from('maintenance').delete().eq('user_id', user.id).eq('local_id', String(item.id));
+  return sbWrite(builder, { label: 'maintenance removal' });
 }
 
 
@@ -2101,19 +2175,16 @@ async function loadAppConfigFromCloud() {
 }
 
 export async function saveAppConfigToCloud(patch) {
-  try {
-    const user = await getCurrentSupabaseUser();
-    if (!user) return;
-    const payload = {
-      user_id:    user.id,
-      updated_at: new Date().toISOString(),
-      ...patch,
-    };
-    await window._sb.from('app_config')
-      .upsert(payload, { onConflict: 'user_id' });
-  } catch (e) {
-    console.warn('[StayOps] saveAppConfigToCloud failed', e);
-  }
+  const user = await getCurrentSupabaseUser();
+  if (!user) return { ok: true, noUser: true };
+  const payload = {
+    user_id:    user.id,
+    updated_at: new Date().toISOString(),
+    ...patch,
+  };
+  return sbWrite(
+    window._sb.from('app_config').upsert(payload, { onConflict: 'user_id' }),
+    { label: 'settings' });
 }
 
 

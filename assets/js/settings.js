@@ -173,20 +173,18 @@ async function disconnectGoogleCalendar() {
   if (!confirm('Disconnect Google Calendar? Your StayOps calendar in Google stays in place; we just stop syncing.')) return;
   const user = await getCurrentSupabaseUser();
   if (!user || !window._sb) return;
-  try {
-    await window._sb.from('email_connections')
-      .delete()
-      .eq('user_id', user.id)
-      .eq('provider', 'google_calendar');
-    if (window._appConfig) {
-      delete window._appConfig.gcal_email;
-      delete window._appConfig.gcal_calendar_id;
-    }
-    globalThis.showBanner('✓ Google Calendar disconnected', 'ok');
-    renderConnectionSummary();
-  } catch (e) {
-    globalThis.showBanner('⚠ Disconnect failed: ' + (e && e.message), 'warn');
+  // supabase-js does not throw on a failed delete — check the result so a failed
+  // disconnect is not reported as success while the connection lingers (report 3.2).
+  const r = await globalThis.sbWrite(
+    window._sb.from('email_connections').delete().eq('user_id', user.id).eq('provider', 'google_calendar'),
+    { label: 'calendar disconnect' });
+  if (!r.ok) return;
+  if (window._appConfig) {
+    delete window._appConfig.gcal_email;
+    delete window._appConfig.gcal_calendar_id;
   }
+  globalThis.showBanner('✓ Google Calendar disconnected', 'ok');
+  renderConnectionSummary();
 }
 
 async function connectOutlookCalendar() {
@@ -199,19 +197,15 @@ async function disconnectOutlookCalendar() {
   if (!confirm('Disconnect Outlook Calendar? Your StayOps calendar in Outlook stays in place; we just stop syncing.')) return;
   const user = await getCurrentSupabaseUser();
   if (!user || !window._sb) return;
-  try {
-    await window._sb.from('email_connections')
-      .delete()
-      .eq('user_id', user.id)
-      .eq('provider', 'outlook_calendar');
-    if (window._appConfig) {
-      delete window._appConfig.outlook_calendar_email;
-    }
-    globalThis.showBanner('✓ Outlook Calendar disconnected', 'ok');
-    renderConnectionSummary();
-  } catch (e) {
-    globalThis.showBanner('⚠ Disconnect failed: ' + (e && e.message), 'warn');
+  const r = await globalThis.sbWrite(
+    window._sb.from('email_connections').delete().eq('user_id', user.id).eq('provider', 'outlook_calendar'),
+    { label: 'calendar disconnect' });
+  if (!r.ok) return;
+  if (window._appConfig) {
+    delete window._appConfig.outlook_calendar_email;
   }
+  globalThis.showBanner('✓ Outlook Calendar disconnected', 'ok');
+  renderConnectionSummary();
 }
 
 async function syncCalendarNow() {
@@ -336,7 +330,10 @@ async function classifyInboxEvent(syncStateId, choice) {
   if (!user) return;
   try {
     if (choice === 'ignore') {
-      await window._sb.from('calendar_sync_state').delete().eq('id', syncStateId);
+      const rd = await globalThis.sbWrite(
+        window._sb.from('calendar_sync_state').delete().eq('id', syncStateId),
+        { label: 'inbox triage' });
+      if (!rd.ok) return;
       renderCalendarInbox();
       return;
     }
@@ -349,25 +346,31 @@ async function classifyInboxEvent(syncStateId, choice) {
     const localId = 'gcal-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
     const title = String(ev.summary || '').replace(/^(Clean(ing)?|Maintenance|Repair|Booking)\s*[:\-—]\s*/i,'').trim();
 
+    // Insert the triaged record first; only mark the inbox event "classified"
+    // if the insert actually persisted, otherwise the event vanishes while no
+    // record was ever created (report 3.2).
+    let insRes = { ok: true };
     if (choice === 'cleans') {
-      await window._sb.from('cleans').insert({
+      insRes = await globalThis.sbWrite(window._sb.from('cleans').insert({
         user_id: user.id, local_id: localId, clean_date: start, guest_name: '', cleaner: '', cleaner_id: '',
         done: false, cleaner_confirmed: false, cleaner_declined: false, notes: title || ev.description || '',
-      });
+      }), { label: 'inbox triage' });
     } else if (choice === 'maintenance') {
-      await window._sb.from('maintenance').insert({
+      insRes = await globalThis.sbWrite(window._sb.from('maintenance').insert({
         user_id: user.id, local_id: localId, date: start, description: title || 'Untitled', status: 'open', cost: 0,
-      });
+      }), { label: 'inbox triage' });
     } else if (choice === 'bookings') {
-      await window._sb.from('bookings').insert({
+      insRes = await globalThis.sbWrite(window._sb.from('bookings').insert({
         user_id: user.id, local_id: localId, checkin: start, checkout: start, guest_name: title || 'Guest',
         guests: 1, status: 'confirmed', source: 'gcal',
-      });
+      }), { label: 'inbox triage' });
     }
+    if (!insRes.ok) return;
 
-    await window._sb.from('calendar_sync_state').update({
-      local_table: choice, local_id: localId,
-    }).eq('id', syncStateId);
+    const upRes = await globalThis.sbWrite(
+      window._sb.from('calendar_sync_state').update({ local_table: choice, local_id: localId }).eq('id', syncStateId),
+      { label: 'inbox triage' });
+    if (!upRes.ok) return;
 
     if (typeof window.hydrateFromCloud === 'function') await window.hydrateFromCloud();
     if (typeof window.reloadInMemoryData === 'function') window.reloadInMemoryData();
@@ -1263,10 +1266,10 @@ function renderTeamList() {
     people.map((c, i) => `
     <div class="settings-cat-item" onclick="openCleanerProfile('${c.id}')" ${i===people.length-1?'style="border-bottom:none"':''}>
       <div style="display:flex;align-items:center;gap:12px">
-        <div style="width:36px;height:36px;border-radius:50%;background:${roleColors[c.role]||'var(--hairline-1)'};color:white;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${c.name.charAt(0)}</div>
+        <div style="width:36px;height:36px;border-radius:50%;background:${roleColors[c.role]||'var(--hairline-1)'};color:white;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${escHtml(c.name.charAt(0))}</div>
         <div>
-          <div style="font-weight:500;font-size:14px">${c.name}</div>
-          <div style="font-size:12px;color:var(--muted-2)">${c.role||'Cleaner'}${c.email?' · '+c.email:c.phone?' · '+c.phone:''}</div>
+          <div style="font-weight:500;font-size:14px">${escHtml(c.name)}</div>
+          <div style="font-size:12px;color:var(--muted-2)">${escHtml(c.role||'Cleaner')}${c.email?' · '+escHtml(c.email):c.phone?' · '+escHtml(c.phone):''}</div>
           <div style="margin-top:6px" onclick="event.stopPropagation()">${typeof window.getInviteButtonHtml === 'function' ? window.getInviteButtonHtml(c) : ''}</div>
         </div>
       </div>
@@ -1303,18 +1306,18 @@ function openCleanerProfile(id) {
   document.getElementById('cleaner-profile-content').innerHTML = `
     <div class="card" style="margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
-        <div style="width:48px;height:48px;border-radius:50%;background:${roleColors[c.role]||'var(--hairline-1)'};color:white;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;flex-shrink:0">${c.name.charAt(0)}</div>
+        <div style="width:48px;height:48px;border-radius:50%;background:${roleColors[c.role]||'var(--hairline-1)'};color:white;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;flex-shrink:0">${escHtml(c.name.charAt(0))}</div>
         <div style="flex:1">
-          <div style="font-weight:700;font-size:17px">${c.name}</div>
-          <div style="font-size:12px;color:var(--muted-2)">${c.role||'Cleaner'}</div>
+          <div style="font-weight:700;font-size:17px">${escHtml(c.name)}</div>
+          <div style="font-size:12px;color:var(--muted-2)">${escHtml(c.role||'Cleaner')}</div>
         </div>
         <button onclick="deleteCleaner('${c.id}')" style="background:none;border:none;color:var(--red);font-size:13px;cursor:pointer;padding:4px 8px">Remove</button>
       </div>
       <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:10px">Contact</div>
       <label>Mobile</label>
-      <input type="tel" id="cp-phone-${c.id}" value="${c.phone||''}" placeholder="e.g. 0412 345 678">
+      <input type="tel" id="cp-phone-${c.id}" value="${escHtml(c.phone||'')}" placeholder="e.g. 0412 345 678">
       <label>Email</label>
-      <input type="email" id="cp-email-${c.id}" value="${c.email||''}" placeholder="e.g. ${c.name.toLowerCase()}@email.com">
+      <input type="email" id="cp-email-${c.id}" value="${escHtml(c.email||'')}" placeholder="e.g. ${escHtml(c.name.toLowerCase())}@email.com">
       <button class="btn-secondary" onclick="saveCleanerContact('${c.id}')" style="margin-top:4px">Save Contact</button>
       <div id="cp-contact-confirm-${c.id}" style="font-size:12px;color:var(--moss);margin-top:4px;display:none">✓ Saved</div>
     </div>
@@ -1349,7 +1352,7 @@ function populateContractorSelect() {
   const people = loadCleaners();
   const sel = document.getElementById('maint-contractor-select');
   if (!sel) return;
-  sel.innerHTML = '<option value="">None</option>' + people.map(c => `<option value="${c.name}">${c.name} (${c.role||'Cleaner'})</option>`).join('');
+  sel.innerHTML = '<option value="">None</option>' + people.map(c => `<option value="${escHtml(c.name)}">${escHtml(c.name)} (${escHtml(c.role||'Cleaner')})</option>`).join('');
 }
 function renderStorageViewer() {
   const el = document.getElementById('storage-viewer');
@@ -1499,9 +1502,9 @@ function renderCleanerAccessList() {
     cleaners.map((c, i) => `
     <div class="settings-cat-item" onclick="openCleanerProfile('${c.id}')" ${i===cleaners.length-1?'style="border-bottom:none"':''}>
       <div style="display:flex;align-items:center;gap:12px">
-        <div style="width:36px;height:36px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${c.name.charAt(0)}</div>
+        <div style="width:36px;height:36px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${escHtml(c.name.charAt(0))}</div>
         <div>
-          <div style="font-weight:500;font-size:14px">${c.name}</div>
+          <div style="font-weight:500;font-size:14px">${escHtml(c.name)}</div>
           <div style="font-size:12px;color:var(--muted-2)">${c.pin ? '🔐 PIN set' : '⚠️ No PIN'} · ${c.email ? '✉️ Email set' : 'No email'}</div>
         </div>
       </div>

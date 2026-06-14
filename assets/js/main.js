@@ -7,14 +7,15 @@ import {
 } from './config.js';
 import {
   getSupabaseSession, getCurrentSupabaseUser, seedLocalConfigFromCloud, hydrateFromCloud, savePropertyToCloud, saveHostConfigToCloud,
-  loadCleansFromCloud, saveCleanToCloud, saveCleansToCloud, deleteCleanFromCloud, saveCleanersToCloud, saveInventoryToCloud, saveMaintenanceToCloud, deleteMaintenanceFromCloud,
+  loadCleansFromCloud, saveCleanToCloud, saveCleansToCloud, deleteCleanFromCloud, saveCleanersToCloud, saveInventoryToCloud, deleteInventoryFromCloud, saveMaintenanceToCloud, deleteMaintenanceFromCloud,
   saveBookingToCloud, saveBookingsToCloud, deleteBookingFromCloud, saveHostConfigToSupabase, loadHostConfigFromSupabase, saveAppConfigToCloud, saveExpenseToCloud, retryQueuedExpenses,
+  sbWrite,
   showLoadingScreen, hideLoadingScreen, setLoadingStatus, showLoginScreen, handleAuthFailure, showAppChrome,
   handleLoginSubmit, handleSignUpSubmit, handleMagicLinkSubmit, handleVerifySubmit, handleResendCode, toggleSignUp, hostSignOut,
   welcomeShowLanding, welcomeShowSignIn, welcomeShowSignUp, welcomeShowVerify, showSuccessToast,
   detectUserRole, showCleanerApp, loadCleanerDashboard,
 } from './supabase.js';
-import { calcNights, calcNet } from './utils.js';
+import { calcNights, calcNet, escHtml } from './utils.js';
 import {
   _sendCleanerAssignmentNotifications, enableNotificationsManually, resetPushOnly, updateNotifStatus, subscribeToPush, sendPushToDevice, getCleanerSub, getFreshHostSub, sendCleanerEmail, cleanerLinkForId, openNotifyModal, sendCleanerReminder, pickContact, sendSMS,
   closeNotifyModal, applyPreset, loadEmailTemplate, saveEmailTemplate, resetEmailTemplate, insertTemplateVar, openEmailTemplatePanel, updateEmailPreview, testNotificationConfig, testCleanerEmail
@@ -134,6 +135,8 @@ globalThis.saveCleanToCloud = saveCleanToCloud;
 globalThis.saveCleansToCloud = saveCleansToCloud;
 globalThis.deleteCleanFromCloud = deleteCleanFromCloud;
 globalThis.saveCleanersToCloud = saveCleanersToCloud;
+globalThis.deleteInventoryFromCloud = deleteInventoryFromCloud;
+globalThis.sbWrite = sbWrite;
 globalThis.getCurrentSupabaseUser = getCurrentSupabaseUser;
 globalThis.getFreshHostSub = getFreshHostSub;
 globalThis.sendPushToDevice = sendPushToDevice;
@@ -615,23 +618,23 @@ function checkCancelledBookings() {
       }
 
       cards += '<div style="background:#FCEBEB;border-radius:10px;padding:14px 16px;margin-bottom:10px">';
-      cards += '<div style="font-size:15px;font-weight:600;color:var(--ink-1)">' + (b.name || 'Guest') + '</div>';
-      if (propName) cards += '<div style="font-size:12px;color:#888;margin-top:2px">' + propName + '</div>';
+      cards += '<div style="font-size:15px;font-weight:600;color:var(--ink-1)">' + escHtml(b.name || 'Guest') + '</div>';
+      if (propName) cards += '<div style="font-size:12px;color:#888;margin-top:2px">' + escHtml(propName) + '</div>';
       cards += '<div style="font-size:13px;color:#A32D2D;margin-top:4px;text-decoration:line-through">' + fmtD(b.checkin) + ' → ' + fmtD(b.checkout) + '</div>';
 
       if (cleanerName) {
         if (notified) {
           cards += '<div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:#3B6D11">' +
-            '<span>✓</span><span>' + cleanerName + ' was notified</span></div>';
+            '<span>✓</span><span>' + escHtml(cleanerName) + ' was notified</span></div>';
         } else {
           const bId = String(b._cloudId || b.id);
           const cId = clean._cloudId || String(clean.id);
           if (cleanerEmail) {
             cards += '<button onclick="notifyCancelledCleaner(this,\'' + bId.replace(/'/g, '') + '\',\'' + cId.replace(/'/g, '') + '\')" ' +
               'style="margin-top:10px;width:100%;padding:10px;background:#C0392B;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
-              'Notify ' + cleanerName + '</button>';
+              'Notify ' + escHtml(cleanerName) + '</button>';
           } else {
-            cards += '<div style="margin-top:10px;font-size:12px;color:#854F0B">' + cleanerName + ' has no email on file</div>';
+            cards += '<div style="margin-top:10px;font-size:12px;color:#854F0B">' + escHtml(cleanerName) + ' has no email on file</div>';
           }
         }
       }

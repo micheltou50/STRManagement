@@ -3,7 +3,7 @@
  */
 import { AIService } from './ai-logic.js';
 import { expenses, bookings } from './state.js';
-import { calcNights } from './utils.js';
+import { calcNights, escHtml } from './utils.js';
 import { getCurrentPropertyName, getActivePropertyConfig } from './config.js';
 import { isRevenueBearingBooking } from './booking-revenue.js';
 import { findMatchingCleanForBooking } from './cleaning.js';
@@ -136,10 +136,10 @@ export function renderAIIgnoreList() {
   el.innerHTML = list.map(item => `
     <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--hairline-2);gap:8px">
       <div style="flex:1;min-width:0">
-        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:2px">${typeLabel[item.type]||item.type}</div>
-        <div style="font-size:13px;font-weight:500;color:var(--text)">${item.label}</div>
-        ${item.reason ? `<div style="font-size:11px;color:var(--muted-2);margin-top:2px;font-style:italic">${item.reason}</div>` : ''}
-        <div style="font-size:11px;color:var(--muted-2);margin-top:2px">Added ${item.addedDate}</div>
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:2px">${escHtml(typeLabel[item.type]||item.type)}</div>
+        <div style="font-size:13px;font-weight:500;color:var(--text)">${escHtml(item.label)}</div>
+        ${item.reason ? `<div style="font-size:11px;color:var(--muted-2);margin-top:2px;font-style:italic">${escHtml(item.reason)}</div>` : ''}
+        <div style="font-size:11px;color:var(--muted-2);margin-top:2px">Added ${escHtml(item.addedDate)}</div>
       </div>
       <button onclick="removeAIIgnoreItem('${item.id}')" style="font-size:11px;color:var(--red);background:none;border:1px solid var(--red);border-radius:20px;padding:4px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap;flex-shrink:0">Remove</button>
     </div>`).join('');
@@ -163,17 +163,25 @@ function renderExpenseAnalysis(data) {
   const fmt = n => '$' + Number(n).toLocaleString('en-AU', {minimumFractionDigits:2, maximumFractionDigits:2});
   let html = '<div style="font-weight:700;font-size:14px;margin-bottom:12px">🔍 Expense Analysis</div>';
 
+  // AI-analysis fields derive from Claude output over expense/merchant text
+  // (bank-CSV content) — treat as untrusted. The onclick lands in a
+  // double-quoted HTML attribute the browser HTML-decodes before running as JS,
+  // so escape for the JS single-quoted string first, then HTML-encode (4.7).
+  const _attrJs = (s) => String(s == null ? '' : s)
+    .replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const ignoreBtn = (type, key, label) =>
-    `<button onclick="promptIgnore('${type}','${key.replace(/'/g,"\\'")}','${label.replace(/'/g,"\\'")}');event.stopPropagation()"
+    `<button onclick="promptIgnore('${_attrJs(type)}','${_attrJs(key)}','${_attrJs(label)}');event.stopPropagation()"
       style="font-size:10px;color:var(--muted-2);background:var(--hairline-2);border:none;border-radius:12px;padding:3px 8px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;margin-top:6px;display:inline-block">
       🚫 Ignore this
     </button>`;
 
   const row = (main, sub, badge, type, key) => `
     <div style="background:white;border-radius:8px;padding:10px 12px;margin-bottom:6px;border-left:3px solid currentColor">
-      <div style="font-weight:600;font-size:13px">${main}</div>
-      <div style="font-size:12px;color:var(--muted-2);margin-top:2px">${sub}</div>
-      ${badge ? `<div style="font-size:11px;margin-top:4px;color:var(--muted-2);font-style:italic">${badge}</div>` : ''}
+      <div style="font-weight:600;font-size:13px">${escHtml(main)}</div>
+      <div style="font-size:12px;color:var(--muted-2);margin-top:2px">${escHtml(sub)}</div>
+      ${badge ? `<div style="font-size:11px;margin-top:4px;color:var(--muted-2);font-style:italic">${escHtml(badge)}</div>` : ''}
       ${ignoreBtn(type, key, main)}
     </div>`;
 
@@ -210,7 +218,7 @@ function renderExpenseAnalysis(data) {
     html += `<div style="margin-bottom:8px">
       <div style="font-weight:600;font-size:12px;color:var(--primary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">💡 Insights</div>`;
     data.insights.forEach(i => {
-      html += `<div style="background:white;border-radius:8px;padding:10px 12px;margin-bottom:6px;font-size:13px">${i}</div>`;
+      html += `<div style="background:white;border-radius:8px;padding:10px 12px;margin-bottom:6px;font-size:13px">${escHtml(i)}</div>`;
     });
     html += '</div>';
   }
