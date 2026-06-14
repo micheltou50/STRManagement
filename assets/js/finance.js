@@ -20,7 +20,7 @@ import {
 } from './bank-import.js';
 import { findMatchesForTransaction, getReconciliationSummary, getAllTransactionsWithStatus, findPayoutMatchesForBankTransaction, linkTransactionToPayout, setTransactionClassification } from './reconciliation.js';
 import { bookings, cleans, expenses, replaceArrayInPlace } from './state.js';
-import { escHtml, fmt, fmt2, fyLabel, fyMonths, escapeJsSingleQuotedHtmlAttr, fadeTransition } from './utils.js';
+import { escHtml, fmt, fmt2, fyLabel, fyMonths, escapeJsSingleQuotedHtmlAttr, fadeTransition, localDateStr } from './utils.js';
 import { renderPortfolioFinance, isPortfolioMode } from './property.js';
 import {
   clearExpensePhoto,
@@ -1178,7 +1178,7 @@ function toggleExpenseAddForm() {
   if (opening) {
     // Populate today's date when opening the form
     const expDateEl = document.getElementById('exp-date');
-    if (expDateEl && !expDateEl.value) expDateEl.value = new Date().toISOString().split('T')[0];
+    if (expDateEl && !expDateEl.value) expDateEl.value = localDateStr();
     populateExpenseCatSelect();
     // Scroll the form into view
     setTimeout(() => panel.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
@@ -2883,9 +2883,9 @@ function expenseHasReceiptAttached(e) {
 /** Show a once-daily banner nudge for expenses older than 7 days without receipts (Phase 1B). */
 function checkReceiptNudge() {
   try {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = localDateStr();
     if (localStorage.getItem('receipt-nudge-last') === todayStr) return;
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const sevenDaysAgo = localDateStr(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
     const allExp = Array.isArray(expenses) ? expenses : [];
     const count = allExp.filter(e =>
       Number(e.amount) > 0 &&
@@ -3063,7 +3063,7 @@ function renderExpenses() {
   ensureBankImportToolbar();
   const refreshReconciliationFooter = () => void refreshFinanceReconciliationSummary();
   const expDateEl = document.getElementById('exp-date');
-  if (expDateEl && !expDateEl.value) expDateEl.value = new Date().toISOString().split('T')[0];
+  if (expDateEl && !expDateEl.value) expDateEl.value = localDateStr();
 
   const propertyExpenses = _financeScopedExpenses();
   const q = (document.getElementById('expense-search')?.value || '').toLowerCase().trim();
@@ -3315,7 +3315,7 @@ function addExpense(opts = {}) {
   const amount = Number.isFinite(rawAmount)
     ? (isRefund ? -Math.abs(rawAmount) : Math.abs(rawAmount))
     : NaN;
-  const date = opts.date || document.getElementById('exp-date').value || new Date().toISOString().split('T')[0];
+  const date = opts.date || document.getElementById('exp-date').value || localDateStr();
   const category = opts.category || document.getElementById('exp-category').value;
   const bookingId = opts.bookingId !== undefined
     ? (opts.bookingId || null)
@@ -3375,7 +3375,7 @@ function addExpense(opts = {}) {
     if (refundReset) refundReset.checked = false;
     const bookingLinkReset = document.getElementById('exp-booking-link');
     if (bookingLinkReset) bookingLinkReset.value = '';
-    document.getElementById('exp-date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('exp-date').value = localDateStr();
     resetExpenseCatPicker();
     const typeSel = document.getElementById('exp-receipt-type');
     if (typeSel) typeSel.selectedIndex = 0;
@@ -3878,8 +3878,8 @@ function renderExpenseBookingPicker(prefix, currentValue) {
   const wrap = document.getElementById(prefix + '-booking-link-wrap');
   if (!sel) return;
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  const cutoff = new Date(Date.now() - 120 * 86400000).toISOString().split('T')[0];
+  const todayStr = localDateStr();
+  const cutoff = localDateStr(new Date(Date.now() - 120 * 86400000));
   const list = (Array.isArray(bookings) ? bookings : [])
     .filter(b => b && isRevenueBearingBooking(b) && b.checkout && b.checkout <= todayStr && b.checkout >= cutoff)
     .sort((a, b) => String(b.checkout).localeCompare(String(a.checkout)));
@@ -6207,7 +6207,7 @@ async function savePayoutFromPasteModal() {
       propertyId: _financeActiveCloudPropertyId() || null,
       platform: payout.platform || platformSel,
       payoutReference: payout.payoutReference || null,
-      payoutDate: payout.payoutDate || new Date().toISOString().split('T')[0],
+      payoutDate: payout.payoutDate || localDateStr(),
       expectedArrivalDate: payout.expectedArrivalDate || null,
       gross,
       platformFee,

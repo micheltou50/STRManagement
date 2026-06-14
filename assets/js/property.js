@@ -19,6 +19,7 @@ import {
   escapeJsSingleQuotedHtmlAttr,
   fyLabel,
   fadeTransition,
+  localDateStr,
 } from './utils.js';
 import { buildBookingListCardFromBooking } from './booking-list-card.js';
 import { bookingRevenue, bookingMgmtFee, isRevenueBearingBooking } from './booking-revenue.js';
@@ -672,7 +673,7 @@ function renderPortfolioPropertyTab() {
   const cloudIds = window._cloudPropertyIds || {};
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const todayStr = now.toISOString().split('T')[0];
+  const todayStr = localDateStr(now);
   const thisMonth = now.getMonth();
   const thisYear = now.getFullYear();
   const daysInMonth = new Date(thisYear, thisMonth + 1, 0).getDate();

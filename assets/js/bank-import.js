@@ -2,6 +2,7 @@
  * StayOps — bank statement CSV import: parse, categorise (mappings + Haiku), dedupe, confirm/skip/log.
  */
 import { getAllProperties } from './config.js';
+import { localDateStr } from './utils.js';
 import {
   findMatchesForTransaction,
   linkTransactionToExpense,
@@ -78,7 +79,7 @@ function parseAUDate(raw) {
   }
   const tryDate = new Date(s);
   if (!Number.isNaN(tryDate.getTime())) {
-    return tryDate.toISOString().split('T')[0];
+    return localDateStr(tryDate);
   }
   return null;
 }

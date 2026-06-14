@@ -20,6 +20,29 @@ export function parseLocalDayStart(dateLike) {
   return key ? new Date(key + 'T00:00:00') : new Date('');
 }
 
+/**
+ * Local calendar date as "YYYY-MM-DD", built from the Date's LOCAL fields.
+ *
+ * Use this anywhere a "today"/calendar-day string is needed — NOT
+ * toISOString().slice(0,10)/split('T')[0], which returns the *UTC* date and
+ * is a day behind for AEST (UTC+10/11) users before ~10am. That UTC shift
+ * mis-files expenses into the prior financial year and wrongly shifts the
+ * arriving/departing, cleaning-timeline and "next clean" badges every morning.
+ *
+ * For genuine UTC timestamps (created_at, API query params, server-side
+ * arithmetic) keep using toISOString() — this helper is only for the user's
+ * local calendar day.
+ *
+ * @param {Date} [date=new Date()]
+ * @returns {string} YYYY-MM-DD in local time ('' for an invalid date)
+ */
+export function localDateStr(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function fmtShort(dateStr) {
   if (!dateStr) return '';
   const d = parseLocalDayStart(dateStr);

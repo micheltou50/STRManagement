@@ -3,7 +3,7 @@
  */
 import { AIService } from './ai-logic.js';
 import { expenses, bookings } from './state.js';
-import { calcNights, escHtml } from './utils.js';
+import { calcNights, escHtml, localDateStr } from './utils.js';
 import { getCurrentPropertyName, getActivePropertyConfig } from './config.js';
 import { isRevenueBearingBooking } from './booking-revenue.js';
 import { findMatchingCleanForBooking } from './cleaning.js';
@@ -115,7 +115,7 @@ export function saveAIIgnoreList(list) {
 export function addAIIgnoreItem(type, key, label, reason) {
   const list = loadAIIgnoreList();
   const id = Date.now();
-  list.push({ id, type, key, label, reason: reason || '', addedDate: new Date().toISOString().split('T')[0] });
+  list.push({ id, type, key, label, reason: reason || '', addedDate: localDateStr() });
   saveAIIgnoreList(list);
   globalThis.showBanner('✓ Added to ignore list — won\'t flag this again', 'ok');
 }
@@ -422,8 +422,8 @@ export function clearExpensePhoto2() {
  *  eligibility filter so every id returned here is selectable in the
  *  booking-link picker. */
 function getBookingMatchCandidates() {
-  const todayStr = new Date().toISOString().split('T')[0];
-  const cutoff = new Date(Date.now() - 120 * 86400000).toISOString().split('T')[0];
+  const todayStr = localDateStr();
+  const cutoff = localDateStr(new Date(Date.now() - 120 * 86400000));
   return (Array.isArray(bookings) ? bookings : [])
     .filter(b => b && isRevenueBearingBooking(b) && b.checkout && b.checkout <= todayStr && b.checkout >= cutoff)
     .sort((a, b) => String(b.checkout).localeCompare(String(a.checkout)))
@@ -800,7 +800,7 @@ export async function extractBookingFromScreenshot() {
           },
           {
             type: 'text',
-            text: `This is a booking confirmation screenshot. Return ONLY a valid JSON object with no markdown, no backtick fences, no explanation. Fields: guestName (string), checkin (YYYY-MM-DD), checkout (YYYY-MM-DD), nights (number), guests (number), hostPayout (number no $ sign), cleaningFee (number no $ sign). Use null if not visible. Today's date is ${new Date().toISOString().slice(0,10)}. If a date has no year, use the current year — but if that date has already passed, use next year instead.`,
+            text: `This is a booking confirmation screenshot. Return ONLY a valid JSON object with no markdown, no backtick fences, no explanation. Fields: guestName (string), checkin (YYYY-MM-DD), checkout (YYYY-MM-DD), nights (number), guests (number), hostPayout (number no $ sign), cleaningFee (number no $ sign). Use null if not visible. Today's date is ${localDateStr()}. If a date has no year, use the current year — but if that date has already passed, use next year instead.`,
           }
         ]
       }]

@@ -7,6 +7,7 @@ import {
   escHtml,
   fmt,
   escapeJsSingleQuotedHtmlAttr,
+  localDateStr,
 } from './utils.js';
 import { buildBookingListCardFromBooking, normalizePlatformLabel } from './booking-list-card.js';
 import {
@@ -582,7 +583,7 @@ function renderBookings(filter) {
     const fmtShort = d => { if (!d) return ''; const dt = new Date(d); return dt.toLocaleDateString('en-AU', { day:'numeric', month:'short' }); };
     const platformClass = p => { const lp = (p||'').toLowerCase(); if (lp.includes('airbnb')) return 'platform-airbnb'; if (lp.includes('vrbo')||lp.includes('homeaway')) return 'platform-vrbo'; if (lp.includes('booking')) return 'platform-booking'; return 'platform-direct'; };
     const statusBadge = b => {
-      const today = new Date().toISOString().split('T')[0];
+      const today = localDateStr();
       const ci = (b.checkin||'').slice(0,10);
       const co = (b.checkout||'').slice(0,10);
       if (b.status === 'cancelled') return getCancellationBillable(b)
@@ -763,7 +764,7 @@ function showDetail(id) {
   const b = bookings.find(bk => bk._cloudId === id || String(bk.id) === String(id));
   if (!b) return;
   const isCancelled = b.status === 'cancelled';
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = localDateStr();
   const isPast = !isCancelled && b.checkout && String(b.checkout).slice(0, 10) < todayStr;
   const bn = notes.filter(n => n.bookingId === id);
   const matchedClean = findMatchingCleanForBooking(b);
@@ -1233,7 +1234,7 @@ async function _renderBookingPayoutsSection(bookingCloudId, expected) {
  */
 async function markPayoutAsReceivedForBooking(payoutId, bookingCloudId, expected) {
   if (!payoutId) return;
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDateStr();
   const ok = await markPayoutReceived(payoutId, today);
   if (!ok) {
     if (typeof globalThis.showBanner === 'function') {
@@ -1417,7 +1418,7 @@ async function addNote() {
     globalThis.showBanner('⚠ Booking not found — it may have been deleted', 'warn');
     return;
   }
-  const newNote = { id: Date.now(), bookingId, guestName: booking.name, text, tag, date: new Date().toISOString().split('T')[0] };
+  const newNote = { id: Date.now(), bookingId, guestName: booking.name, text, tag, date: localDateStr() };
   notes.push(newNote);
   document.getElementById('note-text').value = '';
   if (typeof globalThis.saveNotesToCloud === 'function') {
@@ -1860,7 +1861,7 @@ function toISO(val) {
   if (/^\d{4,6}$/.test(val)) {
     const epoch = new Date(1899, 11, 30);
     epoch.setDate(epoch.getDate() + Number(val));
-    return epoch.toISOString().split('T')[0];
+    return localDateStr(epoch);
   }
   const months = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
   const tm = val.match(/^(\d{1,2})\s+([A-Za-z]{3})\w*\s+(\d{4})$/);

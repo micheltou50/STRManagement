@@ -30,6 +30,7 @@ import {
   escapeJsSingleQuotedHtmlAttr,
   fyLabel,
   showBannerToast,
+  localDateStr,
 } from './utils.js';
 import {
   _sendCleanerAssignmentNotifications,
@@ -586,9 +587,9 @@ function renderAll() {
   populateSelects();
   populateExpenseCatSelect();
   const expDate = document.getElementById('exp-date');
-  if (expDate && !expDate.value) expDate.value = new Date().toISOString().split('T')[0];
+  if (expDate && !expDate.value) expDate.value = localDateStr();
   const maintDate = document.getElementById('maint-date');
-  if (maintDate && !maintDate.value) maintDate.value = new Date().toISOString().split('T')[0];
+  if (maintDate && !maintDate.value) maintDate.value = localDateStr();
   // Also render whatever section is active — but skip finance/settings to avoid resetting scroll, filters, and forms
   const section = currentSection || 'today';
   if (section === 'cleaning')   { renderCleaning(); populateCleanerSelect(); }
@@ -1728,7 +1729,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
     </div>`;
 
     // Today timeline — check-ins, check-outs, cleans
-    const todayStr = now.toISOString().split('T')[0];
+    const todayStr = localDateStr(now);
     const arrivingToday = activeBookings.filter(b => (b.checkin||'').slice(0,10) === todayStr);
     const departingToday = activeBookings.filter(b => (b.checkout||'').slice(0,10) === todayStr);
     const allCleans = window.cleans || [];
@@ -2104,7 +2105,7 @@ function buildPortfolioTodayDashboardMarkup() {
     const fmtSh = d => { if (!d) return ''; return new Date(d).toLocaleDateString('en-AU', { day:'numeric', month:'short' }); };
     const platformCls = p => { const lp = (p||'').toLowerCase(); if (lp.includes('airbnb')) return 'platform-airbnb'; if (lp.includes('vrbo')) return 'platform-vrbo'; return 'platform-direct'; };
     const statusBdg = b => {
-      const today = new Date().toISOString().split('T')[0];
+      const today = localDateStr();
       const ci = (b.checkin||'').slice(0,10), co = (b.checkout||'').slice(0,10);
       if (ci === today) return '<span class="dt-badge dt-badge-green">Arriving</span>';
       if (co === today) return '<span class="dt-badge dt-badge-amber">Departing</span>';
@@ -2409,7 +2410,7 @@ async function resolveIssue(id) {
       merchant: m.contractor || 'Contractor',
       description: m.description,
       amount: cost,
-      date: new Date().toISOString().split('T')[0],
+      date: localDateStr(),
       category: 'Cleaning & Maintenance',
       receiptType: 'missing',
       receiptNum: '',
@@ -3278,8 +3279,8 @@ function switchCleanerCleanTab(tab) {
 
 function renderCleanerCleans() {
   const cleaner = getActiveCleaner();
-  const today = new Date().toISOString().split('T')[0];
-  const twoDaysAgo = new Date(Date.now() - 2*24*60*60*1000).toISOString().split('T')[0];
+  const today = localDateStr();
+  const twoDaysAgo = localDateStr(new Date(Date.now() - 2*24*60*60*1000));
   const perm = (cleaner && cleaner.permissions) ? cleaner.permissions : {};
 
   const relevant = cleans.filter(c => {
@@ -4232,7 +4233,7 @@ function renderNewCleanerView(data) {
   if (!container) return;
 
   const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  const todayStr = localDateStr(today);
 
   function formatDate(dateStr) {
     if (!dateStr) return '';
@@ -4640,7 +4641,7 @@ function renderCleanerCalendar() {
     html += '<div></div>';
   }
 
-  const todayStr = today.toISOString().split('T')[0];
+  const todayStr = localDateStr(today);
 
   for (let d = 1; d <= lastDay.getDate(); d++) {
     const dateStr = viewYear + '-' + String(viewMonth + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');

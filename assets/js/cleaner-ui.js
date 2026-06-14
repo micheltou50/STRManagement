@@ -2,7 +2,7 @@
  * StayOps — Cleaner PWA v2 sub-views (Home, Offer, Active, Done).
  * Renders into #cleaner-v2-overlay inside #cleaner-app.
  */
-import { escHtml, fmt } from './utils.js';
+import { escHtml, fmt, localDateStr } from './utils.js';
 import { cleans, bookings } from './state.js';
 
 const CL = {
@@ -34,7 +34,7 @@ function _getCleanerCleans() {
 }
 
 function _getNextClean() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDateStr();
   const upcoming = _getCleanerCleans()
     .filter(c => c.date >= today && c.cleanerConfirmed)
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -47,8 +47,8 @@ function _getNewOffers() {
 
 function _getWeekCleans() {
   const now = new Date();
-  const weekEnd = new Date(now.getTime() + 7 * 86400000).toISOString().split('T')[0];
-  const today = now.toISOString().split('T')[0];
+  const weekEnd = localDateStr(new Date(now.getTime() + 7 * 86400000));
+  const today = localDateStr(now);
   return _getCleanerCleans()
     .filter(c => c.date >= today && c.date <= weekEnd && c.cleanerConfirmed)
     .sort((a, b) => a.date.localeCompare(b.date));

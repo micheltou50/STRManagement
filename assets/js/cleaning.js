@@ -9,6 +9,7 @@ import {
   _normName,
   escapeJsSingleQuotedHtmlAttr,
   fadeTransition,
+  localDateStr,
 } from './utils.js';
 import { getAllProperties, getActivePropertyId, initPropertyUI, getCurrentPropertyName, getCurrentHostName } from './config.js';
 import {
@@ -366,7 +367,7 @@ export async function quickAssignLastCleaner(bookingId) {
 export function prepareCleaningData() {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const todayStr = now.toISOString().split('T')[0];
+  const todayStr = localDateStr(now);
   const weekEnd = new Date(todayStart);
   weekEnd.setDate(weekEnd.getDate() + (7 - weekEnd.getDay()));
   const nextWeekEnd = new Date(weekEnd);
