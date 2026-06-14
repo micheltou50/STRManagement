@@ -1601,7 +1601,11 @@ export async function assignCleanerToBooking(bookingIdParam) {
   );
   const existingIdx = matched ? cleans.findIndex(c => String(c.id) === String(matched.id)) : existingByBookingIdx;
   const prev = existingIdx >= 0 ? cleans[existingIdx] : null;
-  const bookingIdForClean = prev ? prev.bookingId : (booking._cloudId || booking.id);
+  // cleans.booking_id canonically stores the booking's local_id (booking.id),
+  // matching every other writer and the backend readers (cleaner-action,
+  // notify-cleaner-cancellation, send-clean-reminders). For an existing clean
+  // keep whatever form it already holds (tolerant readers match either).
+  const bookingIdForClean = prev ? prev.bookingId : booking.id;
 
   console.log('[StayOps] Save assignment clicked', { cleanId: prev != null ? prev.id : null, cleanerId, cleanerName: cleanerObj.name });
 

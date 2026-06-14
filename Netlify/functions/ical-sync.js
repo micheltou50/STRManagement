@@ -107,7 +107,8 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
           supabaseUrl,
           sbHeaders,
           userId: feed.user_id,
-          bookingId: prior.id,
+          bookingId: prior.local_id,   // canonical cleans.booking_id form
+          bookingCloudId: prior.id,    // legacy rows that stored the UUID
           bookingRow: {
             guest_name: prior.guest_name,
             property_id: prior.property_id,
@@ -222,7 +223,8 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
         supabaseUrl,
         sbHeaders,
         userId: feed.user_id,
-        bookingId: stale.id,
+        bookingId: stale.local_id,   // canonical cleans.booking_id form
+        bookingCloudId: stale.id,    // legacy rows that stored the UUID
         bookingRow: {
           guest_name: stale.guest_name,
           property_id: stale.property_id,

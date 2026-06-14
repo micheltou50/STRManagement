@@ -33,8 +33,8 @@ function formatDate(dateStr) {
   }
 }
 
-async function notifyCleanerCancellation({ supabaseUrl, sbHeaders, userId, bookingId, bookingRow }) {
-  if (!supabaseUrl || !sbHeaders || !userId || !bookingId) return { notified: 0, skipped: 0 };
+async function notifyCleanerCancellation({ supabaseUrl, sbHeaders, userId, bookingId, bookingCloudId, bookingRow }) {
+  if (!supabaseUrl || !sbHeaders || !userId || (!bookingId && !bookingCloudId)) return { notified: 0, skipped: 0 };
 
   const result = { notified: 0, skipped: 0 };
 
@@ -57,9 +57,19 @@ async function notifyCleanerCancellation({ supabaseUrl, sbHeaders, userId, booki
     }
 
     // 2. Find linked cleans that haven't been cancel-notified.
+    //    cleans.booking_id canonically stores the booking's local_id, but some
+    //    legacy rows hold the cloud UUID instead. Match EITHER form (callers
+    //    pass local_id as bookingId and the UUID as bookingCloudId) so a clean
+    //    is found regardless of which id shape was written when it was created.
+    const idCandidates = [...new Set(
+      [bookingId, bookingCloudId]
+        .filter(v => v != null && String(v) !== '')
+        .map(v => String(v))
+    )];
+    const inList = idCandidates.map(v => '"' + v.replace(/"/g, '') + '"').join(',');
     const cleansRes = await fetch(
       supabaseUrl + '/rest/v1/cleans?user_id=eq.' + enc(userId) +
-        '&booking_id=eq.' + enc(String(bookingId)) +
+        '&booking_id=in.(' + enc(inList) + ')' +
         '&cleaner_cancel_notified=is.false' +
         '&select=id,local_id,cleaner,cleaner_id,clean_date,property_id',
       { headers: sbHeaders }

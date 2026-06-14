@@ -517,14 +517,45 @@ async function callClaude(apiKey, prompt) {
 async function parseBookingEmail(apiKey, subject, from, body, singlePropertyName, propertyList) {
   try {
     const prompt = buildParsingPrompt(subject, from, body, singlePropertyName, propertyList);
-    return await callClaude(apiKey, prompt);
+    const parsed = await callClaude(apiKey, prompt);
+    // An empty/garbled Claude response (no usable JSON) is a transient failure,
+    // not a definitive "not a booking" — surface it so the caller retries the
+    // message on the next scan instead of permanently blacklisting it.
+    if (!parsed) return { _transientError: true, _errMsg: 'empty Claude response' };
+    return parsed;
   } catch (err) {
-    console.warn('[email-scan] Claude parse error:', err.message);
-    return null;
+    // 429/529/timeout/JSON.parse throws land here. Treat as transient so a
+    // one-off API hiccup never drops a real booking forever (report 1.7).
+    console.warn('[email-scan] Claude parse error (transient, will retry):', err.message);
+    return { _transientError: true, _errMsg: err.message };
   }
 }
 
 // ── Core processing loop body ───────────────────────────────────────────────
+
+/**
+ * PATCH a bookings row and report whether it actually succeeded. Previously
+ * these PATCHes (cancellation/modification/enrichment) were fire-and-forget, so
+ * an RLS denial or 5xx still incremented success counters and marked the email
+ * permanently processed — silently losing a real platform change (report 1.8).
+ * Returns true only on a 2xx response; never throws.
+ */
+async function patchBookingRow(supabaseUrl, sbHeaders, bookingCloudId, payload) {
+  try {
+    const res = await fetch(
+      supabaseUrl + '/rest/v1/bookings?id=eq.' + enc(bookingCloudId),
+      { method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=minimal' }, body: JSON.stringify(payload) }
+    );
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.warn('[email-scan] bookings PATCH failed', res.status, errText.slice(0, 200));
+    }
+    return res.ok;
+  } catch (e) {
+    console.warn('[email-scan] bookings PATCH threw:', e && e.message);
+    return false;
+  }
+}
 
 /**
  * Process a single parsed email result — handles cancellation, modification,
@@ -543,6 +574,15 @@ async function processEmailResult(parsed, msgId, source, ctx) {
     supabaseAdmin,
   } = ctx;
 
+  // Transient parse failure (API 429/529, timeout, malformed JSON, empty
+  // response). Count as an error and DO NOT mark the message processed, so the
+  // next scan retries it. A one-off Claude hiccup must never permanently drop a
+  // real booking email (report 1.7).
+  if (parsed && parsed._transientError) {
+    results.errors++;
+    results.details.push({ msgId, status: 'error', reason: 'Transient parse failure — will retry next scan: ' + (parsed._errMsg || '') });
+    return;
+  }
   if (!parsed) {
     results.skipped++;
     newlySkipped.push(msgId);
@@ -592,20 +632,19 @@ async function processEmailResult(parsed, msgId, source, ctx) {
       const wasCancelled = String(match.status || '').toLowerCase() === 'cancelled';
       const cancelledAt = new Date().toISOString();
       const cancellationConfig = await loadCancellationConfig(supabaseUrl, sbHeaders, uid);
-      await fetch(
-        supabaseUrl + '/rest/v1/bookings?id=eq.' + enc(match.id),
-        {
-          method: 'PATCH',
-          headers: { ...sbHeaders, Prefer: 'return=minimal' },
-          body: JSON.stringify({
-            status: 'cancelled',
-            cancelled_at: cancelledAt,
-            cancellation_billable: isCancellationBillable(match, cancelledAt, cancellationConfig),
-            gmail_message_id: msgId,
-            updated_at: cancelledAt,
-          }),
-        }
-      );
+      const cancelOk = await patchBookingRow(supabaseUrl, sbHeaders, match.id, {
+        status: 'cancelled',
+        cancelled_at: cancelledAt,
+        cancellation_billable: isCancellationBillable(match, cancelledAt, cancellationConfig),
+        gmail_message_id: msgId,
+        updated_at: cancelledAt,
+      });
+      if (!cancelOk) {
+        // Real cancellation we failed to persist — retry next scan, don't mark done.
+        results.errors++;
+        results.details.push({ msgId, status: 'error', reason: 'Cancellation PATCH failed — will retry next scan' });
+        return;
+      }
       pushBookingToCalendar(uid, match.local_id, 'delete');
       results.cancelled++;
       results.details.push({ msgId, status: 'cancelled', guest: parsed.guestName || match.guest_name, confCode });
@@ -631,7 +670,8 @@ async function processEmailResult(parsed, msgId, source, ctx) {
           supabaseUrl,
           sbHeaders,
           userId: uid,
-          bookingId: match.id,
+          bookingId: match.local_id,   // canonical cleans.booking_id form
+          bookingCloudId: match.id,    // legacy rows that stored the UUID
           bookingRow: {
             guest_name: parsed.guestName || match.guest_name,
             property_id: match.property_id,
@@ -666,10 +706,12 @@ async function processEmailResult(parsed, msgId, source, ctx) {
       if (parsed.hostPayout)  patch.host_payout  = parsed.hostPayout;
       if (parsed.cleaningFee) patch.cleaning_fee = parsed.cleaningFee;
 
-      await fetch(
-        supabaseUrl + '/rest/v1/bookings?id=eq.' + enc(match.id),
-        { method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=minimal' }, body: JSON.stringify(patch) }
-      );
+      const modOk = await patchBookingRow(supabaseUrl, sbHeaders, match.id, patch);
+      if (!modOk) {
+        results.errors++;
+        results.details.push({ msgId, status: 'error', reason: 'Modification PATCH failed — will retry next scan' });
+        return;
+      }
       pushBookingToCalendar(uid, match.local_id, 'upsert');
       results.updated++;
       results.details.push({ msgId, status: 'updated', guest: parsed.guestName, checkin: parsed.checkin });
@@ -706,7 +748,13 @@ async function processEmailResult(parsed, msgId, source, ctx) {
     } else if (parsed.checkin && parsed.checkout) {
       // Modification with no matching original — insert as new
       const insertedMod = await insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed, emailFrom, source);
-      if (insertedMod) existingBookings.push(insertedMod);
+      if (!insertedMod) {
+        // Insert failed — count as error and leave retryable (don't mark done).
+        results.errors++;
+        results.details.push({ msgId, status: 'error', reason: 'Insert (modification without original) failed — will retry next scan' });
+        return;
+      }
+      existingBookings.push(insertedMod);
       pushBookingToCalendar(uid, source + '-' + msgId, 'upsert');
       results.imported++;
       results.details.push({ msgId, status: 'imported', guest: parsed.guestName, checkin: parsed.checkin, note: 'modification without matching original' });
@@ -764,10 +812,12 @@ async function processEmailResult(parsed, msgId, source, ctx) {
       if (parsed.cleaningFee && Number(parsed.cleaningFee) !== Number(modMatch.cleaning_fee || 0)) {
         patch.cleaning_fee = parsed.cleaningFee;
       }
-      await fetch(
-        supabaseUrl + '/rest/v1/bookings?id=eq.' + enc(modMatch.id),
-        { method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=minimal' }, body: JSON.stringify(patch) }
-      );
+      const noticeOk = await patchBookingRow(supabaseUrl, sbHeaders, modMatch.id, patch);
+      if (!noticeOk) {
+        results.errors++;
+        results.details.push({ msgId, status: 'error', reason: 'Modification-notice PATCH failed — will retry next scan' });
+        return;
+      }
       pushBookingToCalendar(uid, modMatch.local_id, 'upsert');
       const modPropName = (propMap.find(p => p.id === modMatch.property_id) || {}).name || propertyName;
       if (supabaseAdmin) {
@@ -863,10 +913,15 @@ async function processEmailResult(parsed, msgId, source, ctx) {
       if (patch.checkin || patch.checkout) {
         patch.nights = daysBetween(patch.checkin || stub.checkin, patch.checkout || stub.checkout);
       }
-      await fetch(
-        supabaseUrl + '/rest/v1/bookings?id=eq.' + enc(stub.id),
-        { method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=minimal' }, body: JSON.stringify(patch) }
-      );
+      const enrichOk = await patchBookingRow(supabaseUrl, sbHeaders, stub.id, patch);
+      if (!enrichOk) {
+        // Enrichment didn't persist — leave the message retryable and DON'T
+        // mutate the in-memory stub (otherwise a later email in this batch would
+        // treat it as already enriched and skip it).
+        results.errors++;
+        results.details.push({ msgId, status: 'error', reason: 'Enrichment PATCH failed — will retry next scan' });
+        return;
+      }
       // Sync the in-memory snapshot: a second email about this reservation in
       // the same batch now matches an enriched booking and skips as a duplicate
       // rather than re-enriching (or worse, inserting).
@@ -904,12 +959,21 @@ async function processEmailResult(parsed, msgId, source, ctx) {
   }
 
   const inserted = await insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed, emailFrom, source);
+  if (!inserted) {
+    // Insert failed (RLS/5xx/network). Previously this still counted as
+    // "imported" and pushed the msgId into skipped_ids — silently losing the
+    // booking forever (report 1.6). Instead count an error and leave the
+    // message un-marked so the next scan retries it.
+    results.errors++;
+    results.details.push({ msgId, status: 'error', reason: 'Booking insert failed — will retry next scan' });
+    return;
+  }
   // Keep the in-memory snapshot current so a later email in this same batch
   // about the same reservation matches and dedupes instead of inserting again.
-  if (inserted) existingBookings.push(inserted);
-  if (inserted) pushBookingToCalendar(uid, source + '-' + msgId, 'upsert');
-  if (inserted && supabaseAdmin) {
-    results.imported++;
+  existingBookings.push(inserted);
+  pushBookingToCalendar(uid, source + '-' + msgId, 'upsert');
+  results.imported++;
+  if (supabaseAdmin) {
     const insRow = await fetchBookingRowByMessageId(supabaseAdmin, uid, msgId);
     if (insRow) {
       await notifyBookingOwnerPush(supabaseAdmin, {
@@ -919,8 +983,6 @@ async function processEmailResult(parsed, msgId, source, ctx) {
         fallbackPropertyName: propertyName,
       });
     }
-  } else {
-    results.imported++;
   }
   results.details.push({ msgId, status: 'imported', guest: parsed.guestName, checkin: parsed.checkin });
   // Mark this msgId as processed so it's not re-scanned

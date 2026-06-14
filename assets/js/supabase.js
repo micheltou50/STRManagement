@@ -169,19 +169,37 @@ export async function loadCleanerDashboard() {
     .eq('cleaner_uuid', cleanerRecord.id)
     .order('clean_date', { ascending: true });
 
-  // Check which linked bookings are cancelled
+  // Check which linked bookings are cancelled. cleans.booking_id canonically
+  // holds the booking's local_id, but legacy rows may hold the cloud UUID, so
+  // match against BOTH bookings.local_id and bookings.id. Routing each value to
+  // the right column also avoids the uuid-type error that an .in('id', [...])
+  // throws when fed numeric/text local_ids (which silently broke this before).
   const cleans = myCleans || [];
-  const bookingIds = [...new Set(cleans.map(c => c.booking_id).filter(Boolean))];
+  const bookingIds = [...new Set(cleans.map(c => c.booking_id).filter(Boolean).map(String))];
   if (bookingIds.length) {
-    const { data: cancelledBookings } = await window._sb
-      .from('bookings')
-      .select('id, status')
-      .in('id', bookingIds)
-      .eq('status', 'cancelled');
-    if (cancelledBookings && cancelledBookings.length) {
-      const cancelledSet = new Set(cancelledBookings.map(b => b.id));
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const uuidIds  = bookingIds.filter(v => uuidRe.test(v));
+    const localIds = bookingIds.filter(v => !uuidRe.test(v));
+    const cancelledSet = new Set();
+    const collect = (rows) => (rows || []).forEach(b => {
+      if (b.id != null)       cancelledSet.add(String(b.id));
+      if (b.local_id != null) cancelledSet.add(String(b.local_id));
+    });
+    if (uuidIds.length) {
+      const { data } = await window._sb
+        .from('bookings').select('id, local_id, status')
+        .in('id', uuidIds).eq('status', 'cancelled');
+      collect(data);
+    }
+    if (localIds.length) {
+      const { data } = await window._sb
+        .from('bookings').select('id, local_id, status')
+        .in('local_id', localIds).eq('status', 'cancelled');
+      collect(data);
+    }
+    if (cancelledSet.size) {
       cleans.forEach(c => {
-        if (c.booking_id && cancelledSet.has(c.booking_id)) {
+        if (c.booking_id && cancelledSet.has(String(c.booking_id))) {
           c._bookingCancelled = true;
         }
       });
