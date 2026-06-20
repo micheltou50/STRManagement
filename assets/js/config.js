@@ -225,7 +225,12 @@ export function setActivePropertyId(id) {
       .from('app_config')
       .update({ active_property_id: supabaseUUID, updated_at: new Date().toISOString() })
       .eq('user_id', window._supabaseUser.id)
-      .then(() => console.log('[StayOps] Active property synced to cloud'))
+      .then(({ error }) => {
+        // supabase-js v2 RESOLVES (doesn't reject) on a DB error, so the old
+        // .then(() => 'synced') logged success even on failure (3.2).
+        if (error) console.warn('[StayOps] Active property sync failed', error.message);
+        else console.log('[StayOps] Active property synced to cloud');
+      })
       .catch(e => console.warn('[StayOps] Active property sync failed', e));
   }
   return true;
@@ -242,6 +247,9 @@ export function saveUiPreferenceToCloud(key, value) {
       .from('app_config')
       .update({ ui_preferences: { ...window._appConfig.ui_preferences, [key]: value } })
       .eq('user_id', window._supabaseUser.id)
+      .then(({ error }) => {  // {error} resolves (not rejects) on DB failure (3.2)
+        if (error) console.warn('[StayOps] UI preference sync failed', error.message);
+      })
       .catch(e => console.warn('[StayOps] UI preference sync failed', e));
   }
 }

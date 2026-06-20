@@ -301,18 +301,27 @@ export async function subscribeToPush(role, cleanerId) {
     console.log('SW ready, getting push subscription...');
     let sub = await reg.pushManager.getSubscription();
     console.log('[Push] existing subscription found:', !!sub);
+    // Refreshing the VAPID key requires re-subscribing, which per spec means
+    // unsubscribing the existing subscription first. But do NOT tear down the
+    // working subscription until permission is actually granted — otherwise a
+    // denied prompt leaves the device unreachable while the server keeps
+    // pushing to the now-dead endpoint (1.30).
     let oldEndpoint = null;
     if (sub) {
       try { oldEndpoint = sub.toJSON().endpoint; } catch (_e) { /* ignore */ }
+    }
+    if (Notification.permission !== 'granted') {
+      console.log('[Push] calling Notification.requestPermission()');
+      const permission = await Notification.requestPermission();
+      console.log('Notification permission:', permission);
+      if (permission !== 'granted') return null;  // existing subscription left intact
+    }
+    if (sub) {
       console.log('[Push] unsubscribing old subscription to refresh VAPID key, old endpoint:', oldEndpoint ? oldEndpoint.substring(0, 60) + '...' : null);
       await sub.unsubscribe();
       sub = null;
     }
     if (!sub) {
-      console.log('[Push] calling Notification.requestPermission()');
-      const permission = await Notification.requestPermission();
-      console.log('Notification permission:', permission);
-      if (permission !== 'granted') return null;
       console.log('[Push] calling pushManager.subscribe()');
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,

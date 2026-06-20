@@ -89,6 +89,9 @@ exports.handler = async (event) => {
 
     if (dbError) {
       console.error('[gmail-oauth-callback] Upsert failed:', dbError.message);
+      // The connection wasn't saved — don't report success, or the user lands
+      // on "connected" with no stored token and silently-failing scans (3.5).
+      return redirect(SITE_URL + '/?oauth_error=save_failed');
     }
 
     // Log whether refresh token was received

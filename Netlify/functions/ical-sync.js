@@ -92,7 +92,7 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
     if (ev.cancelled) {
       if (prior && prior.status !== 'cancelled') {
         const cancelledAt = new Date().toISOString();
-        await fetch(supabaseUrl + '/rest/v1/bookings?id=eq.' + encodeURIComponent(prior.id), {
+        const cancRes = await fetch(supabaseUrl + '/rest/v1/bookings?id=eq.' + encodeURIComponent(prior.id), {
           method: 'PATCH',
           headers: { ...sbHeaders, Prefer: 'return=minimal' },
           body: JSON.stringify({
@@ -102,6 +102,8 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
             updated_at: cancelledAt,
           }),
         });
+        // Only notify cleaners / advance the counter if the cancel persisted (3.6).
+        if (!cancRes.ok) { result.errors++; continue; }
         pushBookingToCalendar(feed.user_id, prior.local_id, 'delete');
         await notifyCleanerCancellation({
           supabaseUrl,
@@ -162,13 +164,17 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
           patch.nights = daysBetween(ev.checkin, ev.checkout);
         }
         if (needsRevive) patch.status = 'confirmed';
-        await fetch(supabaseUrl + '/rest/v1/bookings?id=eq.' + encodeURIComponent(prior.id), {
+        const updRes = await fetch(supabaseUrl + '/rest/v1/bookings?id=eq.' + encodeURIComponent(prior.id), {
           method: 'PATCH',
           headers: { ...sbHeaders, Prefer: 'return=minimal' },
           body: JSON.stringify(patch),
         });
-        pushBookingToCalendar(feed.user_id, prior.local_id, 'upsert');
-        result.updated++;
+        if (!updRes.ok) {
+          result.errors++;
+        } else {
+          pushBookingToCalendar(feed.user_id, prior.local_id, 'upsert');
+          result.updated++;
+        }
       }
     }
   }
@@ -208,7 +214,7 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
     if (!liveUids.has(uid) && byUid[uid].status !== 'cancelled') {
       const stale = byUid[uid];
       const cancelledAt = new Date().toISOString();
-      await fetch(supabaseUrl + '/rest/v1/bookings?id=eq.' + encodeURIComponent(stale.id), {
+      const sweepRes = await fetch(supabaseUrl + '/rest/v1/bookings?id=eq.' + encodeURIComponent(stale.id), {
         method: 'PATCH',
         headers: { ...sbHeaders, Prefer: 'return=minimal' },
         body: JSON.stringify({
@@ -218,6 +224,8 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
           updated_at: cancelledAt,
         }),
       });
+      // Only notify cleaners / advance the counter if the cancel persisted (3.6).
+      if (!sweepRes.ok) { result.errors++; continue; }
       pushBookingToCalendar(feed.user_id, stale.local_id, 'delete');
       await notifyCleanerCancellation({
         supabaseUrl,

@@ -91,6 +91,8 @@ export async function processRecurringTemplates() {
         category: t.category || 'Other',
         receiptType: '',
         receiptNum: '',
+        _propertyId: t.propertyId,   // 1.23: scope to the template's property so it
+                                     // shows in the right property's expense list
         _fromRecurring: t.id,
       };
       expenses.push(newExp);
