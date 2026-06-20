@@ -16,6 +16,7 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const { captureError, flush } = require('./utils/sentry');
+const { verifyState } = require('./utils/oauth-state');
 const out = require('./utils/outlook-cal-client');
 const crypto = require('crypto');
 
@@ -24,12 +25,17 @@ const CALENDAR_NAME = 'StayOps';
 exports.handler = async (event) => {
   const params = event.queryStringParameters || {};
   const code = params.code;
-  const state = params.state;
+  let state = params.state;
   const oauthErr = params.error;
 
   const SITE_URL = process.env.SITE_URL || process.env.URL || '';
   if (oauthErr) return redirect(SITE_URL + '/?cal_oauth_error=' + encodeURIComponent(oauthErr));
   if (!code || !state) return redirect(SITE_URL + '/?cal_oauth_error=missing_code_or_state');
+  // 4.5: `state` is a signed token minted from the authenticated session.
+  // Verify it and replace it with the trusted user id; a forged or expired
+  // state is rejected here.
+  state = verifyState(state);
+  if (!state) return redirect(SITE_URL + '/?cal_oauth_error=invalid_state');
 
   const clientId = process.env.MICROSOFT_CLIENT_ID;
   const clientSecret = process.env.MICROSOFT_CLIENT_SECRET;

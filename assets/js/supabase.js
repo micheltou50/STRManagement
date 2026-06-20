@@ -272,6 +272,24 @@ export async function authFetch(url, opts) {
 }
 globalThis.authFetch = authFetch;
 
+/** Begin an OAuth connect flow. Mints a short-lived, session-bound `state`
+ *  token from the authenticated oauth-state endpoint, then redirects to the
+ *  given *-oauth-start function. Replaces passing the raw user id as state, so
+ *  a forged state can't bind an attacker's mailbox/calendar to a victim (4.5). */
+export async function beginOAuthConnect(startPath) {
+  try {
+    const resp = await authFetch('/.netlify/functions/oauth-state', { method: 'POST' });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.state) throw new Error(data.error || 'Could not start connection');
+    window.location.href = startPath + '?state=' + encodeURIComponent(data.state);
+  } catch (e) {
+    const msg = (e && e.message) || 'Could not start connection';
+    if (typeof globalThis.showBanner === 'function') globalThis.showBanner('⚠ ' + msg, 'warn');
+    else console.warn('[StayOps] beginOAuthConnect failed:', msg);
+  }
+}
+globalThis.beginOAuthConnect = beginOAuthConnect;
+
 
 // ── PROPERTIES ────────────────────────────────────────────────────────────────
 

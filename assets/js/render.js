@@ -3884,14 +3884,13 @@ function onboardSkipStep(currentStep) {
 async function onboardConnectGoogle() {
   const user = typeof globalThis.getCurrentSupabaseUser === 'function' ? await globalThis.getCurrentSupabaseUser() : null;
   if (!user) { showBanner('⚠ Please sign in first', 'warn'); return; }
-  // Redirect to Netlify OAuth start function, passing user_id as state
-  window.location.href = '/.netlify/functions/gmail-oauth-start?state=' + encodeURIComponent(user.id);
+  await globalThis.beginOAuthConnect('/.netlify/functions/gmail-oauth-start');
 }
 
 async function onboardConnectMicrosoft() {
   const user = typeof globalThis.getCurrentSupabaseUser === 'function' ? await globalThis.getCurrentSupabaseUser() : null;
   if (!user) { showBanner('⚠ Please sign in first', 'warn'); return; }
-  window.location.href = '/.netlify/functions/outlook-oauth-start?state=' + encodeURIComponent(user.id);
+  await globalThis.beginOAuthConnect('/.netlify/functions/outlook-oauth-start');
 }
 
 // Called by OAuth callback when connection succeeds

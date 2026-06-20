@@ -166,7 +166,7 @@ function _renderCalendarSyncCard() {
 async function connectGoogleCalendar() {
   const user = await getCurrentSupabaseUser();
   if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
-  window.location.href = '/.netlify/functions/gcal-oauth-start?state=' + encodeURIComponent(user.id);
+  await globalThis.beginOAuthConnect('/.netlify/functions/gcal-oauth-start');
 }
 
 async function disconnectGoogleCalendar() {
@@ -190,7 +190,7 @@ async function disconnectGoogleCalendar() {
 async function connectOutlookCalendar() {
   const user = await getCurrentSupabaseUser();
   if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
-  window.location.href = '/.netlify/functions/outlook-cal-oauth-start?state=' + encodeURIComponent(user.id);
+  await globalThis.beginOAuthConnect('/.netlify/functions/outlook-cal-oauth-start');
 }
 
 async function disconnectOutlookCalendar() {
@@ -383,13 +383,13 @@ async function classifyInboxEvent(syncStateId, choice) {
 async function connectGmail() {
   const user = await getCurrentSupabaseUser();
   if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
-  window.location.href = '/.netlify/functions/gmail-oauth-start?state=' + encodeURIComponent(user.id);
+  await globalThis.beginOAuthConnect('/.netlify/functions/gmail-oauth-start');
 }
 
 async function connectOutlook() {
   const user = await getCurrentSupabaseUser();
   if (!user) { globalThis.showBanner('⚠ Please sign in first', 'warn'); return; }
-  window.location.href = '/.netlify/functions/outlook-oauth-start?state=' + encodeURIComponent(user.id);
+  await globalThis.beginOAuthConnect('/.netlify/functions/outlook-oauth-start');
 }
 async function maybeAutoScanGmail() {
   try {

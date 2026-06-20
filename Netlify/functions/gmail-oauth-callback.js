@@ -13,11 +13,12 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const { captureError, flush } = require('./utils/sentry');
+const { verifyState } = require('./utils/oauth-state');
 
 exports.handler = async (event) => {
   const params = event.queryStringParameters || {};
   const code = params.code;
-  const state = params.state; // user_id
+  let state = params.state;
   const error = params.error;
 
   const SITE_URL = process.env.SITE_URL || process.env.URL || '';
@@ -28,6 +29,11 @@ exports.handler = async (event) => {
   if (!code || !state) {
     return redirect(SITE_URL + '/?oauth_error=missing_code_or_state');
   }
+  // 4.5: `state` is a signed token minted from the authenticated session.
+  // Verify it and replace it with the trusted user id — a forged or expired
+  // state (e.g. an attacker supplying a victim's uid) is rejected here.
+  state = verifyState(state);
+  if (!state) return redirect(SITE_URL + '/?oauth_error=invalid_state');
 
   const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
   const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;

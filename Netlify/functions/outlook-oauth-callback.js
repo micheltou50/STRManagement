@@ -11,10 +11,11 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const { captureError, flush } = require('./utils/sentry');
+const { verifyState } = require('./utils/oauth-state');
 
 exports.handler = async (event) => {
   const code   = event.queryStringParameters?.code;
-  const state  = event.queryStringParameters?.state || '';
+  let state    = event.queryStringParameters?.state || '';
   const error  = event.queryStringParameters?.error;
 
   const appUrl   = process.env.URL || 'https://app.stayops.com.au';
@@ -26,6 +27,15 @@ exports.handler = async (event) => {
 
   if (!code) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Missing code' }) };
+  }
+
+  // 4.5: `state` is a signed token minted from the authenticated session.
+  // Verify it and replace it with the trusted user id; a forged, expired, or
+  // EMPTY state (the old code accepted empty state -> a user_id:null row) is
+  // rejected here.
+  state = verifyState(state);
+  if (!state) {
+    return { statusCode: 302, headers: { Location: appUrl + '?oauth_error=invalid_state' }, body: '' };
   }
 
   const clientId     = process.env.MICROSOFT_CLIENT_ID;
