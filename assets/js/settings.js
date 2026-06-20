@@ -1787,20 +1787,21 @@ async function addICalFeed(propertyId) {
 async function removeICalFeed(feedId) {
   const user = await getCurrentSupabaseUser();
   if (!user) return;
-  globalThis.showAppModal(
-    'Remove this calendar feed?',
-    'Bookings already imported will stay. New bookings from this feed will stop appearing.',
-    async () => {
-      try {
-        const { error } = await window._sb.from('property_ical_feeds').delete().eq('id', feedId).eq('user_id', user.id);
-        if (error) throw new Error(error.message);
-        globalThis.showBanner('✓ Feed removed', 'ok');
-        await populateICalFeedsPanel();
-      } catch (e) {
-        globalThis.showBanner('⚠ Remove failed: ' + e.message, 'warn');
-      }
-    }
-  );
+  const ok = await globalThis.showAppModal({
+    title: 'Remove this calendar feed?',
+    msg: 'Bookings already imported will stay. New bookings from this feed will stop appearing.',
+    confirmText: 'Remove',
+    confirmColor: 'var(--red)',
+  });
+  if (!ok) return;
+  try {
+    const { error } = await window._sb.from('property_ical_feeds').delete().eq('id', feedId).eq('user_id', user.id);
+    if (error) throw new Error(error.message);
+    globalThis.showBanner('✓ Feed removed', 'ok');
+    await populateICalFeedsPanel();
+  } catch (e) {
+    globalThis.showBanner('⚠ Remove failed: ' + e.message, 'warn');
+  }
 }
 
 async function syncICalFeedsNow() {

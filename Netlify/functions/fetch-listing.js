@@ -155,11 +155,17 @@ exports.handler = async (event) => {
 
   const listingId = idMatch[1];
   const raw_url = url;
+  // SSRF fix: never fetch the caller-supplied URL directly. The regex matches
+  // `airbnb.<tld>/rooms/<id>` ANYWHERE in the string, so
+  // `https://169.254.169.254/?x=airbnb.com/rooms/1` passes the check — fetching
+  // `url` would then hit the cloud metadata endpoint. Rebuild a canonical
+  // Airbnb URL from the validated numeric listing id and fetch only that.
+  const safeUrl = 'https://www.airbnb.com/rooms/' + listingId;
 
   // Fetch the Airbnb page
   let html;
   try {
-    const response = await fetch(url, {
+    const response = await fetch(safeUrl, {
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

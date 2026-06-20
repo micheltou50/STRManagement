@@ -62,8 +62,12 @@ exports.handler = async (event) => {
       // Verify clientState matches at least one notification for this sub
       const matching = notifications.filter(n => n.subscriptionId === subId);
       const expected = conn.outlook_client_state || '';
-      if (expected && matching.length && matching.every(n => n.clientState && n.clientState !== expected)) {
-        console.warn('[outlook-cal-webhook] clientState mismatch for sub', subId);
+      // When a clientState is configured, EVERY notification for this sub must
+      // present it exactly. The previous check passed when clientState was
+      // missing (`n.clientState && ...` is falsy for a tokenless notification),
+      // letting a forged notification with no clientState bypass verification.
+      if (expected && !matching.every(n => n.clientState === expected)) {
+        console.warn('[outlook-cal-webhook] clientState missing or mismatched for sub', subId);
         continue;
       }
 

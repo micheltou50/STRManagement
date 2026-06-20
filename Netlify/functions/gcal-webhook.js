@@ -59,9 +59,12 @@ exports.handler = async (event) => {
       return { statusCode: 200, body: '' };
     }
 
-    // Optional shared secret check — channel_token was set to the user_id.
-    if (channelToken && channelToken !== userId) {
-      console.warn('[gcal-webhook] channel token mismatch');
+    // Shared-secret check — channel_token is set to the user_id at watch
+    // creation, so Google echoes it on every notification. Require it
+    // present AND matching: a MISSING token must not bypass the guard
+    // (the previous `channelToken &&` let a tokenless request straight through).
+    if (channelToken !== userId) {
+      console.warn('[gcal-webhook] channel token missing or mismatched');
       return { statusCode: 200, body: '' };
     }
 

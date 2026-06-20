@@ -2432,7 +2432,7 @@ async function deleteMaintenance(id) {
   const _okIssue = await showAppModal({ title: 'Delete Issue', msg: 'Delete this maintenance issue?', confirmText: 'Delete', confirmColor: 'var(--red)' });
   if (!_okIssue) return;
   const removed = maintenance.find(m => String(m.id) === String(id));
-  replaceArrayInPlace(maintenance, maintenance.filter(m => m.id !== id));
+  replaceArrayInPlace(maintenance, maintenance.filter(m => String(m.id) !== String(id)));
   savePropertyData();
   renderMaintenance();
   if (removed && typeof globalThis.deleteMaintenanceFromCloud === 'function') globalThis.deleteMaintenanceFromCloud(removed).catch(e => console.warn("[StayOps] silent error:", e));
@@ -2581,7 +2581,7 @@ async function deleteInventoryItemFromEdit() {
   const _okInvEdit = await showAppModal({ title: 'Remove Item', msg: 'Remove this item from inventory?', confirmText: 'Remove', confirmColor: 'var(--red)' });
   if (!_okInvEdit) return;
   const removed = inventory.find(i => String(i.id) === String(editingInvId));
-  replaceArrayInPlace(inventory, inventory.filter(i => i.id !== editingInvId));
+  replaceArrayInPlace(inventory, inventory.filter(i => String(i.id) !== String(editingInvId)));
   savePropertyData();
   closeInvEdit();
   renderInventory();

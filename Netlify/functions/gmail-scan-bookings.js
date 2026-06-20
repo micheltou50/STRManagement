@@ -288,24 +288,9 @@ exports.handler = async (event) => {
           isSingleProperty ? null : propertyListStr
         );
 
-        // Diagnostic: log Claude's classification + extracted values for this scan.
-        // TODO: remove this scan_debug table once modification extraction is verified working.
-        try {
-          await fetch(SUPABASE_URL + '/rest/v1/scan_debug', {
-            method: 'POST',
-            headers: { ...sbHeaders, Prefer: 'return=minimal' },
-            body: JSON.stringify({
-              user_id: uid,
-              msg_id: msgId,
-              subject: emailSubject,
-              email_from: emailFrom,
-              body_len: emailBody.length,
-              body_excerpt: emailBody.slice(0, 2000),
-              parsed: parsed,
-              email_type: parsed && (parsed.emailType || (parsed.not_a_booking ? 'not_a_booking' : null)),
-            }),
-          });
-        } catch (_dbgErr) { /* diagnostic only */ }
+        // scan_debug diagnostic insert removed — it wrote 2000-char raw
+        // guest-email excerpts + parsed PII to a table on every scan
+        // (privacy issue + unbounded growth, ANALYSIS finding 4.13).
 
         await processEmailResult(parsed, msgId, 'gmail', ctx);
 

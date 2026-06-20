@@ -1511,34 +1511,28 @@ async function deleteBooking(id) {
   const deletedCloudId = String(deletedBooking._cloudId || '');
   const deletedGuestName = deletedBooking.name;
 
-  const orphanedCleans = cleans.filter(c =>
+  // Match records to THIS booking by id first. The guest-name fallback is
+  // dangerous for repeat guests — name alone would also sweep a DIFFERENT
+  // upcoming stay's clean/notes (silent data loss). So only apply the name
+  // fallback when it lines up with this exact booking: a clean must fall on
+  // the booking's checkout date; notes carry no stay-date, so they match by
+  // id only (no name fallback).
+  const deletedCheckout = deletedBooking.checkout ? String(deletedBooking.checkout) : '';
+  const cleanBelongsToBooking = (c) =>
     String(c.bookingId) === deletedLocalId ||
     (deletedCloudId && String(c.bookingId) === deletedCloudId) ||
-    (deletedGuestName && c.guestName === deletedGuestName)
-  );
-  const orphanedNotes = notes.filter(n =>
+    (deletedGuestName && c.guestName === deletedGuestName &&
+      deletedCheckout && String(c.date) === deletedCheckout);
+  const noteBelongsToBooking = (n) =>
     String(n.bookingId) === deletedLocalId ||
-    (deletedCloudId && String(n.bookingId) === deletedCloudId) ||
-    (deletedGuestName && n.guestName === deletedGuestName)
-  );
+    (deletedCloudId && String(n.bookingId) === deletedCloudId);
+
+  const orphanedCleans = cleans.filter(cleanBelongsToBooking);
+  const orphanedNotes = notes.filter(noteBelongsToBooking);
 
   // Cancelled bookings stay in memory so revenue and the Cancelled tab reflect the new state immediately.
-  replaceArrayInPlace(
-    cleans,
-    cleans.filter(c =>
-      String(c.bookingId) !== deletedLocalId &&
-      (!deletedCloudId || String(c.bookingId) !== deletedCloudId) &&
-      !(deletedGuestName && c.guestName === deletedGuestName)
-    )
-  );
-  replaceArrayInPlace(
-    notes,
-    notes.filter(n =>
-      String(n.bookingId) !== deletedLocalId &&
-      (!deletedCloudId || String(n.bookingId) !== deletedCloudId) &&
-      !(deletedGuestName && n.guestName === deletedGuestName)
-    )
-  );
+  replaceArrayInPlace(cleans, cleans.filter(c => !cleanBelongsToBooking(c)));
+  replaceArrayInPlace(notes, notes.filter(n => !noteBelongsToBooking(n)));
 
   // In-memory arrays are the source of truth (cloud already deleted above).
 

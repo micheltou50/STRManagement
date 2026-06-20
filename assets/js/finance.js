@@ -101,15 +101,24 @@ const FINANCE_CATEGORY_COLOR_FALLBACK = [
 
 /* ── ATO Tax Category Mapping (Phase 1A) ──────────────────────────────────── */
 const ATO_CATEGORY_MAP = {
+  // Current default categories — MUST stay in sync with DEFAULT_EXPENSE_CATS, or
+  // the ATO export silently dumps council rates / mortgage / utilities /
+  // advertising into "Sundry" on a tax document (report 1.18).
   'Cleaning & Garden':       'cleaning',
   'Maintenance & Repairs':   'repairs',
   'Supplies & Consumables':  'sundry',
-  'Utilities & Rates':       'water_rates',
+  'Utilities':               'water_rates',
+  'Council Rates & Strata':  'council_rates',
   'Insurance':               'insurance',
+  'Mortgage':                'interest',
+  'Furnishings & Linen':     'depreciation',
+  'Professional Services':   'accounting_legal',
+  'Advertising':             'advertising',
+  'Other':                   'sundry',
+  // Legacy category names kept for back-compat with older saved expenses.
+  'Utilities & Rates':       'water_rates',
   'Furnishings & Equipment': 'depreciation',
   'Renovation':              'capital_works',
-  'Professional Services':   'accounting_legal',
-  'Other':                   'sundry'
 };
 
 const ATO_FIELD_LABELS = {
@@ -135,7 +144,11 @@ const ATO_FIELD_LABELS = {
 };
 
 function getAtoField(category) {
-  return ATO_CATEGORY_MAP[category] || 'sundry';
+  if (!category) return 'sundry';
+  if (ATO_CATEGORY_MAP[category]) return ATO_CATEGORY_MAP[category];
+  // Strip a "Parent > Sub" suffix and try the parent (e.g. "Mortgage > Interest").
+  const parent = String(category).split('>')[0].trim();
+  return ATO_CATEGORY_MAP[parent] || 'sundry';
 }
 
 function getAtoFieldLabel(category) {
@@ -1803,6 +1816,7 @@ const _categoryKeyMap = {
   'furnishings & equipment': 'furniture', 'furniture': 'furniture',
   'professional services': 'accounting', 'accounting': 'accounting',
   'council rates': 'council_rates', 'council_rates': 'council_rates',
+  'council rates & strata': 'council_rates',
   'strata': 'strata', 'strata/body corp': 'strata',
   'mortgage': 'mortgage',
   'advertising': 'advertising',
@@ -1812,7 +1826,9 @@ const _categoryKeyMap = {
 };
 function _normCategoryKey(cat) {
   if (!cat) return 'other';
-  const lower = String(cat).trim().toLowerCase();
+  // Strip a "Parent > Sub" suffix so e.g. "Mortgage > Interest" resolves to the
+  // parent's key and still matches owner-paid lists keyed on the parent (1.19).
+  const lower = String(cat).split('>')[0].trim().toLowerCase();
   return _categoryKeyMap[lower] || lower.replace(/\s+/g, '_');
 }
 
@@ -2315,7 +2331,7 @@ function _viewHistoricalInvoice(invoiceNumber) {
   }
   const clients = loadClients();
   const client = rec.clientName ? clients.find(c => c.name === rec.clientName) || { name: rec.clientName } : null;
-  buildInvoicePDF(matched, client);
+  buildInvoicePDF(matched, client, rec);
 }
 
 let _expandedInvoiceNum = null;
@@ -2381,12 +2397,16 @@ function renderInvoiceHistory(containerId) {
     <div style="background:#fff;border-radius:12px;padding:0 16px;border:0.5px solid rgba(0,0,0,0.08)">${rows}</div>`;
 }
 
-function buildInvoicePDF(selected, client) {
+function buildInvoicePDF(selected, client, existing) {
   const inv = _getInvoiceIdentity();
   const bank = (window._appConfig && window._appConfig.bank_details) || { name:'', bsb:'', acc:'', bank:'' };
 
-  const invDate = new Date();
-  const invNum = _getNextInvoiceNumber(_getIssuedInvoices(), invDate);
+  // When re-viewing a previously-issued invoice, reuse its stored number and
+  // date instead of minting a fresh sequence number / today's date — otherwise
+  // every view renumbers it and "Mark as issued" creates a duplicate (1.25).
+  const existingNum = existing && (existing.number || existing.invoiceNumber);
+  const invDate = existing && existing.date ? new Date(existing.date) : new Date();
+  const invNum = existingNum || _getNextInvoiceNumber(_getIssuedInvoices(), invDate);
   const today = invDate.toLocaleDateString('en-AU', { day:'numeric', month:'long', year:'numeric' });
   const dueDate = new Date(invDate.getTime() + 14 * 24 * 60 * 60 * 1000)
     .toLocaleDateString('en-AU', { day:'numeric', month:'long', year:'numeric' });
