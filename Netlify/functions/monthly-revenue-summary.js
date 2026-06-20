@@ -120,17 +120,16 @@ exports.handler = async (event) => {
     return json(405, { error: 'Method not allowed' });
   }
 
+  // CRON_SECRET is MANDATORY — refuse rather than fail open when it's unset (4.6).
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const hdr = getHeader(event.headers, 'x-cron-secret');
-    if (hdr !== cronSecret) {
-      console.log('[StayOps] monthly-revenue-summary: unauthorized cron request');
-      return json(401, { error: 'Unauthorized' });
-    }
-  } else {
-    console.log(
-      '[StayOps] monthly-revenue-summary: CRON_SECRET is not set — accepting request (set CRON_SECRET in production)'
-    );
+  if (!cronSecret) {
+    console.error('[StayOps] monthly-revenue-summary: CRON_SECRET not set — refusing request');
+    return json(500, { error: 'Server misconfigured' });
+  }
+  const hdr = getHeader(event.headers, 'x-cron-secret');
+  if (hdr !== cronSecret) {
+    console.log('[StayOps] monthly-revenue-summary: unauthorized cron request');
+    return json(401, { error: 'Unauthorized' });
   }
 
   const supabaseUrl = process.env.SUPABASE_URL;
@@ -277,9 +276,12 @@ exports.handler = async (event) => {
 
     console.log('[StayOps] Monthly revenue summary complete');
     return json(200, {
+      // Don't return per-tenant financials in the response body — this is a
+      // cron endpoint and the push notifications already deliver each host
+      // their own numbers. Return only a processed count (4.6).
       success: true,
       month: yyyymm,
-      properties: perPropertyResults,
+      propertiesProcessed: Array.isArray(perPropertyResults) ? perPropertyResults.length : 0,
     });
   } catch (e) {
     const message = e && e.message ? e.message : String(e);

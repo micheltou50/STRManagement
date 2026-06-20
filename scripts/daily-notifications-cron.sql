@@ -20,7 +20,11 @@ select cron.schedule(
   $$
   select net.http_post(
     url := 'https://app.stayops.com.au/.netlify/functions/daily-notifications',
-    headers := '{"Content-Type": "application/json", "x-cron-secret": "cbabd28acf79ec84a2f33dde4dae50aaea9cb0025514272a73677b41531593ef"}'::jsonb,
+    -- SECURITY: the real secret must NOT live in committed SQL. Set CRON_SECRET
+    -- in Netlify env, store the SAME (rotated) value in Supabase Vault, and pull
+    -- it in here instead of hardcoding. The previously-committed literal has been
+    -- scrubbed and MUST be rotated. Replace the placeholder before running:
+    headers := '{"Content-Type": "application/json", "x-cron-secret": "<SET_ROTATED_CRON_SECRET_FROM_VAULT>"}'::jsonb,
     body := '{}'::jsonb
   ) as request_id;
   $$

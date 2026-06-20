@@ -90,17 +90,17 @@ exports.handler = async (event) => {
     return json(405, { error: 'Method not allowed' });
   }
 
+  // CRON_SECRET is MANDATORY — refuse rather than fail open when it's unset, so
+  // a missing env var can't leave this endpoint world-callable (4.6).
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const hdr = getHeader(event.headers, 'x-cron-secret');
-    if (hdr !== cronSecret) {
-      console.log('[StayOps] daily-notifications: unauthorized cron request');
-      return json(401, { error: 'Unauthorized' });
-    }
-  } else {
-    console.warn(
-      '[StayOps] daily-notifications: CRON_SECRET is not set — accepting request (configure CRON_SECRET + header in production)'
-    );
+  if (!cronSecret) {
+    console.error('[StayOps] daily-notifications: CRON_SECRET not set — refusing request');
+    return json(500, { error: 'Server misconfigured' });
+  }
+  const hdr = getHeader(event.headers, 'x-cron-secret');
+  if (hdr !== cronSecret) {
+    console.log('[StayOps] daily-notifications: unauthorized cron request');
+    return json(401, { error: 'Unauthorized' });
   }
 
   const supabaseUrl = process.env.SUPABASE_URL;
