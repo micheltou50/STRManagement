@@ -3053,7 +3053,7 @@ async function hydrateCleanerFromFunction() {
   }
   try {
     console.log('[StayOps] hydrateCleanerFromFunction: fetching data…');
-    const res = await fetch('/.netlify/functions/cleaner-data?cleanerId=' + encodeURIComponent(id) + '&uid=' + encodeURIComponent(uid));
+    const res = await fetch((globalThis.apiUrl || (u => u))('/.netlify/functions/cleaner-data?cleanerId=' + encodeURIComponent(id) + '&uid=' + encodeURIComponent(uid)));
     if (!res.ok) {
       console.warn('[StayOps] hydrateCleanerFromFunction: HTTP ' + res.status);
       return false;
@@ -3557,7 +3557,7 @@ window._sendCleanerChatMessage = async function() {
 
   // Send to backend
   try {
-    const res = await fetch('/.netlify/functions/cleaner-message', {
+    const res = await fetch((globalThis.apiUrl || (u => u))('/.netlify/functions/cleaner-message'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

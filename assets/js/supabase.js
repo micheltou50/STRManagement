@@ -252,6 +252,28 @@ export async function getCurrentSupabaseUser() {
   return null;
 }
 
+// ── NATIVE SHELL (Capacitor) API ROUTING ────────────────────────────────────
+// In the native iOS app the page is served from capacitor://localhost, so a
+// relative '/.netlify/functions/...' URL resolves against that scheme and 404s.
+// Detect the Capacitor shell and prefix backend calls with the production
+// origin. On the web, API_BASE is '' so calls stay same-origin (unchanged).
+const NATIVE_API_ORIGIN = 'https://strmanagement.netlify.app';
+function isNativeShell() {
+  try {
+    return !!(globalThis.Capacitor
+      && typeof globalThis.Capacitor.isNativePlatform === 'function'
+      && globalThis.Capacitor.isNativePlatform());
+  } catch (_) { return false; }
+}
+const API_BASE = isNativeShell() ? NATIVE_API_ORIGIN : '';
+/** Prefix an app-relative backend path with the prod origin on native. */
+export function apiUrl(path) {
+  if (typeof path === 'string' && API_BASE && path.charAt(0) === '/') return API_BASE + path;
+  return path;
+}
+globalThis.apiUrl = apiUrl;
+globalThis.API_BASE = API_BASE;
+
 /** Get auth headers with JWT for authenticated Netlify function calls. */
 export async function getAuthHeaders() {
   if (!window._sb) return { 'Content-Type': 'application/json' };
@@ -268,7 +290,7 @@ globalThis.getAuthHeaders = getAuthHeaders;
 export async function authFetch(url, opts) {
   const headers = await getAuthHeaders();
   const merged = { ...opts, headers: { ...headers, ...((opts && opts.headers) || {}) } };
-  return fetch(url, merged);
+  return fetch(apiUrl(url), merged);
 }
 globalThis.authFetch = authFetch;
 
@@ -2473,7 +2495,7 @@ export async function requestPricingGeneration({
     if (!forecastStart && !forecastEnd && Number.isFinite(Number(forecastDays))) {
       payload.forecast_days = Number(forecastDays);
     }
-    const res = await fetch('/.netlify/functions/generate-pricing-suggestions', {
+    const res = await fetch(apiUrl('/.netlify/functions/generate-pricing-suggestions'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

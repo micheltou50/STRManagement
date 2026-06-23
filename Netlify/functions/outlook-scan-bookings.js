@@ -17,6 +17,7 @@
 const { createClient } = require('@supabase/supabase-js');
 const { captureError, flush } = require('./utils/sentry');
 const { verifyAuth } = require('./utils/auth');
+const { isPreflight, preflightResponse } = require('./utils/cors');
 const {
   enc, json, safeJson, looksLikeBookingEmail,
   loadProperties, loadExistingBookings, loadProcessedIds,
@@ -66,6 +67,7 @@ async function updateLastScan(supabaseUrl, sbHeaders, uid, skippedIds) {
 // ── Handler ─────────────────────────────────────────────────────────────────
 
 exports.handler = async (event) => {
+  if (isPreflight(event)) return preflightResponse();
   // Require a real authenticated Supabase session and derive the user from the
   // JWT — the old `?uid=` query param was a non-secret leaked in cleaner links
   // and the public calendar feed (see gmail-scan-bookings for the rationale).

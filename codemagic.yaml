@@ -1,0 +1,94 @@
+workflows:
+  ios-testflight:
+    name: StayOps iOS → TestFlight
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+
+    integrations:
+      # Name of the App Store Connect API key configured in Codemagic UI
+      # (Team > Integrations > App Store Connect). Reuses the SAME Admin-role key
+      # already set up for Bookkeeper — the key must have Admin access, not
+      # Developer, or `--create` below gets a 403 making the distribution cert.
+      # If you rename it in the UI, update this value to match exactly.
+      app_store_connect: Bookkeeper
+
+    environment:
+      groups:
+        # One group holds all secrets for this workflow. StayOps hardcodes its
+        # Supabase URL + anon key in assets/js/supabase.js (anon key is
+        # public-safe), so the ONLY secret needed here is:
+        #   CERTIFICATE_PRIVATE_KEY — RSA key paired with the iOS distribution cert
+        - stayops
+      # NOTE: no ios_signing block here on purpose. That block makes Codemagic
+      # try to fetch an EXISTING profile at build init and fail. Signing is done
+      # manually in the "Set up code signing" script, which creates the cert +
+      # profile on the fly with `--create`.
+      node: latest
+      xcode: latest
+      vars:
+        BUNDLE_ID: com.mtmanagement.stayops
+        XCODE_PROJECT: ios/App/App.xcodeproj
+        XCODE_SCHEME: App
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+
+    scripts:
+      - name: Install npm dependencies
+        script: npm install
+
+      - name: Build web assets
+        # StayOps has no bundler — assemble the static front-end into ./www
+        # (capacitor.config.json's webDir). See scripts/build-www.mjs.
+        script: node scripts/build-www.mjs
+
+      - name: Sync Capacitor iOS
+        script: npx cap sync ios
+
+      - name: Set build number
+        script: |
+          # Give every CI build a unique, increasing build number so TestFlight
+          # accepts re-uploads. $BUILD_NUMBER is Codemagic's auto-incrementing
+          # counter. (macOS sed needs the empty '' after -i.)
+          sed -i '' "s/CURRENT_PROJECT_VERSION = [0-9]*;/CURRENT_PROJECT_VERSION = $BUILD_NUMBER;/g" "$XCODE_PROJECT/project.pbxproj"
+          echo "Set CURRENT_PROJECT_VERSION to $BUILD_NUMBER"
+
+      - name: Set up code signing
+        script: |
+          keychain initialize
+          # CERTIFICATE_PRIVATE_KEY holds the RSA key BASE64-encoded on a single
+          # line, so it survives env-var storage without newline corruption.
+          # Decode it back to a real PEM file and pass that to the CLI.
+          echo "$CERTIFICATE_PRIVATE_KEY" | openssl base64 -d -A | tr -d '\r' > /tmp/cert_key.pem
+          # Fetch (or create, if missing) the distribution certificate and
+          # App Store provisioning profile for this bundle ID via the
+          # App Store Connect API key configured in Codemagic.
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --certificate-key @file:/tmp/cert_key.pem \
+            --create
+          keychain add-certificates
+          xcode-project use-profiles
+
+      - name: Build IPA
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration        # uses the API key configured in Codemagic UI
+        # Upload the build only. Internal testers automatically get access to
+        # every processed build with no beta review. Set this to true (and add
+        # beta_groups) only if you later want EXTERNAL testers, which requires
+        # filling in Beta App Review info in App Store Connect.
+        submit_to_testflight: false

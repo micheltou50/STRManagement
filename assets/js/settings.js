@@ -637,7 +637,7 @@ async function scanOutlookBookings() {
 
   if (btn) { btn.disabled = false; btn.textContent = '📥 Scan for Bookings'; }
 }
-const CALENDAR_FEED_PUBLIC_URL = window.location.origin + '/.netlify/functions/calendar-feed';
+const CALENDAR_FEED_PUBLIC_URL = (globalThis.API_BASE || window.location.origin) + '/.netlify/functions/calendar-feed';
 
 async function populateCalendarFeedPanel() {
   const input = document.getElementById('settings-calendar-feed-url');

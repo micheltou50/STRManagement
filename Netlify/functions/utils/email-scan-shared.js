@@ -27,7 +27,12 @@ function enc(s) { return encodeURIComponent(s); }
 function json(status, body) {
   return {
     statusCode: status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    },
     body: JSON.stringify(body),
   };
 }

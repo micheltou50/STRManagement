@@ -10,6 +10,14 @@ import {
   getCurrentHostEmail,
   getCurrentHostName,
 } from './config.js';
+
+// True when running inside the Capacitor native shell (iOS app). Web push needs
+// native APNs and the service worker does not run under capacitor://, so all
+// push setup/teardown is skipped on native — guarded here so that awaits on
+// navigator.serviceWorker.ready can never hang the app. (Deferred: native push.)
+const IS_NATIVE = !!(globalThis.Capacitor
+  && typeof globalThis.Capacitor.isNativePlatform === 'function'
+  && globalThis.Capacitor.isNativePlatform());
 import { saveAppConfigToCloud, getCurrentSupabaseUser } from './supabase.js';
 import { bookings, cleans } from './state.js';
 import { fmt, _normName, escHtml } from './utils.js';
@@ -160,6 +168,7 @@ async function removeHostPushSubscriptionFromCloudByEndpoint(endpoint) {
 
 /** Unsubscribe this browser from push and remove its endpoint from push_subscriptions. */
 export async function unsubscribeHostPushNotifications() {
+  if (IS_NATIVE) return;
   if (!('serviceWorker' in navigator)) return;
   const reg = await navigator.serviceWorker.ready;
   const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
@@ -221,6 +230,7 @@ export async function enableNotificationsManually() {
 }
 
 export async function resetPushOnly() {
+  if (IS_NATIVE) return;
   console.log('[Push] Reset Push Only started');
   const result = document.getElementById('notif-result');
   try {
@@ -285,6 +295,10 @@ export function updateNotifStatus() {
 }
 
 export async function subscribeToPush(role, cleanerId) {
+  if (IS_NATIVE) {
+    console.log('[Push] native shell — web push disabled (needs native APNs)');
+    return null;
+  }
   console.log('[Push] subscribeToPush start', { role, cleanerId: cleanerId || null });
   console.log('[Push] serviceWorker available:', 'serviceWorker' in navigator);
   console.log('[Push] PushManager available:', 'PushManager' in window);
@@ -1111,6 +1125,6 @@ export function cleanerLinkForId(c) {
     : (base + '?role=cleaner&id=' + encodeURIComponent(c.id) + '&uid=' + encodeURIComponent(uid) + '#cleaner/' + c.id);
 }
 
-if ('serviceWorker' in navigator) {
+if (!IS_NATIVE && 'serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(e => console.warn('SW register failed:', e));
 }

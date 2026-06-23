@@ -12,7 +12,7 @@ async function request(payload) {
     }
   } catch (_) { /* fall back to unauthenticated; proxy will 401 */ }
 
-  const response = await fetch(AI_ENDPOINT, {
+  const response = await fetch((globalThis.apiUrl || (u => u))(AI_ENDPOINT), {
     method: 'POST',
     headers,
     body: JSON.stringify(payload)

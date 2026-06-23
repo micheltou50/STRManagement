@@ -41,7 +41,7 @@ async function flushQueue() {
 
   for (const item of batch) {
     try {
-      await fetch(PUSH_URL, {
+      await fetch((globalThis.apiUrl || (u => u))(PUSH_URL), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify(item),
@@ -134,7 +134,7 @@ export async function triggerCalendarReconcileNow() {
     // calendar-sync-reconcile now requires a JWT for the per-uid path.
     const token = await getAuthToken();
     if (!token) return null;
-    const res = await fetch('/.netlify/functions/calendar-sync-reconcile', {
+    const res = await fetch((globalThis.apiUrl || (u => u))('/.netlify/functions/calendar-sync-reconcile'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
       body: JSON.stringify({ uid: user.id }),

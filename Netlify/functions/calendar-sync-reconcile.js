@@ -18,6 +18,7 @@ const gcal = require('./utils/gcal-client');
 const ocal = require('./utils/outlook-cal-client');
 const crypto = require('crypto');
 const { verifyAuth } = require('./utils/auth');
+const { isPreflight, preflightResponse } = require('./utils/cors');
 
 function json(status, body) {
   return {
@@ -136,6 +137,7 @@ async function runForUser(userId, provider, conn) {
 }
 
 exports.handler = async (event) => {
+  if (isPreflight(event)) return preflightResponse();
   let uid = null;
   if (event && event.httpMethod === 'POST') {
     try { uid = (JSON.parse(event.body || '{}') || {}).uid || null; } catch (_) { void 0; }

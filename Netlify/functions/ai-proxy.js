@@ -5,16 +5,16 @@
 // sends the user's access token as a Bearer Authorization header. This stops the
 // proxy from being an open relay to the Anthropic API on the host's bill.
 //
-// CORS is locked to the deployment's own origin (Netlify sets process.env.URL).
-// The app and the function are same-origin, so this never affects legitimate
-// callers; it only denies cross-origin browser abuse.
+// Auth (Supabase JWT, checked below) is the real guard against abuse — without a
+// valid session this proxy returns 401, so it is never an open relay. CORS is
+// set to '*' so the Capacitor native shell (origin capacitor://localhost) can
+// reach it too; same-origin web callers are unaffected.
 
 const { captureError, flush } = require('./utils/sentry');
 const { verifyAuth } = require('./utils/auth');
 
-const SITE_ORIGIN = process.env.SITE_URL || process.env.URL || '';
 const CORS = {
-  'Access-Control-Allow-Origin': SITE_ORIGIN || '*',
+  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };

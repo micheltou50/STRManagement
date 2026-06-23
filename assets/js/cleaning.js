@@ -1404,7 +1404,7 @@ export async function postCleanerAction(cleanId, action) {
   let pin = '';
   try { if (encoded) pin = atob(encoded); } catch (_e) { pin = ''; }
   try {
-    const res = await fetch('/.netlify/functions/cleaner-action', {
+    const res = await fetch((globalThis.apiUrl || (u => u))('/.netlify/functions/cleaner-action'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid, cleanerId: String(cleanerId), cleanId: String(cleanId), action, pin })

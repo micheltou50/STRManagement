@@ -6,6 +6,9 @@ admin-page-mockup.html
 .netlify
 node_modules
 
+# Capacitor web build output (assembled by scripts/build-www.mjs; ios/ is committed)
+/www
+
 # Supabase (managed via CLI)
 /supabase
 /supabase/functions

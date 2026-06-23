@@ -1,0 +1,8 @@
+{
+  "appId": "com.mtmanagement.stayops",
+  "appName": "StayOps",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}

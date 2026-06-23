@@ -18,6 +18,7 @@
 const { createClient } = require('@supabase/supabase-js');
 const { captureError, captureMessage, flush } = require('./utils/sentry');
 const { verifyAuth } = require('./utils/auth');
+const { isPreflight, preflightResponse } = require('./utils/cors');
 const {
   enc, json, safeJson, looksLikeBookingEmail,
   loadProperties, loadExistingBookings, loadProcessedIds,
@@ -99,6 +100,7 @@ async function updateLastScan(supabaseUrl, headers, uid, skippedIds) {
 // ── Handler ─────────────────────────────────────────────────────────────────
 
 exports.handler = async (event) => {
+  if (isPreflight(event)) return preflightResponse();
   // Require a real authenticated Supabase session and derive the user from the
   // JWT. The old `?uid=` query param was not a secret — it's embedded in every
   // shareable cleaner link and the public calendar feed — so trusting it let
