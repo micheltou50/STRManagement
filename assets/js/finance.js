@@ -3448,7 +3448,8 @@ async function saveExpenseReceipts(exp, pendingReceipts) {
         globalThis.showBanner('⚠ Receipt uploaded but the expense was no longer available to link', 'warn');
       }
     } else {
-      globalThis.showBanner('⚠ Receipt upload failed', 'warn');
+      const why = globalThis._lastReceiptUploadError ? ': ' + globalThis._lastReceiptUploadError : '';
+      globalThis.showBanner('⚠ Receipt upload failed' + why, 'warn');
     }
   } catch (e) {
     globalThis.showBanner('⚠ Receipt upload failed: ' + e.message, 'warn');
@@ -3487,10 +3488,14 @@ async function saveExpenseToDriveAndSheet(exp) {
 }
 
 function generateReceiptFileName(exp) {
-  const d = exp.date ? exp.date.replace(/-/g,'').substring(2) : '';
-  const merchant = (exp.merchant||'Receipt').replace(/[^a-zA-Z0-9]/g,'_').substring(0,30);
-  const uid = String(exp.id || Date.now()).slice(-6);
-  return merchant + '_' + d + '_' + uid + '.pdf';
+  // ATO record-keeping format: YYYY-MM-DD_Category_Supplier_Amount
+  const clean = (s, max) => String(s || '').trim().replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, max) || 'NA';
+  const date = (exp.date && /^\d{4}-\d{2}-\d{2}/.test(exp.date)) ? exp.date.slice(0, 10) : localDateStr();
+  const category = clean(exp.category, 24);
+  const supplier = clean(exp.merchant, 40);
+  // dot-free amount so the only "." in the name is the .pdf extension: 45.90 -> 45-90
+  const amount = Math.abs(Number(exp.amount) || 0).toFixed(2).replace('.', '-');
+  return `${date}_${category}_${supplier}_${amount}.pdf`;
 }
 
 async function receiptImageToPDF(exp) {
@@ -3636,7 +3641,7 @@ function openExpenseView(id) {
   let receiptBlock;
   if (receiptLinks.length > 0) {
     receiptBlock = receiptLinks.map((link, i) => `
-      <button onclick="openReceiptViewer('${escapeJsSingleQuotedHtmlAttr(link)}', this)"
+      <button onclick="openReceiptViewer('${escapeJsSingleQuotedHtmlAttr(link)}', this, '${escapeJsSingleQuotedHtmlAttr(generateReceiptFileName(e))}')"
          style="display:flex;align-items:center;justify-content:center;gap:8px;
                 width:100%;padding:11px;box-sizing:border-box;
                 background:var(--surface2);border:1.5px solid var(--moss);border-radius:10px;
@@ -3749,7 +3754,7 @@ function refreshEditReceiptUI(e) {
   if (links[0]) {
     slot1.style.display = 'block';
     link1El.href = '#';
-    link1El.onclick = (ev) => { ev.preventDefault(); window.openReceiptViewer(links[0]); };
+    link1El.onclick = (ev) => { ev.preventDefault(); window.openReceiptViewer(links[0], null, generateReceiptFileName(e)); };
     link1El.textContent = '📎 Receipt 1';
   } else {
     slot1.style.display = 'none';
@@ -3758,7 +3763,7 @@ function refreshEditReceiptUI(e) {
   if (links[1]) {
     slot2.style.display = 'block';
     link2El.href = '#';
-    link2El.onclick = (ev) => { ev.preventDefault(); window.openReceiptViewer(links[1]); };
+    link2El.onclick = (ev) => { ev.preventDefault(); window.openReceiptViewer(links[1], null, generateReceiptFileName(e)); };
     link2El.textContent = '📎 Receipt 2';
   } else {
     slot2.style.display = 'none';
@@ -5691,12 +5696,12 @@ globalThis.viewHistoricalInvoice = _viewHistoricalInvoice;
 globalThis.toggleInvoiceDetail = function(num) { _expandedInvoiceNum = _expandedInvoiceNum === num ? null : num; renderInvoiceHistory(); };
 
 // Open a receipt by fetching a signed URL on demand (bucket is private).
-window.openReceiptViewer = async function (driveLinkValue, btnEl) {
+window.openReceiptViewer = async function (driveLinkValue, btnEl, downloadName) {
   if (!driveLinkValue) return;
   const originalText = btnEl ? btnEl.innerHTML : null;
   if (btnEl) { btnEl.innerHTML = 'Loading…'; btnEl.disabled = true; }
   try {
-    const url = await getReceiptViewUrl(driveLinkValue);
+    const url = await getReceiptViewUrl(driveLinkValue, downloadName);
     if (url) {
       window.open(url, '_blank', 'noopener,noreferrer');
     } else {

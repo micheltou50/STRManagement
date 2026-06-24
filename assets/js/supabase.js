@@ -1944,12 +1944,29 @@ export async function uploadReceiptToStorage(file, expenseId, receiptIndex = 0) 
     // the previous file in storage survives instead of being overwritten.
     // upsert remains true as a belt-and-suspenders guard against rare collisions.
     const version = Date.now();
-    const path = `${user.id}/${propertyId || 'default'}/${expenseId || Date.now()}${slotSuffix}_v${version}.${ext}`;
-    const { data: _data, error } = await window._sb.storage.from('receipts').upload(path, file, { upsert: true });
-    if (error) { console.warn('[StayOps] uploadReceiptToStorage error', error); return null; }
+    // Store the file under a unique folder, with the ATO-formatted file name
+    // (YYYY-MM-DD_Category_Supplier_Amount.pdf, from generateReceiptFileName) as
+    // the leaf, so downloads/exports carry that name.
+    const leaf = (file.name || `receipt.${ext}`).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `${user.id}/${propertyId || 'default'}/${expenseId || Date.now()}${slotSuffix}_v${version}/${leaf}`;
+    // Upload an ArrayBuffer with an explicit content type rather than a File/Blob
+    // body — the iOS WKWebView mangles/drops Blob bodies on cross-origin fetch,
+    // which silently breaks receipt uploads in the native app (works on web).
+    const body = (file && typeof file.arrayBuffer === 'function') ? await file.arrayBuffer() : file;
+    const { error } = await window._sb.storage.from('receipts')
+      .upload(path, body, { upsert: true, contentType: (file && file.type) || 'application/pdf' });
+    if (error) {
+      const msg = (error.message || error.error || error.statusText) || JSON.stringify(error);
+      console.warn('[StayOps] uploadReceiptToStorage error', error);
+      globalThis._lastReceiptUploadError = msg;
+      return null;
+    }
+    globalThis._lastReceiptUploadError = null;
     return path;
   } catch (e) {
+    const msg = (e && (e.message || String(e))) || 'unknown error';
     console.warn('[StayOps] uploadReceiptToStorage failed', e);
+    globalThis._lastReceiptUploadError = msg;
     return null;
   }
 }
@@ -1959,7 +1976,7 @@ export async function uploadReceiptToStorage(file, expenseId, receiptIndex = 0) 
  * a storage path (new format) or a legacy public URL.
  * Returns a signed URL valid for 1 hour.
  */
-export async function getReceiptViewUrl(driveLinkValue) {
+export async function getReceiptViewUrl(driveLinkValue, downloadName) {
   if (!driveLinkValue || !window._sb) return null;
   try {
     let path = String(driveLinkValue).trim();
@@ -1969,8 +1986,14 @@ export async function getReceiptViewUrl(driveLinkValue) {
     if (publicMatch) path = publicMatch[1];
     // If it's still a full URL (e.g. external Drive link), just return it as-is
     if (/^https?:\/\//i.test(path)) return path;
+    // If an ATO download name is supplied AND the stored file isn't already named
+    // that (i.e. an older receipt), force a download that saves it with the ATO
+    // name — no physical rename needed. New receipts are already ATO-named on disk,
+    // so they keep opening inline for quick viewing.
+    let opts;
+    if (downloadName && path.split('/').pop() !== downloadName) opts = { download: downloadName };
     // Generate a fresh signed URL
-    const { data, error } = await window._sb.storage.from('receipts').createSignedUrl(path, 3600);
+    const { data, error } = await window._sb.storage.from('receipts').createSignedUrl(path, 3600, opts);
     if (error) { console.warn('[StayOps] getReceiptViewUrl error', error); return null; }
     return data && data.signedUrl ? data.signedUrl : null;
   } catch (e) {
