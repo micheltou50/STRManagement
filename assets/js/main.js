@@ -899,6 +899,7 @@ window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
     // Native (iOS) push: register for APNs + store the device token now that the
     // user is authenticated and app_config is hydrated. No-op on web.
     if (typeof globalThis.initNativePush === 'function') globalThis.initNativePush().catch(() => {});
+    if (typeof globalThis.initSharedReceiptListener === 'function') globalThis.initSharedReceiptListener();
     if (typeof retryQueuedExpenses === 'function') retryQueuedExpenses().catch(_e => {});
 
     // Refresh in-memory arrays and property UI after cloud hydration

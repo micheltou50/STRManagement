@@ -282,6 +282,78 @@ export function updateAddReceiptUI() {
   addBtn.style.display = (slot0Present && !slot1Present) ? 'inline-block' : 'none';
 }
 
+// ── SHARE-TO-EXPENSE (native iOS) ─────────────────────────────────────────────
+// When the user shares a receipt PDF/image to StayOps from the iOS share sheet,
+// the app launches with a file:// URL. Read it, drop it into Add-Expense receipt
+// slot 0, and run AI extraction so the form is prefilled.
+
+/** Feed a shared receipt (base64 + media type) into the Add Expense form. */
+export async function receiveSharedReceipt(base64, mediaType, filename) {
+  if (!base64) return;
+  try {
+    if (typeof globalThis.showSection === 'function') globalThis.showSection('finance');
+    if (typeof globalThis.showFinanceSub === 'function') globalThis.showFinanceSub('expenses');
+    const panel = document.getElementById('expense-add-form-panel');
+    if (panel && panel.style.display === 'none' && typeof globalThis.toggleExpenseAddForm === 'function') {
+      globalThis.toggleExpenseAddForm();
+    }
+    const isPDF = mediaType === 'application/pdf';
+    _setExpensePhotoSlot(0, base64, isPDF ? 'application/pdf' : (mediaType || 'image/jpeg'));
+    const img = document.getElementById('expense-photo-img');
+    const pdfDiv = document.getElementById('expense-pdf-preview');
+    const preview = document.getElementById('expense-photo-preview');
+    if (isPDF) {
+      if (img) img.style.display = 'none';
+      if (pdfDiv) { pdfDiv.style.display = 'block'; pdfDiv.textContent = '📄 ' + (filename || 'Shared receipt.pdf'); }
+    } else {
+      if (img) { img.src = 'data:' + (mediaType || 'image/jpeg') + ';base64,' + base64; img.style.display = 'block'; }
+      if (pdfDiv) pdfDiv.style.display = 'none';
+    }
+    if (preview) preview.style.display = 'block';
+    updateAddReceiptUI();
+    await extractExpenseFromReceipt();
+  } catch (e) {
+    console.warn('[Share] receiveSharedReceipt failed:', e && e.message ? e.message : e);
+  }
+}
+globalThis.receiveSharedReceipt = receiveSharedReceipt;
+
+let _shareListenerInited = false;
+let _lastSharedUrl = '';
+/** Listen for receipts shared into the app (native iOS only). */
+export function initSharedReceiptListener() {
+  if (_shareListenerInited) return;
+  const cap = globalThis.Capacitor;
+  const isNative = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
+  const App = isNative && cap.Plugins && cap.Plugins.App;
+  if (!App) return;
+  _shareListenerInited = true;
+  const handle = async (data) => {
+    try {
+      const url = data && data.url;
+      if (!url || url === _lastSharedUrl || !/^file:/i.test(url)) return;
+      _lastSharedUrl = url;
+      const Filesystem = cap.Plugins && cap.Plugins.Filesystem;
+      if (!Filesystem) { console.warn('[Share] Filesystem plugin unavailable'); return; }
+      const res = await Filesystem.readFile({ path: url });
+      const base64 = res && res.data;
+      if (!base64) return;
+      const lower = url.split('?')[0].toLowerCase();
+      const mediaType = lower.endsWith('.png') ? 'image/png'
+        : (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) ? 'image/jpeg'
+        : 'application/pdf';
+      const filename = decodeURIComponent((url.split('/').pop() || 'receipt').split('?')[0]);
+      await receiveSharedReceipt(base64, mediaType, filename);
+    } catch (e) { console.warn('[Share] handler failed:', e && e.message ? e.message : e); }
+  };
+  App.addListener('appUrlOpen', handle);
+  // Cold start: the launching file URL is available via getLaunchUrl().
+  if (typeof App.getLaunchUrl === 'function') {
+    App.getLaunchUrl().then(r => { if (r && r.url) handle(r); }).catch(() => {});
+  }
+}
+globalThis.initSharedReceiptListener = initSharedReceiptListener;
+
 export function attachExpensePhoto(input) {
   const file = input.files[0];
   if (!file) return;
