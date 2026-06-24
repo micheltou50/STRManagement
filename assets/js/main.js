@@ -896,6 +896,9 @@ window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
     if (typeof setLoadingStatus === 'function') setLoadingStatus('Loading your data…');
     if (typeof hydrateFromCloud === 'function') await hydrateFromCloud();
     console.log('[StayOps] Boot step: hydrateFromCloud complete');
+    // Native (iOS) push: register for APNs + store the device token now that the
+    // user is authenticated and app_config is hydrated. No-op on web.
+    if (typeof globalThis.initNativePush === 'function') globalThis.initNativePush().catch(() => {});
     if (typeof retryQueuedExpenses === 'function') retryQueuedExpenses().catch(_e => {});
 
     // Refresh in-memory arrays and property UI after cloud hydration

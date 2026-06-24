@@ -99,7 +99,7 @@ async function sendPushToHost({
 
   const { data: cfgRows, error: cErr } = await supabaseAdmin
     .from('app_config')
-    .select('push_subscriptions, notification_config')
+    .select('push_subscriptions, notification_config, native_push_tokens')
     .eq('user_id', uid)
     .limit(1);
 
@@ -168,6 +168,23 @@ async function sendPushToHost({
   } else {
     console.log('[StayOps] push-helper: no push subscriptions — skipping push, will still email');
   }
+
+  // ── Native iOS (APNs) push to the host's registered device tokens ──
+  try {
+    const { sendApns, isConfigured: apnsConfigured } = require('./apns');
+    const rawTokens = Array.isArray(row && row.native_push_tokens) ? row.native_push_tokens : [];
+    const tokens = rawTokens.map(t => t && t.token).filter(Boolean);
+    if (tokens.length && apnsConfigured()) {
+      const r = await sendApns(tokens, { title, body, data: { url: url || '/', type: type || '' } });
+      sent += r.sent;
+      if (r.stale.length) {
+        const keep = rawTokens.filter(t => t && t.token && !r.stale.includes(t.token));
+        await supabaseAdmin.from('app_config').update({ native_push_tokens: keep, updated_at: new Date().toISOString() }).eq('user_id', uid);
+        console.log('[StayOps] push-helper: removed ' + r.stale.length + ' stale APNs tokens');
+      }
+      console.log('[StayOps] push-helper: APNs sent=' + r.sent + ' stale=' + r.stale.length);
+    }
+  } catch (apnsErr) { console.log('[StayOps] push-helper: APNs send failed —', apnsErr && apnsErr.message); }
 
   // ── Always log notification (regardless of push subscription state) ──
   const { error: logErr } = await supabaseAdmin.from('notification_log').insert({

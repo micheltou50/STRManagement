@@ -12,6 +12,7 @@
     "@capacitor/cli": "^8.4.1",
     "@capacitor/core": "^8.4.1",
     "@capacitor/ios": "^8.4.1",
+    "@capacitor/push-notifications": "^8.1.1",
     "@netlify/functions": "^5.2.0",
     "@sentry/node": "^10.48.0",
     "@supabase/supabase-js": "^2.100.1",

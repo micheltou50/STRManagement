@@ -138,7 +138,7 @@ exports.handler = async (event) => {
       const sb = createClient(sbUrl, sbKey);
       const { data, error: dbErr } = await sb
         .from('app_config')
-        .select('push_subscriptions')
+        .select('push_subscriptions, native_push_tokens')
         .eq('user_id', user_id)
         .maybeSingle();
 
@@ -181,6 +181,23 @@ exports.handler = async (event) => {
           .catch(e => console.warn('[send-push] Stale cleanup failed:', e.message));
       }
       console.log('[send-push] user_id mode: sent=' + sent + ' failed=' + failed + ' stale=' + staleEndpoints.length);
+
+      // ── Native iOS (APNs) push to the host's registered device tokens ──
+      try {
+        const { sendApns, isConfigured: apnsConfigured } = require('./utils/apns');
+        const rawTokens = Array.isArray(data.native_push_tokens) ? data.native_push_tokens : [];
+        const tokens = rawTokens.map(t => t && t.token).filter(Boolean);
+        if (tokens.length && apnsConfigured()) {
+          const r = await sendApns(tokens, { title, body, data: { url: url || '/', tag: tag || 'stayops' } });
+          sent += r.sent;
+          if (r.stale.length) {
+            const keep = rawTokens.filter(t => t && t.token && !r.stale.includes(t.token));
+            await sb.from('app_config').update({ native_push_tokens: keep, updated_at: new Date().toISOString() }).eq('user_id', user_id);
+            console.log('[send-push] removed ' + r.stale.length + ' stale APNs tokens');
+          }
+          console.log('[send-push] APNs sent=' + r.sent + ' stale=' + r.stale.length);
+        }
+      } catch (apnsErr) { console.warn('[send-push] APNs send failed:', apnsErr && apnsErr.message); }
 
       // Send email alongside push (unless skipEmail)
       if (!skipEmail) {

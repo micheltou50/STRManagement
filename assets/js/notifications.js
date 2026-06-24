@@ -1125,6 +1125,60 @@ export function cleanerLinkForId(c) {
     : (base + '?role=cleaner&id=' + encodeURIComponent(c.id) + '&uid=' + encodeURIComponent(uid) + '#cleaner/' + c.id);
 }
 
+// ── NATIVE (iOS) PUSH via Capacitor @capacitor/push-notifications + APNs ──────
+// Web push (above) stays disabled on native; this is the APNs path instead.
+// Registers for APNs and stores the device token in app_config.native_push_tokens
+// so the backend (send-push / push-helper) can deliver via Apple's APNs gateway.
+let _nativePushInited = false;
+
+/** Upsert this device's APNs token into app_config.native_push_tokens. */
+async function saveNativePushToken(token) {
+  try {
+    const sb = window._sb;
+    if (!sb || !token) return;
+    let user = window._supabaseUser;
+    if (!user) { try { user = (await sb.auth.getUser()).data.user; } catch (_) { user = null; } }
+    if (!user) return;
+    const { data, error } = await sb
+      .from('app_config').select('native_push_tokens').eq('user_id', user.id).maybeSingle();
+    if (error) { console.warn('[Push] read native_push_tokens failed:', error.message); return; }
+    const existing = Array.isArray(data && data.native_push_tokens)
+      ? data.native_push_tokens.filter(t => t && t.token) : [];
+    if (existing.some(t => t.token === token)) { console.log('[Push] native token already saved'); return; }
+    const next = existing.concat([{ token, platform: 'ios', updated_at: new Date().toISOString() }]);
+    const { error: upErr } = await sb
+      .from('app_config').update({ native_push_tokens: next, updated_at: new Date().toISOString() })
+      .eq('user_id', user.id);
+    if (upErr) console.warn('[Push] save native token failed:', upErr.message);
+    else console.log('[Push] native APNs token saved');
+  } catch (e) { console.warn('[Push] saveNativePushToken error:', e && e.message ? e.message : e); }
+}
+
+/** Request permission, register for APNs, and persist the token. Native-only. */
+export async function initNativePush() {
+  if (!IS_NATIVE || _nativePushInited) return;
+  const PN = globalThis.Capacitor && globalThis.Capacitor.Plugins && globalThis.Capacitor.Plugins.PushNotifications;
+  if (!PN) { console.warn('[Push] native PushNotifications plugin unavailable'); return; }
+  _nativePushInited = true;
+  try {
+    let perm = await PN.checkPermissions();
+    if (perm.receive === 'prompt' || perm.receive === 'prompt-with-rationale') perm = await PN.requestPermissions();
+    if (perm.receive !== 'granted') { console.log('[Push] native push not granted:', perm.receive); return; }
+    // Listeners must be attached before register() so the token isn't missed.
+    PN.addListener('registration', (t) => {
+      if (t && t.value) { console.log('[Push] APNs token received'); saveNativePushToken(t.value); }
+    });
+    PN.addListener('registrationError', (e) =>
+      console.warn('[Push] native registration error:', e && (e.error || JSON.stringify(e))));
+    await PN.register();
+    console.log('[Push] native register() requested');
+  } catch (e) {
+    _nativePushInited = false;
+    console.warn('[Push] initNativePush failed:', e && e.message ? e.message : e);
+  }
+}
+globalThis.initNativePush = initNativePush;
+
 if (!IS_NATIVE && 'serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(e => console.warn('SW register failed:', e));
 }
