@@ -32,6 +32,7 @@ const DEFAULT_CONFIG = {
   push_cleaner_confirm:  true,
   push_cleaner_decline:  true,
   push_clean_done:       true,
+  push_cleaner_message:  true,
   notif_assignment:      true,
   email_reminder:        true,
   email_cancellation:    false,
@@ -94,6 +95,7 @@ const TOGGLE_GROUPS = [
       { key: 'push_cleaner_confirm',  label: 'Cleaner Confirmed',  desc: 'Owner push — fired when cleaner accepts', channel: 'push' },
       { key: 'push_cleaner_decline',  label: 'Cleaner Declined',   desc: 'Owner push — fired when cleaner declines', channel: 'push' },
       { key: 'push_clean_done',       label: 'Clean Completed',    desc: 'Owner push — fired when cleaner marks done', channel: 'push' },
+      { key: 'push_cleaner_message',  label: 'Cleaner Message',    desc: 'Owner push — fired when cleaner sends a message', channel: 'push' },
     ],
   },
   {

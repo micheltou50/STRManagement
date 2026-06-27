@@ -124,6 +124,7 @@ async function sendPushToHost({
       cleaner_confirmed: 'push_cleaner_confirm',
       cleaner_declined: 'push_cleaner_decline',
       clean_done: 'push_clean_done',
+      cleaner_message: 'push_cleaner_message',
     };
     const cfgKey = typeToKey[type];
     if (cfgKey && nc[cfgKey] === false) {
