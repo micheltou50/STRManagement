@@ -11,6 +11,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
 
+    // ── APNs registration bridge (REQUIRED by @capacitor/push-notifications) ──
+    // Without these two methods the device token from APNs is silently dropped:
+    // PushNotifications.register() in JS would fire neither 'registration' nor
+    // 'registrationError', so no token ever reaches app_config.native_push_tokens
+    // and the backend has nothing to push to. DO NOT REMOVE — see the plugin README.
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
+    }
+
     func applicationWillResignActive(_ application: UIApplication) {
         // Sent when the application is about to move from active to inactive state. This can occur for certain types of temporary interruptions (such as an incoming phone call or SMS message) or when the user quits the application and it begins the transition to the background state.
         // Use this method to pause ongoing tasks, disable timers, and invalidate graphics rendering callbacks. Games should use this method to pause the game.
