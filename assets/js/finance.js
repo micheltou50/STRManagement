@@ -5240,7 +5240,8 @@ async function reconMatchPayout(txnId, date, amount, description) {
 
   const matches = await findPayoutMatchesForBankTransaction(
     { id: txnId, date, amount: amt, description: description || '' },
-    user.id
+    user.id,
+    { includeLinked: true }
   );
 
   if (!matches.length) {
@@ -5248,7 +5249,17 @@ async function reconMatchPayout(txnId, date, amount, description) {
     return;
   }
 
-  const list = matches.slice(0, 8).map(m => {
+  // Actionable (unlinked) payouts first, so a linked row can't push a linkable
+  // one out of the top-8 shown; preserve score order within each group.
+  matches.sort((a, b) => {
+    const aLinked = !!(a.payout && a.payout.bank_transaction_id);
+    const bLinked = !!(b.payout && b.payout.bank_transaction_id);
+    if (aLinked !== bLinked) return aLinked ? 1 : -1;
+    return (b.score || 0) - (a.score || 0);
+  });
+  const displayMatches = matches.slice(0, 8);
+  const linkableCount = displayMatches.filter(m => !(m.payout && m.payout.bank_transaction_id)).length;
+  const list = displayMatches.map(m => {
     const p = m.payout;
     const platformLabel = escHtml((p.platform || 'platform').replace('_', '.'));
     const refLabel = escHtml(p.payout_reference || '(no ref)');
@@ -5256,14 +5267,20 @@ async function reconMatchPayout(txnId, date, amount, description) {
     const exactBadge = Math.abs(pAmt - amt) < 0.02
       ? '<span style="color:#1565C0;font-weight:600;font-size:10px;margin-left:4px">exact match</span>'
       : '';
+    const isLinked = !!p.bank_transaction_id;
     const pid = escapeJsSingleQuotedHtmlAttr(String(p.id));
     const txnIdEsc = escapeJsSingleQuotedHtmlAttr(String(txnId));
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:0.5px solid rgba(0,0,0,0.06);cursor:pointer" onclick="reconLinkToPayout('${txnIdEsc}','${pid}')">
+    // Linked payouts are informational only: dimmed, no tap handler, "Linked" badge.
+    const clickAttr = isLinked ? '' : ` onclick="reconLinkToPayout('${txnIdEsc}','${pid}')"`;
+    const action = isLinked
+      ? '<div style="flex-shrink:0;margin-left:8px;color:var(--muted-2);font-size:12px;font-weight:600;display:flex;align-items:center;gap:3px;white-space:nowrap">✓ Linked</div>'
+      : '<div style="flex-shrink:0;margin-left:8px;color:#1565C0;font-size:12px;font-weight:600">Link →</div>';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:0.5px solid rgba(0,0,0,0.06);cursor:${isLinked ? 'default' : 'pointer'}${isLinked ? ';opacity:0.6' : ''}"${clickAttr}>
       <div style="min-width:0;flex:1">
         <div style="font-size:13px;font-weight:500;color:var(--text)">${platformLabel} · ${refLabel}${exactBadge}</div>
         <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${escHtml(p.payout_date || '?')} · $${_fmtAud(pAmt)} · score ${m.score}</div>
       </div>
-      <div style="flex-shrink:0;margin-left:8px;color:#1565C0;font-size:12px;font-weight:600">Link →</div>
+      ${action}
     </div>`;
   }).join('');
 
@@ -5279,7 +5296,7 @@ async function reconMatchPayout(txnId, date, amount, description) {
         </div>
         <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--surface2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted-2)">×</button>
       </div>
-      <div style="font-size:12px;color:var(--muted-2);margin-bottom:10px">${matches.length} candidate${matches.length !== 1 ? 's' : ''} — tap to link</div>
+      <div style="font-size:12px;color:var(--muted-2);margin-bottom:10px">${displayMatches.length} candidate${displayMatches.length !== 1 ? 's' : ''} found${linkableCount ? ' — tap to link' : ''}</div>
       ${list}
       <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--surface2);color:var(--muted-2);font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Cancel</button>
     </div>`;

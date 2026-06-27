@@ -253,9 +253,14 @@ export async function setTransactionClassification(transactionId, flags = {}) {
  * @param {string} userId
  * @returns {Promise<Array<{ payout: object, score: number, matchReason: string }>>}
  */
-export async function findPayoutMatchesForBankTransaction(bankTxn, userId) {
+export async function findPayoutMatchesForBankTransaction(bankTxn, userId, opts = {}) {
   const sb = getSb();
   if (!sb || !userId || !bankTxn || !bankTxn.date || bankTxn.amount == null) return [];
+
+  // opts.includeLinked: also return payouts already linked to a bank tx, so the
+  // match modal can show them as "Linked" instead of hiding them. Default false
+  // keeps auto-reconcile (which only ever links unlinked payouts) unchanged.
+  const includeLinked = !!opts.includeLinked;
 
   // ±5 day window — platform-to-bank arrival can lag a few business days
   const tDate = new Date(bankTxn.date);
@@ -264,14 +269,15 @@ export async function findPayoutMatchesForBankTransaction(bankTxn, userId) {
   const fromStr = from.toISOString().split('T')[0];
   const toStr   = to.toISOString().split('T')[0];
 
-  const { data, error } = await sb
+  let query = sb
     .from('platform_payouts')
     .select('id, platform, payout_reference, payout_date, expected_arrival_date, net_amount, currency, status, bank_transaction_id')
     .eq('user_id', userId)
-    .is('bank_transaction_id', null)
     .neq('status', 'deleted')
     .gte('payout_date', fromStr)
     .lte('payout_date', toStr);
+  if (!includeLinked) query = query.is('bank_transaction_id', null);
+  const { data, error } = await query;
   if (error) {
     console.log('[StayOps] findPayoutMatchesForBankTransaction error:', error.message || error);
     return [];
