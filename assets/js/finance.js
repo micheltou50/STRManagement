@@ -5149,9 +5149,11 @@ async function reconMatchExpense(txnId, date, amount) {
   const txnDate = new Date(date + 'T00:00:00');
   if (Number.isNaN(txnDate.getTime())) { globalThis.showBanner('Invalid date', 'warn'); return; }
 
-  // Find unreconciled expenses within ±7 days and ±50% amount
+  // Find expenses within ±7 days and ±50% amount. Already-linked expenses are
+  // KEPT in the list (rendered as "Linked", not tappable) instead of hidden, so
+  // a matching payment that's already accounted for is visible rather than
+  // silently vanishing — avoids "where did that expense go?" and double-linking.
   const nearby = (Array.isArray(expenses) ? expenses : []).filter(e => {
-    if (e.reconciled || e.bank_transaction_id) return false;
     const eDate = new Date((e.date || '') + 'T00:00:00');
     if (Number.isNaN(eDate.getTime())) return false;
     const dayDiff = Math.abs((eDate - txnDate) / 86400000);
@@ -5162,7 +5164,12 @@ async function reconMatchExpense(txnId, date, amount) {
     if (amtDiff > amt * 0.5 && amtDiff > 5) return false;
     return true;
   }).sort((a, b) => {
-    // Sort by: exact amount first, then by date proximity
+    // Unlinked (actionable) first, so linked rows can't push a linkable match
+    // out of the top-8 slice below.
+    const aLinked = !!(a.reconciled || a.bank_transaction_id);
+    const bLinked = !!(b.reconciled || b.bank_transaction_id);
+    if (aLinked !== bLinked) return aLinked ? 1 : -1;
+    // Then exact amount first, then by date proximity
     const aDiff = Math.abs(Math.abs(Number(a.amount)) - amt);
     const bDiff = Math.abs(Math.abs(Number(b.amount)) - amt);
     if (aDiff < 1 && bDiff >= 1) return -1;
@@ -5177,17 +5184,24 @@ async function reconMatchExpense(txnId, date, amount) {
     return;
   }
 
+  const linkableCount = nearby.filter(e => !(e.reconciled || e.bank_transaction_id)).length;
   const list = nearby.map(e => {
     const eAmt = Math.abs(Number(e.amount || 0));
     const exactAmt = Math.abs(eAmt - amt) < 0.02;
     const amtBadge = exactAmt ? '<span style="color:#1D9E75;font-weight:600;font-size:10px;margin-left:4px">exact match</span>' : '';
+    const isLinked = !!(e.reconciled || e.bank_transaction_id);
     const eid = escapeJsSingleQuotedHtmlAttr(String(e._cloudId || e.id));
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:0.5px solid rgba(0,0,0,0.06);cursor:pointer" onclick="reconLinkToExpense('${escapeJsSingleQuotedHtmlAttr(txnId)}','${eid}')">
+    // Linked rows are informational only: dimmed, no tap handler, "Linked" badge.
+    const clickAttr = isLinked ? '' : ` onclick="reconLinkToExpense('${escapeJsSingleQuotedHtmlAttr(txnId)}','${eid}')"`;
+    const action = isLinked
+      ? '<div style="flex-shrink:0;margin-left:8px;color:var(--muted-2);font-size:12px;font-weight:600;display:flex;align-items:center;gap:3px;white-space:nowrap">✓ Linked</div>'
+      : '<div style="flex-shrink:0;margin-left:8px;color:var(--moss);font-size:12px;font-weight:600">Link →</div>';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:0.5px solid rgba(0,0,0,0.06);cursor:${isLinked ? 'default' : 'pointer'}${isLinked ? ';opacity:0.6' : ''}"${clickAttr}>
       <div style="min-width:0;flex:1">
         <div style="font-size:13px;font-weight:500;color:var(--text)">${escHtml(e.merchant || e.description || 'Expense')}${amtBadge}</div>
         <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${fmt(e.date)} · $${_fmtAud(eAmt)} · ${escHtml(e.category || '')}</div>
       </div>
-      <div style="flex-shrink:0;margin-left:8px;color:var(--moss);font-size:12px;font-weight:600">Link →</div>
+      ${action}
     </div>`;
   }).join('');
 
@@ -5203,7 +5217,7 @@ async function reconMatchExpense(txnId, date, amount) {
         </div>
         <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--surface2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted-2)">×</button>
       </div>
-      <div style="font-size:12px;color:var(--muted-2);margin-bottom:10px">${nearby.length} similar expense${nearby.length !== 1 ? 's' : ''} found — tap to link</div>
+      <div style="font-size:12px;color:var(--muted-2);margin-bottom:10px">${nearby.length} similar expense${nearby.length !== 1 ? 's' : ''} found${linkableCount ? ' — tap to link' : ''}</div>
       ${list}
       <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--surface2);color:var(--muted-2);font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Cancel</button>
     </div>`;
