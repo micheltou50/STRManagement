@@ -79,10 +79,6 @@ import {
   isAdmin, isAdminSync, getNotificationConfig, isNotifEnabled
 } from './admin.js';
 import {
-  initMessaging, openChat, closeChat, sendMessage, sendAutoMessage,
-  getUnreadCount, renderChatBubble, uploadChatPhoto, loadThread
-} from './messaging.js';
-import {
   showBanner, platformIcon, reloadInMemoryData, showSection, jumpToCleaningActionNeeded, jumpToScheduleClean, render, renderAll, renderDashboard, renderHeaderDateBadge,
   applyStayopsPostSwitchAction, openModal, closeModal, closeDetailModal, _checkModalsClosed, openQuickAddMenu, closeQuickAddMenu, runFullRefresh, ensureHostIdentityAndRestore, renderMaintenance,
   addMaintenance, setMaintInProgress, resolveIssue, deleteMaintenance, setInvView, renderInventory, addInventoryItem, updateThreshold, adjustStock, restockItem,
@@ -156,7 +152,6 @@ globalThis.getTotalDepreciationForFY = getTotalDepreciationForFY;
 globalThis.getAssetDepreciationForFY = getAssetDepreciationForFY;
 globalThis.getAssetSchedule = getAssetSchedule;
 globalThis.DEPRECIATION_PRESETS = DEPRECIATION_PRESETS;
-globalThis.sendAutoMessage = sendAutoMessage;
 globalThis.renderCleanerCleans = renderCleanerCleans;
 
 // Called from index.html onclick/onchange handlers
@@ -424,12 +419,6 @@ window.getAtoField              = getAtoField;
 window.getAtoFieldLabel         = getAtoFieldLabel;
 window.checkReceiptNudge        = checkReceiptNudge;
 window.dismissChecklist         = dismissChecklist;
-window.openChat                 = openChat;
-window.closeChat                = closeChat;
-window.sendMessage              = sendMessage;
-window.sendAutoMessage          = sendAutoMessage;
-window.uploadChatPhoto          = uploadChatPhoto;
-window.loadThread               = loadThread;
 
 // Called from supabase.js typeof window.X guards (boot sequence)
 window.getAllProperties          = getAllProperties;
@@ -938,7 +927,6 @@ window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
     // Host-only "Since you last opened StayOps" rundown.
     // Runs once per session; cleaner-mode boot already returned earlier.
     try { maybeShowSinceLastOpenedRundown(bookings); } catch (_e) { /* fail silently */ }
-    initMessaging().catch(e => console.warn('[StayOps] Messaging init failed:', e.message));
     applyStayopsPostSwitchAction();
     // Prompt to enable notifications if not enabled
     setTimeout(() => {

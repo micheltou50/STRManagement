@@ -733,32 +733,6 @@ function _hideDetailModalDefaultCloseBtn() {
   if (btn) btn.style.display = 'none';
 }
 
-async function _populateDetailConversation() {
-  const el = document.getElementById('detail-conversation');
-  if (!el) return;
-  const cleanerId = el.dataset.cleanerId;
-  if (!cleanerId) { el.innerHTML = ''; return; }
-  try {
-    const loadThread = globalThis.loadThread || (await import('./messaging.js')).loadThread;
-    const msgs = await loadThread(cleanerId);
-    if (!msgs || !msgs.length) {
-      el.innerHTML = '<div style="text-align:center;padding:8px 0;font-size:12px;color:var(--muted-2)">No messages yet</div>';
-      return;
-    }
-    const recent = msgs.slice(-6);
-    el.innerHTML = recent.map(m => {
-      const isHost = m.sender_type === 'host';
-      const ts = m.created_at ? new Date(m.created_at) : null;
-      const timeStr = ts ? ts.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase() + ' ' + ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
-      const senderLabel = isHost ? 'YOU' : (m.sender_name || 'CLEANER').toUpperCase();
-      return `<div style="align-self:${isHost ? 'flex-end' : 'flex-start'};max-width:78%;background:${isHost ? 'var(--primary)' : 'var(--surface2,#fbf8f2)'};color:${isHost ? '#fff' : 'var(--ink-1)'};border-radius:${isHost ? '14px 14px 4px 14px' : '14px 14px 14px 4px'};padding:10px 12px;font-size:13px;line-height:1.4">${escHtml(m.body || '')}</div>
-<div style="align-self:${isHost ? 'flex-end' : 'flex-start'};font-size:10px;color:var(--muted-2);font-family:'JetBrains Mono',monospace;margin:0 8px">${senderLabel} · ${timeStr}</div>`;
-    }).join('');
-  } catch (err) {
-    el.innerHTML = '<div style="text-align:center;padding:8px 0;font-size:12px;color:var(--muted-2)">Could not load messages</div>';
-  }
-}
-
 function showDetail(id) {
   _restoreDetailModalDefaultCloseBtn();
   const b = bookings.find(bk => bk._cloudId === id || String(bk.id) === String(id));
@@ -1017,13 +991,8 @@ function showDetail(id) {
       ${bn.map(n => `<div class="note-item" style="margin-bottom:8px"><span class="note-tag tag-${escHtml(n.tag)}">${escHtml(n.tag)}</span><div class="note-text">${escHtml(n.text)}</div></div>`).join('')}
     </div>`
       : ''}
-    ${matchedClean ? `<div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase;margin:0 0 8px 2px">Conversation</div>
-    <div id="detail-conversation" data-cleaner-id="${escHtml(String(matchedClean.cleanerId || matchedClean.cleaner || ''))}" style="background:white;border-radius:16px;border:1px solid var(--hairline-1);margin-bottom:12px;overflow:hidden;padding:14px;display:flex;flex-direction:column;gap:8px;min-height:48px">
-      <div style="text-align:center;padding:8px 0;font-size:12px;color:var(--muted-2)">Loading…</div>
-    </div>
-    <div style="display:flex;gap:8px;margin-bottom:20px">
-      <div onclick="openChat('${escHtml(String(matchedClean.cleanerId || matchedClean.cleaner || ''))}')" style="flex:1;background:var(--primary);border-radius:14px;padding:12px;text-align:center;color:white;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;touch-action:manipulation">Reply</div>
-      <div onclick="showSection('cleaning')" style="padding:12px 16px;border:1px solid var(--hairline-1);border-radius:14px;text-align:center;color:var(--ink-2);font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;touch-action:manipulation">View clean</div>
+    ${matchedClean ? `<div style="display:flex;gap:8px;margin-bottom:20px">
+      <div onclick="showSection('cleaning')" style="flex:1;padding:12px 16px;border:1px solid var(--hairline-1);border-radius:14px;text-align:center;color:var(--ink-2);font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;touch-action:manipulation">View clean</div>
     </div>` : ''}
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:20px">
       <div onclick="closeDetailModal()" style="width:100%;border:1px solid var(--hairline-1);border-radius:14px;padding:14px;text-align:center;color:var(--ink-2);font-size:14px;font-weight:600;cursor:pointer;box-sizing:border-box;touch-action:manipulation;font-family:'Plus Jakarta Sans',sans-serif">Close</div>
@@ -1042,7 +1011,6 @@ function showDetail(id) {
       if (typeof globalThis.attachModalHandleDrag === 'function') globalThis.attachModalHandleDrag();
     }, 0);
   }
-  _populateDetailConversation();
   // Phase 1d (extended): lazy-fill the Platform Payouts panel after the
   // modal/desktop-panel content is in the DOM. Non-blocking — the view
   // is interactive immediately and the panel appears once the query lands.

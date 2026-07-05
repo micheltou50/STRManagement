@@ -72,10 +72,6 @@ async function main() {
   // ── cleaner-data: missing params ──
   await check('cleaner-data no-params → 400', { path: 'cleaner-data', expect: 400 });
 
-  // ── cleaner-message: shape only ──
-  await check('cleaner-message OPTIONS', { path: 'cleaner-message', method: 'OPTIONS', expect: 204 });
-  await check('cleaner-message GET → 405', { path: 'cleaner-message', method: 'GET', expect: 405 });
-
   // ── cm-* shape only ──
   await check('cm-get-properties OPTIONS', { path: 'cm-get-properties', method: 'OPTIONS', expect: 200 });
   await check('cm-get-properties GET → 405', { path: 'cm-get-properties', method: 'GET', expect: 405 });

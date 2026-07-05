@@ -99,19 +99,6 @@ test('cleaner-data: missing params → 400', async () => {
   assert.equal(r.statusCode, 400);
 });
 
-// ── cleaner-message ──────────────────────────────────────────────────────────
-test('cleaner-message: OPTIONS → 204', async () => {
-  const { handler } = load('cleaner-message');
-  const r = await handler(event({ httpMethod: 'OPTIONS' }));
-  assert.equal(r.statusCode, 204);
-});
-
-test('cleaner-message: GET → 405', async () => {
-  const { handler } = load('cleaner-message');
-  const r = await handler(event({ httpMethod: 'GET' }));
-  assert.equal(r.statusCode, 405);
-});
-
 // ── ical-sync ────────────────────────────────────────────────────────────────
 test('ical-sync: OPTIONS → 200', async () => {
   const { handler } = load('ical-sync');

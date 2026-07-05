@@ -11,7 +11,7 @@ import {
   fadeTransition,
   localDateStr,
 } from './utils.js';
-import { getAllProperties, getActivePropertyId, initPropertyUI, getCurrentPropertyName, getCurrentHostName } from './config.js';
+import { getAllProperties, getActivePropertyId, initPropertyUI, getCurrentHostName } from './config.js';
 import {
   getPropertyNameById,
   getPropertyColourById,
@@ -1721,18 +1721,6 @@ export async function assignCleanerToBooking(bookingIdParam) {
     }
     if (!cleanerEmail && !pushSent) {
       globalThis.showBanner('⚠ Assigned, but no cleaner email or push subscription is configured', 'warn');
-    }
-
-    // Send auto-message to chat
-    if (typeof globalThis.sendAutoMessage === 'function') {
-      const propName = typeof getCurrentPropertyName === 'function' ? getCurrentPropertyName() : '';
-      globalThis.sendAutoMessage(cleanerObj._cloudId || cleanerObj.id, 'clean_assigned', {
-        title: 'Clean Assigned',
-        property: propName,
-        date: date,
-        guest: booking.guestName || booking.guest_name || 'Guest',
-        type: 'Checkout clean'
-      }).catch(e => console.warn("[StayOps] silent error:", e));
     }
   } catch (e) {
     console.warn('[StayOps] assignCleanerToBooking save failed', e);
