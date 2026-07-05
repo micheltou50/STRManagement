@@ -497,12 +497,12 @@ export async function getAllTransactionsWithStatus(userId) {
   if (linkedExpenseIds.length > 0) {
     const { data: expRows, error: expErr } = await sb
       .from('expenses')
-      .select('id, merchant, category')
+      .select('id, vendor, category')
       .in('id', linkedExpenseIds);
 
     if (!expErr && expRows) {
       for (const e of expRows) {
-        expenseMap[e.id] = { merchant: e.merchant || null, category: e.category || null };
+        expenseMap[e.id] = { merchant: e.vendor || null, category: e.category || null };
       }
     }
   }

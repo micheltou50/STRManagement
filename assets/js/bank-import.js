@@ -728,6 +728,15 @@ function descriptionSimilar(d1, d2) {
   return n >= 2 || (n >= 1 && wa.size <= 3);
 }
 
+const DUP_DATE_WINDOW = 6; // days — the bank often posts a few days after the expense was logged
+
+function _shiftIsoDate(iso, delta) {
+  const d = new Date(String(iso) + 'T00:00:00');
+  if (isNaN(d.getTime())) return iso;
+  d.setDate(d.getDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
 /**
  * @param {Awaited<ReturnType<categoriseTransactions>>} transactions
  * @param {string} userId
@@ -742,12 +751,20 @@ export async function checkDuplicates(transactions, userId) {
   for (const t of transactions) {
     let isDuplicate = false;
     let existingExpenseId = null;
+    let dupMatch = null;
+    let reason;
 
+    // Match against an already-logged EXPENSE within a date window (the bank
+    // posts a few days after the expense was recorded), same amount, and a
+    // similar vendor/description.
+    const winLo = _shiftIsoDate(t.date, -DUP_DATE_WINDOW);
+    const winHi = _shiftIsoDate(t.date, DUP_DATE_WINDOW);
     const { data: rows, error } = await sb
       .from('expenses')
       .select('id, amount, description, vendor, date')
       .eq('user_id', userId)
-      .eq('date', t.date);
+      .gte('date', winLo)
+      .lte('date', winHi);
 
     if (error) {
       console.log('[StayOps] checkDuplicates query error:', error.message || error);
@@ -760,33 +777,39 @@ export async function checkDuplicates(transactions, userId) {
         if (vendorMatch || descMatch) {
           isDuplicate = true;
           existingExpenseId = row.id;
+          dupMatch = { kind: 'expense', label: row.vendor || row.description || '', amount: Number(row.amount) || 0, date: row.date };
           break;
         }
       }
     }
 
-    let reason;
+    // Otherwise, was this line already imported on a previous statement? Match
+    // on the same window + amount + similar description (not an exact string,
+    // so whitespace/format drift can't sneak a re-import through).
     if (!isDuplicate) {
-      const { data: btx, error: bErr } = await sb
+      const { data: btxRows, error: bErr } = await sb
         .from('bank_transactions')
-        .select('id, expense_id')
+        .select('id, expense_id, amount, description, date')
         .eq('user_id', userId)
-        .eq('date', t.date)
-        .eq('amount', t.amount)
-        .eq('description', t.description || '')
-        .limit(1)
-        .maybeSingle();
+        .gte('date', winLo)
+        .lte('date', winHi);
 
       if (bErr) {
         console.log('[StayOps] checkDuplicates bank_transactions error:', bErr.message || bErr);
-      } else if (btx) {
-        isDuplicate = true;
-        existingExpenseId = btx.expense_id || null;
-        reason = 'already imported';
+      } else if (Array.isArray(btxRows)) {
+        for (const btx of btxRows) {
+          if (!amountClose(btx.amount, t.amount)) continue;
+          if (!descriptionSimilar(btx.description, t.description)) continue;
+          isDuplicate = true;
+          existingExpenseId = btx.expense_id || null;
+          reason = 'already imported';
+          dupMatch = { kind: 'import', label: btx.description || '', amount: Number(btx.amount) || 0, date: btx.date };
+          break;
+        }
       }
     }
 
-    out.push({ ...t, isDuplicate, existingExpenseId, ...(reason ? { reason } : {}) });
+    out.push({ ...t, isDuplicate, existingExpenseId, dupMatch, ...(reason ? { reason } : {}) });
   }
   return out;
 }

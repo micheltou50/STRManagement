@@ -620,8 +620,7 @@ function renderBankImportReview() {
       </div>
     </div>`;
 
-  const cards = _bankImportRows
-    .map((row, i) => {
+  const renderReviewCard = (row, i) => {
       const isPersonal = !!(row.skip && row.reason === 'personal');
       const dup = !!row.isDuplicate;
       const matchLocked = !!(row._bankMatchLocked && !dup && !isPersonal);
@@ -684,10 +683,53 @@ function renderBankImportReview() {
             </div>
           </div>
         </div>`;
-    })
-    .join('');
+  };
 
-  container.innerHTML = headerHtml + `<div id="bank-import-list">${cards}</div>`;
+  const renderAlreadyLoggedCard = (row, i) => {
+    const m = row.dupMatch || {};
+    const priorImport = row.reason === 'already imported' || m.kind === 'import';
+    const badgeText = priorImport ? 'Imported before' : 'Already logged';
+    const badgeBg = priorImport ? '#F1EFE8' : '#EAF3DE';
+    const badgeColor = priorImport ? '#5F5E5A' : '#3B6D11';
+    const amt = '$' + Number(row.amount || 0).toFixed(2);
+    const matchLine = priorImport
+      ? (m.date ? `Already imported · ${escHtml(bankImportFmtDayMon(m.date))}` : 'Already on a previous import')
+      : (m.label
+          ? `Matches your expense · ${escHtml(m.label)} · $${Number(m.amount || 0).toFixed(2)}${m.date ? ' · ' + escHtml(bankImportFmtDayMon(m.date)) : ''}`
+          : 'Matches an existing expense');
+    return `
+      <div class="bank-import-card" style="background:white;border:0.5px solid var(--border-tertiary,var(--hairline-1));border-radius:12px;padding:12px 14px;margin:0 16px 8px">
+        <div style="display:flex;align-items:flex-start;gap:10px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;color:var(--muted-2);text-decoration:line-through;word-break:break-word;line-height:1.4">${escHtml(row.description || '')}</div>
+            <div style="font-size:11px;color:var(--muted-2);margin-top:3px">${escHtml(bankImportFmtDayMon(row.date))} · ${amt}</div>
+          </div>
+          <span style="font-size:11px;font-weight:600;background:${badgeBg};color:${badgeColor};padding:3px 9px;border-radius:8px;white-space:nowrap">${badgeText}</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;padding-top:8px;border-top:0.5px solid var(--hairline-1)">
+          <span style="font-size:11.5px;color:var(--muted-2);min-width:0;word-break:break-word">${matchLine}</span>
+          <button type="button" onclick="globalThis.bankImportImportAnyway(${i})" style="font-size:11.5px;padding:5px 10px;border-radius:8px;border:1px solid var(--hairline-1);background:white;color:var(--ink-2);cursor:pointer;white-space:nowrap;font-family:'Plus Jakarta Sans',sans-serif">Import anyway</button>
+        </div>
+      </div>`;
+  };
+
+  const dupItems = [];
+  const newItems = [];
+  _bankImportRows.forEach((row, i) => {
+    (row.isDuplicate ? dupItems : newItems).push({ row, i });
+  });
+
+  const dupSection = dupItems.length
+    ? `<div style="font-size:12px;font-weight:600;color:var(--muted-2);margin:2px 16px 6px">Already logged — skipped (${dupItems.length})</div>` +
+      dupItems.map(({ row, i }) => renderAlreadyLoggedCard(row, i)).join('')
+    : '';
+
+  const newHeader = dupItems.length
+    ? `<div style="font-size:12px;font-weight:600;color:var(--muted-2);margin:16px 16px 6px">New — to import (${newItems.length})</div>`
+    : '';
+  const newSection = newHeader + newItems.map(({ row, i }) => renderReviewCard(row, i)).join('');
+
+  container.innerHTML = headerHtml + `<div id="bank-import-list">${dupSection}${newSection}</div>`;
 
   _bankImportRows.forEach((row, i) => {
     const ps = document.getElementById('bank-import-prop-' + i);
@@ -850,6 +892,17 @@ function bankImportSkipRow(i) {
   row.propertyId = '';
   renderBankImportReview();
 }
+
+// Override an "already logged" flag — treat the row as a fresh line to categorise.
+function bankImportImportAnyway(i) {
+  const row = _bankImportRows[i];
+  if (!row) return;
+  row.isDuplicate = false;
+  if (row.reason === 'already imported') row.reason = null;
+  row.dupMatch = null;
+  renderBankImportReview();
+}
+globalThis.bankImportImportAnyway = bankImportImportAnyway;
 
 async function bankImportPersonalRow(i) {
   const row = _bankImportRows[i];
