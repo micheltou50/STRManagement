@@ -2597,7 +2597,11 @@ function _showInvoiceOverlay(html, invNum) {
   overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.45);display:flex;flex-direction:column';
 
   const bar = document.createElement('div');
-  bar.style.cssText = 'display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:10px 14px;background:#1b1b1f;flex-wrap:wrap';
+  // Pad the toolbar below the iOS status bar / notch / Dynamic Island, matching
+  // the app header pattern — otherwise the buttons sit under the OS chrome and
+  // can't be tapped inside the Capacitor WebView (needs viewport-fit=cover, set
+  // on the index.html viewport meta).
+  bar.style.cssText = 'display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:calc(env(safe-area-inset-top, 20px) + 10px) 14px 10px;background:#1b1b1f;flex-wrap:wrap';
 
   const mkBtn = (label, bg) => {
     const b = document.createElement('button');
