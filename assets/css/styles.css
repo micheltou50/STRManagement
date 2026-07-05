@@ -955,6 +955,10 @@ label {
   background: #FAEEDA;
   color: #854F0B;
 }
+.inv-status-cancelled {
+  background: #F1EFE8;
+  color: #5F5E5A;
+}
 .fin-month-hdr {
   font-size: 12px;
   font-weight: 600;

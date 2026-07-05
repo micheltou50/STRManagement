@@ -2259,30 +2259,36 @@ function _normalizeInvoiceRecord(rec) {
     total: Number(rec.total || 0),
     clientName: rec.clientName || '',
     bookingIds: Array.isArray(rec.bookingIds) ? rec.bookingIds : [],
-    status: rec.status === 'paid' ? 'paid' : 'unpaid',
+    status: (rec.status === 'paid' || rec.status === 'cancelled') ? rec.status : 'unpaid',
     paidDate: rec.paidDate || null,
+    cancelledDate: rec.cancelledDate || null,
   };
 }
 
 let _bookingInvoiceMapCache = null;
-let _bookingInvoiceMapVersion = -1;
+let _bookingInvoiceMapArr = null;
 
 function _getBookingInvoiceMap() {
   const invoices = _getIssuedInvoices();
-  if (_bookingInvoiceMapCache && _bookingInvoiceMapVersion === invoices.length) {
+  // Key the cache on array identity, not length: hydrateFromCloud swaps in a
+  // fresh invoices array on property switch / config saves, and a cancel changes
+  // a record's status without changing length — both must force a rebuild so
+  // cancelled invoices correctly free their bookings.
+  if (_bookingInvoiceMapCache && _bookingInvoiceMapArr === invoices) {
     return _bookingInvoiceMapCache;
   }
   const map = new Map();
   for (const raw of invoices) {
     const rec = _normalizeInvoiceRecord(raw);
     if (!rec || !rec.number) continue;
+    if (rec.status === 'cancelled') continue;
     for (const bid of rec.bookingIds) {
       if (!map.has(bid)) map.set(bid, []);
       map.get(bid).push(rec.number);
     }
   }
   _bookingInvoiceMapCache = map;
-  _bookingInvoiceMapVersion = invoices.length;
+  _bookingInvoiceMapArr = invoices;
   return map;
 }
 
@@ -2292,7 +2298,7 @@ function _recordIssuedInvoice(record) {
     window._appConfig = window._appConfig || {};
     const list = Array.isArray(window._appConfig.invoices) ? window._appConfig.invoices.slice() : [];
     if (list.some(r => r && (r.number || r.invoiceNumber) === record.number)) return;
-    list.push(record);
+    list.push(_normalizeInvoiceRecord(record));
     window._appConfig.invoices = list;
     _bookingInvoiceMapCache = null;
     if (typeof saveAppConfigToCloud === 'function') {
@@ -2307,13 +2313,44 @@ function _updateInvoiceStatus(invoiceNumber, newStatus) {
   const list = Array.isArray(window._appConfig.invoices) ? window._appConfig.invoices.slice() : [];
   const idx = list.findIndex(r => r && (r.number || r.invoiceNumber) === invoiceNumber);
   if (idx < 0) return;
-  list[idx] = { ...list[idx], status: newStatus, paidDate: newStatus === 'paid' ? new Date().toISOString() : null };
+  if (_normalizeInvoiceRecord(list[idx]).status === 'cancelled') return;
+  list[idx] = { ...list[idx], status: newStatus, paidDate: newStatus === 'paid' ? new Date().toISOString() : null, cancelledDate: null };
   window._appConfig.invoices = list;
   _bookingInvoiceMapCache = null;
   if (typeof saveAppConfigToCloud === 'function') {
     saveAppConfigToCloud({ invoices: list }).catch(e => console.warn('[StayOps] silent error:', e));
   }
   renderInvoiceHistory();
+}
+
+// Void an unpaid invoice: keep the record so its number stays reserved (audit),
+// but mark it cancelled so its bookings free up to be re-invoiced. Paid invoices
+// can't be cancelled.
+function _cancelInvoice(invoiceNumber) {
+  if (!invoiceNumber) return;
+  window._appConfig = window._appConfig || {};
+  const list = Array.isArray(window._appConfig.invoices) ? window._appConfig.invoices.slice() : [];
+  const idx = list.findIndex(r => r && (r.number || r.invoiceNumber) === invoiceNumber);
+  if (idx < 0) return;
+  const cur = _normalizeInvoiceRecord(list[idx]);
+  if (cur.status === 'cancelled') return;
+  if (cur.status === 'paid') {
+    if (typeof globalThis.showBanner === 'function') globalThis.showBanner('⚠ Paid invoices can’t be cancelled', 'warn');
+    return;
+  }
+  if (typeof globalThis.confirm === 'function' &&
+      !globalThis.confirm('Cancel invoice ' + invoiceNumber + '? Its bookings become available to re-invoice; the number stays reserved.')) return;
+  list[idx] = { ...list[idx], status: 'cancelled', cancelledDate: new Date().toISOString(), paidDate: null };
+  window._appConfig.invoices = list;
+  _bookingInvoiceMapCache = null;
+  if (typeof saveAppConfigToCloud === 'function') {
+    saveAppConfigToCloud({ invoices: list }).catch(e => console.warn('[StayOps] silent error:', e));
+  }
+  if (typeof globalThis.showBanner === 'function') globalThis.showBanner('Invoice ' + invoiceNumber + ' cancelled', 'ok');
+  const ov = document.getElementById('invoice-overlay');
+  if (ov) ov.remove();
+  renderInvoiceHistory();
+  if (typeof renderManagement === 'function') renderManagement();
 }
 
 function _viewHistoricalInvoice(invoiceNumber) {
@@ -2345,8 +2382,9 @@ function renderInvoiceHistory(containerId) {
   const rows = allInvoices.map(inv => {
     const isExpanded = _expandedInvoiceNum === inv.number;
     const isPaid = inv.status === 'paid';
-    const pillClass = isPaid ? 'inv-status-paid' : 'inv-status-unpaid';
-    const pillText = isPaid ? 'Paid' : 'Unpaid';
+    const isCancelled = inv.status === 'cancelled';
+    const pillClass = isCancelled ? 'inv-status-cancelled' : (isPaid ? 'inv-status-paid' : 'inv-status-unpaid');
+    const pillText = isCancelled ? 'Cancelled' : (isPaid ? 'Paid' : 'Unpaid');
     const d = new Date(inv.date);
     const dateStr = isNaN(d) ? '' : d.toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' });
     const totalStr = '$' + inv.total.toLocaleString('en-AU', { minimumFractionDigits:2, maximumFractionDigits:2 });
@@ -2364,15 +2402,22 @@ function renderInvoiceHistory(containerId) {
         : (inv.bookingIds.length
             ? '<div style="font-size:12px;color:var(--muted-2);padding:6px 0">Booking details no longer available</div>'
             : '<div style="font-size:12px;color:var(--muted-2);padding:6px 0">No linked bookings (legacy invoice)</div>');
-      const toggleLabel = isPaid ? 'Mark unpaid' : 'Mark paid';
-      const toggleStatus = isPaid ? 'unpaid' : 'paid';
       const viewBtn = inv.bookingIds.length
         ? `<button onclick="viewHistoricalInvoice('${escHtml(inv.number)}')" style="font-size:12px;font-weight:500;color:var(--primary);background:none;border:1px solid var(--primary);border-radius:8px;padding:6px 14px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">View invoice</button>`
         : '';
+      let actionBtns = '';
+      if (!isCancelled) {
+        const toggleLabel = isPaid ? 'Mark unpaid' : 'Mark paid';
+        const toggleStatus = isPaid ? 'unpaid' : 'paid';
+        actionBtns += `<button onclick="toggleInvoiceStatus('${escHtml(inv.number)}','${toggleStatus}')" style="font-size:12px;font-weight:500;color:#fff;background:var(--primary);border:none;border-radius:8px;padding:6px 14px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">${toggleLabel}</button>`;
+        if (!isPaid) {
+          actionBtns += `<button onclick="cancelInvoice('${escHtml(inv.number)}')" style="font-size:12px;font-weight:500;color:#A32D2D;background:none;border:1px solid #E24B4A;border-radius:8px;padding:6px 14px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Cancel invoice</button>`;
+        }
+      }
       detail = `<div style="padding:4px 0 8px;border-top:0.5px solid rgba(0,0,0,0.06);margin-top:4px">
         ${bookingLines}
-        <div style="display:flex;gap:8px;margin-top:8px">
-          <button onclick="toggleInvoiceStatus('${escHtml(inv.number)}','${toggleStatus}')" style="font-size:12px;font-weight:500;color:#fff;background:var(--primary);border:none;border-radius:8px;padding:6px 14px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">${toggleLabel}</button>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          ${actionBtns}
           ${viewBtn}
         </div>
       </div>`;
@@ -2397,6 +2442,22 @@ function renderInvoiceHistory(containerId) {
     <div style="background:#fff;border-radius:12px;padding:0 16px;border:0.5px solid rgba(0,0,0,0.08)">${rows}</div>`;
 }
 
+// One source of truth for a single invoice line's numbers, shared by the
+// on-screen invoice (buildInvoicePDF) and the downloadable PDF (_buildInvoiceDoc)
+// so the two can never disagree. Returns raw numbers + an unescaped description.
+function _invoiceLineData(b) {
+  const amt = bookingMgmtPayout(b);
+  const gross = bookingRevenue(b);
+  const cleaning = bookingCleaningFee(b);
+  const feeBase = gross - cleaning;
+  const pctRaw = b.mgmtFeeRaw != null ? Number(b.mgmtFeeRaw) : (b.mgmtFee && feeBase ? (b.mgmtFee / feeBase) * 100 : 0);
+  const pct = Number.isFinite(pctRaw) ? Math.round(pctRaw * 10) / 10 : 0;
+  const ci = new Date(b.checkin), co = new Date(b.checkout);
+  const fmtShort = d => isNaN(d) ? '' : d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+  const desc = `Management fee — ${b.name || 'Guest'} booking, ${fmtShort(ci)}–${fmtShort(co)}`;
+  return { amt, gross, cleaning, feeBase, pct, desc };
+}
+
 function buildInvoicePDF(selected, client, existing) {
   const inv = _getInvoiceIdentity();
   const bank = (window._appConfig && window._appConfig.bank_details) || { name:'', bsb:'', acc:'', bank:'' };
@@ -2414,18 +2475,9 @@ function buildInvoicePDF(selected, client, existing) {
   // Management fee is calculated on booking revenue EXCLUDING cleaning fees.
   let invoiceTotal = 0;
   const rows = selected.map(b => {
-    const amt = bookingMgmtPayout(b);
-    const gross = bookingRevenue(b);
-    const cleaning = bookingCleaningFee(b);
-    const feeBase = gross - cleaning;
-    const pct = b.mgmtFeeRaw != null ? Number(b.mgmtFeeRaw) : (b.mgmtFee && feeBase ? Math.round((b.mgmtFee / feeBase) * 1000) / 10 : 0);
+    const { amt, gross, cleaning, feeBase, pct, desc: rawDesc } = _invoiceLineData(b);
     invoiceTotal += amt;
-    const guest = b.name || 'Guest';
-    const ci = new Date(b.checkin);
-    const co = new Date(b.checkout);
-    const fmtShort = d => isNaN(d) ? '' : d.toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' });
-    const dates = `${fmtShort(ci)}–${fmtShort(co)}`;
-    const desc = escHtml(`Management fee — ${guest} booking, ${dates}`);
+    const desc = escHtml(rawDesc);
     return `<tr>
       <td class="cell desc">${desc}</td>
       <td class="cell num">$${gross.toFixed(2)}</td>
@@ -2557,38 +2609,58 @@ function buildInvoicePDF(selected, client, existing) {
   <div class="footer">${getCurrentPropertyName()} · ${[getPropertyConfig().suburb, getPropertyConfig().state].filter(Boolean).join(' ')} · Generated ${today}</div>
 </body></html>`;
 
-  const pendingRecord = {
-    number: invNum,
-    date: invDate.toISOString(),
-    total: Number(invoiceTotal.toFixed(2)),
-    clientName: (client && client.name) || '',
-    bookingIds: selected.map(b => String(b.id)),
-    status: 'unpaid',
-    paidDate: null,
-  };
-  globalThis._pendingInvoiceRecord = pendingRecord;
-  globalThis._confirmInvoiceIssued = function(num) {
-    if (!globalThis._pendingInvoiceRecord || globalThis._pendingInvoiceRecord.number !== num) return;
-    _recordIssuedInvoice(globalThis._pendingInvoiceRecord);
-    globalThis._pendingInvoiceRecord = null;
-    if (typeof globalThis.showBanner === 'function') {
-      globalThis.showBanner('✓ Invoice ' + num + ' recorded', 'ok');
-    }
-    renderManagement();
-    renderMgmtFY();
-  };
+  // Determine lifecycle state FIRST. Only a fresh (not-yet-recorded) invoice
+  // gets a pending record + the _confirmInvoiceIssued global, so re-opening an
+  // already issued/paid/cancelled invoice can never re-record it.
+  const _issuedList = _getIssuedInvoices();
+  const _existingRec = existing || _issuedList.find(r => (r.number || r.invoiceNumber) === invNum);
+  const _recStatus = _existingRec ? _normalizeInvoiceRecord(_existingRec).status : null;
 
-  // Render the invoice in a same-page overlay instead of a popup window.
-  // window.open() gets blocked by popup blockers and is a silent no-op inside
-  // the iOS WKWebView (Capacitor) shell — which is what stopped invoices from
-  // opening. The document loads into an <iframe srcdoc> and the action buttons
-  // live in the overlay toolbar so "Mark as issued" can call back into the app.
-  _showInvoiceOverlay(html, invNum);
+  if (_existingRec) {
+    globalThis._pendingInvoiceRecord = null;
+    globalThis._confirmInvoiceIssued = null;
+  } else {
+    const pendingRecord = {
+      number: invNum,
+      date: invDate.toISOString(),
+      total: Number(invoiceTotal.toFixed(2)),
+      clientName: (client && client.name) || '',
+      bookingIds: selected.map(b => String(b.id)),
+      status: 'unpaid',
+      paidDate: null,
+    };
+    globalThis._pendingInvoiceRecord = pendingRecord;
+    globalThis._confirmInvoiceIssued = function(num) {
+      if (!globalThis._pendingInvoiceRecord || globalThis._pendingInvoiceRecord.number !== num) return;
+      _recordIssuedInvoice(globalThis._pendingInvoiceRecord);
+      globalThis._pendingInvoiceRecord = null;
+      if (typeof globalThis.showBanner === 'function') {
+        globalThis.showBanner('✓ Invoice ' + num + ' recorded', 'ok');
+      }
+      renderManagement();
+      renderMgmtFY();
+    };
+  }
+
+  // Render the invoice in a same-page overlay instead of a popup window
+  // (window.open is blocked in browsers and a no-op in the iOS WebView). The
+  // toolbar reflects the invoice's lifecycle: Mark-as-issued for a fresh one,
+  // Issued/Paid tags + Cancel for one already recorded.
+  _showInvoiceOverlay(html, invNum, {
+    issued: !!_existingRec,
+    status: _recStatus,
+    onSavePdf: () => _saveInvoicePdf(selected, client, invNum, invDate),
+    onMarkIssued: _existingRec ? null : function () {
+      if (typeof globalThis._confirmInvoiceIssued === 'function') globalThis._confirmInvoiceIssued(invNum);
+    },
+    onCancel: (_existingRec && _recStatus === 'unpaid') ? function () { _cancelInvoice(invNum); } : null,
+  });
 }
 
 // Full-screen, same-origin invoice viewer used in place of window.open().
 // Works inside the Capacitor WebView, where popups silently fail.
-function _showInvoiceOverlay(html, invNum) {
+function _showInvoiceOverlay(html, invNum, opts) {
+  opts = opts || {};
   const existing = document.getElementById('invoice-overlay');
   if (existing) existing.remove();
 
@@ -2609,44 +2681,156 @@ function _showInvoiceOverlay(html, invNum) {
     b.style.cssText = "appearance:none;border:none;border-radius:10px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;color:#fff;background:" + bg;
     return b;
   };
-
-  const printBtn = mkBtn('Save as PDF', '#3B6EF5');
-  const issueBtn = mkBtn('Mark as issued', '#1D9E75');
-  const closeBtn = mkBtn('Close', '#5a5a5f');
+  const mkTag = (label, color) => {
+    const s = document.createElement('span');
+    s.textContent = label;
+    s.style.cssText = "align-self:center;padding:8px 14px;border-radius:10px;font-size:13px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;background:rgba(255,255,255,0.14);color:" + (color || '#fff');
+    return s;
+  };
 
   const frame = document.createElement('iframe');
   frame.title = 'Invoice ' + invNum;
   frame.style.cssText = 'flex:1;width:100%;border:none;background:#fff';
   frame.srcdoc = html;
 
-  printBtn.onclick = () => {
-    try {
-      frame.contentWindow.focus();
-      frame.contentWindow.print();
-    } catch {
-      if (typeof globalThis.showBanner === 'function') {
-        globalThis.showBanner('⚠ Printing not available here', 'warn');
+  const items = [];
+
+  // Save as PDF builds a real (vector) PDF and opens the native share sheet on
+  // iOS — window.print() is a no-op inside the WebView.
+  const saveBtn = mkBtn('Save as PDF', '#3B6EF5');
+  saveBtn.onclick = () => { if (typeof opts.onSavePdf === 'function') opts.onSavePdf(); };
+  items.push(saveBtn);
+
+  if (opts.issued) {
+    if (opts.status === 'paid') {
+      items.push(mkTag('Paid ✓', '#9FE1CB'));
+    } else if (opts.status === 'cancelled') {
+      items.push(mkTag('Cancelled', '#D3D1C7'));
+    } else {
+      items.push(mkTag('Issued ✓', '#9FE1CB'));
+      if (typeof opts.onCancel === 'function') {
+        const cancelBtn = mkBtn('Cancel invoice', '#A32D2D');
+        cancelBtn.onclick = () => { opts.onCancel(); };
+        items.push(cancelBtn);
       }
     }
-  };
+  } else if (typeof opts.onMarkIssued === 'function') {
+    const issueBtn = mkBtn('Mark as issued', '#1D9E75');
+    let done = false;
+    issueBtn.onclick = () => {
+      if (done) return;
+      done = true;
+      opts.onMarkIssued();
+      issueBtn.textContent = 'Issued ✓';
+      issueBtn.disabled = true;
+      issueBtn.style.opacity = '0.5';
+    };
+    items.push(issueBtn);
+  }
 
-  let issued = false;
-  issueBtn.onclick = () => {
-    if (issued) return;
-    issued = true;
-    if (typeof globalThis._confirmInvoiceIssued === 'function') {
-      globalThis._confirmInvoiceIssued(invNum);
-    }
-    issueBtn.textContent = 'Issued ✓';
-    issueBtn.disabled = true;
-    issueBtn.style.opacity = '0.5';
-  };
-
+  const closeBtn = mkBtn('Close', '#5a5a5f');
   closeBtn.onclick = () => overlay.remove();
+  items.push(closeBtn);
 
-  bar.append(printBtn, issueBtn, closeBtn);
+  items.forEach(el => bar.appendChild(el));
   overlay.append(bar, frame);
   document.body.appendChild(overlay);
+}
+
+async function _saveInvoicePdf(selected, client, invNum, invDate) {
+  if (!(window.jspdf && window.jspdf.jsPDF)) {
+    if (typeof globalThis.showBanner === 'function') globalThis.showBanner('⟳ PDF library still loading — try again in a moment', 'warn');
+    return;
+  }
+  try {
+    const doc = _buildInvoiceDoc(selected, client, invNum, invDate);
+    const filename = invNum + '.pdf';
+    // Prefer the native share sheet (works inside the iOS WebView, where a direct
+    // download or print does nothing). Fall back to a download on desktop web.
+    const blob = doc.output('blob');
+    const file = new File([blob], filename, { type: 'application/pdf' });
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'Invoice ' + invNum });
+      } catch (err) {
+        // AbortError = user dismissed the share sheet; otherwise fall back.
+        if (!err || err.name !== 'AbortError') doc.save(filename);
+      }
+      return;
+    }
+    doc.save(filename);
+  } catch (e) {
+    console.warn('[StayOps] invoice PDF failed', e);
+    if (typeof globalThis.showBanner === 'function') globalThis.showBanner('⚠ Could not build the PDF', 'warn');
+  }
+}
+
+// Build the invoice as a real (vector) PDF via jsPDF + autotable, using the same
+// per-line numbers as the on-screen invoice (_invoiceLineData) so they match.
+function _buildInvoiceDoc(selected, client, invNum, invDate) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const inv = _getInvoiceIdentity();
+  const bank = (window._appConfig && window._appConfig.bank_details) || {};
+  const money = n => '$' + Number(n || 0).toFixed(2);
+  const d0 = (invDate instanceof Date) ? invDate : new Date(invDate || Date.now());
+  const today = d0.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+  const dueDate = new Date(d0.getTime() + 14 * 864e5).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  let invoiceTotal = 0;
+  const bodyRows = selected.map(b => {
+    const { amt, gross, cleaning, feeBase, pct, desc } = _invoiceLineData(b);
+    invoiceTotal += amt;
+    const feeBaseStr = feeBase < 0 ? '-$' + Math.abs(feeBase).toFixed(2) : money(feeBase);
+    return [desc, money(gross), cleaning ? '-' + money(cleaning) : money(0), feeBaseStr, pct ? pct + '%' : '—', money(amt)];
+  });
+
+  doc.setFontSize(26); doc.setFont('helvetica', 'bold'); doc.setTextColor(34, 34, 34);
+  doc.text('INVOICE', 12, 20);
+  doc.setFontSize(10); doc.setFont('helvetica', 'normal'); doc.setTextColor(60, 60, 60);
+  let hy = 28;
+  [inv.company, (inv.name && inv.name !== inv.company) ? inv.name : '', inv.address, inv.abn ? ('ABN: ' + inv.abn) : ''].filter(Boolean).forEach(line => { doc.text(String(line), 12, hy); hy += 5; });
+  doc.setFontSize(8); doc.setTextColor(120, 120, 120);
+  doc.text('INVOICE DATE', 150, 16); doc.text('INVOICE NUMBER', 150, 26);
+  doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(34, 34, 34);
+  doc.text(today, 150, 21); doc.text(String(invNum), 150, 31);
+
+  let y = Math.max(hy, 40) + 2;
+  if (client && client.name) {
+    doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(120, 120, 120);
+    doc.text('BILL TO', 12, y); y += 5;
+    doc.setFontSize(10); doc.setFont('helvetica', 'normal'); doc.setTextColor(34, 34, 34);
+    [client.name, client.contact, client.email, client.address].filter(Boolean).forEach(line => { doc.text(String(line), 12, y); y += 5; });
+    y += 2;
+  }
+
+  doc.autoTable({
+    startY: y, margin: { left: 12, right: 12 },
+    head: [['Description', 'Gross', 'Cleaning', 'Fee base', 'Rate', 'Amount AUD']],
+    body: bodyRows,
+    headStyles: { fillColor: [30, 58, 47], textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 9 },
+    columnStyles: { 0: { cellWidth: 66 }, 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+    alternateRowStyles: { fillColor: [248, 252, 248] },
+  });
+  y = doc.lastAutoTable.finalY + 8;
+
+  doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(34, 34, 34);
+  doc.text('Invoice Total AUD', 130, y); doc.text(money(invoiceTotal), 198, y, { align: 'right' }); y += 6;
+  doc.text('Amount Due AUD', 130, y); doc.text(money(invoiceTotal), 198, y, { align: 'right' }); y += 10;
+
+  doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(90, 90, 90);
+  doc.text('Management fee is calculated on booking revenue excluding cleaning fees. Not registered for GST.', 12, y); y += 8;
+
+  doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(34, 34, 34);
+  doc.text('Due Date: ' + dueDate, 12, y); y += 6;
+  if (bank.bsb && bank.acc) {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    doc.text('Direct Deposit' + (bank.bank ? (' — ' + bank.bank) : '') + (bank.name ? (' — ' + bank.name) : ''), 12, y); y += 5;
+    doc.text('BSB: ' + bank.bsb + '     Acc: ' + bank.acc, 12, y); y += 5;
+  }
+
+  return doc;
 }
 // ── EXPENSE CATEGORY MANAGEMENT ───────────────────────────────────────────
 function bindExpenseCatRowHandlers(i, name) {
@@ -5767,6 +5951,7 @@ globalThis._mgmtFYSelectedMonths = _mgmtFYSelectedMonths;
 globalThis._mgmtFYToggleMonth = _mgmtFYToggleMonth;
 globalThis.toggleInvoiceStatus = _updateInvoiceStatus;
 globalThis.viewHistoricalInvoice = _viewHistoricalInvoice;
+globalThis.cancelInvoice = _cancelInvoice;
 globalThis.toggleInvoiceDetail = function(num) { _expandedInvoiceNum = _expandedInvoiceNum === num ? null : num; renderInvoiceHistory(); };
 
 // Open a receipt by fetching a signed URL on demand (bucket is private).
