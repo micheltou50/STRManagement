@@ -728,12 +728,14 @@ function descriptionSimilar(d1, d2) {
   return n >= 2 || (n >= 1 && wa.size <= 3);
 }
 
-const DUP_DATE_WINDOW = 6; // days — the bank often posts a few days after the expense was logged
+const DUP_DATE_WINDOW = 4; // days — the bank posts a couple of days after the expense was logged
 
 function _shiftIsoDate(iso, delta) {
-  const d = new Date(String(iso) + 'T00:00:00');
+  // UTC math so a local timezone can't roll the calendar date back a day
+  // (new Date('...T00:00:00') is local but toISOString() is UTC).
+  const d = new Date(String(iso).slice(0, 10) + 'T00:00:00Z');
   if (isNaN(d.getTime())) return iso;
-  d.setDate(d.getDate() + delta);
+  d.setUTCDate(d.getUTCDate() + delta);
   return d.toISOString().slice(0, 10);
 }
 
@@ -799,7 +801,11 @@ export async function checkDuplicates(transactions, userId) {
       } else if (Array.isArray(btxRows)) {
         for (const btx of btxRows) {
           if (!amountClose(btx.amount, t.amount)) continue;
-          if (!descriptionSimilar(btx.description, t.description)) continue;
+          // Fuzzy description match, OR (both descriptions blank → fall back to an
+          // exact same-day match so re-imports of blank-description rows are still
+          // caught, which the old exact-string check did).
+          const bothBlank = !String(btx.description || '').trim() && !String(t.description || '').trim();
+          if (!(descriptionSimilar(btx.description, t.description) || (bothBlank && btx.date === t.date))) continue;
           isDuplicate = true;
           existingExpenseId = btx.expense_id || null;
           reason = 'already imported';

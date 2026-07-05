@@ -716,7 +716,10 @@ function renderBankImportReview() {
   const dupItems = [];
   const newItems = [];
   _bankImportRows.forEach((row, i) => {
-    (row.isDuplicate ? dupItems : newItems).push({ row, i });
+    // Personal rows always render through the normal card (keeping their
+    // Personal/Undo treatment) even if also flagged as a duplicate.
+    const isPersonalRow = !!(row.skip && row.reason === 'personal');
+    (row.isDuplicate && !isPersonalRow ? dupItems : newItems).push({ row, i });
   });
 
   const dupSection = dupItems.length
@@ -724,8 +727,9 @@ function renderBankImportReview() {
       dupItems.map(({ row, i }) => renderAlreadyLoggedCard(row, i)).join('')
     : '';
 
+  const newImportable = newItems.filter(({ row }) => canBankImportRow(row)).length;
   const newHeader = dupItems.length
-    ? `<div style="font-size:12px;font-weight:600;color:var(--muted-2);margin:16px 16px 6px">New — to import (${newItems.length})</div>`
+    ? `<div style="font-size:12px;font-weight:600;color:var(--muted-2);margin:16px 16px 6px">New — to import (${newImportable})</div>`
     : '';
   const newSection = newHeader + newItems.map(({ row, i }) => renderReviewCard(row, i)).join('');
 
@@ -5708,35 +5712,14 @@ async function reconLinkToExpense(txnId, expenseId) {
       const exp = (Array.isArray(expenses) ? expenses : []).find(e => (e._cloudId || e.id) === expenseId);
       if (exp) txn.expenseMerchant = exp.merchant || exp.description || 'Linked';
     }
-    // Update summary bar totals
-    const summaryBar = document.getElementById('reconciliation-summary-bar');
-    if (summaryBar) {
-      const totals = { matched: 0, unaccounted: 0, personal: 0, skipped: 0 };
-      for (const t of _reconTxns) totals[t.status] = (totals[t.status] || 0) + Math.abs(t.amount);
-      summaryBar.innerHTML = `
-        <div style="display:flex;gap:8px;padding:0 16px;margin:0 auto 12px;max-width:560px;flex-wrap:wrap">
-          <div style="flex:1;min-width:100px;background:#E8F5E9;border-radius:8px;padding:8px 12px;text-align:center">
-            <div style="font-size:18px;font-weight:600;color:#2E7D32">$${_fmtAud(totals.matched)}</div>
-            <div style="font-size:11px;color:#388E3C">Matched</div>
-          </div>
-          <div style="flex:1;min-width:100px;background:#FFF3E0;border-radius:8px;padding:8px 12px;text-align:center">
-            <div style="font-size:18px;font-weight:600;color:#E65100">$${_fmtAud(totals.unaccounted)}</div>
-            <div style="font-size:11px;color:#F57C00">Unaccounted</div>
-          </div>
-          <div style="flex:1;min-width:100px;background:#F3E5F5;border-radius:8px;padding:8px 12px;text-align:center">
-            <div style="font-size:18px;font-weight:600;color:#7B1FA2">$${_fmtAud(totals.personal)}</div>
-            <div style="font-size:11px;color:#9C27B0">Personal</div>
-          </div>
-        </div>`;
-    }
-    // Re-render just the list, preserving scroll position
+    // Re-render tab-scoped (tabs + summary + filters + list) preserving scroll, so
+    // the summary tiles stay scoped to the active tab instead of summing every row.
     const listEl = document.getElementById('reconciliation-list');
-    if (listEl) {
-      const scrollY = listEl.parentElement ? listEl.parentElement.scrollTop : window.scrollY;
-      renderReconciliationList(listEl);
-      if (listEl.parentElement) listEl.parentElement.scrollTop = scrollY;
-      else window.scrollTo(0, scrollY);
-    }
+    const scrollY = listEl && listEl.parentElement ? listEl.parentElement.scrollTop : window.scrollY;
+    _renderReconFromCache();
+    const listEl2 = document.getElementById('reconciliation-list');
+    if (listEl2 && listEl2.parentElement) listEl2.parentElement.scrollTop = scrollY;
+    else window.scrollTo(0, scrollY);
   } catch (err) {
     globalThis.showBanner('Failed to link: ' + (err.message || err), 'error');
   }

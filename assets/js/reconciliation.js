@@ -497,12 +497,14 @@ export async function getAllTransactionsWithStatus(userId) {
   if (linkedExpenseIds.length > 0) {
     const { data: expRows, error: expErr } = await sb
       .from('expenses')
-      .select('id, vendor, category')
+      .select('id, merchant, vendor, category')
       .in('id', linkedExpenseIds);
 
     if (!expErr && expRows) {
       for (const e of expRows) {
-        expenseMap[e.id] = { merchant: e.vendor || null, category: e.category || null };
+        // Manually-entered expenses populate `merchant`; bank-import-created ones
+        // populate `vendor`. Coalesce so the matched-row badge shows a real name.
+        expenseMap[e.id] = { merchant: e.merchant || e.vendor || null, category: e.category || null };
       }
     }
   }
