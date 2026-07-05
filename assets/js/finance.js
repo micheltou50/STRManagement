@@ -2745,15 +2745,30 @@ async function _saveInvoicePdf(selected, client, invNum, invDate) {
   try {
     const doc = _buildInvoiceDoc(selected, client, invNum, invDate);
     const filename = invNum + '.pdf';
-    // Prefer the native share sheet (works inside the iOS WebView, where a direct
-    // download or print does nothing). Fall back to a download on desktop web.
+
+    // No one-size-fits-all — pick what the device can actually do:
+    //  • Desktop, Android, and iOS Safari can download a file directly, which is
+    //    a real "Save" (lands in Downloads / Files). Use that everywhere we can.
+    //  • The full-screen iOS app (Capacitor WebView) and iOS home-screen PWAs
+    //    can't trigger a download, so hand the file to the OS save sheet — that's
+    //    where iOS/Android expose "Save to Files" / "Save to Downloads".
+    const cap = globalThis.Capacitor;
+    const isNativeShell = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
+    const isIOSStandalone = navigator.standalone === true;
+    const canDownloadDirectly = !isNativeShell && !isIOSStandalone;
+
+    if (canDownloadDirectly) {
+      doc.save(filename);
+      return;
+    }
+
     const blob = doc.output('blob');
     const file = new File([blob], filename, { type: 'application/pdf' });
     if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({ files: [file], title: 'Invoice ' + invNum });
       } catch (err) {
-        // AbortError = user dismissed the share sheet; otherwise fall back.
+        // AbortError = user dismissed the sheet; otherwise fall back to a download.
         if (!err || err.name !== 'AbortError') doc.save(filename);
       }
       return;
