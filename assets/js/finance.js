@@ -5260,92 +5260,123 @@ function exportTaxCSV() {
 
 let _reconTxns = [];         // cached list from last fetch
 let _reconFilter = 'all';    // current pill filter
+let _reconTab = 'bank';      // 'bank' (debits → expenses) | 'payout' (credits → payouts)
 
 function showReconciliationView() {
+  _reconTab = 'bank';
   const el = document.getElementById('finance-reconciliation-view');
   if (el) fadeTransition(el, true);
   renderReconciliationView();
 }
 
 async function renderReconciliationView() {
-  const summaryBar = document.getElementById('reconciliation-summary-bar');
-  const filtersEl  = document.getElementById('reconciliation-filters');
-  const listEl     = document.getElementById('reconciliation-list');
-  if (!summaryBar || !filtersEl || !listEl) return;
+  const listEl = document.getElementById('reconciliation-list');
+  if (!listEl) return;
 
-  // Show loading state
   listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">Loading transactions...</div>';
 
   const user = await getCurrentSupabaseUser();
   if (!user) {
     listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px">Sign in to view transactions.</div>';
-    summaryBar.innerHTML = '';
-    filtersEl.innerHTML = '';
+    const sb = document.getElementById('reconciliation-summary-bar'); if (sb) sb.innerHTML = '';
+    const fe = document.getElementById('reconciliation-filters'); if (fe) fe.innerHTML = '';
     return;
   }
 
   _reconTxns = await getAllTransactionsWithStatus(user.id);
   _reconFilter = 'all';
+  _renderReconFromCache();
+}
 
-  if (_reconTxns.length === 0) {
-    summaryBar.innerHTML = '';
-    filtersEl.innerHTML = '';
-    listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">No bank transactions imported yet. Use <b>Import bank CSV</b> in the Expenses view to get started.</div>';
-    return;
-  }
+// The Transaction Map is one bank_transactions feed split by direction: debits
+// (money out) belong to the Bank Reconciliation tab, credits (money in) to the
+// Payout Match tab. One fetch feeds both; the active tab scopes what's shown.
+function _reconScopedTxns() {
+  return (_reconTxns || []).filter(t =>
+    _reconTab === 'payout' ? t.direction === 'credit' : t.direction !== 'credit'
+  );
+}
 
-  // Compute totals per status (Phase 2c: matched_payout is the new credit-side
-  // status — money in that's tied to a Phase 1 platform_payouts row).
+function _renderReconFromCache() {
+  const tabsEl     = document.getElementById('reconciliation-tabs');
+  const summaryBar = document.getElementById('reconciliation-summary-bar');
+  const filtersEl  = document.getElementById('reconciliation-filters');
+  const listEl     = document.getElementById('reconciliation-list');
+  if (tabsEl) renderReconciliationTabs(tabsEl);
+  if (!summaryBar || !filtersEl || !listEl) return;
+
+  const scoped = _reconScopedTxns();
   const totals = { matched: 0, matched_payout: 0, unaccounted: 0, personal: 0, skipped: 0 };
-  for (const t of _reconTxns) {
+  for (const t of scoped) {
     totals[t.status] = (totals[t.status] || 0) + Math.abs(t.amount);
   }
-  const hasAnyCredits = _reconTxns.some(t => t.direction === 'credit');
-
-  // Render summary bar — Payouts tile only shows when there's at least one
-  // credit on file, so existing expense-only users keep the same layout.
-  const payoutsTile = hasAnyCredits
-    ? `<div style="flex:1;min-width:100px;background:#E3F2FD;border-radius:8px;padding:8px 12px;text-align:center">
-         <div style="font-size:18px;font-weight:600;color:#1565C0">$${_fmtAud(totals.matched_payout)}</div>
-         <div style="font-size:11px;color:#1976D2">Payouts</div>
-       </div>`
-    : '';
-  summaryBar.innerHTML = `
-    <div style="display:flex;gap:8px;padding:0 16px;margin:0 auto 12px;max-width:560px;flex-wrap:wrap">
-      <div style="flex:1;min-width:100px;background:#E8F5E9;border-radius:8px;padding:8px 12px;text-align:center">
-        <div style="font-size:18px;font-weight:600;color:#2E7D32">$${_fmtAud(totals.matched)}</div>
-        <div style="font-size:11px;color:#388E3C">Matched</div>
-      </div>
-      ${payoutsTile}
-      <div style="flex:1;min-width:100px;background:#FFF3E0;border-radius:8px;padding:8px 12px;text-align:center">
-        <div style="font-size:18px;font-weight:600;color:#E65100">$${_fmtAud(totals.unaccounted)}</div>
-        <div style="font-size:11px;color:#F57C00">Unaccounted</div>
-      </div>
-      <div style="flex:1;min-width:100px;background:#F3E5F5;border-radius:8px;padding:8px 12px;text-align:center">
-        <div style="font-size:18px;font-weight:600;color:#7B1FA2">$${_fmtAud(totals.personal)}</div>
-        <div style="font-size:11px;color:#9C27B0">Personal</div>
-      </div>
-    </div>`;
-
-  // Render filter pills
+  summaryBar.innerHTML = _reconSummaryHtml(totals);
   renderReconciliationFilters(filtersEl);
-
-  // Render list
   renderReconciliationList(listEl);
 }
 
+function _reconSummaryHtml(totals) {
+  const isBank = _reconTab !== 'payout';
+  const tile = (val, label, bg, valColor, labelColor) =>
+    `<div style="flex:1;min-width:100px;background:${bg};border-radius:8px;padding:8px 12px;text-align:center">
+       <div style="font-size:18px;font-weight:600;color:${valColor}">$${_fmtAud(val)}</div>
+       <div style="font-size:11px;color:${labelColor}">${label}</div>
+     </div>`;
+  const tiles = isBank
+    ? tile(totals.matched, 'Matched', '#E8F5E9', '#2E7D32', '#388E3C') +
+      tile(totals.unaccounted, 'Unaccounted', '#FFF3E0', '#E65100', '#F57C00') +
+      tile(totals.personal, 'Personal', '#F3E5F5', '#7B1FA2', '#9C27B0')
+    : tile(totals.matched_payout, 'Matched', '#E3F2FD', '#1565C0', '#1976D2') +
+      tile(totals.unaccounted, 'Unmatched', '#FFF3E0', '#E65100', '#F57C00') +
+      tile(totals.personal, 'Personal', '#F3E5F5', '#7B1FA2', '#9C27B0');
+  return `<div style="display:flex;gap:8px;padding:0 16px;margin:0 auto 12px;max-width:560px;flex-wrap:wrap">${tiles}</div>`;
+}
+
+function renderReconciliationTabs(container) {
+  if (!container) return;
+  const isBank = _reconTab !== 'payout';
+  const tabBtn = (key, label, active) =>
+    `<button onclick="switchReconTab('${key}')" style="flex:1;padding:9px 6px;border-radius:10px;font-size:12.5px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer;border:1px solid ${active ? 'var(--primary)' : 'var(--hairline-1)'};background:${active ? 'var(--primary)' : '#fff'};color:${active ? '#fff' : 'var(--muted-2)'}">${label}</button>`;
+  const actionBtn = (onclick, label) =>
+    `<button type="button" onclick="${onclick}" style="font-size:12px;color:var(--primary);background:transparent;border:1px solid var(--primary);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;white-space:nowrap">${label}</button>`;
+  container.innerHTML = `
+    <div style="display:flex;gap:6px;margin:10px 0 8px">
+      ${tabBtn('bank', 'Bank Reconciliation', isBank)}
+      ${tabBtn('payout', 'Payout Match', !isBank)}
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+      <p style="margin:0;font-size:12.5px;color:var(--muted-2);font-family:'Plus Jakarta Sans',sans-serif">${isBank ? 'Money out — match each debit to an expense.' : 'Money in — match each deposit to a payout.'}</p>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${isBank ? '' : actionBtn('openPayoutPasteModal()', 'Paste Payout')}
+        ${actionBtn('bankImportPickFile()', 'Import Statement')}
+      </div>
+    </div>`;
+}
+
+function switchReconTab(tab) {
+  _reconTab = tab === 'payout' ? 'payout' : 'bank';
+  _reconFilter = 'all';
+  _renderReconFromCache();
+}
+globalThis.switchReconTab = switchReconTab;
+
 function renderReconciliationFilters(container) {
-  // Only surface the Payouts pill when there's at least one credit row,
-  // otherwise it's noise for expense-only users.
-  const hasAnyCredits = (_reconTxns || []).some(t => t.direction === 'credit');
-  const pills = [
-    { key: 'all', label: 'All' },
-    { key: 'matched', label: 'Matched' },
-    ...(hasAnyCredits ? [{ key: 'matched_payout', label: 'Payouts' }] : []),
-    { key: 'unaccounted', label: 'Unaccounted' },
-    { key: 'personal', label: 'Personal' },
-    { key: 'skipped', label: 'Skipped' },
-  ];
+  const isBank = _reconTab !== 'payout';
+  const pills = isBank
+    ? [
+        { key: 'all', label: 'All' },
+        { key: 'matched', label: 'Matched' },
+        { key: 'unaccounted', label: 'Unaccounted' },
+        { key: 'personal', label: 'Personal' },
+        { key: 'skipped', label: 'Skipped' },
+      ]
+    : [
+        { key: 'all', label: 'All' },
+        { key: 'matched_payout', label: 'Matched' },
+        { key: 'unaccounted', label: 'Unmatched' },
+        { key: 'personal', label: 'Personal' },
+        { key: 'skipped', label: 'Skipped' },
+      ];
 
   container.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap">${pills.map(p => {
     const isActive = _reconFilter === p.key;
@@ -5365,12 +5396,20 @@ function filterReconciliation(status) {
 }
 
 function renderReconciliationList(container) {
+  const scoped = _reconScopedTxns();
+  const isBank = _reconTab !== 'payout';
+
+  if (scoped.length === 0) {
+    container.innerHTML = `<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px;font-family:'Plus Jakarta Sans',sans-serif">${isBank ? 'No bank debits imported yet. Tap Import Statement to add a bank statement.' : 'No deposits to match yet. Import a bank statement, or tap Paste Payout to add a platform statement.'}</div>`;
+    return;
+  }
+
   const filtered = _reconFilter === 'all'
-    ? _reconTxns
-    : _reconTxns.filter(t => t.status === _reconFilter);
+    ? scoped
+    : scoped.filter(t => t.status === _reconFilter);
 
   if (filtered.length === 0) {
-    container.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">No transactions in this category.</div>';
+    container.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">No transactions in this filter.</div>';
     return;
   }
 
@@ -5415,7 +5454,11 @@ function renderReconciliationList(container) {
       const rawDate = t.date || '';
       if (isCredit) {
         rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badge}
-          <button onclick="reconMatchPayout('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}','${safeDesc}')" style="font-size:11px;color:#1565C0;background:none;border:1px solid #1565C0;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Match Payout</button></div>`;
+          <button onclick="reconMatchPayout('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}','${safeDesc}')" style="font-size:11px;color:#1565C0;background:none;border:1px solid #1565C0;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Match Payout</button>
+          <div style="display:flex;gap:4px">
+            <button onclick="reconMarkPersonal('${t.id}')" style="font-size:11px;color:#9C27B0;background:none;border:1px solid #9C27B0;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Personal</button>
+            <button onclick="reconMarkSkipped('${t.id}')" style="font-size:11px;color:#78909C;background:none;border:1px solid #B0BEC5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Skip</button>
+          </div></div>`;
       } else {
         rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badge}
           <button onclick="reconMatchExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}')" style="font-size:11px;color:#1D9E75;background:none;border:1px solid #1D9E75;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Match Expense</button>
