@@ -2428,7 +2428,9 @@ function buildInvoicePDF(selected, client, existing) {
     const desc = escHtml(`Management fee — ${guest} booking, ${dates}`);
     return `<tr>
       <td class="cell desc">${desc}</td>
-      <td class="cell num">$${feeBase > 0 ? feeBase.toFixed(2) : amt.toFixed(2)}</td>
+      <td class="cell num">$${gross.toFixed(2)}</td>
+      <td class="cell num">${cleaning ? '−$' + cleaning.toFixed(2) : '$0.00'}</td>
+      <td class="cell num">${feeBase < 0 ? '−$' + Math.abs(feeBase).toFixed(2) : '$' + feeBase.toFixed(2)}</td>
       <td class="cell num">${pct ? pct + '%' : '—'}</td>
       <td class="cell num">$${amt.toFixed(2)}</td>
     </tr>`;
@@ -2532,6 +2534,8 @@ function buildInvoicePDF(selected, client, existing) {
   <table class="lines">
     <thead><tr>
       <th>Description</th>
+      <th class="num">Gross</th>
+      <th class="num">Cleaning</th>
       <th class="num">Fee Base</th>
       <th class="num">Fee Rate</th>
       <th class="num">Amount AUD</th>
@@ -2551,27 +2555,6 @@ function buildInvoicePDF(selected, client, existing) {
   ${bankBlock}
 
   <div class="footer">${getCurrentPropertyName()} · ${[getPropertyConfig().suburb, getPropertyConfig().state].filter(Boolean).join(' ')} · Generated ${today}</div>
-  <div class="actions">
-    <button class="primary" onclick="window.print()">Save as PDF</button>
-    <button class="primary" id="confirm-issued-btn" onclick="confirmIssued()" style="background:#1D9E75">Mark as issued</button>
-    <button class="secondary" onclick="window.close()">Close</button>
-  </div>
-  <script>
-    var issued = false;
-    function confirmIssued() {
-      if (issued) return;
-      issued = true;
-      try {
-        if (window.opener && window.opener._confirmInvoiceIssued) {
-          window.opener._confirmInvoiceIssued('${invNum}');
-        }
-      } catch(e) {}
-      var btn = document.getElementById('confirm-issued-btn');
-      btn.textContent = 'Issued ✓';
-      btn.disabled = true;
-      btn.style.opacity = '0.5';
-    }
-  </script>
 </body></html>`;
 
   const pendingRecord = {
@@ -2595,15 +2578,71 @@ function buildInvoicePDF(selected, client, existing) {
     renderMgmtFY();
   };
 
-  const w = window.open('', '_blank');
-  if (!w) {
-    if (typeof globalThis.showBanner === 'function') {
-      globalThis.showBanner('⚠ Popup blocked — allow popups to view invoice', 'warn');
+  // Render the invoice in a same-page overlay instead of a popup window.
+  // window.open() gets blocked by popup blockers and is a silent no-op inside
+  // the iOS WKWebView (Capacitor) shell — which is what stopped invoices from
+  // opening. The document loads into an <iframe srcdoc> and the action buttons
+  // live in the overlay toolbar so "Mark as issued" can call back into the app.
+  _showInvoiceOverlay(html, invNum);
+}
+
+// Full-screen, same-origin invoice viewer used in place of window.open().
+// Works inside the Capacitor WebView, where popups silently fail.
+function _showInvoiceOverlay(html, invNum) {
+  const existing = document.getElementById('invoice-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'invoice-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.45);display:flex;flex-direction:column';
+
+  const bar = document.createElement('div');
+  bar.style.cssText = 'display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:10px 14px;background:#1b1b1f;flex-wrap:wrap';
+
+  const mkBtn = (label, bg) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = "appearance:none;border:none;border-radius:10px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;color:#fff;background:" + bg;
+    return b;
+  };
+
+  const printBtn = mkBtn('Save as PDF', '#3B6EF5');
+  const issueBtn = mkBtn('Mark as issued', '#1D9E75');
+  const closeBtn = mkBtn('Close', '#5a5a5f');
+
+  const frame = document.createElement('iframe');
+  frame.title = 'Invoice ' + invNum;
+  frame.style.cssText = 'flex:1;width:100%;border:none;background:#fff';
+  frame.srcdoc = html;
+
+  printBtn.onclick = () => {
+    try {
+      frame.contentWindow.focus();
+      frame.contentWindow.print();
+    } catch {
+      if (typeof globalThis.showBanner === 'function') {
+        globalThis.showBanner('⚠ Printing not available here', 'warn');
+      }
     }
-    return;
-  }
-  w.document.write(html);
-  w.document.close();
+  };
+
+  let issued = false;
+  issueBtn.onclick = () => {
+    if (issued) return;
+    issued = true;
+    if (typeof globalThis._confirmInvoiceIssued === 'function') {
+      globalThis._confirmInvoiceIssued(invNum);
+    }
+    issueBtn.textContent = 'Issued ✓';
+    issueBtn.disabled = true;
+    issueBtn.style.opacity = '0.5';
+  };
+
+  closeBtn.onclick = () => overlay.remove();
+
+  bar.append(printBtn, issueBtn, closeBtn);
+  overlay.append(bar, frame);
+  document.body.appendChild(overlay);
 }
 // ── EXPENSE CATEGORY MANAGEMENT ───────────────────────────────────────────
 function bindExpenseCatRowHandlers(i, name) {
