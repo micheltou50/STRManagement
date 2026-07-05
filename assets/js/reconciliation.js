@@ -593,7 +593,10 @@ export async function getReconciliationSummary(userId) {
       .from('bank_transactions')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
-      .is('expense_id', null),
+      .is('expense_id', null)
+      .eq('is_personal', false)
+      .eq('skipped', false)
+      .or('direction.is.null,direction.eq.debit'),
   ]);
 
   if (e1 || e2 || e3 || e4) {
