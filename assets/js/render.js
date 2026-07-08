@@ -31,6 +31,7 @@ import {
   fyLabel,
   showBannerToast,
   localDateStr,
+  getTurnoverTimes,
 } from './utils.js';
 import {
   _sendCleanerAssignmentNotifications,
@@ -1562,15 +1563,15 @@ function buildSinglePropertyTodayDashboardMarkup() {
 
   let statusHtml;
   // Turnover is time-of-day aware: the departing guest still occupies until the
-  // 10:00 checkout; the arriving guest isn't "in" until the 15:00 check-in.
-  const CHECKOUT_HOUR = 10;
-  const CHECKIN_HOUR = 15;
+  // checkout time; the arriving guest isn't "in" until the check-in time. Times
+  // come from getTurnoverTimes() (config, default 10:00 / 15:00) — not hardcoded.
+  const { checkoutHour, checkoutMin, checkinHour, checkinMin, checkoutLabel, checkinLabel } = getTurnoverTimes();
   const nowMs = now.getTime();
   const dashTodayStr = localDateStr(now);
-  const bookingAtHour = (dateStr, h) => {
+  const bookingAt = (dateStr, h, m) => {
     const d = parseLocalDayStart(dateStr);
     if (Number.isNaN(d.getTime())) return null;
-    d.setHours(h, 0, 0, 0);
+    d.setHours(h, m, 0, 0);
     return d;
   };
   const occBar = (labelColor, label, detail, tinted) =>
@@ -1582,13 +1583,13 @@ function buildSinglePropertyTodayDashboardMarkup() {
   // Who is physically in the property right now?
   const occupantNow = activeBookings.find(b => {
     if (b.status === 'cancelled') return false;
-    const ci = bookingAtHour(b.checkin, CHECKIN_HOUR);
-    const co = bookingAtHour(b.checkout, CHECKOUT_HOUR);
+    const ci = bookingAt(b.checkin, checkinHour, checkinMin);
+    const co = bookingAt(b.checkout, checkoutHour, checkoutMin);
     return ci && co && ci.getTime() <= nowMs && nowMs < co.getTime();
   });
   if (occupantNow) {
     const leavesToday = String(occupantNow.checkout || '').slice(0, 10) === dashTodayStr;
-    const coLabel = leavesToday ? 'checkout today 10:00' : `checkout ${escHtml(fmtShort(occupantNow.checkout))}`;
+    const coLabel = leavesToday ? `checkout today ${checkoutLabel}` : `checkout ${escHtml(fmtShort(occupantNow.checkout))}`;
     statusHtml = occBar('var(--primary)', 'Occupied', `${escHtml(occupantNow.name)} · ${coLabel}`, true);
   } else {
     const departedToday = activeBookings.some(b =>
@@ -1596,7 +1597,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
     );
     const upcoming = [...activeBookings]
       .filter(b => {
-        const ci = bookingAtHour(b.checkin, CHECKIN_HOUR);
+        const ci = bookingAt(b.checkin, checkinHour, checkinMin);
         return ci && ci.getTime() > nowMs;
       })
       .sort((a, b) => parseLocalDayStart(a.checkin) - parseLocalDayStart(b.checkin));
@@ -1604,11 +1605,11 @@ function buildSinglePropertyTodayDashboardMarkup() {
     const arrivesToday = nextGuest && String(nextGuest.checkin || '').slice(0, 10) === dashTodayStr;
     if (departedToday && arrivesToday) {
       // Between checkout and the next check-in on a turnover day.
-      statusHtml = occBar('var(--primary)', 'Being cleaned', `ready by 15:00 · ${escHtml(nextGuest.name)}`, true);
+      statusHtml = occBar('var(--primary)', 'Being cleaned', `ready by ${checkinLabel} · ${escHtml(nextGuest.name)}`, true);
     } else if (nextGuest) {
       // Round (not ceil) so a DST fall-back day (25h) doesn't read as one day too many.
       const days = Math.round((parseLocalDayStart(nextGuest.checkin) - todayStart) / 86400000);
-      const when = arrivesToday ? 'arrives 15:00' : `next guest in ${days} day${days === 1 ? '' : 's'}`;
+      const when = arrivesToday ? `arrives ${checkinLabel}` : `next guest in ${days} day${days === 1 ? '' : 's'}`;
       statusHtml = occBar('var(--ink-2)', 'Vacant', `${when} · ${escHtml(nextGuest.name)}`, false);
     } else {
       statusHtml = occBar('var(--ink-2)', 'Vacant', 'No upcoming bookings', false);
@@ -1755,7 +1756,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
     const timelineItems = [];
     departingToday.forEach(b => {
       const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
-      timelineItems.push({ time: '10:00', icon: '↗', color: 'var(--warn)', label: 'Check-out', detail: escHtml(b.name || 'Guest'), onclick: `showDetail('${bid}')` });
+      timelineItems.push({ time: checkoutLabel, icon: '↗', color: 'var(--warn)', label: 'Check-out', detail: escHtml(b.name || 'Guest'), onclick: `showDetail('${bid}')` });
     });
     cleansToday.forEach(c => {
       const cleanerName = (window._cleaners || []).find(cl => String(cl.id) === String(c.cleaner_id))?.name || 'Unassigned';
@@ -1764,7 +1765,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
     });
     arrivingToday.forEach(b => {
       const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
-      timelineItems.push({ time: '15:00', icon: '↙', color: 'var(--primary)', label: 'Check-in', detail: escHtml(b.name || 'Guest'), onclick: `showDetail('${bid}')` });
+      timelineItems.push({ time: checkinLabel, icon: '↙', color: 'var(--primary)', label: 'Check-in', detail: escHtml(b.name || 'Guest'), onclick: `showDetail('${bid}')` });
     });
 
     let timelineHtml = '';
@@ -1887,7 +1888,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
   const todayItemsM = [];
   departingTodayM.forEach(b => {
     const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
-    todayItemsM.push({ time: '10:00', bg: '#FAEEDA', fg: '#854F0B', icon: '↗', label: 'Check-out', detail: escHtml(b.name || 'Guest'), extra: '', onclick: `showDetail('${bid}')` });
+    todayItemsM.push({ time: checkoutLabel, bg: '#FAEEDA', fg: '#854F0B', icon: '↗', label: 'Check-out', detail: escHtml(b.name || 'Guest'), extra: '', onclick: `showDetail('${bid}')` });
   });
   cleansTodayM.forEach(c => {
     const cleanerName = String(c.cleaner || '').trim() || 'Cleaner';
@@ -1901,7 +1902,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
   });
   arrivingTodayM.forEach(b => {
     const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
-    todayItemsM.push({ time: '15:00', bg: '#E7F1E5', fg: '#2F5A2A', icon: '↙', label: 'Check-in', detail: escHtml(b.name || 'Guest'), extra: '', onclick: `showDetail('${bid}')` });
+    todayItemsM.push({ time: checkinLabel, bg: '#E7F1E5', fg: '#2F5A2A', icon: '↙', label: 'Check-in', detail: escHtml(b.name || 'Guest'), extra: '', onclick: `showDetail('${bid}')` });
   });
   let todayCardHtml = '';
   if (todayItemsM.length) {

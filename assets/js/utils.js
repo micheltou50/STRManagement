@@ -43,6 +43,23 @@ export function localDateStr(date = new Date()) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/**
+ * Standard turnover times for the active property. Bookings are stored
+ * date-only (no time component), so checkout/check-in times come from config
+ * (`window._appConfig.turnover_times`, set per property) and fall back to the
+ * common STR convention of 10:00 checkout / 15:00 check-in. Changing the config
+ * changes every place that shows a turnover time — nothing is hardcoded.
+ * @returns {{checkoutHour:number, checkoutMin:number, checkinHour:number, checkinMin:number, checkoutLabel:string, checkinLabel:string}}
+ */
+export function getTurnoverTimes() {
+  const cfg = (typeof window !== 'undefined' && window._appConfig && window._appConfig.turnover_times) || {};
+  const num = (v, d) => (Number.isFinite(v) ? v : d);
+  const coH = num(cfg.checkoutHour, 10), coM = num(cfg.checkoutMin, 0);
+  const ciH = num(cfg.checkinHour, 15), ciM = num(cfg.checkinMin, 0);
+  const lbl = (h, m) => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  return { checkoutHour: coH, checkoutMin: coM, checkinHour: ciH, checkinMin: ciM, checkoutLabel: lbl(coH, coM), checkinLabel: lbl(ciH, ciM) };
+}
+
 export function fmtShort(dateStr) {
   if (!dateStr) return '';
   const d = parseLocalDayStart(dateStr);
