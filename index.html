@@ -25,9 +25,13 @@
 ></script>
 <script>
   if (window.Sentry) {
+    // Native Capacitor builds serve from capacitor://localhost (iOS) /
+    // https://localhost (Android) — a bare hostname check would file every
+    // shipped app's errors under "development".
+    var IS_NATIVE_APP = location.protocol === 'capacitor:' || !!window.Capacitor;
     Sentry.init({
       dsn: 'https://e031cec3998447f5b9bd2098146630ab@o4511154504794112.ingest.us.sentry.io/4511154514296832',
-      environment: location.hostname === 'localhost' ? 'development' : 'production',
+      environment: !IS_NATIVE_APP && location.hostname === 'localhost' ? 'development' : 'production',
       tracesSampleRate: 0,
       ignoreErrors: [
         'ResizeObserver loop limit exceeded',
@@ -52,7 +56,7 @@
 
     // Patterns we never want to forward as Sentry events from console.error/warn.
     // Auth and token-expiry messages are normal lifecycle, not bugs.
-    var SENTRY_NOISE = /(Auth session missing|Invalid Refresh Token|Refresh Token Not Found|clearing stale session|Gmail (token expired|API 403)|user needs to reconnect|extension|ResizeObserver|\[cm-auto-sync\]|loadCMMapping|Beds24 token expired|schema cache|switchActiveProperty.*drifted|p256dh value should be|HTTP 520)/i;
+    var SENTRY_NOISE = /(Auth session missing|Invalid Refresh Token|Refresh Token Not Found|clearing stale session|Gmail (token expired|API 403)|user needs to reconnect|extension|ResizeObserver|\[cm-auto-sync\]|loadCMMapping|Beds24 token expired|schema cache|switchActiveProperty.*drifted|p256dh value should be|HTTP 520|\[stayops-diag\])/i;
 
     // Capture all console.error and console.warn as Sentry events
     // so silently-caught failures are visible in the dashboard.
@@ -135,7 +139,10 @@
      global scope, so the button silently does nothing. Loud in dev, quiet in prod. -->
 <script>
 (function(){
-  var IS_DEV = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:';
+  // Native Capacitor builds serve from capacitor://localhost (iOS) / https://localhost
+  // (Android), so a bare hostname check would treat every shipped app as "dev".
+  var IS_CAP = location.protocol === 'capacitor:' || !!window.Capacitor;
+  var IS_DEV = !IS_CAP && (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:');
   // Small local error buffer for quick offline debugging (Sentry has the full story).
   window.__STAYOPS_ERRORS__ = window.__STAYOPS_ERRORS__ || [];
   function record(kind, detail){
@@ -148,9 +155,12 @@
   // Scan every inline event handler for a named function that isn't defined.
   var HANDLER_ATTRS = ['onclick','onchange','oninput','onsubmit','onblur','onfocus'];
   var KEYWORDS = { 'if':1,'for':1,'while':1,'return':1,'typeof':1,'switch':1,'catch':1,'function':1,'void':1,'do':1,'else':1,'new':1,'delete':1,'in':1,'of':1,'instanceof':1,'await':1,'async':1,'yield':1,'this':1,'true':1,'false':1,'null':1,'undefined':1 };
-  // Handlers wired only under a condition — e.g. the command palette, whose script
-  // does `if (window.innerWidth < 1024) return`, so its functions are (correctly)
-  // undefined on mobile where the palette never shows. Not a breakage.
+  // Ignore-list for handlers that are wired to window only under a runtime
+  // condition, where "undefined" is correct, not a breakage. The command
+  // palette's whole IIFE starts with `if (window.innerWidth < 1024) return;`
+  // BEFORE its window.open/closeCmdPalette assignments, so on narrow
+  // viewports the overlay's static onclick="closeCmdPalette()" (correctly)
+  // points at nothing.
   var CONDITIONAL = { 'openCmdPalette':1, 'closeCmdPalette':1 };
   var CALL_RE = /(?:^|[^.\w$])([A-Za-z_$][\w$]*)\s*\(/g; // a call NOT preceded by '.', so method calls (event.stopPropagation) are ignored
   function runScan(){
@@ -183,7 +193,7 @@
           (names.length && dupes.length ? ' | ' : '') +
           (dupes.length ? dupes.length + ' duplicate id(s): ' + dupes.join(', ') : '');
         record('diag', msg);
-        console.warn(msg); // forwarded to Sentry via the console wrapper above
+        console.warn(msg); // kept OUT of Sentry (SENTRY_NOISE) — inspect via __STAYOPS_ERRORS__
         if (IS_DEV){
           console.error(msg);
           var bar = document.createElement('div');
