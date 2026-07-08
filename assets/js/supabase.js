@@ -1255,36 +1255,10 @@ export async function hydrateFromCloud() {
 
 
 // ── APP CONFIG ────────────────────────────────────────────────────────────────
-
-async function loadAppConfigFromCloud() {
-  try {
-    const user = await getCurrentSupabaseUser();
-    if (!user) return null;
-    const { data, error } = await window._sb
-      .from('app_config')
-      .select('*')
-      .eq('user_id', user.id)
-      .limit(1);
-    if (error || !data || !data.length) return null;
-    return data[0];
-  } catch (e) {
-    console.warn('[StayOps] loadAppConfigFromCloud failed', e);
-    return null;
-  }
-}
-
-export async function saveAppConfigToCloud(patch) {
-  const user = await getCurrentSupabaseUser();
-  if (!user) return { ok: true, noUser: true };
-  const payload = {
-    user_id:    user.id,
-    updated_at: new Date().toISOString(),
-    ...patch,
-  };
-  return sbWrite(
-    window._sb.from('app_config').upsert(payload, { onConflict: 'user_id' }),
-    { label: 'settings' });
-}
+// Moved verbatim to supabase-appconfig.js. Re-exported here (saveAppConfigToCloud);
+// loadAppConfigFromCloud imported back for hydration.
+import { loadAppConfigFromCloud } from './supabase-appconfig.js';
+export { saveAppConfigToCloud } from './supabase-appconfig.js';
 
 
 // ── HOST CONFIG (Supabase) ─────────────────────────────────────────────────────
