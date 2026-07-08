@@ -105,7 +105,7 @@ function getBookingListBookingStatusMeta(b, isCancelled, isPast) {
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const co = String(b.checkout || '').slice(0, 10);
   const ci = String(b.checkin || '').slice(0, 10);
-  const { checkoutHour, checkoutMin, checkinHour, checkinMin } = getTurnoverTimes();
+  const { checkoutHour, checkoutMin, checkinHour, checkinMin } = getTurnoverTimes(b);
   if (co && co < todayStr) return { label: 'Past', ...GREY };
   if (co && co === todayStr) {
     // Checkout day: still departing until the checkout time, then gone.

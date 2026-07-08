@@ -36,6 +36,23 @@ test('getTurnoverTimes() reads a config override and formats labels', async () =
   }
 });
 
+test('getTurnoverTimes(booking) uses the booking\'s own override times', async () => {
+  const { getTurnoverTimes } = await importUtils();
+  const t = getTurnoverTimes({ checkoutTime: '12:00', checkinTime: '16:30' });
+  assert.strictEqual(t.checkoutHour, 12);
+  assert.strictEqual(t.checkoutLabel, '12:00');
+  assert.strictEqual(t.checkinHour, 16);
+  assert.strictEqual(t.checkinMin, 30);
+  assert.strictEqual(t.checkinLabel, '16:30');
+});
+
+test('getTurnoverTimes(booking) parses "HH:MM:SS" (Postgres time) and falls back per-field', async () => {
+  const { getTurnoverTimes } = await importUtils();
+  const t = getTurnoverTimes({ checkoutTime: '11:00:00', checkinTime: null });
+  assert.strictEqual(t.checkoutLabel, '11:00'); // from the booking
+  assert.strictEqual(t.checkinLabel, '15:00');  // null -> default
+});
+
 test('localDateStr() returns the LOCAL calendar day, not UTC', async () => {
   const { localDateStr } = await importUtils();
   // 2:46pm local on 8 Jul — must stay 8 Jul (the UTC-shift bug returned 7 Jul before ~10am)

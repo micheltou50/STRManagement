@@ -44,18 +44,28 @@ export function localDateStr(date = new Date()) {
 }
 
 /**
- * Standard turnover times for the active property. Bookings are stored
- * date-only (no time component), so checkout/check-in times come from config
- * (`window._appConfig.turnover_times`, set per property) and fall back to the
- * common STR convention of 10:00 checkout / 15:00 check-in. Changing the config
- * changes every place that shows a turnover time — nothing is hardcoded.
+ * Turnover times for a booking. Resolution order:
+ *   1. the booking's own checkoutTime / checkinTime ("HH:MM", from the
+ *      checkout_time / checkin_time columns) — a per-guest override, e.g. a late
+ *      checkout the host granted;
+ *   2. the property/global default in `window._appConfig.turnover_times`;
+ *   3. the common STR convention (10:00 checkout / 15:00 check-in).
+ * Called with no argument it returns the property/global default. Changing the
+ * source changes every place that shows a turnover time — nothing is hardcoded.
+ * @param {object} [booking] optional booking with checkoutTime/checkinTime ("HH:MM")
  * @returns {{checkoutHour:number, checkoutMin:number, checkinHour:number, checkinMin:number, checkoutLabel:string, checkinLabel:string}}
  */
-export function getTurnoverTimes() {
+export function getTurnoverTimes(booking) {
   const cfg = (typeof window !== 'undefined' && window._appConfig && window._appConfig.turnover_times) || {};
   const num = (v, d) => (Number.isFinite(v) ? v : d);
-  const coH = num(cfg.checkoutHour, 10), coM = num(cfg.checkoutMin, 0);
-  const ciH = num(cfg.checkinHour, 15), ciM = num(cfg.checkinMin, 0);
+  let coH = num(cfg.checkoutHour, 10), coM = num(cfg.checkoutMin, 0);
+  let ciH = num(cfg.checkinHour, 15), ciM = num(cfg.checkinMin, 0);
+  const parse = s => { const m = /^(\d{1,2}):(\d{2})/.exec(String(s || '')); return m ? [Number(m[1]), Number(m[2])] : null; };
+  if (booking) {
+    const co = parse(booking.checkoutTime), ci = parse(booking.checkinTime);
+    if (co && co[0] <= 23 && co[1] <= 59) { coH = co[0]; coM = co[1]; }
+    if (ci && ci[0] <= 23 && ci[1] <= 59) { ciH = ci[0]; ciM = ci[1]; }
+  }
   const lbl = (h, m) => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   return { checkoutHour: coH, checkoutMin: coM, checkinHour: ciH, checkinMin: ciM, checkoutLabel: lbl(coH, coM), checkinLabel: lbl(ciH, ciM) };
 }
