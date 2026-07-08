@@ -706,76 +706,10 @@ export async function saveHostConfigToCloud(configData) {
 
 
 // ── CLEANERS ──────────────────────────────────────────────────────────────────
-
-async function loadCleanersFromCloud() {
-  try {
-    const user = await getCurrentSupabaseUser();
-    if (!user) return null;
-    const { data, error } = await window._sb
-      .from('cleaners')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('active', true)
-      .order('created_at', { ascending: true });
-    if (error || !data) return null;
-    return data.map(c => ({
-      id:          c.local_id ? (isNaN(Number(c.local_id)) ? c.local_id : Number(c.local_id)) : c.id,
-      _cloudId:    c.id,
-      name:        c.name,
-      email:       c.email  || '',
-      phone:       c.phone  || '',
-      role:        c.role   || 'Cleaner',
-      pin:         c.pin    || '',
-      permissions: c.permissions || {},
-      active:      c.active !== false,
-      invitation_status: c.invitation_status || 'pending',
-      auth_user_id:      c.auth_user_id || null
-    }));
-  } catch (e) {
-    console.warn('[StayOps] loadCleanersFromCloud failed', e);
-    return null;
-  }
-}
-
-export async function saveCleanersToCloud(cleanerList) {
-  try {
-    const user = await getCurrentSupabaseUser();
-    if (!user || !Array.isArray(cleanerList)) return { ok: true, noUser: true };
-    let ok = true;
-    for (const c of cleanerList) {
-      if (!c || !c.name) continue;
-      const payload = {
-        user_id:     user.id,
-        local_id:    String(c.id),
-        name:        c.name,
-        email:       c.email  || '',
-        phone:       c.phone  || '',
-        role:        c.role   || 'Cleaner',
-        pin:         c.pin    || '',
-        permissions: c.permissions || {},
-        active:      c.active !== false,
-        updated_at:  new Date().toISOString()
-      };
-      if (c._cloudId) {
-        const r = await sbWrite(
-          window._sb.from('cleaners').upsert({ id: c._cloudId, ...payload }),
-          { label: 'cleaner' });
-        if (!r.ok) ok = false;
-      } else {
-        const r = await sbWrite(
-          window._sb.from('cleaners').upsert(payload, { onConflict: 'user_id,local_id' }).select().single(),
-          { label: 'cleaner' });
-        if (!r.ok) ok = false;
-        else if (r.data) c._cloudId = r.data.id;
-      }
-    }
-    return { ok };
-  } catch (e) {
-    console.warn('[StayOps] saveCleanersToCloud failed', e);
-    _notifyWriteFailure('cleaner');
-    return { ok: false, error: e };
-  }
-}
+// Moved verbatim to supabase-cleaners.js. Re-exported here (saveCleanersToCloud);
+// loadCleanersFromCloud imported back for hydration.
+import { loadCleanersFromCloud } from './supabase-cleaners.js';
+export { saveCleanersToCloud } from './supabase-cleaners.js';
 
 
 // ── CLEANS ────────────────────────────────────────────────────────────────────
