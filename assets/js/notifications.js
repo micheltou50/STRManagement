@@ -20,7 +20,7 @@ const IS_NATIVE = !!(globalThis.Capacitor
   && globalThis.Capacitor.isNativePlatform());
 import { saveAppConfigToCloud, getCurrentSupabaseUser } from './supabase.js';
 import { bookings, cleans } from './state.js';
-import { fmt, _normName, escHtml } from './utils.js';
+import { fmt, _normName, escHtml, resolveCleanTimesForBooking } from './utils.js';
 import { getEmailContentConfig } from './settings.js';
 
 function loadCleaners() {
@@ -480,6 +480,7 @@ export async function _sendCleanerAssignmentNotifications(booking, cleanerObj, d
   const cleanerEmail = String(cleanerObj.email || '').trim();
   if (cleanerEmail) {
     emailAttempted = true;
+    const _turn = resolveCleanTimesForBooking(booking, bookings);
     const emailRes = await sendCleanerEmail({
       cleanerName: cleanerObj.name,
       cleanerEmail,
@@ -488,7 +489,9 @@ export async function _sendCleanerAssignmentNotifications(booking, cleanerObj, d
       checkout: fmt(booking.checkout),
       cleanerLink: cleanerLinkForId(cleanerObj),
       guests: booking.guests ? String(booking.guests) : '',
-      nights: booking.nights ? String(booking.nights) : ''
+      nights: booking.nights ? String(booking.nights) : '',
+      checkoutTime: _turn.checkoutTime,
+      checkinTime: _turn.checkinTime
     });
     emailSent = !!(emailRes && emailRes.ok);
     if (!emailSent && emailRes && emailRes.reason !== 'no-key' && emailRes.reason !== 'no-email') {
@@ -1021,6 +1024,8 @@ export async function sendCleanerEmail({ cleanerName, cleanerEmail, guestName, c
     checkout_date: checkout || '',
     clean_date: cleanDateStr,
     clean_time: checkoutTime || '',
+    checkout_time: checkoutTime || '',
+    checkin_time: checkinTime || '',
     clean_pay: ecc.show_pay !== false ? '' : '',
     est_hours: ecc.show_est_hours !== false ? '' : '',
     accept_link: cleanerLink || 'https://app.stayops.com.au',

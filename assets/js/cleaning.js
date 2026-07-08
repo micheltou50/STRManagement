@@ -10,6 +10,7 @@ import {
   escapeJsSingleQuotedHtmlAttr,
   fadeTransition,
   localDateStr,
+  resolveCleanTimesForBooking,
 } from './utils.js';
 import { getAllProperties, getActivePropertyId, initPropertyUI, getCurrentHostName } from './config.js';
 import {
@@ -1703,6 +1704,7 @@ export async function assignCleanerToBooking(bookingIdParam) {
     // Send email notification via Gmail/Legacy Sync (fires silently in background)
     const cleanerEmail = String(cleanerObj.email || '').trim();
     if (cleanerEmail) {
+      const _turn = resolveCleanTimesForBooking(booking, bookings);
       sendCleanerEmail({
         cleanerName: cleanerObj.name,
         cleanerEmail,
@@ -1711,7 +1713,9 @@ export async function assignCleanerToBooking(bookingIdParam) {
         checkout: fmt(booking.checkout),
         cleanerLink: cleanerLinkForId(cleanerObj),
         guests: booking.guests ? String(booking.guests) : '',
-        nights: booking.nights ? String(booking.nights) : ''
+        nights: booking.nights ? String(booking.nights) : '',
+        checkoutTime: _turn.checkoutTime,
+        checkinTime: _turn.checkinTime
       }).then(result => {
         if (result.ok) globalThis.showBanner('✉️ Email sent to ' + cleanerObj.name, 'ok');
         else if (result.reason !== 'no-key' && result.reason !== 'no-email') {

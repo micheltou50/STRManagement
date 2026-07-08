@@ -98,6 +98,41 @@ export function findTurnoverClashes(bookingsList) {
   return clashes;
 }
 
+/**
+ * The two turnover times a cleaner needs for a departing booking's clean:
+ *   - checkoutTime: when the departing guest leaves, so the clean can start —
+ *     this booking's resolved checkout ("HH:MM", override or property default);
+ *   - checkinTime: the deadline — when the next guest arrives the SAME day at
+ *     the SAME property (earliest such arrival's resolved check-in), or '' when
+ *     there is no same-day turnover.
+ * Pure: the caller passes the bookings list (utils never imports state).
+ * @param {object} booking the departing booking being cleaned
+ * @param {Array<object>} [bookingsList] all bookings (to find the next arrival)
+ * @returns {{checkoutTime:string, checkinTime:string}} labels, checkinTime '' when none
+ */
+export function resolveCleanTimesForBooking(booking, bookingsList) {
+  if (!booking) return { checkoutTime: '', checkinTime: '' };
+  const checkoutTime = getTurnoverTimes(booking).checkoutLabel;
+  let checkinTime = '';
+  const day = String(booking.checkout || '').slice(0, 10);
+  if (day) {
+    const arrivals = (bookingsList || []).filter(b =>
+      b && b !== booking && b.status !== 'cancelled' &&
+      String(b.checkin || '').slice(0, 10) === day &&
+      String(b._propertyId || '') === String(booking._propertyId || '')
+    );
+    if (arrivals.length) {
+      // The earliest arriving guest is the binding deadline for the turnaround.
+      arrivals.sort((a, b) => {
+        const ta = getTurnoverTimes(a), tb = getTurnoverTimes(b);
+        return (ta.checkinHour * 60 + ta.checkinMin) - (tb.checkinHour * 60 + tb.checkinMin);
+      });
+      checkinTime = getTurnoverTimes(arrivals[0]).checkinLabel;
+    }
+  }
+  return { checkoutTime, checkinTime };
+}
+
 export function fmtShort(dateStr) {
   if (!dateStr) return '';
   const d = parseLocalDayStart(dateStr);

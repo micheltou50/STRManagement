@@ -92,13 +92,16 @@ function infoPanel(text, color) {
 
 // ─── 1 · Clean Assignment ──────────────────────────────────────────────
 function cleanAssignment(d) {
+  const startTime = d.checkout_time || d.clean_time || '';
   const rows = [
     ['Property', d.property_name],
     ['Address', d.property_address],
     ['Guest', d.guest_name + (d.guest_count ? ' · ' + d.guest_count + ' guests' : '')],
     ['Check-out', d.checkout_date],
-    ['Clean date', d.clean_date + (d.clean_time ? ' · ' + d.clean_time : '')],
+    ['Clean date', d.clean_date],
+    ['Available from', startTime ? startTime + ' (after checkout)' : 'After checkout'],
   ];
+  if (d.checkin_time) rows.push(['Ready by', d.checkin_time + ' (next check-in)']);
   if (d.est_hours) rows.push(['Est. time', '~' + d.est_hours + ' hours']);
   if (d.clean_pay) rows.push(['Pay', d.clean_pay]);
 
@@ -128,7 +131,8 @@ function cleanReminder(d) {
     ['Guest', d.guest_name],
     ['Clean date', d.clean_date],
   ];
-  if (d.clean_time) rows.push(['Start time', d.clean_time]);
+  if (d.checkout_time || d.clean_time) rows.push(['Start time', d.checkout_time || d.clean_time]);
+  if (d.checkin_time) rows.push(['Ready by', d.checkin_time]);
 
   let body = p(`Hi <strong>${esc(d.cleaner_name)}</strong>,`);
   body += p(`Just a reminder &mdash; you have a clean <strong>tomorrow</strong> at <strong>${esc(d.property_name)}</strong>.`);
