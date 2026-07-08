@@ -32,6 +32,7 @@ import {
   showBannerToast,
   localDateStr,
   getTurnoverTimes,
+  findTurnoverClashes,
 } from './utils.js';
 import {
   _sendCleanerAssignmentNotifications,
@@ -949,6 +950,32 @@ function computeDedupedTodayAlerts(isPortfolio) {
     }
   });
 
+  // ── Turnover clashes: a checkout time that overlaps (or leaves no gap before)
+  //    the same day's check-in at the same property. Next 14 days. ──
+  {
+    const cfg2 = getActivePropertyConfig();
+    const pid2 = cloudIds[cfg2.propertyId] || cfg2.supabaseId || '';
+    const scope = isPortfolio || !pid2
+      ? activeBookingsAll
+      : activeBookingsAll.filter(b => String(b._propertyId || '') === String(pid2));
+    findTurnoverClashes(scope).forEach(c => {
+      const days = daysUntil(c.date);
+      if (days < 0 || days > 14) return;
+      const propName2 = isPortfolio ? getPropertyNameById(c.out._propertyId) : getCurrentPropertyName();
+      const overlap = c.gapMinutes < 0
+        ? 'overlaps by ' + Math.abs(c.gapMinutes) + ' min'
+        : 'no cleaning window';
+      pushAlert(
+        'h',
+        'Turnover clash',
+        `${propName2} · ${fmtShort(c.date)} · ${c.out.name || 'checkout'} → ${c.in.name || 'check-in'} · ${overlap}`,
+        true,
+        null,
+        c.out.id
+      );
+    });
+  }
+
   cleans.forEach(c => {
     const bid = c.bookingId;
     const bk = bookings.find(
@@ -1086,7 +1113,7 @@ function buildNeedsAttentionHtmlFromDeduped(deduped) {
     .map(a => {
       const dot = a.urgent ? '#E24B4A' : '#BA7517';
       let onclk;
-      if (a.type === 'e' && a.bookingLocalId != null) {
+      if ((a.type === 'e' || a.type === 'h') && a.bookingLocalId != null) {
         const bk = bookings.find(x => String(x.id) === String(a.bookingLocalId));
         const bidEsc = escapeJsSingleQuotedHtmlAttr(String(bk ? bk._cloudId || bk.id : a.bookingLocalId));
         onclk = `onclick="showDetail('${bidEsc}')"`;

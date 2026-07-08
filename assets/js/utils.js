@@ -70,6 +70,34 @@ export function getTurnoverTimes(booking) {
   return { checkoutHour: coH, checkoutMin: coM, checkinHour: ciH, checkinMin: ciM, checkoutLabel: lbl(coH, coM), checkinLabel: lbl(ciH, ciM) };
 }
 
+/**
+ * Find same-day turnover clashes: booking A checks out the same day (same
+ * property) that booking B checks in, and A's resolved checkout time leaves no
+ * gap before (or overlaps) B's resolved check-in time. Pure — no DOM, no state.
+ * @param {Array<object>} bookingsList bookings with checkin/checkout (+optional
+ *   checkinTime/checkoutTime overrides and _propertyId)
+ * @returns {Array<{out:object, in:object, date:string, gapMinutes:number}>}
+ *   one entry per clashing pair; gapMinutes <= 0 (0 = zero turnover window,
+ *   negative = the guests actually overlap)
+ */
+export function findTurnoverClashes(bookingsList) {
+  const clashes = [];
+  const active = (bookingsList || []).filter(b => b && b.status !== 'cancelled' && b.checkin && b.checkout);
+  for (const out of active) {
+    const day = String(out.checkout).slice(0, 10);
+    for (const inn of active) {
+      if (inn === out) continue;
+      if (String(inn.checkin).slice(0, 10) !== day) continue;
+      if (String(out._propertyId || '') !== String(inn._propertyId || '')) continue;
+      const t = getTurnoverTimes(out);
+      const u = getTurnoverTimes(inn);
+      const gap = (u.checkinHour * 60 + u.checkinMin) - (t.checkoutHour * 60 + t.checkoutMin);
+      if (gap <= 0) clashes.push({ out, in: inn, date: day, gapMinutes: gap });
+    }
+  }
+  return clashes;
+}
+
 export function fmtShort(dateStr) {
   if (!dateStr) return '';
   const d = parseLocalDayStart(dateStr);

@@ -8,6 +8,8 @@ import {
   fmt,
   escapeJsSingleQuotedHtmlAttr,
   localDateStr,
+  getTurnoverTimes,
+  findTurnoverClashes,
 } from './utils.js';
 import { buildBookingListCardFromBooking, normalizePlatformLabel } from './booking-list-card.js';
 import {
@@ -32,7 +34,7 @@ import {
   isCleanerPerson,
 } from './cleaning.js';
 import { sendCleanerEmail } from './notifications.js';
-import { loadPayoutLinesForBooking, markPayoutReceived } from './supabase.js';
+import { loadPayoutLinesForBooking, markPayoutReceived, saveBookingToCloud } from './supabase.js';
 // ── DASHBOARD CALENDAR STATE ─────────────────────────────────────────────────
 let calYear = new Date().getFullYear();
 let calMonth = new Date().getMonth();
@@ -900,13 +902,17 @@ function showDetail(id) {
         <div>
           <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:0.5px;text-transform:uppercase">CHECK-IN</div>
           <div style="font-size:15px;font-weight:600;color:var(--ink-1);margin-top:4px">${fmt(b.checkin)}</div>
-          <div style="font-size:11px;color:var(--muted-2);margin-top:2px">15:00</div>
+          <input type="time" value="${getTurnoverTimes(b).checkinLabel}" onchange="saveBookingTurnoverTime('${safeIdEsc}','checkin',this.value)"
+            style="font-size:11px;font-family:'JetBrains Mono',monospace;margin-top:2px;border:none;background:transparent;padding:0;color:${b.checkinTime ? 'var(--warn,#b56a3a)' : 'var(--muted-2)'};font-weight:${b.checkinTime ? '700' : '400'}">
+          ${b.checkinTime ? '<div style="font-size:10px;color:var(--warn,#b56a3a);margin-top:1px">custom time</div>' : ''}
         </div>
         <div style="padding:0 12px"><svg width="24" height="14" viewBox="0 0 24 14" fill="none"><path d="M0 7h22M16 1l6 6-6 6" stroke="var(--muted-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
         <div style="text-align:right">
           <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:0.5px;text-transform:uppercase">CHECK-OUT</div>
           <div style="font-size:15px;font-weight:600;color:var(--ink-1);margin-top:4px">${fmt(b.checkout)}</div>
-          <div style="font-size:11px;color:var(--muted-2);margin-top:2px">11:00</div>
+          <input type="time" value="${getTurnoverTimes(b).checkoutLabel}" onchange="saveBookingTurnoverTime('${safeIdEsc}','checkout',this.value)"
+            style="font-size:11px;font-family:'JetBrains Mono',monospace;margin-top:2px;border:none;background:transparent;padding:0;text-align:right;color:${b.checkoutTime ? 'var(--warn,#b56a3a)' : 'var(--muted-2)'};font-weight:${b.checkoutTime ? '700' : '400'}">
+          ${b.checkoutTime ? '<div style="font-size:10px;color:var(--warn,#b56a3a);margin-top:1px">custom time</div>' : ''}
         </div>
       </div>
       <div style="border-top:1px solid var(--hairline-2);padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
@@ -1316,6 +1322,43 @@ function filterBookings(f, btn) {
   if (btn) btn.classList.add('active');
   renderBookings(f);
 }
+
+/**
+ * Set (or clear) a per-booking check-in/check-out time from the Stay card.
+ * Picking the default time clears the override (back to NULL in the DB).
+ * Warns immediately if the new time creates a same-day turnover clash.
+ * @param {string} id booking cloud id or local id
+ * @param {'checkin'|'checkout'} field
+ * @param {string} value "HH:MM" from the <input type="time">
+ */
+async function saveBookingTurnoverTime(id, field, value) {
+  const b = bookings.find(bk => bk._cloudId === id || String(bk.id) === String(id));
+  if (!b || !/^\d{2}:\d{2}$/.test(String(value || ''))) return;
+  const defaults = getTurnoverTimes(); // property/global default (no booking arg)
+  const isDefault = value === (field === 'checkin' ? defaults.checkinLabel : defaults.checkoutLabel);
+  const prop = field === 'checkin' ? 'checkinTime' : 'checkoutTime';
+  b[prop] = isDefault ? null : value;
+  try {
+    await saveBookingToCloud(b);
+    globalThis.showBanner(isDefault
+      ? '✓ ' + (field === 'checkin' ? 'Check-in' : 'Check-out') + ' back to default (' + value + ')'
+      : '✓ ' + (field === 'checkin' ? 'Check-in' : 'Check-out') + ' set to ' + value + ' for ' + (b.name || 'guest'), 'ok');
+  } catch (e) {
+    globalThis.showBanner('⚠ Could not save time — ' + (e && e.message || 'try again'), 'warn');
+    return;
+  }
+  // Immediate clash feedback: does this booking now collide with a same-day neighbour?
+  const clash = findTurnoverClashes(bookings).find(c => c.out === b || c.in === b);
+  if (clash) {
+    const mins = Math.abs(clash.gapMinutes);
+    globalThis.showBanner('⚠ Turnover clash on ' + fmt(clash.date) + ': ' + (clash.out.name || 'checkout') + ' → ' + (clash.in.name || 'check-in') +
+      (clash.gapMinutes < 0 ? ' overlaps by ' + mins + ' min' : ' leaves no cleaning window'), 'warn');
+  }
+  if (typeof globalThis.renderAll === 'function') globalThis.renderAll();
+  showDetail(id); // refresh the open detail with the new time + custom marker
+}
+globalThis.saveBookingTurnoverTime = saveBookingTurnoverTime;
+window.saveBookingTurnoverTime = saveBookingTurnoverTime;
 
 async function addBooking() {
   const name = document.getElementById('b-name').value.trim();

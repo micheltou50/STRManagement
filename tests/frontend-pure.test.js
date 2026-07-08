@@ -53,6 +53,37 @@ test('getTurnoverTimes(booking) parses "HH:MM:SS" (Postgres time) and falls back
   assert.strictEqual(t.checkinLabel, '15:00');  // null -> default
 });
 
+test('findTurnoverClashes(): default times never clash (10:00 out < 15:00 in)', async () => {
+  const { findTurnoverClashes } = await importUtils();
+  const out = { name: 'A', checkin: '2026-07-04', checkout: '2026-07-08', status: 'confirmed', _propertyId: 'p1' };
+  const inn = { name: 'B', checkin: '2026-07-08', checkout: '2026-07-10', status: 'confirmed', _propertyId: 'p1' };
+  assert.strictEqual(findTurnoverClashes([out, inn]).length, 0);
+});
+
+test('findTurnoverClashes(): late checkout past the next check-in clashes with negative gap', async () => {
+  const { findTurnoverClashes } = await importUtils();
+  const out = { name: 'A', checkin: '2026-07-04', checkout: '2026-07-08', checkoutTime: '16:00', status: 'confirmed', _propertyId: 'p1' };
+  const inn = { name: 'B', checkin: '2026-07-08', checkout: '2026-07-10', status: 'confirmed', _propertyId: 'p1' }; // default 15:00 in
+  const clashes = findTurnoverClashes([out, inn]);
+  assert.strictEqual(clashes.length, 1);
+  assert.strictEqual(clashes[0].gapMinutes, -60);
+  assert.strictEqual(clashes[0].out.name, 'A');
+  assert.strictEqual(clashes[0].in.name, 'B');
+});
+
+test('findTurnoverClashes(): zero gap counts as a clash; different property or day does not', async () => {
+  const { findTurnoverClashes } = await importUtils();
+  const outSame = { name: 'A', checkin: '2026-07-04', checkout: '2026-07-08', checkoutTime: '15:00', status: 'confirmed', _propertyId: 'p1' };
+  const innSame = { name: 'B', checkin: '2026-07-08', checkout: '2026-07-10', status: 'confirmed', _propertyId: 'p1' };
+  assert.strictEqual(findTurnoverClashes([outSame, innSame])[0].gapMinutes, 0);
+  const innOtherProp = { ...innSame, _propertyId: 'p2' };
+  assert.strictEqual(findTurnoverClashes([outSame, innOtherProp]).length, 0);
+  const innOtherDay = { ...innSame, checkin: '2026-07-09' };
+  assert.strictEqual(findTurnoverClashes([outSame, innOtherDay]).length, 0);
+  const cancelled = { ...innSame, status: 'cancelled' };
+  assert.strictEqual(findTurnoverClashes([outSame, cancelled]).length, 0);
+});
+
 test('localDateStr() returns the LOCAL calendar day, not UTC', async () => {
   const { localDateStr } = await importUtils();
   // 2:46pm local on 8 Jul — must stay 8 Jul (the UTC-shift bug returned 7 Jul before ~10am)
