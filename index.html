@@ -129,6 +129,79 @@
   });
 })();
 </script>
+
+<!-- Boot diagnostics — catches the failure Sentry can't see: an inline handler
+     (onclick/onchange/…) that names a function which was never wired onto the
+     global scope, so the button silently does nothing. Loud in dev, quiet in prod. -->
+<script>
+(function(){
+  var IS_DEV = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:';
+  // Small local error buffer for quick offline debugging (Sentry has the full story).
+  window.__STAYOPS_ERRORS__ = window.__STAYOPS_ERRORS__ || [];
+  function record(kind, detail){
+    try { window.__STAYOPS_ERRORS__.push({ kind: kind, detail: String(detail), at: new Date().toISOString() });
+      if (window.__STAYOPS_ERRORS__.length > 50) window.__STAYOPS_ERRORS__.shift(); } catch(_){}
+  }
+  window.addEventListener('error', function(e){ record('error', (e && e.message) || e); });
+  window.addEventListener('unhandledrejection', function(e){ record('rejection', (e && e.reason && e.reason.message) || (e && e.reason) || e); });
+
+  // Scan every inline event handler for a named function that isn't defined.
+  var HANDLER_ATTRS = ['onclick','onchange','oninput','onsubmit','onblur','onfocus'];
+  var KEYWORDS = { 'if':1,'for':1,'while':1,'return':1,'typeof':1,'switch':1,'catch':1,'function':1,'void':1,'do':1,'else':1,'new':1,'delete':1,'in':1,'of':1,'instanceof':1,'await':1,'async':1,'yield':1,'this':1,'true':1,'false':1,'null':1,'undefined':1 };
+  // Handlers wired only under a condition — e.g. the command palette, whose script
+  // does `if (window.innerWidth < 1024) return`, so its functions are (correctly)
+  // undefined on mobile where the palette never shows. Not a breakage.
+  var CONDITIONAL = { 'openCmdPalette':1, 'closeCmdPalette':1 };
+  var CALL_RE = /(?:^|[^.\w$])([A-Za-z_$][\w$]*)\s*\(/g; // a call NOT preceded by '.', so method calls (event.stopPropagation) are ignored
+  function runScan(){
+    try {
+      var missing = {};
+      var sel = HANDLER_ATTRS.map(function(a){ return '['+a+']'; }).join(',');
+      var els = document.querySelectorAll(sel);
+      for (var i=0;i<els.length;i++){
+        for (var a=0;a<HANDLER_ATTRS.length;a++){
+          var code = els[i].getAttribute(HANDLER_ATTRS[a]);
+          if (!code) continue;
+          var m; CALL_RE.lastIndex = 0;
+          while ((m = CALL_RE.exec(code))){
+            var name = m[1];
+            if (KEYWORDS[name] || CONDITIONAL[name]) continue;
+            if (typeof window[name] === 'function' || typeof globalThis[name] === 'function') continue;
+            (missing[name] = missing[name] || []).push(HANDLER_ATTRS[a]);
+          }
+        }
+      }
+      // duplicate ids — a common source of "wrong element updated" bugs
+      var seen = {}, dupes = [];
+      var withId = document.querySelectorAll('[id]');
+      for (var j=0;j<withId.length;j++){ var id = withId[j].id; if (seen[id]) { if (dupes.indexOf(id)<0) dupes.push(id); } else seen[id]=1; }
+
+      var names = Object.keys(missing);
+      if (names.length || dupes.length){
+        var msg = '[stayops-diag] ' +
+          (names.length ? names.length + ' inline handler(s) point at undefined functions: ' + names.join(', ') : '') +
+          (names.length && dupes.length ? ' | ' : '') +
+          (dupes.length ? dupes.length + ' duplicate id(s): ' + dupes.join(', ') : '');
+        record('diag', msg);
+        console.warn(msg); // forwarded to Sentry via the console wrapper above
+        if (IS_DEV){
+          console.error(msg);
+          var bar = document.createElement('div');
+          bar.setAttribute('style','position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#A23D2B;color:#fff;font:12px/1.4 ui-monospace,Menlo,monospace;padding:10px 14px;box-shadow:0 -2px 8px rgba(0,0,0,.25);white-space:pre-wrap');
+          bar.textContent = '⚠ DEV DIAGNOSTICS\n' + msg + '\n(tap to dismiss)';
+          bar.onclick = function(){ bar.remove(); };
+          document.body.appendChild(bar);
+        }
+      } else if (IS_DEV){
+        console.info('[stayops-diag] OK — all inline handlers resolve, no duplicate ids.');
+      }
+    } catch(err){ record('diag-error', err && err.message); }
+  }
+  if (document.readyState === 'complete') setTimeout(runScan, 300);
+  else window.addEventListener('load', function(){ setTimeout(runScan, 300); });
+  window.__stayopsRunDiagnostics = runScan; // callable on demand from the console
+})();
+</script>
 </head>
 <body>
 
