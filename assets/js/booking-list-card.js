@@ -2,7 +2,7 @@
  * Booking list row cards (single-property + portfolio). Avoids importing cleaning.js from property.js.
  */
 import { cleans } from './state.js';
-import { escHtml, escapeJsSingleQuotedHtmlAttr, fmtShort, _normName } from './utils.js';
+import { escHtml, escapeJsSingleQuotedHtmlAttr, fmtShort, _normName, localDateStr } from './utils.js';
 import { bookingRevenue, bookingStatusLabel, getCancellationBillable, isBillableButMissingPayout } from './booking-revenue.js';
 
 function findMatchingCleanForBookingCard(booking) {
@@ -91,8 +91,17 @@ function getBookingListCleanerBadgeMeta(booking, matchedClean) {
   return C.awaiting;
 }
 
-function getBookingListBookingStatusMeta(isCancelled, isPast) {
+function getBookingListBookingStatusMeta(b, isCancelled, isPast) {
   if (isCancelled) return { label: 'Cancelled', color: '#A32D2D', bg: '#FCEBEB' };
+  // Turnover-aware states (10:00 checkout / 15:00 check-in are the app's conventions,
+  // so day granularity is enough for the card badge).
+  const todayStr = localDateStr();
+  const co = String(b.checkout || '').slice(0, 10);
+  const ci = String(b.checkin || '').slice(0, 10);
+  if (co && co < todayStr) return { label: 'Past', color: '#5F5E5A', bg: '#F1EFE8' };
+  if (co && co === todayStr) return { label: 'Checking out', color: '#854F0B', bg: '#FAEEDA' };
+  if (ci && ci === todayStr) return { label: 'Checking in', color: '#1D6E45', bg: '#E7F1E5' };
+  if (ci && ci < todayStr) return { label: 'Hosting', color: '#1D6E45', bg: '#E7F1E5' };
   if (isPast) return { label: 'Past', color: '#5F5E5A', bg: '#F1EFE8' };
   return { label: 'Upcoming', color: '#0C447C', bg: '#E6F1FB' };
 }
@@ -124,7 +133,7 @@ export function buildBookingListCardFromBooking(b, options = {}) {
   const payout = bookingRevenue(b);
 
   const platformMeta = getBookingListPlatformPillMeta(b.platform);
-  const bookStatus = getBookingListBookingStatusMeta(isCancelled, isPast);
+  const bookStatus = getBookingListBookingStatusMeta(b, isCancelled, isPast);
   if (isCancelled && getCancellationBillable(b)) {
     bookStatus.label = bookingStatusLabel(b, isPast);
     bookStatus.color = '#166534';

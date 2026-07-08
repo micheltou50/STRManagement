@@ -1561,36 +1561,57 @@ function buildSinglePropertyTodayDashboardMarkup() {
     .reduce((s, b) => s + bookingRevenue(b), 0);
 
   let statusHtml;
-  const currentGuest = activeBookings.find(b => {
+  // Turnover is time-of-day aware: the departing guest still occupies until the
+  // 10:00 checkout; the arriving guest isn't "in" until the 15:00 check-in.
+  const CHECKOUT_HOUR = 10;
+  const CHECKIN_HOUR = 15;
+  const nowMs = now.getTime();
+  const dashTodayStr = localDateStr(now);
+  const bookingAtHour = (dateStr, h) => {
+    const d = parseLocalDayStart(dateStr);
+    if (Number.isNaN(d.getTime())) return null;
+    d.setHours(h, 0, 0, 0);
+    return d;
+  };
+  const occBar = (labelColor, label, detail, tinted) =>
+    `<div style="background:${tinted ? 'var(--primary-soft)' : 'var(--surface2)'};border-radius:12px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap${tinted ? '' : ';border:1px solid var(--hairline-1)'}">` +
+    `<span style="color:${labelColor};font-weight:600;font-size:13px">${label}</span>` +
+    `<span style="color:var(--muted-2);font-size:12px;text-align:right">${detail}</span>` +
+    `</div>`;
+
+  // Who is physically in the property right now?
+  const occupantNow = activeBookings.find(b => {
     if (b.status === 'cancelled') return false;
-    const ci = parseLocalDayStart(b.checkin);
-    const co = parseLocalDayStart(b.checkout);
-    return !Number.isNaN(ci.getTime()) && !Number.isNaN(co.getTime()) && ci <= todayStart && co > todayStart;
+    const ci = bookingAtHour(b.checkin, CHECKIN_HOUR);
+    const co = bookingAtHour(b.checkout, CHECKOUT_HOUR);
+    return ci && co && ci.getTime() <= nowMs && nowMs < co.getTime();
   });
-  if (currentGuest) {
-    statusHtml =
-      `<div style="background:var(--primary-soft);border-radius:12px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">` +
-      `<span style="color:var(--primary);font-weight:600;font-size:13px">Occupied</span>` +
-      `<span style="color:var(--ink-2);font-size:12px;text-align:right">${escHtml(currentGuest.name)} · checkout ${escHtml(fmtShort(currentGuest.checkout))}</span>` +
-      `</div>`;
+  if (occupantNow) {
+    const leavesToday = String(occupantNow.checkout || '').slice(0, 10) === dashTodayStr;
+    const coLabel = leavesToday ? 'checkout today 10:00' : `checkout ${escHtml(fmtShort(occupantNow.checkout))}`;
+    statusHtml = occBar('var(--primary)', 'Occupied', `${escHtml(occupantNow.name)} · ${coLabel}`, true);
   } else {
+    const departedToday = activeBookings.some(b =>
+      b.status !== 'cancelled' && String(b.checkout || '').slice(0, 10) === dashTodayStr
+    );
     const upcoming = [...activeBookings]
-      .filter(b => parseLocalDayStart(b.checkin) > todayStart)
+      .filter(b => {
+        const ci = bookingAtHour(b.checkin, CHECKIN_HOUR);
+        return ci && ci.getTime() > nowMs;
+      })
       .sort((a, b) => parseLocalDayStart(a.checkin) - parseLocalDayStart(b.checkin));
-    if (upcoming.length) {
-      const u = upcoming[0];
-      const days = Math.ceil((parseLocalDayStart(u.checkin) - todayStart) / 86400000);
-      statusHtml =
-        `<div style="background:var(--surface2);border-radius:12px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid var(--hairline-1)">` +
-        `<span style="color:var(--ink-2);font-weight:600;font-size:13px">Vacant</span>` +
-        `<span style="color:var(--muted-2);font-size:12px;text-align:right">Next guest in ${days} day${days === 1 ? '' : 's'} · ${escHtml(u.name)}</span>` +
-        `</div>`;
+    const nextGuest = upcoming[0];
+    const arrivesToday = nextGuest && String(nextGuest.checkin || '').slice(0, 10) === dashTodayStr;
+    if (departedToday && arrivesToday) {
+      // Between checkout and the next check-in on a turnover day.
+      statusHtml = occBar('var(--primary)', 'Being cleaned', `ready by 15:00 · ${escHtml(nextGuest.name)}`, true);
+    } else if (nextGuest) {
+      // Round (not ceil) so a DST fall-back day (25h) doesn't read as one day too many.
+      const days = Math.round((parseLocalDayStart(nextGuest.checkin) - todayStart) / 86400000);
+      const when = arrivesToday ? 'arrives 15:00' : `next guest in ${days} day${days === 1 ? '' : 's'}`;
+      statusHtml = occBar('var(--ink-2)', 'Vacant', `${when} · ${escHtml(nextGuest.name)}`, false);
     } else {
-      statusHtml =
-        `<div style="background:var(--surface2);border-radius:12px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid var(--hairline-1)">` +
-        `<span style="color:var(--ink-2);font-weight:600;font-size:13px">Vacant</span>` +
-        `<span style="color:var(--muted-2);font-size:12px">No upcoming bookings</span>` +
-        `</div>`;
+      statusHtml = occBar('var(--ink-2)', 'Vacant', 'No upcoming bookings', false);
     }
   }
 
@@ -1847,10 +1868,67 @@ function buildSinglePropertyTodayDashboardMarkup() {
       `</div>`
     : '';
 
+  // Mobile "Today" turnover card — checkout → clean → check-in at a glance.
+  const todayStrM = localDateStr(now);
+  const departingTodayM = activeBookings.filter(b => b.status !== 'cancelled' && String(b.checkout || '').slice(0, 10) === todayStrM);
+  const arrivingTodayM = activeBookings.filter(b => b.status !== 'cancelled' && String(b.checkin || '').slice(0, 10) === todayStrM);
+  const cleansTodayM = cleans.filter(c => {
+    if (String(c.date || '').slice(0, 10) !== todayStrM) return false;
+    if (isCleanLinkedToCancelledBooking(c)) return false;
+    // Scope to the active property (mirrors cleanForPropertyOnDate / computeDedupedTodayAlerts);
+    // the in-memory `cleans` array can hold other properties' cleans after a portfolio switch.
+    if (!activePid) return true;
+    const bk = c.bookingId && bookings.find(x =>
+      String(x.id) === String(c.bookingId) || (x._cloudId && String(x._cloudId) === String(c.bookingId))
+    );
+    if (bk) return String(bk._propertyId || '') === String(activePid);
+    return !c._propertyId || String(c._propertyId) === String(activePid);
+  });
+  const todayItemsM = [];
+  departingTodayM.forEach(b => {
+    const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
+    todayItemsM.push({ time: '10:00', bg: '#FAEEDA', fg: '#854F0B', icon: '↗', label: 'Check-out', detail: escHtml(b.name || 'Guest'), extra: '', onclick: `showDetail('${bid}')` });
+  });
+  cleansTodayM.forEach(c => {
+    const cleanerName = String(c.cleaner || '').trim() || 'Cleaner';
+    const extra = c.cleanerConfirmed
+      ? ` <span style="font-size:11px;color:#1D9E75">confirmed</span>`
+      : c.cleanerDeclined
+        ? ` <span style="font-size:11px;color:#A32D2D">declined</span>`
+        : '';
+    const bid = c.bookingId ? escapeJsSingleQuotedHtmlAttr(String(c.bookingId)) : '';
+    todayItemsM.push({ time: '12:00', bg: '#EFEAF9', fg: '#534AB7', icon: '✦', label: 'Clean', detail: escHtml(cleanerName), extra, onclick: bid ? `showDetail('${bid}')` : '' });
+  });
+  arrivingTodayM.forEach(b => {
+    const bid = escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id));
+    todayItemsM.push({ time: '15:00', bg: '#E7F1E5', fg: '#2F5A2A', icon: '↙', label: 'Check-in', detail: escHtml(b.name || 'Guest'), extra: '', onclick: `showDetail('${bid}')` });
+  });
+  let todayCardHtml = '';
+  if (todayItemsM.length) {
+    const rows = todayItemsM.map(t =>
+      `<div ${t.onclick ? `onclick="${t.onclick}" ` : ''}style="display:flex;align-items:center;gap:11px;padding:5px 0${t.onclick ? ';cursor:pointer' : ''}">` +
+      `<span style="font-size:12px;color:var(--muted-2);font-family:'JetBrains Mono',monospace;width:36px;flex-shrink:0">${t.time}</span>` +
+      `<span style="width:22px;height:22px;border-radius:50%;background:${t.bg};color:${t.fg};font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0">${t.icon}</span>` +
+      `<span style="font-size:13px;color:var(--ink-1)"><strong style="font-weight:600">${t.label}</strong> · ${t.detail}${t.extra}</span>` +
+      `</div>`
+    ).join('');
+    todayCardHtml =
+      `<div style="background:white;border-radius:12px;border:1px solid var(--hairline-1);padding:12px 14px;margin-bottom:14px">` +
+      `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">` +
+      `<span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase">Today</span>` +
+      `<span style="font-size:11px;color:var(--muted-2)">${todayItemsM.length} event${todayItemsM.length > 1 ? 's' : ''}</span>` +
+      `</div>${rows}</div>`;
+  }
+  // "All clear today" is an alerts empty-state — only show it when there's genuinely
+  // nothing on. If there are real alerts, show them; if there's turnover activity, the
+  // Today card already covers it.
+  const mobileNeedsHtml = deduped.length ? needsHtml : (todayItemsM.length ? '' : needsHtml);
+
   return (
     greetingHtml +
     statusHtml +
-    needsHtml +
+    todayCardHtml +
+    mobileNeedsHtml +
     upcomingCardsHtml +
     unifiedCalHtml +
     statsHtml +
