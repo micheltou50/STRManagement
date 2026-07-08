@@ -94,8 +94,6 @@ function renderConnectionSummary() {
       `}
     </div>
 
-    ${_renderICalFeedsCard()}
-
     ${_renderCalendarSyncCard()}`
   ;
   // Render the inbox row immediately after summary repaints (lightweight).

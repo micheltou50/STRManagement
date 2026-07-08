@@ -228,7 +228,7 @@ function renderExpenseAnalysis(data) {
   if (!hasAnything) html += '<div style="color:var(--primary);font-weight:600">✓ No issues found — your expenses look clean!</div>';
 
   html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-    <button onclick="openSettingsCat('advanced');openSettingsPanel('ai-ignore');"
+    <button onclick="openSettingsCat('app');openSettingsPanel('ai-ignore');"
       style="font-size:11px;color:var(--muted-2);background:none;border:none;cursor:pointer;text-decoration:underline">View ignore list</button>
     <button onclick="document.getElementById('expense-analysis-result').style.display='none'"
       style="font-size:12px;color:var(--muted-2);background:none;border:none;cursor:pointer">✕ Close</button>

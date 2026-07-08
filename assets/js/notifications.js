@@ -839,9 +839,12 @@ export function openEmailTemplatePanel(type) {
       </div>
     </div>`;
 
-  document.getElementById('settings-panel-email-template').dataset.tplType = type;
-  if (typeof globalThis.openSettingsPanel === 'function') {
-    globalThis.openSettingsPanel('email-template');
+  const _etpPanel = document.getElementById('settings-panel-email-template');
+  if (_etpPanel) {
+    _etpPanel.dataset.tplType = type;
+    if (typeof globalThis.openSettingsPanel === 'function') {
+      globalThis.openSettingsPanel('email-template');
+    }
   }
   setTimeout(() => updateEmailPreview(type), 50);
 }
