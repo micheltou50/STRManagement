@@ -24,6 +24,16 @@ const BOOKING_CHECKOUT_TIME = '10:00:00'; // 10am
 const CLEAN_START_TIME      = '11:00:00'; // 11am
 const CLEAN_END_TIME        = '13:00:00'; // 1pm (2hr block)
 
+// Normalize a per-booking override (checkin_time/checkout_time, a Postgres `time`
+// serialized as 'HH:MM' or 'HH:MM:SS') to an 'HH:MM:SS' event time. Falls back to
+// the standard turnover default when the override is null/absent/malformed, so a
+// row without the columns behaves exactly as before.
+function _eventTime(value, fallback) {
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(String(value || ''));
+  if (!m) return fallback;
+  return `${m[1].padStart(2, '0')}:${m[2]}:${m[3] || '00'}`;
+}
+
 // A trailing marker we embed in event descriptions so we can recover the
 // (table, local_id) pairing on providers (e.g. Microsoft Graph) where the
 // equivalent of Google's extendedProperties.private isn't trivial to read.
@@ -45,8 +55,8 @@ function bookingToEvent(b) {
   return {
     summary: TITLE_PREFIX.bookings + (b.guest_name || 'Guest'),
     description: withMarker(lines.join('\n'), 'bookings', b.id),
-    start: { dateTime: b.checkin  + 'T' + BOOKING_CHECKIN_TIME,  timeZone: EVENT_TZ },
-    end:   { dateTime: b.checkout + 'T' + BOOKING_CHECKOUT_TIME, timeZone: EVENT_TZ },
+    start: { dateTime: b.checkin  + 'T' + _eventTime(b.checkin_time,  BOOKING_CHECKIN_TIME),  timeZone: EVENT_TZ },
+    end:   { dateTime: b.checkout + 'T' + _eventTime(b.checkout_time, BOOKING_CHECKOUT_TIME), timeZone: EVENT_TZ },
     extendedProperties: { private: { stayops_table: 'bookings', stayops_id: String(b.id) } },
   };
 }
