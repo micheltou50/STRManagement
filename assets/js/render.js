@@ -1728,7 +1728,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
     `<div style="margin-top:18px">` +
     `<div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">Quick actions</div>` +
     `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:8px">` +
-    `<div onclick="showSection('bookings');setTimeout(function(){var b=document.getElementById('add-booking-btn');if(b)b.click()},100)" style="background:white;border-radius:14px;padding:12px 6px;border:1px solid var(--hairline-1);text-align:center;cursor:pointer">` +
+    `<div onclick="showSection('bookings');setTimeout(openModal,100)" style="background:white;border-radius:14px;padding:12px 6px;border:1px solid var(--hairline-1);text-align:center;cursor:pointer">` +
       quickActionIcon('<path d="M11 5v12M5 11h12" stroke="var(--primary)" stroke-width="2" stroke-linecap="round"/>') +
       `<div style="margin-top:6px;font-size:11.5px;font-weight:600;color:var(--ink-1)">Booking</div>` +
     `</div>` +

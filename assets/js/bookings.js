@@ -573,7 +573,7 @@ function renderBookings(filter) {
     const _emptyHints = { upcoming: 'Past and cancelled bookings live in other tabs', completed: 'Completed stays will appear here', cancelled: 'Cancelled bookings will appear here', all: 'Add a booking with the + button above' };
     const _emptyTitle = hasAny ? (_emptyLabels[bookingFilter] || 'No bookings found') : 'No bookings yet';
     const _emptyHint = hasAny ? (_emptyHints[bookingFilter] || 'Try switching tabs above') : 'Add your first booking to get started';
-    const _emptyBtn = !hasAny ? '<div style="margin-top:14px"><button onclick="showAddBookingModal()" class="btn-primary" style="padding:10px 24px;font-size:14px">+ Add Booking</button></div>' : '';
+    const _emptyBtn = !hasAny ? '<div style="margin-top:14px"><button onclick="openModal()" class="btn-primary" style="padding:10px 24px;font-size:14px">+ Add Booking</button></div>' : '';
     list.innerHTML = `<div class="card" style="text-align:center;padding:40px 24px 36px"><div style="font-size:36px;margin-bottom:14px;opacity:0.45">📅</div><div style="font-weight:700;font-size:15px;color:var(--primary);margin-bottom:6px">${_emptyTitle}</div><div style="font-size:12.5px;color:var(--muted-2);line-height:1.5">${_emptyHint}</div>${_emptyBtn}</div>`;
     return;
   }

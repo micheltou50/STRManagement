@@ -2817,7 +2817,7 @@
     { label: 'Settings', section: 'Go to', keys: 'S', action: function() { showSection('settings'); } },
     { label: 'Expenses', section: 'Go to', keys: 'E', action: function() { showSection('finance'); setTimeout(function() { showFinanceSub('expenses'); }, 50); } },
     { label: 'Reports', section: 'Go to', keys: 'R', action: function() { showSection('finance'); setTimeout(function() { showFinanceSub('reports'); }, 50); } },
-    { label: 'New Booking', section: 'Create', keys: 'N', action: function() { showSection('bookings'); setTimeout(function() { var b = document.getElementById('add-booking-btn'); if (b) b.click(); }, 100); } },
+    { label: 'New Booking', section: 'Create', keys: 'N', action: function() { showSection('bookings'); setTimeout(openModal, 100); } },
     { label: 'New Expense', section: 'Create', action: function() { showSection('finance'); setTimeout(function() { showFinanceSub('expenses'); setTimeout(function() { if (typeof toggleExpenseAddForm === 'function') toggleExpenseAddForm(); }, 100); }, 50); } },
     { label: 'New Clean', section: 'Create', action: function() { showSection('cleaning'); } },
   ];
@@ -2924,7 +2924,7 @@
     if (e.key === 'n') {
       e.preventDefault();
       showSection('bookings');
-      setTimeout(function() { var b = document.getElementById('add-booking-btn'); if (b) b.click(); }, 100);
+      setTimeout(openModal, 100);
     }
   });
 })();
