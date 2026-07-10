@@ -9,7 +9,7 @@ import { isRevenueBearingBooking } from './booking-revenue.js';
 import { findMatchingCleanForBooking } from './cleaning.js';
 import { saveAppConfigToCloud } from './supabase.js';
 
-export { renderSmartPricingPanel, getSmartPricing } from './smart-pricing.js';
+export { renderSmartPricingPanel } from './smart-pricing.js';
 
 // ── AI EXPENSE ANALYSER ───────────────────────────────────────────────────
 export async function analyseExpenses() {

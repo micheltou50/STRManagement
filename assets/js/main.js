@@ -25,21 +25,21 @@ import {
   getPropertyColour, getPropertyColourById, getPropertyNameById, isPortfolioMode, enterPortfolioMode, exitPortfolioMode, applyPortfolioModeAfterHostHydrate
 } from './property.js';
 import {
-  getSmartPricing, analyseExpenses, renderAIIgnoreList, promptIgnore, removeAIIgnoreItem, attachExpensePhoto, attachExpenseFile, attachExpenseFile2, clearExpensePhoto, clearExpensePhoto2, extractExpenseFromReceipt, isExpensePhotoConverting, getExpensePhotoUploadSnapshot, readBookingScreenshot,
+  analyseExpenses, renderAIIgnoreList, promptIgnore, removeAIIgnoreItem, attachExpensePhoto, attachExpenseFile, attachExpenseFile2, clearExpensePhoto, clearExpensePhoto2, extractExpenseFromReceipt, isExpensePhotoConverting, getExpensePhotoUploadSnapshot, readBookingScreenshot,
   extractBookingFromScreenshot, triggerExpenseSuggestion, acceptAISuggestCategory, acceptAISuggestBooking, dismissAISuggest
 } from './ai.js';
 import {
   normalizeBookingCleanState, isCleanLinkedToCancelledBooking, getBookingCleanerState, isCleanerPerson, populateSelects, populateCleanerSelect, renderCleaning, quickAssignLastCleaner, addClean, autoFillCleanDate, assignCleanerToBooking, jumpToAssignClean,
-  toggleCleanAction, markCleanDeclined, markCleanerConfirmed, reassignClean, toggleCleanerConfirmed, revealCleanerReassign, switchCleanView, setCleanStatusFilter, cleanerAccept, cleanerDecline, cleanerMarkDone,
+  toggleCleanAction, markCleanDeclined, markCleanerConfirmed, reassignClean, toggleCleanerConfirmed, revealCleanerReassign, switchCleanView, setCleanStatusFilter,
   findMatchingCleanForBooking
 } from './cleaning.js';
 import { bookings, cleans } from './state.js';
 import { maybeShowSinceLastOpenedRundown } from './since-last-opened.js';
 import {
-  resetFinanceSubViewToHub, backToFinanceHub, toggleExpenseAddForm, closeExpenseAddForm, showFinanceSub, switchReportsSubTab, openFinancePanelFromHub, switchPayoutsSubTab, switchMgmtSubTab, switchReportSubTab, renderMgmtFY, renderFinance, fyPrev,
-  fyNext, renderReport, revPrev, revNext, renderRevenue, mgmtPrev, mgmtNext, renderManagement, toggleMgmtSelect, mgmtCheckboxChange, mgmtToggleSelectAll, generateInvoice, confirmInvoiceClient, renderClientsList,
+  resetFinanceSubViewToHub, backToFinanceHub, toggleExpenseAddForm, closeExpenseAddForm, showFinanceSub, openFinancePanelFromHub, switchPayoutsSubTab, switchMgmtSubTab, switchReportSubTab, renderMgmtFY, renderFinance, fyPrev,
+  fyNext, renderReport, revPrev, revNext, renderRevenue, mgmtPrev, mgmtNext, renderManagement, mgmtCheckboxChange, mgmtToggleSelectAll, generateInvoice, confirmInvoiceClient, renderClientsList,
   addClient, deleteClient, saveBankDetails, saveInvoiceDetails, updateExpenseCat, addExpenseCat, deleteExpenseCat, resetExpenseCats, populateExpenseCatSelect, merchantAutocomplete, selectMerchantSuggest, hideMerchantSuggest,
-  toggleExpenseList, toggleExpenseMonth, clearExpenseFilters, renderExpenses, addExpense, saveExpenseToDriveAndSheet, deleteExpense, attachEditExpensePhoto, clearEditExpensePhoto, openExpenseView, openExpenseEdit, closeExpenseEdit,
+  toggleExpenseList, clearExpenseFilters, renderExpenses, addExpense, saveExpenseToDriveAndSheet, deleteExpense, attachEditExpensePhoto, clearEditExpensePhoto, openExpenseView, openExpenseEdit, closeExpenseEdit,
   saveExpenseEdit, getExpenseCats, populateMgmtFeePanel, saveMgmtFeeRate, ownerAutoSendToggle, saveOwnerReportSettings, sendOwnerReport, exportReportPDF, exportReportCSV,
   getAtoField, getAtoFieldLabel, checkReceiptNudge,
   showReconciliationView, renderReconciliationView, filterReconciliation,
@@ -90,9 +90,6 @@ import {
   onboardTogglePlatform, onboardStep3Next, onboardToggleIntegration, onboardStep4Next, onboardEnableNotifications, onboardFinish, isOnboardingComplete, checkAutoSendReport, _calNavigate, renderOnboardingGuidance,
   dismissChecklist
 } from './render.js';
-import {
-  showCleanerHome, showCleanerOffer, showCleanerActive, completeCleanerClean, hideCleanerV2
-} from './cleaner-ui.js';
 import { runOnboarding, hideOnboarding as hideOnboardingV2 } from './onboarding-v2.js';
 /* eslint-enable no-unused-vars */
 
@@ -225,7 +222,6 @@ window.applyBookingFilters      = applyBookingFilters;
 window.fyNext                   = fyNext;
 window.fyPrev                   = fyPrev;
 window.generateInvoice          = generateInvoice;
-window.getSmartPricing          = getSmartPricing;
 window.importAirbnbCSV          = importAirbnbCSV;
 window.importCSV                = importCSV;
 window.merchantAutocomplete     = merchantAutocomplete;
@@ -296,17 +292,11 @@ window.filterReconciliation     = filterReconciliation;
 window.showPropertySub          = showPropertySub;
 window.showSection              = showSection;
 window.switchActiveProperty     = switchActiveProperty;
-window.showCleanerHome          = showCleanerHome;
-window.showCleanerOffer         = showCleanerOffer;
-window.showCleanerActive        = showCleanerActive;
-window.completeCleanerClean     = completeCleanerClean;
-window.hideCleanerV2            = hideCleanerV2;
 window.runOnboarding            = runOnboarding;
 window.hideOnboardingV2         = hideOnboardingV2;
 window.switchMgmtSubTab         = switchMgmtSubTab;
 window.switchModalTab           = switchModalTab;
 window.switchPayoutsSubTab      = switchPayoutsSubTab;
-window.switchReportsSubTab      = switchReportsSubTab;
 window.testCleanerEmail         = testCleanerEmail;
 window.testNotificationConfig   = testNotificationConfig;
 window.toggleAutoAssignCleaner  = toggleAutoAssignCleaner;
@@ -336,9 +326,6 @@ window.adjustStock              = adjustStock;
 window.applyPreset              = applyPreset;
 window.openEmailTemplatePanel   = openEmailTemplatePanel;
 window.assignCleanerToBooking   = assignCleanerToBooking;
-window.cleanerAccept            = cleanerAccept;
-window.cleanerDecline           = cleanerDecline;
-window.cleanerMarkDone          = cleanerMarkDone;
 window.connectGmail             = connectGmail;
 window.connectOutlook           = connectOutlook;
 window.copyCalendarFeedUrl      = copyCalendarFeedUrl;
@@ -399,8 +386,6 @@ window.getPropertyColour        = getPropertyColour;
 window.getPropertyColourById    = getPropertyColourById;
 window.getPropertyNameById      = getPropertyNameById;
 window.toggleCleanerConfirmed   = toggleCleanerConfirmed;
-window.toggleExpenseMonth       = toggleExpenseMonth;
-window.toggleMgmtSelect         = toggleMgmtSelect;
 window.mgmtCheckboxChange       = mgmtCheckboxChange;
 window.mgmtToggleSelectAll      = mgmtToggleSelectAll;
 window.getAtoField              = getAtoField;

@@ -530,17 +530,6 @@ function switchFinanceReportsPeriod(sub) {
   }
 }
 
-/** @deprecated Legacy tabs — maps to Payouts / Management segmented UI */
-function switchReportsSubTab(sub, _btn) {
-  ensureFinanceReportsSegBound();
-  if (sub === 'reports') {
-    switchFinanceReportsMain('payouts');
-    switchFinanceReportsPeriod('fy');
-    return;
-  }
-  if (sub === 'payouts') switchFinanceReportsMain('payouts');
-  if (sub === 'mgmt') switchFinanceReportsMain('mgmt');
-}
 
 /**
  * Open a Finance settings panel from the Finance hub.
@@ -1320,11 +1309,6 @@ function updateMgmtGenInvoiceBtn() {
   btn.style.pointerEvents = active ? '' : 'none';
 }
 
-/** @deprecated */
-function toggleMgmtSelect(id) {
-  mgmtCheckboxChange(id, !mgmtSelected.has(id));
-  renderManagement();
-}
 
 function generateInvoice() {
   const selected = _financeScopedBookings().filter((b) => mgmtSelected.has(_mgmtBookingKey(b)));
@@ -1628,10 +1612,6 @@ function toggleExpenseList() {
   renderExpenses();
 }
 
-/** @deprecated Month groups are always visible */
-function toggleExpenseMonth() {
-  renderExpenses();
-}
 
 function normalizeDriveLinks(rawValue) {
   if (!rawValue) return [];
@@ -3896,7 +3876,6 @@ export {
   toggleExpenseAddForm,
   closeExpenseAddForm,
   showFinanceSub,
-  switchReportsSubTab,
   openFinancePanelFromHub,
   switchFinanceTab,
   switchPayoutsSubTab,
@@ -3915,7 +3894,6 @@ export {
   mgmtPrev,
   mgmtNext,
   renderManagement,
-  toggleMgmtSelect,
   mgmtCheckboxChange,
   mgmtToggleSelectAll,
   generateInvoice,
@@ -3938,7 +3916,6 @@ export {
   selectMerchantSuggest,
   hideMerchantSuggest,
   toggleExpenseList,
-  toggleExpenseMonth,
   clearExpenseFilters,
   renderExpenses,
   addExpense,

@@ -759,9 +759,3 @@ export async function renderSmartPricingPanel() {
   renderFullUI(root);
 }
 
-/** @deprecated */
-export async function getSmartPricing() {
-  await renderSmartPricingPanel();
-  const btn = document.getElementById('sp-generate');
-  if (btn) btn.click();
-}

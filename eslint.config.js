@@ -108,7 +108,6 @@ const browserGlobals = {
   normalizeBookingCleanState: 'readonly',
   reloadInMemoryData: 'readonly',
   renderAll: 'readonly',
-  renderCleanerCleans: 'readonly',
   renderNewCleanerView: 'readonly',
   renderPropertySwitcher: 'readonly',
   renderSetupWarningBanner: 'readonly',
