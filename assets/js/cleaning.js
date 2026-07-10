@@ -1395,7 +1395,9 @@ export async function toggleClean(id) {
   renderCleaning(); globalThis.renderDashboard();
 }
 export async function postCleanerAction(cleanId, action) {
-  const { id: cleanerId, uid, encoded } = globalThis.getCleanerParams();
+  // Legacy cleaner-link path (getCleanerParams removed with the PIN login 2026-07-10) —
+  // guarded so this dead path no-ops instead of throwing if ever reached.
+  const { id: cleanerId, uid, encoded } = (typeof globalThis.getCleanerParams === 'function' ? globalThis.getCleanerParams() : {});
   if (!uid || !cleanerId) {
     console.warn('[StayOps] postCleanerAction: missing uid or cleanerId, skipping cloud write');
     return false;
@@ -1442,7 +1444,7 @@ export async function cleanerAccept(cleanId) {
         c.cleanerConfirmed = _prev.confirmed; c.cleanerDeclined = _prev.declined;
         if (b) b.cleanerConfirmed = _prevB;
         normalizeBookingCleanState();
-        renderCleanerCleans();
+        if (typeof renderCleanerCleans === 'function') renderCleanerCleans();
         return; // failure already bannered by saveCleanToCloud
       }
       if (typeof saveCleansToCloud === 'function') {
@@ -1452,7 +1454,7 @@ export async function cleanerAccept(cleanId) {
       // Cleaner-link mode (no session): the Netlify function is the persistence path.
       postCleanerAction(cleanId, 'accept');
     }
-    renderCleanerCleans();
+    if (typeof renderCleanerCleans === 'function') renderCleanerCleans();
     globalThis.showBanner('✓ Clean accepted!', 'ok');
     // Push owner via user_id mode (cleaner doesn't have owner's local sub)
     try {
@@ -1504,7 +1506,7 @@ export async function cleanerDecline(cleanId) {
         c.cleanerConfirmed = _prev.confirmed; c.cleanerDeclined = _prev.declined;
         if (b) b.cleanerConfirmed = _prevB;
         normalizeBookingCleanState();
-        renderCleanerCleans();
+        if (typeof renderCleanerCleans === 'function') renderCleanerCleans();
         return; // failure already bannered by saveCleanToCloud
       }
       if (typeof saveCleansToCloud === 'function') {
@@ -1513,7 +1515,7 @@ export async function cleanerDecline(cleanId) {
     } else {
       postCleanerAction(cleanId, 'decline');
     }
-    renderCleanerCleans();
+    if (typeof renderCleanerCleans === 'function') renderCleanerCleans();
     globalThis.showBanner('Clean declined', 'ok');
     // Push owner via user_id mode (cleaner doesn't have owner's local sub)
     try {
@@ -1558,7 +1560,7 @@ export async function cleanerMarkDone(cleanId) {
         c.done = _prev.done; c.cleanerConfirmed = _prev.confirmed;
         if (b) b.cleanerConfirmed = _prevB;
         normalizeBookingCleanState();
-        renderCleanerCleans();
+        if (typeof renderCleanerCleans === 'function') renderCleanerCleans();
         return; // failure already bannered by saveCleanToCloud
       }
       if (typeof saveCleansToCloud === 'function') {
@@ -1567,7 +1569,7 @@ export async function cleanerMarkDone(cleanId) {
     } else {
       postCleanerAction(cleanId, 'done');
     }
-    renderCleanerCleans();
+    if (typeof renderCleanerCleans === 'function') renderCleanerCleans();
     globalThis.showBanner('✓ Clean marked as complete', 'ok');
     // Push owner via user_id mode (cleaner doesn't have owner's local sub)
     try {

@@ -62,7 +62,7 @@ import {
   renderConnectionSummary, refreshConnectionSummarySoon, connectGmail, connectOutlook, maybeAutoScanGmail, scanGmailBookings, maybeAutoScanOutlook, scanOutlookBookings, populateCalendarFeedPanel, copyCalendarFeedUrl, _resetSettingsToMenu, openSettingsCat,
   openSettingsPanel, closeSettingsPanel, closeSettingsCat, renderSettings, clearCacheAndResync, saveSMSTemplate, saveGeminiKey, saveApiKey, getApiKey, getHostProfile, saveHostProfile, saveHostProfilePanel,
   handleLogoUpload, removeHostLogo, renderHostProfileRow, loadCleaners, saveCleaners, addCleaner, deleteCleaner, renderTeamList, openCleanerProfile, saveCleanerContact, populateContractorSelect, renderStorageViewer, getFx, saveFxSetting,
-  initFxSettings, initSettingsSwipeBack, toggleAutoAssignCleaner, resetConnectionCheckerResults, openCleanerSettings, renderCleanerAccessList, saveCleanerPinById, clearCleanerPinById, saveCleanerPerm, copyCleanerLinkById,
+  initFxSettings, initSettingsSwipeBack, toggleAutoAssignCleaner, resetConnectionCheckerResults, saveCleanerPerm,
   populateICalFeedsPanel, addICalFeed, removeICalFeed, syncICalFeedsNow, maybeAutoSyncICal,
   connectGoogleCalendar, disconnectGoogleCalendar, connectOutlookCalendar, disconnectOutlookCalendar,
   syncCalendarNow, resyncStayOpsCalendar, renderCalendarInbox, classifyInboxEvent,
@@ -83,12 +83,12 @@ import {
   applyStayopsPostSwitchAction, openModal, closeModal, closeDetailModal, _checkModalsClosed, openQuickAddMenu, closeQuickAddMenu, runFullRefresh, ensureHostIdentityAndRestore, renderMaintenance,
   addMaintenance, setMaintInProgress, resolveIssue, deleteMaintenance, setInvView, renderInventory, addInventoryItem, updateThreshold, adjustStock, restockItem,
   deleteInventoryItem, openInvEdit, closeInvEdit, saveInvEdit, deleteInventoryItemFromEdit, savePropertyData, reassignBookingProperty, processScanNeedsReview, showAppModal, appModalConfirm,
-  appModalCancel, attachButtonPress, animateList, closeActionSheet, attachLongPress, attachModalHandleDrag, isCleanerMode, getCleanerParams, hydrateCleanerFromFunction, _showCleanerLinkError,
-  isCleanerAuthed, pinPress, pinDelete, cleanerRefresh, enableCleanerNotifications, cleanerSignOut, switchCleanerTab, switchCleanerCleanTab, renderCleanerView, cleanerAddInventoryItem,
-  cleanerAdjustStock, finishAppInit, showOnboarding, hideOnboarding, _obGoToStep, onboardBack, onboardSetPropertyType, onboardStep0Next, onboardStep1Next, onboardStep1SkipAddress, onboardStep2Next, onboardSkipStep, onboardLiveContinue, obStepperAdjust, obSetGuests,
+  appModalCancel, attachButtonPress, animateList, closeActionSheet, attachLongPress, attachModalHandleDrag,
+  cleanerSignOut,
+  finishAppInit, showOnboarding, hideOnboarding, _obGoToStep, onboardBack, onboardSetPropertyType, onboardStep0Next, onboardStep1Next, onboardStep1SkipAddress, onboardStep2Next, onboardSkipStep, onboardLiveContinue, obStepperAdjust, obSetGuests,
   onboardConnectGoogle, onboardConnectMicrosoft, onboardEmailConnected, onboardStep2Skip,
   onboardTogglePlatform, onboardStep3Next, onboardToggleIntegration, onboardStep4Next, onboardEnableNotifications, onboardFinish, isOnboardingComplete, checkAutoSendReport, _calNavigate, renderOnboardingGuidance,
-  dismissChecklist, renderCleanerCleans
+  dismissChecklist
 } from './render.js';
 import {
   showCleanerHome, showCleanerOffer, showCleanerActive, completeCleanerClean, hideCleanerV2
@@ -152,7 +152,6 @@ globalThis.getTotalDepreciationForFY = getTotalDepreciationForFY;
 globalThis.getAssetDepreciationForFY = getAssetDepreciationForFY;
 globalThis.getAssetSchedule = getAssetSchedule;
 globalThis.DEPRECIATION_PRESETS = DEPRECIATION_PRESETS;
-globalThis.renderCleanerCleans = renderCleanerCleans;
 
 // Called from index.html onclick/onchange handlers
 window.handleLoginSubmit        = handleLoginSubmit;
@@ -188,8 +187,6 @@ window.backToFinanceHub         = backToFinanceHub;
 window.backToPropertyHub        = backToPropertyHub;
 window.calcNet                  = calcNet;
 window.calcNights               = calcNights;
-window.cleanerAddInventoryItem  = cleanerAddInventoryItem;
-window.cleanerRefresh           = cleanerRefresh;
 window.cleanerSignOut           = cleanerSignOut;
 window.clearCacheAndResync      = clearCacheAndResync;
 window.clearEditExpensePhoto    = clearEditExpensePhoto;
@@ -210,7 +207,6 @@ window.closeSettingsCat         = closeSettingsCat;
 window.closeSettingsPanel       = closeSettingsPanel;
 window.confirmInvoiceClient     = confirmInvoiceClient;
 window.deleteInventoryItemFromEdit = deleteInventoryItemFromEdit;
-window.enableCleanerNotifications = enableCleanerNotifications;
 window.enableNotificationsManually = enableNotificationsManually;
 window.extractBookingFromScreenshot = extractBookingFromScreenshot;
 window.extractExpenseFromReceipt = extractExpenseFromReceipt;
@@ -264,8 +260,6 @@ window.openSettingsCat          = openSettingsCat;
 window.openSettingsPanel        = openSettingsPanel;
 window.ownerAutoSendToggle      = ownerAutoSendToggle;
 window.pickContact              = pickContact;
-window.pinDelete                = pinDelete;
-window.pinPress                 = pinPress;
 window.readBookingScreenshot    = readBookingScreenshot;
 window.renderAIIgnoreList       = renderAIIgnoreList;
 window.renderExpenses           = renderExpenses;
@@ -302,8 +296,6 @@ window.filterReconciliation     = filterReconciliation;
 window.showPropertySub          = showPropertySub;
 window.showSection              = showSection;
 window.switchActiveProperty     = switchActiveProperty;
-window.switchCleanerCleanTab    = switchCleanerCleanTab;
-window.switchCleanerTab         = switchCleanerTab;
 window.showCleanerHome          = showCleanerHome;
 window.showCleanerOffer         = showCleanerOffer;
 window.showCleanerActive        = showCleanerActive;
@@ -345,14 +337,11 @@ window.applyPreset              = applyPreset;
 window.openEmailTemplatePanel   = openEmailTemplatePanel;
 window.assignCleanerToBooking   = assignCleanerToBooking;
 window.cleanerAccept            = cleanerAccept;
-window.cleanerAdjustStock       = cleanerAdjustStock;
 window.cleanerDecline           = cleanerDecline;
 window.cleanerMarkDone          = cleanerMarkDone;
-window.clearCleanerPinById      = clearCleanerPinById;
 window.connectGmail             = connectGmail;
 window.connectOutlook           = connectOutlook;
 window.copyCalendarFeedUrl      = copyCalendarFeedUrl;
-window.copyCleanerLinkById      = copyCleanerLinkById;
 window.deleteBooking            = deleteBooking;
 window.setCancellationBillable  = setCancellationBillable;
 window.deleteCleaner            = deleteCleaner;
@@ -383,7 +372,6 @@ window.restockItem              = restockItem;
 window.revealCleanerReassign    = revealCleanerReassign;
 window.saveCleanerContact       = saveCleanerContact;
 window.saveCleanerPerm          = saveCleanerPerm;
-window.saveCleanerPinById       = saveCleanerPinById;
 window.saveCleaningFee          = saveCleaningFee;
 window.saveCleanCost            = saveCleanCost;
 window.applyExpenseToBookingClean = applyExpenseToBookingClean;
@@ -490,7 +478,6 @@ globalThis.handleAuthFailure = handleAuthFailure;
 
 function checkRoleSwitcher() {
   try {
-    if (typeof isCleanerMode === 'function' && isCleanerMode()) return;
     if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) return;
 
     const user = window._supabaseUser;
@@ -575,7 +562,6 @@ window.switchToHostMode = function () {
 // ── CANCELLED BOOKING PROMPT ─────────────────────────────────────────────────
 function checkCancelledBookings() {
   try {
-    if (typeof isCleanerMode === 'function' && isCleanerMode()) return;
     if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) return;
 
     const cfg = window._appConfig || {};
@@ -823,31 +809,7 @@ window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
   }
 
   if (!session) {
-    // No Supabase session — fall back to legacy cleaner PIN mode if present.
-    if (isCleanerMode()) {
-      migrateConfigFromLegacySettings();
-      initPropertyUI();
-      attachButtonPress();
-      attachModalHandleDrag();
-      // Modal backdrop listeners are registered once in initRenderEngine() — not duplicated here.
-      const { uid } = getCleanerParams();
-      if (!uid) {
-        _showCleanerLinkError('Invalid cleaner link — ask the owner to re-send your link from Settings.');
-      } else if (isCleanerAuthed()) {
-        document.body.classList.add('cleaner-mode');
-        // Hydrate from Netlify function (handles home screen PWA with no Supabase session)
-        const ok = await hydrateCleanerFromFunction();
-        if (ok) {
-          renderCleanerView();
-        } else {
-          _showCleanerLinkError('Could not load your cleaning data — check your connection and try again.');
-        }
-      } else {
-        document.body.classList.add('cleaner-pin-active');
-      }
-      return;
-    }
-    // No session and not in legacy cleaner mode — show login screen and wait.
+    // No Supabase session — show the login screen (cleaners log in by email too).
     console.log('[StayOps] No session — showing login screen');
     if (typeof showLoginScreen === 'function') showLoginScreen();
     else if (typeof hideLoadingScreen === 'function') hideLoadingScreen();

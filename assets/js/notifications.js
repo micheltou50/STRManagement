@@ -1125,12 +1125,11 @@ export async function testCleanerEmail() {
   }
 }
 
-export function cleanerLinkForId(c) {
-  const base = window.location.origin + window.location.pathname;
-  const uid = window._supabaseUser ? window._supabaseUser.id : '';
-  return c.pin
-    ? (base + '?role=cleaner&id=' + encodeURIComponent(c.id) + '&p=' + encodeURIComponent(btoa(c.pin)) + '&uid=' + encodeURIComponent(uid) + '#cleaner/' + c.id + '/' + btoa(c.pin))
-    : (base + '?role=cleaner&id=' + encodeURIComponent(c.id) + '&uid=' + encodeURIComponent(uid) + '#cleaner/' + c.id);
+export function cleanerLinkForId(_c) {
+  // Cleaners log in with their email/password; the assignment/reminder emails just
+  // link to the app, where they sign in and see their assigned clean. (Legacy PIN
+  // deep-links were removed 2026-07-10.)
+  return window.location.origin + window.location.pathname;
 }
 
 // ── NATIVE (iOS) PUSH via Capacitor @capacitor/push-notifications + APNs ──────

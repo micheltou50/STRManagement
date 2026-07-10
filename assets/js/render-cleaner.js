@@ -1,499 +1,26 @@
 /**
- * StayOps — cleaner PWA: the standalone cleaner-facing app (PIN login, cleans/
- * inventory/calendar/profile views, accept/decline/done actions, become-a-host).
- * Split out of render.js 2026-07-10 (second render.js slice). render.js stays the
- * barrel: it imports the 16 public cleaner fns back and re-exports them, so main.js's
- * 92-name import contract is unchanged. Region D's window/globalThis self-bridges moved
- * verbatim (main.js does NOT import them — the inline onclick handlers depend on them).
- * Back-imports from the render core (showBanner/showAppModal/savePropertyData/
- * renderHeaderDateBadge) are call-time only (safe cycle). Cross-module calls already
- * guarded as globalThis.* (loadCleanerDashboard/authFetch/withButtonLoading/subscribeToPush/
- * showBanner in Region D) are left as-is.
+ * StayOps — cleaner PWA (email / Supabase-auth): the cleaner-facing app shown after a
+ * cleaner signs in with their email. Renders My Cleans / Calendar / Profile, handles
+ * accept / decline / done / acknowledge, become-a-host, and the team invite button.
+ * The legacy link/PIN login path was removed 2026-07-10 (cleaners log in by email now).
+ * render.js re-exports cleanerSignOut for main.js; the window/globalThis self-bridges
+ * below are what the inline onclick handlers depend on. Cross-module calls are guarded
+ * on globalThis/window except escHtml/localDateStr (utils) + renderHeaderDateBadge (render).
  */
-import { bookings, cleans, inventory, replaceArrayInPlace } from './state.js';
-import { escHtml, _normName, fmt, localDateStr } from './utils.js';
-import { subscribeToPush, getCleanerSub } from './notifications.js';
-import { isCleanLinkedToCancelledBooking } from './cleaning.js';
-import { loadCleaners } from './settings.js';
-import { showBanner, showAppModal, savePropertyData, renderHeaderDateBadge } from './render.js';
-
-// ── CLEANER MODE ─────────────────────────────────────────────────────────────
-export function isCleanerMode() {
-  const hash = window.location.hash; // e.g. #cleaner/123/ABC
-  if (hash.startsWith('#cleaner/')) return true;
-  const p = new URLSearchParams(window.location.search);
-  if (p.get('role') === 'cleaner') return true;
-  // Fallback: cleaner params were saved to localStorage on first auth
-  return !!localStorage.getItem('gh-cleaner-session');
-}
-
-export function getCleanerParams() {
-  // Hash format: #cleaner/ID/ENCODEDPIN
-  const hash = window.location.hash;
-  const p = new URLSearchParams(window.location.search);
-  if (hash.startsWith('#cleaner/')) {
-    const parts = hash.slice(1).split('/');
-    return { id: parts[1] || null, encoded: parts[2] || null, uid: p.get('uid') || null };
-  }
-  // Fallback: query string format (old links)
-  if (p.get('id')) return { id: p.get('id'), encoded: p.get('p'), uid: p.get('uid') || null };
-  // Fallback: saved session from home screen launch
-  try {
-    const saved = JSON.parse(localStorage.getItem('gh-cleaner-session') || 'null');
-    if (saved && saved.id) return { id: saved.id, encoded: saved.encoded || null, uid: saved.uid || null };
-  } catch (_e) { /* ignore malformed session JSON */ }
-  return { id: null, encoded: null, uid: null };
-}
-globalThis.getCleanerParams = getCleanerParams;
-
-function getActiveCleaner() {
-  const { id } = getCleanerParams();
-  if (!id) return null;
-  return loadCleaners().find(c => String(c.id) === String(id)) || null;
-}
-
-/**
- * hydrateCleanerFromFunction — fetches cleaner data from the Netlify function
- * and populates localStorage + in-memory arrays. Used when the home screen PWA
- * has no Supabase auth session (isolated localStorage).
- */
-export async function hydrateCleanerFromFunction() {
-  const { id, uid } = getCleanerParams();
-  if (!id || !uid) {
-    console.log('[StayOps] hydrateCleanerFromFunction: missing id or uid');
-    return false;
-  }
-  try {
-    console.log('[StayOps] hydrateCleanerFromFunction: fetching data…');
-    const res = await fetch((globalThis.apiUrl || (u => u))('/.netlify/functions/cleaner-data?cleanerId=' + encodeURIComponent(id) + '&uid=' + encodeURIComponent(uid)));
-    if (!res.ok) {
-      console.warn('[StayOps] hydrateCleanerFromFunction: HTTP ' + res.status);
-      return false;
-    }
-    const data = await res.json();
-    if (!data || !data.cleaner) {
-      console.warn('[StayOps] hydrateCleanerFromFunction: no cleaner in response');
-      return false;
-    }
-
-    const cleanerRecord = data.cleaner;
-    // Ensure the cleaner's local_id is a number if it was originally
-    if (cleanerRecord.id && !isNaN(Number(cleanerRecord.id))) {
-      cleanerRecord.id = Number(cleanerRecord.id);
-    }
-    // Populate cleans
-    if (Array.isArray(data.cleans)) {
-      replaceArrayInPlace(cleans, data.cleans);
-    }
-
-    // Populate bookings
-    if (Array.isArray(data.bookings)) {
-      replaceArrayInPlace(bookings, data.bookings);
-    }
-
-    // Populate inventory
-    if (Array.isArray(data.inventory)) {
-      replaceArrayInPlace(inventory, data.inventory);
-    }
-
-    // Set property name
-    if (data.property && data.property.name) {
-      const headerName = document.getElementById('header-property-name');
-      if (headerName) headerName.textContent = data.property.name;
-    }
-
-    console.log('[StayOps] hydrateCleanerFromFunction: done — ' +
-      (data.cleans || []).length + ' cleans, ' +
-      (data.bookings || []).length + ' bookings');
-    return true;
-  } catch (e) {
-    console.warn('[StayOps] hydrateCleanerFromFunction failed:', e);
-    return false;
-  }
-}
-
-/**
- * postCleanerAction — sends accept/decline/done to the Netlify function.
- * Used when there's no Supabase auth session (home screen PWA).
- */
-export function _showCleanerLinkError(msg) {
-  // Repurpose the PIN screen to show a clear error instead of a blank cleaner view.
-  // Removes cleaner-mode so the cleaner shell is hidden, keeps the PIN screen bg.
-  document.body.classList.remove('cleaner-mode');
-  document.body.classList.add('cleaner-pin-active');
-  const dots = document.getElementById('pin-dots');
-  if (dots) dots.style.display = 'none';
-  const errEl = document.getElementById('pin-error');
-  if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
-}
-
-export function isCleanerAuthed() {
-  const { id } = getCleanerParams();
-  return localStorage.getItem('gh-cleaner-authed-' + id) === '1';
-}
-
-// ── PIN ENTRY ─────────────────────────────────────────────────────────────────
-let cleanerPinEntry = '';
-export function pinPress(digit) {
-  if (cleanerPinEntry.length >= 4) return;
-  cleanerPinEntry += digit;
-  updatePinDots();
-  if (cleanerPinEntry.length === 4) setTimeout(verifyCleanerPin, 120);
-}
-export function pinDelete() {
-  cleanerPinEntry = cleanerPinEntry.slice(0, -1);
-  updatePinDots();
-  document.getElementById('pin-error').style.display = 'none';
-}
-function updatePinDots() {
-  for (let i = 0; i < 4; i++) {
-    const dot = document.getElementById('pd-' + i);
-    if (dot) dot.classList.toggle('filled', i < cleanerPinEntry.length);
-  }
-}
-async function verifyCleanerPin() {
-  const { id, encoded } = getCleanerParams();
-  if (!encoded) {
-    document.getElementById('pin-error').textContent = 'No PIN in link — ask owner to re-copy link from Settings';
-    document.getElementById('pin-error').style.display = 'block';
-    cleanerPinEntry = ''; updatePinDots(); return;
-  }
-  let stored;
-  try { stored = atob(encoded); } catch(_e) { stored = ''; }
-  if (cleanerPinEntry === stored) {
-    localStorage.setItem('gh-cleaner-authed-' + id, '1');
-    // Save cleaner session so home screen launch preserves cleaner mode
-    const { uid } = getCleanerParams();
-    localStorage.setItem('gh-cleaner-session', JSON.stringify({ id, encoded, uid: uid || '' }));
-    document.body.classList.remove('cleaner-pin-active');
-    document.body.classList.add('cleaner-mode');
-    // Hydrate cleaner data from Netlify function before rendering
-    const hydrateOk = await hydrateCleanerFromFunction();
-    if (hydrateOk) {
-      renderCleanerView();
-      // Subscribe cleaner to push after auth
-      setTimeout(() => subscribeToPush('cleaner', id), 1500);
-    } else {
-      _showCleanerLinkError('Could not load your cleaning data — check your connection and try again.');
-    }
-  } else {
-    document.getElementById('pin-error').textContent = 'Incorrect PIN — try again';
-    document.getElementById('pin-error').style.display = 'block';
-    const dotsEl = document.getElementById('pin-dots');
-    dotsEl.style.transform = 'translateX(-8px)';
-    setTimeout(() => { dotsEl.style.transform = 'translateX(8px)'; }, 80);
-    setTimeout(() => { dotsEl.style.transform = 'translateX(0)'; }, 160);
-    cleanerPinEntry = ''; setTimeout(updatePinDots, 200);
-  }
-}
-export async function cleanerRefresh() {
-  const btn = document.getElementById('cleaner-refresh-btn');
-  if (btn) { btn.textContent = '↻ …'; btn.disabled = true; }
-  await hydrateCleanerFromFunction();
-  renderCleanerView();
-  if (btn) { btn.textContent = '↻ Refresh'; btn.disabled = false; }
-  showBanner('✓ Updated', 'ok');
-}
-
-export async function enableCleanerNotifications() {
-  const { id } = getCleanerParams();
-  const btn = document.getElementById('cleaner-notif-btn');
-  if (btn) { btn.textContent = '…'; btn.disabled = true; }
-  const sub = await subscribeToPush('cleaner', id);
-  if (sub) {
-    if (btn) { btn.textContent = '✅ Notifications On'; btn.style.color = 'rgba(255,255,255,0.9)'; }
-    showBanner('✓ Notifications enabled!', 'ok');
-  } else {
-    if (btn) { btn.textContent = '🔔 Enable Notifications'; btn.disabled = false; }
-    const perm = window.Notification && Notification.permission;
-    if (perm === 'denied') {
-      showBanner('Notifications blocked — check Settings', 'error');
-    } else {
-      showBanner('Could not enable notifications', 'error');
-    }
-  }
-}
-
-function updateCleanerNotifBtn() {
-  const btn = document.getElementById('cleaner-notif-btn');
-  const status = document.getElementById('cleaner-notif-status');
-  if (!btn) return;
-  const { id } = getCleanerParams();
-  const sub = getCleanerSub(id);
-  const granted = window.Notification && Notification.permission === 'granted';
-  if (sub && granted) {
-    btn.textContent = '🔔 Notifications On';
-    if (status) status.textContent = '✅ Notifications enabled';
-  } else {
-    if (status) status.textContent = '';
-  }
-}
+import { escHtml, localDateStr } from './utils.js';
+import { renderHeaderDateBadge } from './render.js';
 
 export function cleanerSignOut() {
-  if (window._cleanerData) {
-    const signOutPromise = window._sb ? window._sb.auth.signOut() : Promise.resolve();
-    signOutPromise.finally(() => {
-      window._cleanerData = null;
-      document.body.classList.remove('cleaner-mode');
-      const cleanerNav = document.getElementById('cleaner-nav');
-      const cleanerContent = document.getElementById('cleaner-content');
-      if (cleanerNav) cleanerNav.style.display = 'none';
-      if (cleanerContent) cleanerContent.style.display = 'none';
-      if (typeof showLoginScreen === 'function') showLoginScreen();
-    });
-    return;
-  }
-  const { id } = getCleanerParams();
-  localStorage.removeItem('gh-cleaner-authed-' + id);
-  localStorage.removeItem('gh-cleaner-session');
-  cleanerPinEntry = ''; updatePinDots();
-  document.getElementById('pin-error').style.display = 'none';
-  document.body.classList.remove('cleaner-mode');
-  document.body.classList.add('cleaner-pin-active');
-}
-
-// ── CLEANER TAB SWITCHING ─────────────────────────────────────────────────────
-let _cleanerTab = 'cleans';
-export function switchCleanerTab(tab) {
-  _cleanerTab = tab;
-  ['cleans','inventory'].forEach(t => {
-    const tabBtn = document.getElementById('ctab-' + t);
-    const viewEl = document.getElementById('cleaner-' + t + '-view');
-    if (tabBtn) tabBtn.classList.toggle('active', t === tab);
-    if (viewEl) viewEl.style.display = t === tab ? 'block' : 'none';
+  const signOutPromise = window._sb ? window._sb.auth.signOut() : Promise.resolve();
+  signOutPromise.finally(() => {
+    window._cleanerData = null;
+    document.body.classList.remove('cleaner-mode');
+    const cleanerNav = document.getElementById('cleaner-nav');
+    const cleanerContent = document.getElementById('cleaner-content');
+    if (cleanerNav) cleanerNav.style.display = 'none';
+    if (cleanerContent) cleanerContent.style.display = 'none';
+    if (typeof showLoginScreen === 'function') showLoginScreen();
   });
-}
-
-// ── CLEANER CLEANS VIEW ───────────────────────────────────────────────────────
-let _cleanerCleanTab = 'upcoming';
-
-export function switchCleanerCleanTab(tab) {
-  _cleanerCleanTab = tab;
-  ['upcoming','new'].forEach(t => {
-    const btn = document.getElementById('csubtab-' + t);
-    const el = document.getElementById('cleaner-cleans-' + t);
-    if (btn) {
-      btn.style.color = t === tab ? 'var(--primary)' : 'var(--muted-2)';
-      btn.style.fontWeight = t === tab ? '700' : '600';
-      btn.style.borderBottomColor = t === tab ? 'var(--primary)' : 'transparent';
-      btn.style.background = t === tab ? 'rgba(31,90,67,0.08)' : 'transparent';
-      btn.style.borderRadius = '10px 10px 0 0';
-    }
-    if (el) el.style.display = t === tab ? '' : 'none';
-  });
-}
-
-export function renderCleanerCleans() {
-  const cleaner = getActiveCleaner();
-  const today = localDateStr();
-  const twoDaysAgo = localDateStr(new Date(Date.now() - 2*24*60*60*1000));
-  const perm = (cleaner && cleaner.permissions) ? cleaner.permissions : {};
-
-  const relevant = cleans.filter(c => {
-    if (c.done) return false;
-    if (c.date < twoDaysAgo) return false;
-    if (isCleanLinkedToCancelledBooking(c)) return false;
-    if (cleaner) {
-      return (c.cleanerId && String(c.cleanerId) === String(cleaner.id)) ||
-             (!c.cleanerId && c.cleaner && c.cleaner === cleaner.name);
-    }
-    return true;
-  }).sort((a,b) => a.date.localeCompare(b.date));
-
-  // Badges on both tabs
-  const newCount = relevant.filter(c => !c.cleanerConfirmed && !c.cleanerDeclined).length;
-  const upcomingCount = relevant.filter(c => c.cleanerConfirmed && !c.cleanerDeclined).length;
-  const cleanerView = document.getElementById('cleaner-cleans-view');
-  if (cleanerView) {
-    let quick = document.getElementById('cleaner-quick-summary');
-    if (!quick) {
-      quick = document.createElement('div');
-      quick.id = 'cleaner-quick-summary';
-      quick.className = 'card';
-      quick.style.marginBottom = '10px';
-      const upcomingEl = document.getElementById('cleaner-cleans-upcoming');
-      cleanerView.insertBefore(quick, upcomingEl || null);
-    }
-    quick.innerHTML = `
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.55px;color:var(--muted-2);margin-bottom:6px">Your jobs today</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <div class="mini-status-chip chip-new">New: <strong>${newCount}</strong></div>
-        <div class="mini-status-chip chip-upcoming">Upcoming: <strong>${upcomingCount}</strong></div>
-      </div>
-      <div style="font-size:11px;color:var(--muted-2);margin-top:7px">${newCount > 0 ? 'Start in New to accept/decline your latest jobs.' : 'No new responses needed right now.'}</div>
-    `;
-  }
-  const newBadge = document.getElementById('csubtab-new-badge');
-  const upBadge = document.getElementById('csubtab-upcoming-badge');
-  const badgeStyle = 'border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700';
-  if (newBadge) newBadge.innerHTML = newCount > 0
-    ? `<span style="background:var(--red);color:white;${badgeStyle}">${newCount}</span>`
-    : `<span style="background:var(--hairline-1);color:white;${badgeStyle}">0</span>`;
-  if (upBadge) upBadge.innerHTML = `<span style="background:${upcomingCount > 0 ? 'var(--primary)' : 'var(--hairline-1)'};color:white;${badgeStyle}">${upcomingCount}</span>`;
-
-  const daysUntil = d => {
-    const diff = (new Date(d) - new Date(today)) / 86400000;
-    if (diff < -0.5) return null;
-    if (diff < 0.5) return 'Today';
-    if (diff < 1.5) return 'Tomorrow';
-    return Math.ceil(diff) + ' days away';
-  };
-
-  function buildCard(c) {
-    const booking = bookings.find(b => String(b.id) === String(c.bookingId) || _normName(b.name) === _normName(c.guestName));
-    const checkinStr = booking ? fmt(booking.checkin) : (c.checkin ? fmt(c.checkin) : '—');
-    const checkoutStr = booking ? fmt(booking.checkout) : fmt(c.date);
-    const isToday = c.date === today;
-    const showFirstName = perm.firstName && booking;
-    const showFullName  = perm.fullName  && booking;
-    const showGuests    = perm.guests    && booking;
-    const showNotes     = perm.notes;
-    const showPayout    = perm.payout    && booking;
-    const nameDisplay   = showFullName ? escHtml(booking.name) : showFirstName ? escHtml((booking.name||'').split(' ')[0]) : null;
-    const urgency = daysUntil(c.date);
-
-    return `<div class="clean-job-card ${isToday ? 'urgent' : ''}">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
-        <div>
-          <div style="font-family:inherit;font-size:16px;font-weight:500;color:var(--ink-1)">${urgency || 'Upcoming'}</div>
-          <div style="font-size:13px;font-weight:400;color:#999;margin-top:2px">${c.date ? fmt(c.date) : '—'}</div>
-          ${nameDisplay ? `<div style="font-size:13px;font-weight:600;color:var(--text);margin-top:4px">👤 ${nameDisplay}</div>` : ''}
-        </div>
-        ${isToday ? '<div style="font-size:11px;font-weight:600;color:var(--amber);background:#FFF5E6;padding:4px 10px;border-radius:20px">Today!</div>' : ''}
-      </div>
-      <div style="display:grid;grid-template-columns:${showGuests ? '1fr 1fr 1fr' : '1fr 1fr'};gap:8px;margin-bottom:12px">
-        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px">
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:3px">Check-in</div>
-          <div style="font-size:12px;font-weight:600">${checkinStr}</div>
-        </div>
-        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px">
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:3px">Check-out</div>
-          <div style="font-size:12px;font-weight:600">${checkoutStr}</div>
-        </div>
-        ${showGuests ? `<div style="background:var(--surface2);border-radius:8px;padding:8px 10px">
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted-2);margin-bottom:3px">Guests</div>
-          <div style="font-size:12px;font-weight:600">${escHtml(String(booking.guests))}</div>
-        </div>` : ''}
-      </div>
-      ${showPayout ? `<div style="background:#EDF7ED;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px;color:var(--primary);font-weight:600">💰 Cleaning fee: $${Number(booking.cleaningFee||0).toLocaleString()}</div>` : ''}
-      ${showNotes && c.notes ? `<div style="background:var(--surface2);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:var(--muted-2)">📝 ${escHtml(c.notes)}</div>` : ''}
-      BUTTONS_PLACEHOLDER
-    </div>`;
-  }
-
-  // NEW tab — pending (not yet accepted or declined)
-  const newEl = document.getElementById('cleaner-cleans-new');
-  const newCleans = relevant.filter(c => !c.cleanerConfirmed && !c.cleanerDeclined);
-  if (newEl) {
-    if (!newCleans.length) {
-      newEl.innerHTML = `<div style="text-align:center;padding:48px 16px">
-        <div style="font-size:48px;margin-bottom:12px">✨</div>
-        <div style="font-family:inherit;font-size:16px;font-weight:500;color:var(--ink-1);margin-bottom:6px">Nothing new!</div>
-        <div style="font-size:13px;font-weight:400;color:#999">New assignments will appear here</div>
-        <div style="font-size:13px;font-weight:400;color:#999;margin-top:8px">If you were just assigned, tap <strong>↻ Refresh</strong>.</div>
-      </div>`;
-    } else {
-      newEl.innerHTML = newCleans.map(c => {
-        const buttons = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <button onclick="cleanerDecline('${c.id}')" style="background:#FDECEA;color:var(--red);border:none;border-radius:var(--radius-sm);padding:13px;font-size:13px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer">✗ Decline</button>
-          <button onclick="cleanerAccept('${c.id}')" style="background:var(--primary);color:white;border:none;border-radius:var(--radius-sm);padding:13px;font-size:13px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer">✓ Accept</button>
-        </div>`;
-        return buildCard(c).replace('BUTTONS_PLACEHOLDER', buttons);
-      }).join('');
-    }
-  }
-
-  // UPCOMING tab — accepted cleans
-  const upcomingEl = document.getElementById('cleaner-cleans-upcoming');
-  const upcomingCleans = relevant.filter(c => c.cleanerConfirmed && !c.cleanerDeclined);
-  if (upcomingEl) {
-    if (!upcomingCleans.length) {
-      upcomingEl.innerHTML = `<div style="text-align:center;padding:48px 16px">
-        <div style="font-size:48px;margin-bottom:12px">🗓</div>
-        <div style="font-family:inherit;font-size:16px;font-weight:500;color:var(--ink-1);margin-bottom:6px">No upcoming cleans</div>
-        <div style="font-size:13px;font-weight:400;color:#999">Cleans you've accepted will appear here</div>
-        <div style="font-size:13px;font-weight:400;color:#999;margin-top:8px">Accept a clean from the <strong>New</strong> tab first.</div>
-      </div>`;
-    } else {
-      upcomingEl.innerHTML = upcomingCleans.map(c => {
-        const buttons = `<button onclick="cleanerMarkDone('${c.id}')" style="width:100%;background:var(--primary);color:white;border:none;border-radius:var(--radius-sm);padding:13px;font-size:14px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer">✓ Mark as Complete</button>`;
-        return buildCard(c).replace('BUTTONS_PLACEHOLDER', buttons);
-      }).join('');
-    }
-  }
-}
-
-// ── CLEANER INVENTORY VIEW ────────────────────────────────────────────────────
-function renderCleanerInventory() {
-  const el = document.getElementById('cleaner-inventory-list');
-  if (!el) return;
-  const lowItems = inventory.filter(i => i.stock <= i.threshold);
-  let html = '';
-  if (lowItems.length) {
-    html += `<div class="card" style="margin-bottom:12px;border-left:4px solid var(--amber)">
-      <div style="font-size:12px;font-weight:600;color:var(--amber);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">⚠ Needs Restocking</div>
-      <div style="font-size:13px;color:var(--muted-2)">${lowItems.map(i=>`<strong>${escHtml(i.name)}</strong>`).join(', ')} ${lowItems.length===1?'is':'are'} running low</div>
-    </div>`;
-  }
-  if (!inventory.length) {
-    html += '<div style="text-align:center;padding:40px 16px;color:var(--muted-2);font-size:13px">No inventory items added yet</div>';
-  } else {
-    html += `<div class="card" style="padding:0">` + inventory.map(i => {
-      const isLow = i.stock <= i.threshold;
-      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--hairline-2);gap:8px">
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:600;font-size:14px;color:${isLow?'var(--red)':'var(--text)'}">${escHtml(i.name)}${isLow?' ⚠':''}</div>
-          ${i.unit?`<div style="font-size:11px;color:var(--muted-2);margin-top:2px">${escHtml(i.unit)}</div>`:''}
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-          <button onclick="cleanerAdjustStock('${i.id}',-1)" style="width:36px;height:36px;border-radius:50%;border:1.5px solid var(--hairline-1);background:white;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">−</button>
-          <span style="font-weight:700;font-size:18px;min-width:28px;text-align:center;color:${isLow?'var(--red)':'var(--primary)'}">${i.stock}</span>
-          <button onclick="cleanerAdjustStock('${i.id}',1)" style="width:36px;height:36px;border-radius:50%;border:none;background:var(--primary);color:white;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">+</button>
-        </div>
-      </div>`;
-    }).join('') + `</div>`;
-  }
-  el.innerHTML = html;
-}
-export async function cleanerAddInventoryItem() {
-  const name = await showAppModal({
-    title: '+ Add Inventory Item',
-    msg: 'Enter the item name:',
-    hasInput: true,
-    inputPlaceholder: 'e.g. Toilet paper',
-    inputType: 'text',
-    confirmText: 'Add',
-    cancelText: 'Cancel'
-  });
-  if (!name || !name.trim()) return;
-  const newItem = {
-    id: Date.now(),
-    name: name.trim(),
-    stock: 0,
-    threshold: 2,
-    unit: ''
-  };
-  inventory.push(newItem);
-  savePropertyData();
-  renderCleanerInventory();
-  showBanner('✓ Item added', 'ok');
-}
-
-export function cleanerAdjustStock(id, delta) {
-  const item = inventory.find(i => String(i.id) === String(id));
-  if (!item) return;
-  item.stock = Math.max(0, item.stock + delta);
-  savePropertyData(); renderCleanerInventory();
-}
-// ── CLEANER CHAT VIEW ─────────────��──────────────────────────────────────────
-
-export function renderCleanerView() {
-  const cleaner = getActiveCleaner();
-  const headerSub = document.querySelector('.cleaner-header .header-sub-name');
-  if (headerSub && cleaner) headerSub.textContent = 'Hi, ' + cleaner.name.split(' ')[0] + ' 👋';
-  renderCleanerCleans();
-  renderCleanerInventory();
-  updateCleanerNotifBtn();
 }
 
 function renderNewCleanerView(data) {
@@ -746,7 +273,7 @@ async function cleanerAcceptClean(cleanId) {
       const guestName = cleanData?.guest_name || cleanData?.guestName || 'guest';
       const cleanDate = cleanData?.clean_date || cleanData?.date || '';
       const cleanerName = data.cleanerRecord?.name || 'Cleaner';
-      const uid = cleanData?.user_id || getCleanerParams().uid;
+      const uid = cleanData?.user_id;
       if (uid) {
         await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
           method: 'POST',
@@ -786,7 +313,7 @@ async function cleanerDeclineClean(cleanId) {
       const guestName = cleanData?.guest_name || cleanData?.guestName || 'guest';
       const cleanDate = cleanData?.clean_date || cleanData?.date || '';
       const cleanerName = data.cleanerRecord?.name || 'Cleaner';
-      const uid = cleanData?.user_id || getCleanerParams().uid;
+      const uid = cleanData?.user_id;
       if (uid) {
         await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
           method: 'POST',
@@ -826,7 +353,7 @@ async function cleanerMarkDone(cleanId) {
       const guestName = cleanData?.guest_name || cleanData?.guestName || 'guest';
       const cleanDate = cleanData?.clean_date || cleanData?.date || '';
       const cleanerName = data.cleanerRecord?.name || 'Cleaner';
-      const uid = cleanData?.user_id || getCleanerParams().uid;
+      const uid = cleanData?.user_id;
       if (uid) {
         await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
           method: 'POST',
@@ -864,7 +391,7 @@ async function cleanerAcknowledgeCancel(cleanId) {
     try {
       const cleanData = data.myCleans?.find((c) => String(c.id) === String(cleanId));
       const cleanerName = data.cleanerRecord?.name || 'Cleaner';
-      const uid = cleanData?.user_id || getCleanerParams().uid;
+      const uid = cleanData?.user_id;
       if (uid) {
         await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
           method: 'POST',

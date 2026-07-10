@@ -14,12 +14,7 @@ import {
   onboardStep4Next, onboardEnableNotifications, onboardFinish, isOnboardingComplete, checkAutoSendReport,
 } from './render-onboarding.js';
 import './render-cleaner.js';
-import {
-  isCleanerMode, getCleanerParams, hydrateCleanerFromFunction, _showCleanerLinkError,
-  isCleanerAuthed, pinPress, pinDelete, cleanerRefresh, enableCleanerNotifications,
-  cleanerSignOut, switchCleanerTab, switchCleanerCleanTab, renderCleanerView,
-  cleanerAddInventoryItem, cleanerAdjustStock, renderCleanerCleans,
-} from './render-cleaner.js';
+import { cleanerSignOut } from './render-cleaner.js';
 import {
   getAllProperties,
   getActivePropertyId,
@@ -243,12 +238,7 @@ import {
   initSettingsSwipeBack,
   toggleAutoAssignCleaner,
   resetConnectionCheckerResults,
-  openCleanerSettings,
-  renderCleanerAccessList,
-  saveCleanerPinById,
-  clearCleanerPinById,
   saveCleanerPerm,
-  copyCleanerLinkById,
 } from './settings.js';
 import {
   calPrev,
@@ -461,11 +451,6 @@ function renderSetupWarningBanner() {
   const bodyEl = document.getElementById('setup-warning-body');
   if (!wrap || !titleEl || !bodyEl) return;
 
-  if (typeof isCleanerMode === 'function' && isCleanerMode()) {
-    wrap.style.display = 'none';
-    return;
-  }
-
   const gaps = (typeof getPropertyConfigGaps === 'function') ? getPropertyConfigGaps() : [];
   if (!gaps.length) {
     wrap.style.display = 'none';
@@ -521,9 +506,6 @@ function showSection(name) {
   // FAB only on Today tab
   const fab = document.querySelector('.fab');
   if (fab) fab.style.display = name === 'today' ? 'flex' : 'none';
-  // Slide chat bubble down when FAB is hidden
-  const chatFab = document.getElementById('chat-fab');
-  if (chatFab) chatFab.style.bottom = name === 'today' ? '180px' : '100px';
   // Only render what's needed for this section
   if (name === 'today') {
     renderDashboard();
@@ -580,8 +562,6 @@ function render() {
   const fab = document.querySelector('.fab');
   const section = currentSection || 'today';
   if (fab) fab.style.display = section === 'today' ? 'flex' : 'none';
-  const chatFab = document.getElementById('chat-fab');
-  if (chatFab) chatFab.style.bottom = section === 'today' ? '90px' : '24px';
   if (section === 'today')        { renderDashboard(); return; }
   if (section === 'bookings')     { renderBookings(); renderNotes(); return; }
   if (section === 'cleaning')     { renderCleaning(); populateSelects(); return; }
@@ -595,10 +575,6 @@ function render() {
 // Full render — used after major data changes like sheet sync
 function renderAll() {
   // Portfolio-specific tab UI: use typeof isPortfolioMode === 'function' && isPortfolioMode() (Cards 2–6).
-  if (isCleanerMode()) {
-    renderCleanerView();
-    return;
-  }
   renderHeaderDateBadge()
   renderDashboard();
   renderBookings(); // always refresh booking list after sync
@@ -2409,7 +2385,6 @@ function renderHeaderDateBadge() {
 }
 
 async function ensureHostIdentityAndRestore() {
-  if (isCleanerMode()) return;
   let host = getHostProfile();
 
   // Restore host profile from Supabase if localStorage is empty (private mode / new device).
@@ -2848,12 +2823,6 @@ function appModalCancel() {
   if (changed) savePropertyData();
 })();
 
-// Cleaner mode class setup (actual hydration happens in DOMContentLoaded boot)
-if (isCleanerMode()) {
-  if (isCleanerAuthed()) document.body.classList.add('cleaner-mode');
-  else document.body.classList.add('cleaner-pin-active');
-}
-
 // Google Drive prompts removed — receipts now use Supabase Storage
 // Safety net: re-render calendar after 100ms in case layout wasn't settled
 setTimeout(renderCalendar, 100);
@@ -2862,17 +2831,6 @@ setTimeout(renderCalendar, 100);
 let _lastVisibilitySync = 0;
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
-
-  // Cleaner mode: refresh from Netlify function
-  if (isCleanerMode()) {
-    if (typeof hydrateCleanerFromFunction === 'function') {
-      hydrateCleanerFromFunction().then(ok => {
-        if (ok && typeof renderCleanerView === 'function') renderCleanerView();
-      }).catch(e => console.warn("[StayOps] silent error:", e));
-    }
-    setTimeout(_flushPendingUiRefresh, 120);
-    return;
-  }
 
   // Owner mode: throttled Supabase re-hydrate (once per 5 min)
   if (hasValidPropertyConfig()) {
@@ -2897,24 +2855,21 @@ window.addEventListener('pageshow', (e) => {
   setTimeout(_flushPendingUiRefresh, 120);
 });
 
-// Cleaner visibility listener merged into main handler above.
 // Owner app — poll Supabase every 60 seconds to catch cleaner updates.
-if (!isCleanerMode()) {
-  globalThis._ownerPollInterval = setInterval(() => {
-    if (!document.hidden && hasValidPropertyConfig()) {
-      if (typeof globalThis.loadCleansFromCloud === 'function') {
-        globalThis.loadCleansFromCloud().then(cloudCleans => {
-          if (Array.isArray(cloudCleans) && cloudCleans.length) {
-            replaceArrayInPlace(cleans, cloudCleans);
-            // Only re-render dashboard and cleaning — NOT finance/settings (would reset scroll and forms)
-            renderDashboard();
-            if (currentSection === 'cleaning') { renderCleaning(); populateCleanerSelect(); }
-          }
-        }).catch(e => console.warn('[StayOps] Poll sync error:', e));
-      }
+globalThis._ownerPollInterval = setInterval(() => {
+  if (!document.hidden && hasValidPropertyConfig()) {
+    if (typeof globalThis.loadCleansFromCloud === 'function') {
+      globalThis.loadCleansFromCloud().then(cloudCleans => {
+        if (Array.isArray(cloudCleans) && cloudCleans.length) {
+          replaceArrayInPlace(cleans, cloudCleans);
+          // Only re-render dashboard and cleaning — NOT finance/settings (would reset scroll and forms)
+          renderDashboard();
+          if (currentSection === 'cleaning') { renderCleaning(); populateCleanerSelect(); }
+        }
+      }).catch(e => console.warn('[StayOps] Poll sync error:', e));
     }
-  }, 60000);
-}
+  }
+}, 60000);
 
 
 // ── BUTTON PRESS FEEL ─────────────────────────────────────────────────────────
@@ -3157,29 +3112,12 @@ async function finishAppInit() {
   if (_modal) _modal.onclick = function(e) { if (e.target === this) closeModal(); };
   if (_detailModal) _detailModal.onclick = function(e) { if (e.target === this) closeDetailModal(); };
   if (_notifyModal) _notifyModal.onclick = function(e) { if (e.target === this) closeNotifyModal(); };
-  if (isCleanerMode()) {
-    const { uid } = getCleanerParams();
-    if (!uid) {
-      _showCleanerLinkError('Invalid cleaner link — ask the owner to re-send your link from Settings.');
-    } else if (isCleanerAuthed()) {
-      document.body.classList.add('cleaner-mode');
-      const ok = await hydrateCleanerFromFunction();
-      if (ok) {
-        renderCleanerView();
-      } else {
-        _showCleanerLinkError('Could not load your cleaning data — check your connection and try again.');
-      }
-    } else {
-      document.body.classList.add('cleaner-pin-active');
-    }
-  } else {
-    await globalThis.showSetupIfNeeded();
-    // Show/hide admin nav button — only for admin role in user_roles table
-    const adminNav = document.getElementById('nav-admin');
-    if (adminNav) {
-      const showAdmin = typeof globalThis.isAdmin === 'function' ? await globalThis.isAdmin() : false;
-      adminNav.style.display = showAdmin ? '' : 'none';
-    }
+  await globalThis.showSetupIfNeeded();
+  // Show/hide admin nav button — only for admin role in user_roles table
+  const adminNav = document.getElementById('nav-admin');
+  if (adminNav) {
+    const showAdmin = typeof globalThis.isAdmin === 'function' ? await globalThis.isAdmin() : false;
+    adminNav.style.display = showAdmin ? '' : 'none';
   }
 }
 
@@ -3315,21 +3253,7 @@ export {
   closeActionSheet,
   attachLongPress,
   attachModalHandleDrag,
-  isCleanerMode,
-  getCleanerParams,
-  hydrateCleanerFromFunction,
-  _showCleanerLinkError,
-  isCleanerAuthed,
-  pinPress,
-  pinDelete,
-  cleanerRefresh,
-  enableCleanerNotifications,
   cleanerSignOut,
-  switchCleanerTab,
-  switchCleanerCleanTab,
-  renderCleanerView,
-  cleanerAddInventoryItem,
-  cleanerAdjustStock,
   finishAppInit,
   showOnboarding,
   hideOnboarding,
@@ -3359,5 +3283,4 @@ export {
   _calNavigate,
   dismissChecklist,
   renderOnboardingGuidance,
-  renderCleanerCleans,
 };

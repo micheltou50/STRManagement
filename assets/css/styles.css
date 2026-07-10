@@ -387,29 +387,9 @@
   .report-kpi-val { font-family:'Plus Jakarta Sans',sans-serif; font-size:22px; font-weight:500; color:var(--primary); }
   .report-kpi-label { font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted-2); margin-top:2px; }
 
-  /* ── CLEANER MODE ── */
-  body.cleaner-mode .header,
-  body.cleaner-mode .fab,
-  body.cleaner-pin-active .fab { display:none !important; }
-  body.cleaner-mode .nav,
-  body.cleaner-mode #main-content { display:none !important; }
-  #cleaner-pin-screen { display:none; position:fixed; inset:0; background:var(--primary); z-index:9999; flex-direction:column; align-items:center; justify-content:center; padding:32px 24px; }
-  body.cleaner-pin-active #cleaner-pin-screen { display:flex; }
-  #cleaner-app { display:none; flex-direction:column; min-height:100vh; }
-  body.cleaner-mode #cleaner-app { display:flex; }
-  .cleaner-header { background:var(--primary); padding:52px 20px 16px; position:sticky; top:0; z-index:100; }
-  .cleaner-tab-bar { display:flex; background:#fff; border-bottom:1px solid var(--hairline-2); position:sticky; top:0; z-index:50; }
-  .cleaner-tab { flex:1; background:none; border:none; border-bottom:3px solid transparent; padding:14px 8px 11px; font-family:'Plus Jakarta Sans',sans-serif; font-size:13px; font-weight:600; color:var(--muted-2); cursor:pointer; transition:all 0.2s; }
-  .cleaner-tab.active { color:var(--primary); border-bottom-color:var(--primary); }
-  .cleaner-content { flex:1; padding:16px; padding-bottom:calc(40px + env(safe-area-inset-bottom)); background:var(--surface2); }
   .clean-job-card { background:var(--white); border-radius:var(--radius); padding:16px; margin-bottom:12px; box-shadow:0 1px 4px rgba(0,0,0,0.07); border-left:4px solid var(--sage); }
   .clean-job-card.urgent { border-left-color:var(--amber); }
   .clean-job-card.done { border-left-color:var(--hairline-1); opacity:0.6; }
-  .pin-dot { width:18px; height:18px; border-radius:50%; background:rgba(255,255,255,0.25); transition:background 0.15s; }
-  .pin-dot.filled { background:white; }
-  .pin-key { width:72px; height:72px; border-radius:50%; background:rgba(255,255,255,0.12); border:none; color:white; font-family:'Plus Jakarta Sans',sans-serif; font-size:24px; font-weight:500; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.1s; -webkit-tap-highlight-color:transparent; }
-  .pin-key:active { background:rgba(255,255,255,0.28); }
-  .pin-key.delete { font-size:18px; }
   @media print {
     body * { visibility: hidden; }
     #print-report, #print-report * { visibility: visible; }
@@ -3695,14 +3675,6 @@ body.cleaner-mode .cl-progress > i { display: block; height: 100%; background: v
 .so-h2 { font-family: var(--font-display); font-size: 22px; font-weight: 500; color: var(--ink-1); }
 .so-label { font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-2); }
 
-/* ── Cleaner PWA palette overrides (teal v2) ────────────────────────────── */
-body.cleaner-mode .cleaner-header { background: var(--cl-primary-ink); }
-body.cleaner-mode .cleaner-header .header-sub-name { color: rgba(255,255,255,0.7); }
-body.cleaner-mode .cleaner-tab-bar { background: var(--cl-bg); border-bottom: 1px solid var(--cl-hairline); }
-body.cleaner-mode .cleaner-tab { color: var(--cl-muted); }
-body.cleaner-mode .cleaner-tab.active { color: var(--cl-primary); border-bottom-color: var(--cl-primary); }
-body.cleaner-mode .cleaner-content { background: var(--cl-bg); }
-body.cleaner-pin-active #cleaner-pin-screen { background: var(--cl-primary-ink); }
 
 /* Cleaner home/offer/in-progress/done helper components */
 .cl-greeting { display: flex; align-items: center; gap: 12px; padding: 18px 22px 6px; }

@@ -10,12 +10,11 @@ import {
   saveHostConfigToSupabase,
   authFetch,
 } from './supabase.js';
-import { updateNotifStatus, cleanerLinkForId } from './notifications.js';
+import { updateNotifStatus } from './notifications.js';
 import { renderPropertySwitcher, populateOwnerReportPanel } from './property.js';
 import { reopenPropertySetup } from './setup.js';
 import {
   populateCleanerSelect,
-  isCleanerPerson,
 } from './cleaning.js';
 import {
   renderExpenseCatSettings,
@@ -725,7 +724,6 @@ function openSettingsCat(cat, returnSection) {
     const sr = document.getElementById('notif-status-row-menu');
     if (sr) { const p = Notification.permission; sr.textContent = p === 'granted' ? '✅ Enabled' : p === 'denied' ? '❌ Blocked' : 'Tap to set up'; }
   }
-  if (cat === 'cleaner') { openCleanerSettings(); }
 }
 
 function openSettingsPanel(panelId, returnSection) {
@@ -1479,70 +1477,8 @@ function resetConnectionCheckerResults() {
   if (el) el.style.display = 'none';
 }
 
-// ── CLEANER ACCESS SETTINGS ───────────────────────────────────────────────────
-function openCleanerSettings() {
-  renderCleanerAccessList();
-}
-function renderCleanerAccessList() {
-  const el = document.getElementById('cleaner-access-list');
-  if (!el) return;
-  const cleaners = loadCleaners().filter(c => isCleanerPerson(c));
-  if (!cleaners.length) {
-    el.innerHTML = `<div class="card" style="margin-bottom:12px;text-align:center;padding:24px">
-      <div style="font-size:32px;margin-bottom:8px">🧹</div>
-      <div style="font-weight:600;font-size:14px;margin-bottom:6px">No cleaners added yet</div>
-      <div style="font-size:12px;color:var(--muted-2);margin-bottom:14px">Go to Settings → Property → Team to add cleaners</div>
-      <button onclick="openSettingsCat('property');openSettingsPanel('team')" class="btn-primary">Add Team Members</button>
-    </div>`;
-    return;
-  }
-  el.innerHTML = `<div class="card" style="padding:0 16px;overflow:hidden;margin-bottom:12px">` +
-    cleaners.map((c, i) => `
-    <div class="settings-cat-item" onclick="openCleanerProfile('${c.id}')" ${i===cleaners.length-1?'style="border-bottom:none"':''}>
-      <div style="display:flex;align-items:center;gap:12px">
-        <div style="width:36px;height:36px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${escHtml(c.name.charAt(0))}</div>
-        <div>
-          <div style="font-weight:500;font-size:14px">${escHtml(c.name)}</div>
-          <div style="font-size:12px;color:var(--muted-2)">${c.pin ? '🔐 PIN set' : '⚠️ No PIN'} · ${c.email ? '✉️ Email set' : 'No email'}</div>
-        </div>
-      </div>
-      <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-    </div>`).join('') + `</div>
-  <div class="card" style="padding:0 16px;overflow:hidden">
-    <div class="settings-cat-item" onclick="openSettingsCat('property');setTimeout(()=>openSettingsPanel('team'),50)" style="border-bottom:none">
-      <div style="display:flex;align-items:center;gap:12px">
-        <div style="width:36px;height:36px;border-radius:10px;background:var(--hairline-2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f5d4e" stroke-width="1.5"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="17" y1="11" x2="23" y2="11"/></svg></div>
-        <div style="font-weight:500;font-size:14px;color:var(--primary)">Add Person</div>
-      </div>
-      <div style="color:#C7C7CC;font-size:20px;font-weight:300">›</div>
-    </div>
-  </div>`;
-}
-function saveCleanerPinById(id) {
-  const input = document.getElementById('pin-input-' + id);
-  if (!input) return;
-  const val = input.value.trim();
-  if (!val || !/^\d{4}$/.test(val)) { globalThis.showBanner('⚠ Please enter exactly 4 digits', 'warn'); return; }
-  const list = loadCleaners();
-  const c = list.find(x => String(x.id) === String(id));
-  if (!c) return;
-  c.pin = val; input.value = '';
-  saveCleaners(list);
-  renderCleanerAccessList();
-  globalThis.showBanner('✓ PIN saved for ' + c.name, 'ok');
-}
-async function clearCleanerPinById(id) {
-  const list = loadCleaners();
-  const c = list.find(x => String(x.id) === String(id));
-  if (!c) return;
-  const ok = await globalThis.showAppModal({ title: 'Clear PIN', msg: `Remove PIN for ${c.name}?`, confirmText: 'Clear', confirmColor: 'var(--red)' });
-  if (!ok) return;
-  delete c.pin;
-  localStorage.removeItem('gh-cleaner-authed-' + id);
-  saveCleaners(list);
-  renderCleanerAccessList();
-  globalThis.showBanner('✓ PIN cleared for ' + c.name, 'ok');
-}
+// ── CLEANER PERMISSIONS ───────────────────────────────────────────────────────
+// (Legacy PIN link/access panel removed 2026-07-10 — cleaners log in by email.)
 function saveCleanerPerm(id, key, val) {
   const list = loadCleaners();
   const c = list.find(x => String(x.id) === String(id));
@@ -1550,15 +1486,6 @@ function saveCleanerPerm(id, key, val) {
   if (!c.permissions) c.permissions = {};
   c.permissions[key] = val;
   saveCleaners(list);
-}
-function copyCleanerLinkById(id) {
-  const list = loadCleaners();
-  const c = list.find(x => String(x.id) === String(id));
-  if (!c) return;
-  if (!c.pin) { globalThis.showBanner('⚠ Set a PIN for ' + c.name + ' first', 'warn'); return; }
-  const url = cleanerLinkForId(c);
-  navigator.clipboard.writeText(url).then(() => globalThis.showBanner('✓ Link copied for ' + c.name, 'ok'))
-    .catch(() => globalThis.showBanner('⚠ Copy failed — select the link manually', 'warn'));
 }
 
 // ── ICAL CALENDAR FEEDS ──────────────────────────────────────────────────────
@@ -1967,12 +1894,7 @@ export {
   toggleAutoAssignCleaner,
   _renderAutoAssignToggle,
   resetConnectionCheckerResults,
-  openCleanerSettings,
-  renderCleanerAccessList,
-  saveCleanerPinById,
-  clearCleanerPinById,
   saveCleanerPerm,
-  copyCleanerLinkById,
   populateICalFeedsPanel,
   addICalFeed,
   removeICalFeed,
