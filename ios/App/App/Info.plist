@@ -51,6 +51,10 @@
 	<false/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
+	<key>NSCameraUsageDescription</key>
+	<string>StayOps uses the camera so you can snap a photo of a receipt to attach to an expense.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>StayOps needs access to your photos so you can attach receipt images to your expenses.</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
