@@ -2,7 +2,7 @@
  * StayOps — bookings list, detail, CSV import, dashboard calendar (Pass 9).
  * Uses globalThis for main.js / supabase hooks assigned at boot.
  */
-import { bookings, cleans, notes, replaceArrayInPlace } from './state.js';
+import { bookings, cleans, notes, expenses, replaceArrayInPlace } from './state.js';
 import {
   escHtml,
   fmt,
@@ -10,6 +10,7 @@ import {
   localDateStr,
   getTurnoverTimes,
   findTurnoverClashes,
+  expenseAllocations,
 } from './utils.js';
 import { buildBookingListCardFromBooking, normalizePlatformLabel } from './booking-list-card.js';
 import {
@@ -1944,8 +1945,11 @@ async function applyCleanCostAndRecompute(cleanId, bookingId, amount) {
   if (!c) return { ok: false, error: 'clean not found' };
   c.cost = (amount === null || amount === '' || amount === undefined) ? null : Number(amount);
   if (typeof globalThis.saveCleanToCloud === 'function') {
-    try { await globalThis.saveCleanToCloud(c); }
-    catch (e) { return { ok: false, error: e }; }
+    // saveCleanToCloud swallows its own errors and returns { ok:false, error }
+    // instead of throwing, so a try/catch here can never fire — the returned
+    // result is the only signal that the cloud write failed.
+    const cleanRes = await globalThis.saveCleanToCloud(c);
+    if (cleanRes && cleanRes.ok === false) return { ok: false, error: cleanRes.error };
   }
 
   const b = bookings.find(bk => String(bk.id) === String(bookingId) || (bk._cloudId && String(bk._cloudId) === String(bookingId)));
@@ -1959,6 +1963,11 @@ async function applyCleanCostAndRecompute(cleanId, bookingId, amount) {
       b.mgmtPayout = b.mgmtFee;
       b.netPayout = Math.round((mgmtBase - b.mgmtFee) * 100) / 100;
     } else {
+      // No management % on this booking: zero the fee fields explicitly rather
+      // than leaving whatever a previous mgmtFeeRaw wrote there — a stale
+      // mgmtFee/mgmtPayout is billed to the owner on the next invoice.
+      b.mgmtFee = 0;
+      b.mgmtPayout = 0;
       b.netPayout = Math.round(mgmtBase * 100) / 100;
     }
     if (typeof globalThis.saveBookingToCloud === 'function') {
@@ -1984,27 +1993,94 @@ async function saveCleanCost(cleanId, bookingId) {
   if (typeof showDetail === 'function') showDetail(bookingId);
 }
 
-/** Called from the expense add/edit flow when an expense is linked to a
- *  booking. Mirrors the expense.amount into the booking's clean.cost and
- *  triggers the mgmt fee + net payout recompute. */
-async function applyExpenseToBookingClean(bookingId, amount) {
+/** Signed total of every LIVE expense allocation pointing at this booking.
+ *
+ *  A clean's cost is a SUM, not "the last linked expense's amount": one cleaner
+ *  invoice is often split across several stays ($600 over 4 stays = $150 each,
+ *  NOT $600 on all four), and several expenses can point at the same stay (a
+ *  clean plus a later credit note). The result is persisted into the booking's
+ *  cleaningFee/mgmtFee/mgmtPayout/netPayout and flows into owner invoicing, so
+ *  a wrong number here is real money.
+ *
+ *  Goes through expenseAllocations() rather than reading exp.bookingAllocations
+ *  directly — that helper is what keeps legacy single-link rows (and the
+ *  server-side auto-expense in cleaner-action.js, which still writes a scalar
+ *  booking_id) contributing to their stay.
+ *
+ *  Returns { sum, count } so callers can tell "allocated $0" (an invoice fully
+ *  offset by a credit note) apart from "nothing is allocated to this stay". */
+function _sumLiveAllocationsForBooking(b) {
+  // A link can carry either key depending on when it was made: the local id
+  // before the booking's first cloud save, the cloud uuid after. Same dual-key
+  // rule the booking lookups above use.
+  const keys = new Set();
+  if (b && b.id != null && String(b.id) !== '') keys.add(String(b.id));
+  if (b && b._cloudId != null && String(b._cloudId) !== '') keys.add(String(b._cloudId));
+  if (!keys.size) return { sum: 0, count: 0 };
+
+  let sum = 0;
+  let count = 0;
+  (expenses || []).forEach(exp => {
+    // Expenses are SOFT-deleted — a BEFORE DELETE trigger rewrites the delete
+    // into status='deleted' and the row survives — so a dead expense can still
+    // be sitting in the in-memory array. It must not bill the stay.
+    if (!exp || exp.status === 'deleted') return;
+    expenseAllocations(exp).forEach(a => {
+      if (!keys.has(String(a.bookingId))) return;
+      // Amounts are signed (same sign as expense.amount), so a credit note
+      // subtracts here instead of inflating the stay's cleaning cost.
+      sum += Number(a.amount) || 0;
+      count++;
+    });
+  });
+  return { sum: Math.round(sum * 100) / 100, count };
+}
+
+/** Shared body of applyExpenseToBookingClean / clearExpenseFromBookingClean:
+ *  resolve the booking and its clean, then rewrite the clean's cost from the
+ *  live allocations. `clearWhenEmpty` is the only difference between the two
+ *  callers — see the note on the empty branch. */
+async function _recomputeBookingCleanCost(bookingId, clearWhenEmpty) {
   if (!bookingId) return { ok: false, error: 'no bookingId' };
   const b = bookings.find(bk => String(bk.id) === String(bookingId) || (bk._cloudId && String(bk._cloudId) === String(bookingId)));
   if (!b) return { ok: false, error: 'booking not found' };
   const clean = findMatchingCleanForBooking(b);
   if (!clean) return { ok: false, error: 'no clean record for booking' };
-  return await applyCleanCostAndRecompute(clean._cloudId || clean.id, b._cloudId || b.id, amount);
+
+  const { sum, count } = _sumLiveAllocationsForBooking(b);
+  if (!count) {
+    // Nothing is allocated to this stay. A clean's cost is ALSO settable by
+    // hand (saveCleanCost here, and the toggleClean prompt in cleaning.js), so
+    // we only wipe it when the caller is explicitly unlinking. Otherwise an
+    // unrelated expense edit would silently erase a manually entered cost.
+    if (!clearWhenEmpty) return { ok: true, skipped: 'no allocations for booking' };
+    return await applyCleanCostAndRecompute(clean._cloudId || clean.id, b._cloudId || b.id, null);
+  }
+  // count > 0 with sum 0 is legitimate (invoice fully offset by a credit note):
+  // write the 0 rather than nulling, which would fall back to the platform's
+  // cleaning fee and re-inflate the stay's cost.
+  return await applyCleanCostAndRecompute(clean._cloudId || clean.id, b._cloudId || b.id, sum);
 }
 
-/** Clear the cleaning cost on a booking's matched clean (used when an
- *  expense is unlinked or deleted). */
+/** Called from the expense add/edit flow when an expense's stay links change.
+ *  Recomputes the booking's clean.cost as the sum of every live allocation
+ *  pointing at it, then triggers the mgmt fee + net payout recompute.
+ *
+ *  `amount` is IGNORED: the figure now comes from the allocations, never from
+ *  the caller — passing one expense's total would overwrite the contributions
+ *  of every other expense on the same stay. The parameter is kept so existing
+ *  call sites (and the name tracked in scripts/finance-bridges-baseline.txt)
+ *  stay valid. */
+// eslint-disable-next-line no-unused-vars
+async function applyExpenseToBookingClean(bookingId, amount) {
+  return await _recomputeBookingCleanCost(bookingId, false);
+}
+
+/** Clear a booking's expense-derived cleaning cost (used when an expense is
+ *  unlinked or deleted). Other expenses may still be allocated to this stay,
+ *  so this re-sums what is left and only nulls the cost when nothing remains. */
 async function clearExpenseFromBookingClean(bookingId) {
-  if (!bookingId) return;
-  const b = bookings.find(bk => String(bk.id) === String(bookingId) || (bk._cloudId && String(bk._cloudId) === String(bookingId)));
-  if (!b) return;
-  const clean = findMatchingCleanForBooking(b);
-  if (!clean) return;
-  await applyCleanCostAndRecompute(clean._cloudId || clean.id, b._cloudId || b.id, null);
+  return await _recomputeBookingCleanCost(bookingId, true);
 }
 
 /** Yellow banner shown on a booking detail when a modification email was

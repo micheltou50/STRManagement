@@ -312,3 +312,103 @@ export function makeUuid() {
     return v.toString(16);
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Expense → booking allocations
+//
+// One expense row = one real invoice (it has to stay 1:1 with the bank
+// transaction for reconciliation). A cleaner's consolidated invoice covers
+// several stays, so the split lives in expenses.booking_allocations:
+//     [{ bookingId, amount }, ...]
+// Amounts are SIGNED and carry the same sign as expense.amount, so a credit
+// note reduces the stay's cleaning cost instead of inflating it.
+//
+// The sum need NOT equal the expense total — "$400 invoice = 2 stays + $50 of
+// supplies" is legitimate. The unallocated remainder stays a plain operational
+// expense, which is what keeps the payout maths exact (see
+// unallocatedExpenseAmount below).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Round to cents without the float dust of toFixed-then-parse chains. */
+function _round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/**
+ * Coerce whatever came back from the DB / localStorage / an older client into
+ * a clean [{bookingId, amount}] array. Tolerates undefined (column not applied
+ * yet), a JSON string, and assorted junk — mirrors normalizeDriveLinks' defensive
+ * style in supabase-expenses.js. Never throws; junk becomes [].
+ */
+export function normalizeExpenseAllocations(raw) {
+  let list = raw;
+  if (typeof list === 'string') {
+    try { list = JSON.parse(list); } catch { return []; }
+  }
+  if (!Array.isArray(list)) return [];
+  return list.reduce((acc, row) => {
+    if (!row || typeof row !== 'object') return acc;
+    // Accept both the JS shape (bookingId) and the DB shape (booking_id).
+    const bookingId = row.bookingId != null ? row.bookingId : row.booking_id;
+    if (bookingId == null || String(bookingId) === '') return acc;
+    const amount = Number(row.amount);
+    acc.push({
+      bookingId: String(bookingId),
+      amount: Number.isFinite(amount) ? _round2(amount) : 0
+    });
+    return acc;
+  }, []);
+}
+
+/**
+ * The allocations for an expense, with the LEGACY single-link fallback.
+ *
+ * Every consumer must go through this rather than reading e.bookingAllocations
+ * directly: rows created before the migration (and by the server-side
+ * auto-expense in cleaner-action.js, which still writes a scalar booking_id)
+ * carry only e.bookingId, and would otherwise silently stop contributing to
+ * their stay's cleaning cost.
+ */
+export function expenseAllocations(expense) {
+  if (!expense) return [];
+  const list = normalizeExpenseAllocations(expense.bookingAllocations);
+  if (list.length) return list;
+  if (expense.bookingId) {
+    return [{ bookingId: String(expense.bookingId), amount: _round2(expense.amount) }];
+  }
+  return [];
+}
+
+/** Signed total of an expense's allocations, to the cent. */
+export function sumAllocations(expense) {
+  return _round2(expenseAllocations(expense).reduce((s, a) => s + (Number(a.amount) || 0), 0));
+}
+
+/**
+ * The portion of an expense NOT tied to a stay.
+ *
+ * This is the number the monthly/FY rollups must treat as an operational
+ * expense: the allocated portion is already deducted from the owner payout via
+ * the stay's clean cost, so counting the gross amount there subtracts it twice.
+ * Legacy single-link rows degrade to exactly 0, as they should.
+ */
+export function unallocatedExpenseAmount(expense) {
+  if (!expense) return 0;
+  return _round2((Number(expense.amount) || 0) - sumAllocations(expense));
+}
+
+/**
+ * Split a signed total into n shares, computed in integer cents so the shares
+ * always add back up to the total exactly. The remainder cents go to the
+ * leading rows: $100 / 3 → 33.34, 33.33, 33.33 (never 99.99).
+ */
+export function evenSplitAmounts(totalSigned, n) {
+  const count = Math.floor(Number(n) || 0);
+  if (count <= 0) return [];
+  const total = Number(totalSigned) || 0;
+  const sign = total < 0 ? -1 : 1;
+  const cents = Math.round(Math.abs(total) * 100);
+  const base = Math.floor(cents / count);
+  const extra = cents - base * count;
+  return Array.from({ length: count }, (_, i) => sign * (base + (i < extra ? 1 : 0)) / 100);
+}

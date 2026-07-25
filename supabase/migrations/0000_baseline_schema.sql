@@ -261,7 +261,8 @@ create table if not exists public.expenses (
   tax_note text,
   paid_by text default 'host'::text,
   recoverable_from_owner boolean default false,
-  gst numeric
+  gst numeric,
+  booking_allocations jsonb default '[]'::jsonb
 );
 
 create table if not exists public.guest_offers (

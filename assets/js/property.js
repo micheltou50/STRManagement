@@ -20,6 +20,7 @@ import {
   fyLabel,
   fadeTransition,
   localDateStr,
+  normalizeExpenseAllocations,
 } from './utils.js';
 import { buildBookingListCardFromBooking } from './booking-list-card.js';
 import { bookingRevenue, bookingMgmtFee, isRevenueBearingBooking } from './booking-revenue.js';
@@ -891,10 +892,18 @@ async function loadPortfolioData() {
     const { data: allExpenses } = await window._sb
       .from('expenses')
       .select('*')
+      // Hide soft-deleted expenses; tolerate legacy rows with NULL status.
+      // (Same filter loadExpensesFromCloud applies — without it portfolio mode
+      // resurrects deleted rows that single-property mode correctly hides.)
+      .or('status.is.null,status.neq.deleted')
       .eq('user_id', uid)
       .order('date', { ascending: false });
 
     if (allExpenses) {
+      // This mapping MUST stay field-for-field with loadExpensesFromCloud in
+      // supabase-expenses.js: the in-memory row it produces is what the save
+      // path writes back, so any field dropped here is silently NULLed in the
+      // DB the next time the user edits that expense while in portfolio mode.
       replaceArrayInPlace(expenses, allExpenses.map(e => ({
         id:          e.local_id ? Number(e.local_id) || e.local_id : e.id,
         _cloudId:    e.id,
@@ -907,7 +916,20 @@ async function loadPortfolioData() {
         receiptNum:  e.receipt_num  || '',
         receiptType: e.receipt_type || '',
         driveLink:   normalizeDriveLinks(e.drive_link),
-        photo:       null,
+        photo:       e.photo || null,
+        bookingId:   e.booking_id   || null,
+        // Multi-stay allocations — the mirror of bookingId is element 0. Normalized
+        // here (not read raw) so a client on an older schema, where the column does
+        // not exist yet, still gets [] rather than undefined.
+        bookingAllocations: normalizeExpenseAllocations(e.booking_allocations),
+        // Phase 0 finance scaffolding:
+        taxNote:                e.tax_note || '',
+        paidBy:                 e.paid_by || 'host',
+        recoverableFromOwner:   e.recoverable_from_owner === true,
+        // Reconciliation columns, surfaced so consumers never read the raw cloud row:
+        reconciled:             e.reconciled === true,
+        bank_transaction_id:    e.bank_transaction_id || null,
+        paymentStatus:          e.payment_status || 'unknown',
       })));
     }
 

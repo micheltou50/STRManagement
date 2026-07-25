@@ -1,2 +1,8 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# scripts/check-finance-split.sh plain-diffs this file against freshly generated
+# LF output. With core.autocrlf=true a Windows checkout would rewrite it to CRLF,
+# so EVERY line would differ and the gate would report total drift — noise that
+# hides a real bridge removal. Pin it to LF so the diff stays meaningful.
+scripts/finance-bridges-baseline.txt text eol=lf

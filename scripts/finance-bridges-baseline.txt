@@ -36,6 +36,11 @@ confirm
 deleteExpense
 deleteExpenseCat
 exitBankImportReview
+expenseAllocAddRow
+expenseAllocCloseSplit
+expenseAllocOpenSplit
+expenseAllocRemoveRow
+expenseAllocSplitEven
 exportReportCSV
 exportReportPDF
 exportTaxCSV

@@ -6,6 +6,8 @@
  * window._sb is global; shared helpers imported from the barrel at call-time.
  */
 import { getCurrentSupabaseUser, getCloudPropertyId, sbWrite } from './supabase.js';
+// utils.js has zero imports, so pulling it in here cannot create a cycle with the barrel.
+import { normalizeExpenseAllocations } from './utils.js';
 
 // ── EXPENSES ──────────────────────────────────────────────────────────────────
 
@@ -45,6 +47,9 @@ export async function loadExpensesFromCloud() {
       driveLink:   normalizeDriveLinks(e.drive_link),
       photo:       e.photo || null,
       bookingId:   e.booking_id   || null,
+      // Multi-stay split. booking_id stays the mirror of element 0, so legacy
+      // single-link rows (and rows written before the column existed) still work.
+      bookingAllocations: normalizeExpenseAllocations(e.booking_allocations),
       // Phase 0 finance scaffolding:
       taxNote:                e.tax_note || '',
       paidBy:                 e.paid_by || 'host',
@@ -66,25 +71,36 @@ const EXPENSE_SYNC_QUEUE_KEY = 'stayops-expense-sync-queue';
 function _queueExpenseForRetry(expense) {
   try {
     const queue = JSON.parse(localStorage.getItem(EXPENSE_SYNC_QUEUE_KEY) || '[]');
-    const exists = queue.some(q => String(q.id) === String(expense.id));
-    if (!exists) {
-      queue.push({
-        id: expense.id,
-        _cloudId: expense._cloudId || null,
-        _propertyId: expense._propertyId || null,
-        merchant: expense.merchant || '',
-        description: expense.description || '',
-        amount: expense.amount || 0,
-        date: expense.date || '',
-        category: expense.category || '',
-        receiptType: expense.receiptType || '',
-        receiptNum: expense.receiptNum || '',
-        driveLink: expense.driveLink || null,
-        bookingId: expense.bookingId || null,
-        _queuedAt: new Date().toISOString()
-      });
-      localStorage.setItem(EXPENSE_SYNC_QUEUE_KEY, JSON.stringify(queue));
-    }
+    const snapshot = {
+      id: expense.id,
+      _cloudId: expense._cloudId || null,
+      _propertyId: expense._propertyId || null,
+      merchant: expense.merchant || '',
+      description: expense.description || '',
+      amount: expense.amount || 0,
+      date: expense.date || '',
+      category: expense.category || '',
+      receiptType: expense.receiptType || '',
+      receiptNum: expense.receiptNum || '',
+      driveLink: expense.driveLink || null,
+      bookingId: expense.bookingId || null,
+      // Without this the split is silently dropped on every offline save and
+      // retryQueuedExpenses then reports success — the worst kind of data loss.
+      bookingAllocations: Array.isArray(expense.bookingAllocations) ? expense.bookingAllocations : [],
+      // These three were being dropped too: the retry re-saved the expense with
+      // the DB defaults instead of what the user actually entered.
+      taxNote: expense.taxNote || '',
+      paidBy: expense.paidBy || 'host',
+      recoverableFromOwner: expense.recoverableFromOwner === true,
+      _queuedAt: new Date().toISOString()
+    };
+    // Replace in place rather than skip-if-present: building a split is
+    // inherently multi-step, and the old `if (!exists)` guard kept the FIRST
+    // snapshot and discarded every later edit (half-built allocations stranded).
+    const idx = queue.findIndex(q => String(q.id) === String(expense.id));
+    if (idx >= 0) queue[idx] = snapshot;
+    else queue.push(snapshot);
+    localStorage.setItem(EXPENSE_SYNC_QUEUE_KEY, JSON.stringify(queue));
   } catch (_e) { /* localStorage full or unavailable */ }
 }
 
@@ -99,6 +115,12 @@ export async function retryQueuedExpenses() {
   console.log('[StayOps] Retrying', queue.length, 'queued expense(s)...');
   const failed = [];
   for (const exp of queue) {
+    // Entries queued by an older client carry a flat bookingId and no
+    // allocations. Upgrade before saving — this object is also what gets pushed
+    // straight into the live expenses array below when the id isn't in memory.
+    if (!Array.isArray(exp.bookingAllocations) && exp.bookingId) {
+      exp.bookingAllocations = [{ bookingId: String(exp.bookingId), amount: Number(exp.amount) || 0 }];
+    }
     const result = await saveExpenseToCloud(exp);
     if (result) {
       const inMem = expenses.find(e => String(e.id) === String(exp.id));
@@ -145,7 +167,13 @@ export async function saveExpenseToCloud(expense) {
       drive_link:   Array.isArray(expense.driveLink) && expense.driveLink.length
         ? JSON.stringify(expense.driveLink)
         : (typeof expense.driveLink === 'string' && expense.driveLink ? expense.driveLink : ''),
-      booking_id:   expense.bookingId || null,
+      booking_allocations: Array.isArray(expense.bookingAllocations)
+        ? expense.bookingAllocations.map(a => ({ booking_id: String(a.bookingId), amount: Number(a.amount) || 0 }))
+        : [],
+      // Mirror of element 0 — keeps the FK + partial index (and every consumer
+      // still reading the scalar) correct when the split editor rewrites the list.
+      booking_id:   (Array.isArray(expense.bookingAllocations) && expense.bookingAllocations[0]
+                      ? expense.bookingAllocations[0].bookingId : null) || expense.bookingId || null,
       // Phase 0 finance scaffolding (nullable / safe defaults in DB):
       tax_note:                 expense.taxNote || null,
       paid_by:                  expense.paidBy || 'host',

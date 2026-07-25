@@ -10,7 +10,10 @@ import {
 } from './config.js';
 import { getAllTransactionsWithStatus, findPayoutMatchesForBankTransaction, linkTransactionToPayout, setTransactionClassification } from './reconciliation.js';
 import { bookings, cleans, expenses, replaceArrayInPlace } from './state.js';
-import { escHtml, fmt, fmt2, fyLabel, fyMonths, escapeJsSingleQuotedHtmlAttr, fadeTransition, localDateStr } from './utils.js';
+import {
+  escHtml, fmt, fmt2, fyLabel, fyMonths, escapeJsSingleQuotedHtmlAttr, fadeTransition, localDateStr,
+  normalizeExpenseAllocations, expenseAllocations, unallocatedExpenseAmount, evenSplitAmounts,
+} from './utils.js';
 import { renderPortfolioFinance, isPortfolioMode } from './property.js';
 import {
   clearExpensePhoto,
@@ -364,9 +367,11 @@ function toggleExpenseAddForm() {
     setTimeout(() => panel.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
   } else {
     // Collapsing without saving — discard any staged (unuploaded) receipts so
-    // they don't linger into the next expense.
+    // they don't linger into the next expense. Same reasoning for a half-built
+    // stay split, which lives in module state and not in the collapsed markup.
     clearExpensePhoto();
     clearExpensePhoto2();
+    _resetExpenseAllocUI('exp');
   }
 }
 
@@ -381,6 +386,10 @@ function closeExpenseAddForm() {
   // Discard any staged receipts that weren't attached to a saved expense.
   clearExpensePhoto();
   clearExpensePhoto2();
+  // Drop any half-built split too: addExpense reads the draft state rather than
+  // the DOM, so an abandoned split would leak into the NEXT expense and save
+  // silently even though the collapsed form shows no sign of it.
+  _resetExpenseAllocUI('exp');
 }
 
 /** Navigate into a Finance sub-view (expenses, reports, reconciliation, or recurring). */
@@ -832,7 +841,14 @@ function renderReport() {
   const expByCategory = {};
   expCats.forEach(c => { expByCategory[c] = allExp.filter(e=>e.category===c).reduce((s,e)=>s+Number(e.amount||0),0); });
   const fyTotalExp = allExp.reduce((s,e)=>s+Number(e.amount||0),0);
-  const fyNetIncome = fyTotalNet - fyTotalExp;
+  // The DISPLAYED expense figures stay GROSS (that is what the host paid, and
+  // what the tax export reports). Net income must not, though: the slice of a
+  // cleaning invoice that is allocated to a stay has ALREADY been taken out of
+  // the owner payout via that stay's clean cost, so subtracting the gross here
+  // would deduct it twice. Only the unallocated remainder is a fresh cost.
+  const fyTotalExpForNet = allExp.reduce((s,e)=>s+unallocatedExpenseAmount(e),0);
+  const fyExpInPayouts = Math.round((fyTotalExp - fyTotalExpForNet) * 100) / 100;
+  const fyNetIncome = fyTotalNet - fyTotalExpForNet;
 
   const _fmtPct = n => n ? (n*100).toFixed(0)+'%' : '—';
   const fmtDec = n => n ? '$'+n.toFixed(0) : '—';
@@ -942,6 +958,7 @@ function renderReport() {
           <tr><td>Total Revenue (Gross)</td><td>${fmt2(fyTotalRev)}</td></tr>
           <tr><td>Owner Payout (after fees)</td><td>${fmt2(fyTotalNet)}</td></tr>
           <tr><td>Total Expenses</td><td style="color:var(--red)">− ${fmt2(fyTotalExp)}</td></tr>
+          ${fyExpInPayouts ? `<tr><td style="color:var(--muted-2)">less cleaning already deducted from payouts</td><td style="color:var(--muted-2)">+ ${fmt2(fyExpInPayouts)}</td></tr>` : ''}
           <tr class="highlight-row"><td>Net Income</td><td style="color:${fyNetIncome>=0?'var(--primary)':'var(--red)'}">${fyNetIncome<0?'−':''} ${fmt2(Math.abs(fyNetIncome))}</td></tr>
         </tbody>
       </table>
@@ -1017,7 +1034,11 @@ function renderRevenue() {
   });
   const operationalExpenses = monthExpenses.filter(e => !_isOwnerPaidExpense(e));
   const ownerPaidExpenses = monthExpenses.filter(e => _isOwnerPaidExpense(e));
-  const totalOperational = operationalExpenses.reduce((s,e) => s + Math.abs(Number(e.amount || 0)), 0);
+  // Only the portion NOT tied to a stay is an operational expense here. The
+  // allocated portion is already subtracted below via totalCleanCost (the clean's
+  // cost is mirrored from this very expense), so counting the gross amount cut
+  // the displayed payout by double the bill.
+  const totalOperational = operationalExpenses.reduce((s,e) => s + Math.abs(unallocatedExpenseAmount(e)), 0);
   const totalOwnerPaid = ownerPaidExpenses.reduce((s,e) => s + Math.abs(Number(e.amount || 0)), 0);
   // ── Cleaning costs from clean records (linked to bookings) ──
   const monthBookingIds = new Set(monthBookings.map(b => String(b.id)).concat(monthBookings.filter(b => b._cloudId).map(b => String(b._cloudId))));
@@ -1065,13 +1086,21 @@ function renderRevenue() {
   }
 
   if (isDeduct && totalOperational > 0) {
+    // The drawer lists GROSS amounts but the total above is the unallocated part
+    // (the rest is already in "Cleaning costs"), so say so rather than leave the
+    // rows silently not adding up.
+    const _opGross = operationalExpenses.reduce((s,e) => s + Math.abs(Number(e.amount || 0)), 0);
+    const _opInCleans = Math.round((_opGross - totalOperational) * 100) / 100;
+    const opNoteHtml = _opInCleans >= 0.01
+      ? `<div style="font-size:11px;color:var(--muted-2);padding:8px 0 0;line-height:1.4">$${_fmtAud(_opInCleans)} of these is allocated to stays and already counted under Cleaning costs.</div>`
+      : '';
     // Model A: operational expenses deducted before payout
     summaryHtml += `
     <div class="finance-row" style="cursor:pointer;border-radius:6px;margin:0 -4px;padding:10px 4px;transition:background 0.15s" onclick="var d=document.getElementById('rev-expense-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.exp-chevron').textContent=open?'▾':'▴'" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
       <span class="finance-label" style="display:flex;align-items:center;gap:4px">Expenses (${operationalExpenses.length}) <span class="exp-chevron" style="font-size:9px;color:var(--muted-2);transition:transform 0.2s">▾</span></span>
       <span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalOperational)}</span>
     </div>
-    <div id="rev-expense-detail" style="display:none;padding:10px 14px;margin:2px 0 6px;background:var(--surface2);border-radius:10px">${opDetailHtml}</div>`;
+    <div id="rev-expense-detail" style="display:none;padding:10px 14px;margin:2px 0 6px;background:var(--surface2);border-radius:10px">${opDetailHtml}${opNoteHtml}</div>`;
   }
 
   const payoutColor = finalPayout >= 0 ? '#1D9E75' : '#E24B4A';
@@ -1957,6 +1986,7 @@ function renderExpenses() {
     const bankBlock = isBankVerified
       ? `<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;color:#1D9E75;font-family:'Plus Jakarta Sans',sans-serif">${svgBank} Bank verified</span>`
       : '';
+    const stayBlock = _expenseStayChip(e);
     return `<div class="expense-item" data-expense-id="${e.id}" onclick="openExpenseView('${e.id}')"
       style="background:#fff;border-radius:10px;padding:12px 14px;display:flex;gap:12px;align-items:flex-start;cursor:pointer;border:0.5px solid rgba(0,0,0,0.06);
       box-shadow:0 1px 2px rgba(0,0,0,0.02);border-left:3px solid ${catCol};border-top-left-radius:0;border-bottom-left-radius:0;
@@ -1968,6 +1998,7 @@ function renderExpenses() {
           <span style="font-size:11px;font-weight:600;color:${catCol}">${escHtml(e.category || '')}</span>
           ${recBlock}
           ${bankBlock}
+          ${stayBlock}
         </div>
       </div>
       <div style="font-size:15px;font-weight:500;color:${amtColor};flex-shrink:0;font-family:'Plus Jakarta Sans',sans-serif">${prefix}$${Math.abs(Number(e.amount)).toFixed(2)}</div>
@@ -2000,9 +2031,10 @@ function renderExpenses() {
       const hasRec = expenseHasReceiptAttached(e);
       const recHtml = hasRec ? '<span style="color:#185FA5;font-size:11px">Attached</span>' : '<span style="color:#A32D2D;font-size:11px">None</span>';
       const descShort = (e.description || '').length > 40 ? (e.description || '').slice(0, 40) + '...' : (e.description || '');
+      const stayChipTxt = _expenseStayChipText(e);
       return `<tr onclick="openExpenseView('${escapeJsSingleQuotedHtmlAttr(String(e.id))}')" style="cursor:pointer">
         <td style="white-space:nowrap">${fmt(e.date)}</td>
-        <td><strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(e.merchant || 'Unknown')}</strong>${descShort ? '<div style="font-size:11px;color:var(--muted-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(descShort) + '</div>' : ''}</td>
+        <td><strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(e.merchant || 'Unknown')}</strong>${descShort ? '<div style="font-size:11px;color:var(--muted-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(descShort) + '</div>' : ''}${stayChipTxt ? '<div style="font-size:11px;color:#185FA5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🏠 ' + escHtml(stayChipTxt) + '</div>' : ''}</td>
         <td style="white-space:nowrap"><span style="font-size:11px;font-weight:600;color:${catCol};background:${catCol}15;padding:2px 8px;border-radius:6px">${escHtml(e.category || '')}</span></td>
         <td style="white-space:nowrap">${recHtml}</td>
         <td style="text-align:right;font-weight:500;color:${amtColor};white-space:nowrap">${prefix}$${Math.abs(Number(e.amount)).toFixed(2)}</td>
@@ -2070,7 +2102,32 @@ function addExpense(opts = {}) {
   const bookingId = opts.bookingId !== undefined
     ? (opts.bookingId || null)
     : (document.getElementById('exp-booking-link')?.value || null);
+  // Empty unless the split editor is open, so the single-stay path above is the
+  // one and only source of the link in the normal case.
+  const allocations = Array.isArray(opts.allocations)
+    ? normalizeExpenseAllocations(opts.allocations)
+    : readExpenseAllocations('exp');
   if (!merchant || !amount) { globalThis.showBanner('⚠ Please fill in merchant and amount', 'warn'); return; }
+  if (allocations.length) {
+    const allocErr = _validateExpenseAllocations(allocations);
+    if (allocErr) { globalThis.showBanner('⚠ ' + allocErr, 'warn'); return; }
+    // An unallocated remainder is legitimate (invoice = 2 stays + supplies), but
+    // it is usually a typo, so confirm once. Re-enters with the same draft — the
+    // form is still populated because we return before clearing it.
+    const allocSum = _sumExpenseAllocList(allocations);
+    if (!opts._allocConfirmed && Math.abs(allocSum - amount) > 0.01) {
+      const left = Math.round((amount - allocSum) * 100) / 100;
+      globalThis.showAppModal({
+        title: 'Unallocated amount',
+        msg: 'Allocated $' + Math.abs(allocSum).toFixed(2) + ' of $' + Math.abs(amount).toFixed(2) + ' — $'
+             + Math.abs(left).toFixed(2) + (left < 0 ? ' over-allocated' : ' unallocated') + '. Save anyway?',
+        confirmText: 'Save'
+      }).then(ok => {
+        if (ok) addExpense(Object.assign({}, opts, { allocations, _allocConfirmed: true }));
+      });
+      return;
+    }
+  }
   if (isExpensePhotoConverting()) { globalThis.showBanner('⟳ Please wait — receipt is still converting...', 'warn'); return; }
   // Collect up to 2 staged receipts (slot 0 = primary, slot 1 = optional second).
   const pendingReceipts = [getExpensePhotoUploadSnapshot(), getExpensePhoto2UploadSnapshot()]
@@ -2088,7 +2145,10 @@ function addExpense(opts = {}) {
     photo: null,  // never store in localStorage — too large, causes silent crash
     awaitingReceipt: pendingReceipts.length ? false : (opts.awaitingReceipt || false),
     driveLink: null,
-    bookingId: bookingId || null,
+    // bookingAllocations is the source of truth; bookingId stays as the MIRROR of
+    // element 0 so the uuid FK column and every legacy single-link reader survive.
+    bookingId: allocations.length ? allocations[0].bookingId : (bookingId || null),
+    bookingAllocations: allocations,
   };
   // Tag with active property cloud ID so the property filter shows it immediately
   // (without this, the expense is invisible until the app reloads from cloud)
@@ -2106,10 +2166,15 @@ function addExpense(opts = {}) {
     }).catch(e => console.warn("[StayOps] silent error:", e));
   }
 
-  // If this expense is linked to a booking, push the amount into that
-  // booking's clean.cost and trigger the mgmt fee + net payout recompute.
-  if (exp.bookingId && typeof globalThis.applyExpenseToBookingClean === 'function') {
-    globalThis.applyExpenseToBookingClean(exp.bookingId, Math.abs(Number(exp.amount) || 0))
+  // Push this expense into every linked stay's clean.cost and trigger the mgmt
+  // fee + net payout recompute. Sequential (see _recomputeAllocationTargets) and
+  // fire-and-forget, so the form still closes immediately as it always has.
+  const _linkedIds = allocations.length
+    ? allocations.map(a => a.bookingId)
+    : (exp.bookingId ? [exp.bookingId] : []);
+  if (_linkedIds.length) {
+    _recomputeAllocationTargets(_linkedIds, [])
+      .then(_warnMissingCleanRecords)
       .catch(e => console.warn('[StayOps] applyExpenseToBookingClean failed:', e));
   }
 
@@ -2125,6 +2190,7 @@ function addExpense(opts = {}) {
     if (refundReset) refundReset.checked = false;
     const bookingLinkReset = document.getElementById('exp-booking-link');
     if (bookingLinkReset) bookingLinkReset.value = '';
+    _resetExpenseAllocUI('exp');
     document.getElementById('exp-date').value = localDateStr();
     resetExpenseCatPicker();
     const typeSel = document.getElementById('exp-receipt-type');
@@ -2325,13 +2391,28 @@ async function receiptImageToPDF(exp) {
 async function deleteExpense(id) {
   const ok = await globalThis.showAppModal({ title: 'Delete Expense', msg: 'Remove this expense? This cannot be undone.', confirmText: 'Delete', confirmColor: 'var(--red)' });
   if (!ok) return;
-  const exp = expenses.find(e => String(e.id) === String(id));
-  replaceArrayInPlace(expenses, expenses.filter(e => String(e.id) !== String(id)));
+  // Match on id OR _cloudId like openExpenseView / openExpenseEdit do — the list
+  // rows pass e.id but reconciliation hands us a cloud id, and the old id-only
+  // match quietly deleted nothing.
+  const _isTarget = (e) => String(e.id) === String(id) || (e._cloudId != null && String(e._cloudId) === String(id));
+  const exp = expenses.find(_isTarget);
+  // Capture the stay links BEFORE the row leaves the array: the recompute
+  // re-sums the LIVE allocations, so it must run against the post-delete state
+  // but needs to know which stays to revisit. Without this, deleting an expense
+  // left its cost sitting on the clean forever.
+  const affectedIds = exp ? expenseAllocations(exp).map(a => String(a.bookingId)).filter(Boolean) : [];
+  replaceArrayInPlace(expenses, expenses.filter(e => !_isTarget(e)));
   globalThis.savePropertyData();
   renderExpenses();
   globalThis.showBanner('✓ Expense deleted', 'ok');
   // Sync deletion to Supabase (non-blocking)
   if (exp && typeof deleteExpenseFromCloud === 'function') deleteExpenseFromCloud(exp).catch(e => console.warn("[StayOps] silent error:", e));
+  // Unwind the mirror: each stay is re-summed and only cleared when nothing else
+  // is allocated to it (other expenses may still point at the same clean).
+  if (affectedIds.length) {
+    await _recomputeAllocationTargets([], affectedIds);
+    renderExpenses();
+  }
 }
 // ── EXPENSE EDIT ─────────────────────────────────────────────────────────────
 let editingExpenseId = null;
@@ -2387,6 +2468,31 @@ function openExpenseView(id) {
     receiptBlock = `<div style="font-size:13px;color:var(--moss);padding:4px 0">✓ Receipt on file (${e.receiptType === 'e-receipt' ? 'e-receipt' : 'printed'})</div>`;
   }
 
+  // ── Stay allocation block ───────────────────────────────────────────────────
+  // The detail sheet showed no booking link at all, which made a multi-stay split
+  // write-only: the host could never see where a cleaner's invoice landed.
+  const viewAllocs = expenseAllocations(e);
+  const viewUnalloc = unallocatedExpenseAmount(e);
+  const allocBlock = viewAllocs.length ? `
+    <div class="card" style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted-2);margin-bottom:8px">
+        ${viewAllocs.length > 1 ? 'Split across ' + viewAllocs.length + ' stays' : 'Linked stay'}
+      </div>
+      ${viewAllocs.map((a, i) => {
+        const b = _expenseAllocFindBooking(a.bookingId);
+        const dates = b && b.checkin ? fmt(b.checkin) + ' → ' + fmt(b.checkout) : 'Stay not found';
+        const last = i === viewAllocs.length - 1 && Math.abs(viewUnalloc) < 0.01;
+        return `<div class="detail-row"${last ? ' style="border-bottom:none"' : ''}>
+          <span class="detail-label">${escHtml(b ? (b.name || 'Guest') : 'Unknown stay')}<div style="font-size:11px;color:var(--muted-2);font-weight:400">${escHtml(dates)}</div></span>
+          <span class="detail-val">${Number(a.amount) < 0 ? '−' : ''}$${Math.abs(Number(a.amount) || 0).toFixed(2)}</span>
+        </div>`;
+      }).join('')}
+      ${Math.abs(viewUnalloc) >= 0.01 ? `<div class="detail-row" style="border-bottom:none">
+        <span class="detail-label">Not allocated to a stay</span>
+        <span class="detail-val">${viewUnalloc < 0 ? '−' : ''}$${Math.abs(viewUnalloc).toFixed(2)}</span>
+      </div>` : ''}
+    </div>` : '';
+
   document.getElementById('detail-content').innerHTML = `
     <!-- ── Header: merchant + amount ── -->
     <div style="margin-bottom:16px">
@@ -2424,6 +2530,9 @@ function openExpenseView(id) {
         <span class="detail-val">${escHtml(String(e.receiptNum))}</span>
       </div>` : ''}
     </div>
+
+    <!-- ── Stay allocation ── -->
+    ${allocBlock}
 
     <!-- ── Receipt access ── -->
     <div style="margin-bottom:20px">${receiptBlock}</div>
@@ -2464,6 +2573,12 @@ function openExpenseEdit(id) {
   renderExpenseCatPickerFor('ee');
   document.getElementById('ee-receipt-type').value = String(e.receiptType || 'missing').toLowerCase().trim();
   if (typeof renderExpenseBookingPicker === 'function') renderExpenseBookingPicker('ee', e.bookingId || '');
+  // expenseAllocations() applies the legacy fallback, so a pre-split row seeds
+  // as a single allocation and the editor stays collapsed — one stay is not a
+  // split, and forcing the editor open would change the single-stay UX.
+  _resetExpenseAllocUI('ee');
+  const seededAllocs = seedExpenseAllocations('ee', expenseAllocations(e));
+  if (seededAllocs.length > 1) expenseAllocOpenSplit('ee');
   refreshEditReceiptUI(e);
   document.getElementById('ee-photo-preview').style.display = 'none';
   document.getElementById('ee-upload-status').style.display = 'none';
@@ -2542,6 +2657,29 @@ function closeExpenseEdit() {
 async function saveExpenseEdit() {
   const e = expenses.find(x => String(x.id) === String(editingExpenseId) || String(x._cloudId) === String(editingExpenseId));
   if (!e) return;
+  // Capture the OLD stay links, and validate the split, BEFORE anything is
+  // mutated: the recompute at the end has to run over the union of old and new,
+  // and bailing out half-way through the field writes would leave the in-memory
+  // expense edited but unsaved.
+  const prevIds = new Set(expenseAllocations(e).map(a => String(a.bookingId)));
+  const editedAllocs = readExpenseAllocations('ee');
+  if (editedAllocs.length) {
+    const allocErr = _validateExpenseAllocations(editedAllocs);
+    if (allocErr) { globalThis.showBanner('⚠ ' + allocErr, 'warn'); return; }
+    const newTotal = _expenseAllocTotal('ee');
+    const allocSum = _sumExpenseAllocList(editedAllocs);
+    if (Math.abs(allocSum - newTotal) > 0.01) {
+      const left = Math.round((newTotal - allocSum) * 100) / 100;
+      const proceed = await globalThis.showAppModal({
+        title: 'Unallocated amount',
+        msg: 'Allocated $' + Math.abs(allocSum).toFixed(2) + ' of $' + Math.abs(newTotal).toFixed(2) + ' — $'
+             + Math.abs(left).toFixed(2) + (left < 0 ? ' over-allocated' : ' unallocated') + '. Save anyway?',
+        confirmText: 'Save'
+      });
+      if (!proceed) return;
+    }
+  }
+
   e.merchant = document.getElementById('ee-merchant').value.trim();
   e.description = document.getElementById('ee-description').value.trim();
   const eeRaw = parseFloat(document.getElementById('ee-amount').value) || 0;
@@ -2552,8 +2690,14 @@ async function saveExpenseEdit() {
   e.receiptType = document.getElementById('ee-receipt-type').value;
   e.receiptNum = document.getElementById('ee-receipt-num').value.trim();
   e.taxNote = (document.getElementById('ee-tax-note')?.value || '').trim();
-  const prevBookingId = e.bookingId || null;
-  e.bookingId = document.getElementById('ee-booking-link')?.value || null;
+  if (editedAllocs.length) {
+    e.bookingAllocations = normalizeExpenseAllocations(editedAllocs);
+    e.bookingId = e.bookingAllocations.length ? e.bookingAllocations[0].bookingId : null;
+  } else {
+    // Split mode closed ⇒ the single select is authoritative, exactly as before.
+    e.bookingAllocations = [];
+    e.bookingId = document.getElementById('ee-booking-link')?.value || null;
+  }
 
   // Upload new receipt photo if one was selected
   if (editingExpensePhotoBase64) {
@@ -2592,17 +2736,15 @@ async function saveExpenseEdit() {
   globalThis.savePropertyData();
   if (typeof saveExpenseToCloud === 'function') saveExpenseToCloud(e).catch(err => console.warn('[StayOps] saveExpenseToCloud failed:', err));
 
-  // Mirror the expense amount onto the linked booking's clean cost (and
-  // recompute mgmt fee + net payout). When the user unlinks a previously
-  // linked expense, clear the cost on the old booking.
-  if (prevBookingId && prevBookingId !== e.bookingId && typeof globalThis.clearExpenseFromBookingClean === 'function') {
-    globalThis.clearExpenseFromBookingClean(prevBookingId)
-      .catch(err => console.warn('[StayOps] clearExpenseFromBookingClean failed:', err));
-  }
-  if (e.bookingId && typeof globalThis.applyExpenseToBookingClean === 'function') {
-    globalThis.applyExpenseToBookingClean(e.bookingId, Math.abs(Number(e.amount) || 0))
-      .catch(err => console.warn('[StayOps] applyExpenseToBookingClean failed:', err));
-  }
+  // Mirror the expense onto every affected booking's clean cost (and recompute
+  // mgmt fee + net payout). Recompute the UNION of the old and new links, not
+  // just the ones that appeared or disappeared: a stay that stayed linked but
+  // whose ALLOCATED AMOUNT changed still needs its clean.cost rewritten, and the
+  // old scalar "prev !== next" guard skipped exactly that case.
+  const nextIds = new Set(expenseAllocations(e).map(a => String(a.bookingId)).filter(Boolean));
+  const stillLinked = [...nextIds];
+  const unlinked = [...prevIds].filter(id => id && !nextIds.has(id));
+  _warnMissingCleanRecords(await _recomputeAllocationTargets(stillLinked, unlinked));
 
   closeExpenseEdit();
   renderExpenses();
@@ -2644,13 +2786,400 @@ function renderExpenseBookingPicker(prefix, currentValue) {
     const label = `${b.name || 'Guest'} · ${b.checkin || '?'} → ${b.checkout || '?'}`;
     return `<option value="${escHtml(id)}">${escHtml(label)}</option>`;
   }).join('');
-  if (currentValue) sel.value = String(currentValue);
+  // An expense linked months ago points at a stay that has fallen out of the
+  // 120-day window, so the assignment below would silently do nothing and the
+  // select would read as "— No booking —". Merely opening and saving that
+  // expense would then null the link and wipe the stay's clean cost, so put the
+  // linked stay back on the list before selecting it.
+  if (currentValue) {
+    const cur = String(currentValue);
+    if (!Array.from(sel.options).some(o => o.value === cur)) {
+      const opt = document.createElement('option');
+      opt.value = cur;
+      opt.textContent = _expenseAllocStayLabel(cur);
+      sel.appendChild(opt);
+    }
+    sel.value = cur;
+  }
 
   // Show / hide based on category
   const cat = (document.getElementById(prefix + '-category')?.value || '').toLowerCase();
   if (wrap) wrap.style.display = cat.includes('cleaning') ? 'block' : 'none';
 }
 globalThis.renderExpenseBookingPicker = renderExpenseBookingPicker;
+
+// ── EXPENSE → STAY ALLOCATIONS (split editor) ────────────────────────────────
+// A cleaner's consolidated invoice covers several stays but is ONE bank line, so
+// it stays ONE expense row and the per-stay split lives in bookingAllocations.
+//
+// Split mode is opt-in and OFF by default: while the editor is closed
+// readExpenseAllocations() returns [] and every save path reads
+// #<prefix>-booking-link exactly as it did before this feature existed. That is
+// what keeps linking a single stay the same number of taps as always.
+//
+// Draft state lives here rather than in the DOM (same idiom as `mgmtSelected`)
+// because addExpense() reads state, not the inputs — which is also why every
+// teardown path has to clear it.
+const _expenseAllocs = { exp: [], ee: [] };
+
+/** Normalise a caller-supplied prefix to one of the two known form prefixes. */
+function _expenseAllocPrefix(prefix) {
+  return prefix === 'ee' ? 'ee' : 'exp';
+}
+
+function _expenseAllocState(prefix) {
+  if (!Array.isArray(_expenseAllocs[prefix])) _expenseAllocs[prefix] = [];
+  return _expenseAllocs[prefix];
+}
+
+/** True only while the split editor is open — the sentinel the governing rule hangs on. */
+function _expenseAllocSplitOpen(prefix) {
+  const wrap = document.getElementById(prefix + '-alloc-wrap');
+  return !!(wrap && wrap.dataset.splitOpen === '1');
+}
+
+/** The SIGNED expense total currently typed into the form (refund ⇒ negative). */
+function _expenseAllocTotal(prefix) {
+  const raw = parseFloat(document.getElementById(prefix + '-amount')?.value);
+  if (!Number.isFinite(raw)) return 0;
+  const isRefund = document.getElementById(prefix + '-is-refund')?.checked || false;
+  return isRefund ? -Math.abs(raw) : Math.abs(raw);
+}
+
+function _expenseAllocFindBooking(bookingId) {
+  if (!bookingId) return null;
+  const id = String(bookingId);
+  const list = Array.isArray(bookings) ? bookings : [];
+  return list.find(b => String(b.id) === id || (b._cloudId && String(b._cloudId) === id)) || null;
+}
+
+function _expenseAllocBookingLabel(b) {
+  return `${b.name || 'Guest'} · ${b.checkin || '?'} → ${b.checkout || '?'}`;
+}
+
+/** Human label for an allocation's booking id, for selects and read-only views. */
+function _expenseAllocStayLabel(bookingId) {
+  const b = _expenseAllocFindBooking(bookingId);
+  return b ? _expenseAllocBookingLabel(b) : 'Linked stay';
+}
+
+/** Short "Split · 4 stays" / guest-name label for an expense's list row, or ''. */
+function _expenseStayChipText(e) {
+  const allocs = expenseAllocations(e);
+  if (!allocs.length) return '';
+  if (allocs.length > 1) return 'Split · ' + allocs.length + ' stays';
+  const b = _expenseAllocFindBooking(allocs[0].bookingId);
+  return b ? (b.name || 'Guest') : 'Linked stay';
+}
+
+/** The chip itself — same small-badge idiom as the receipt / bank chips. */
+function _expenseStayChip(e) {
+  const txt = _expenseStayChipText(e);
+  return txt
+    ? `<span style="font-size:11px;color:#185FA5;font-family:'Plus Jakarta Sans',sans-serif">🏠 ${escHtml(txt)}</span>`
+    : '';
+}
+
+/**
+ * <option> markup for one allocation row's stay picker.
+ *
+ * Same eligibility window as renderExpenseBookingPicker, with two additions the
+ * single-stay picker does not need:
+ *  · only bookings that already have a _cloudId — booking_allocations[].booking_id
+ *    lands in a uuid column, and a local numeric id fails the cast and parks the
+ *    whole expense in the retry queue forever;
+ *  · the currently-allocated stay is always listed even when its checkout is
+ *    outside the window, or re-saving an old expense would drop the link.
+ */
+function _expenseAllocOptions(selectedId) {
+  const todayStr = localDateStr();
+  const cutoff = localDateStr(new Date(Date.now() - 120 * 86400000));
+  const opts = (Array.isArray(bookings) ? bookings : [])
+    .filter(b => b && b._cloudId && isRevenueBearingBooking(b) && b.checkout && b.checkout <= todayStr && b.checkout >= cutoff)
+    .sort((a, b) => String(b.checkout).localeCompare(String(a.checkout)))
+    .map(b => ({ id: String(b._cloudId), label: _expenseAllocBookingLabel(b) }));
+
+  const sel = selectedId == null ? '' : String(selectedId);
+  if (sel && !opts.some(o => o.id === sel)) opts.unshift({ id: sel, label: _expenseAllocStayLabel(sel) });
+
+  return '<option value="">— Select stay —</option>' + opts.map(o =>
+    `<option value="${escHtml(o.id)}"${o.id === sel ? ' selected' : ''}>${escHtml(o.label)}</option>`
+  ).join('');
+}
+
+/** Redraw the allocation rows from state (inputs are re-bound, then the check line). */
+function _renderExpenseAllocRows(prefix) {
+  prefix = _expenseAllocPrefix(prefix);
+  const host = document.getElementById(prefix + '-alloc-rows');
+  if (!host) return;
+  const rows = _expenseAllocState(prefix);
+  host.innerHTML = rows.map((a, i) => {
+    // Always 2dp: an even split yields 148.5, which reads as a different figure
+    // to the 148.50 sitting in the row the host typed by hand.
+    const amtVal = Number.isFinite(Number(a.amount)) ? Number(a.amount).toFixed(2) : '';
+    return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <select class="exp-alloc-booking" data-prefix="${prefix}" data-idx="${i}" style="flex:1;min-width:0;margin-bottom:0">${_expenseAllocOptions(a.bookingId)}</select>
+      <input type="number" step="0.01" inputmode="decimal" class="exp-alloc-amount" data-prefix="${prefix}" data-idx="${i}" value="${escHtml(amtVal)}" placeholder="0.00" style="width:96px;flex-shrink:0;margin-bottom:0">
+      <button type="button" onclick="expenseAllocRemoveRow('${prefix}', ${i})" title="Remove stay"
+        style="flex-shrink:0;background:none;border:none;color:var(--muted-2);font-size:18px;line-height:1;padding:0 4px;cursor:pointer">×</button>
+    </div>`;
+  }).join('');
+  _bindExpenseAllocRowInputs(prefix);
+  _refreshExpenseAllocCheck(prefix);
+}
+
+/** Wire the generated row inputs back into state (sentinel, not inline onchange). */
+function _bindExpenseAllocRowInputs(prefix) {
+  const host = document.getElementById(prefix + '-alloc-rows');
+  if (!host) return;
+  host.querySelectorAll('.exp-alloc-booking').forEach((sel) => {
+    if (sel.dataset.bound) return;
+    sel.dataset.bound = '1';
+    sel.addEventListener('change', (ev) => {
+      const t = ev.currentTarget;
+      const row = _expenseAllocState(t.dataset.prefix)[Number(t.dataset.idx)];
+      if (row) row.bookingId = t.value || '';
+      _refreshExpenseAllocCheck(t.dataset.prefix);
+    });
+  });
+  host.querySelectorAll('.exp-alloc-amount').forEach((inp) => {
+    if (inp.dataset.bound) return;
+    inp.dataset.bound = '1';
+    inp.addEventListener('input', (ev) => {
+      const t = ev.currentTarget;
+      const row = _expenseAllocState(t.dataset.prefix)[Number(t.dataset.idx)];
+      // Blank stays NaN rather than collapsing to 0, so the save-time validation
+      // can tell "I haven't filled this in yet" from a deliberate $0 row.
+      if (row) row.amount = String(t.value).trim() === '' ? NaN : Number(t.value);
+      _refreshExpenseAllocCheck(t.dataset.prefix);
+    });
+  });
+}
+
+/**
+ * Watch the expense total so the running check stays honest while the host
+ * types. Refresh ONLY — re-splitting mid-keystroke would stomp amounts the host
+ * has already adjusted by hand.
+ */
+function _bindExpenseAllocTotalWatcher(prefix) {
+  const amt = document.getElementById(prefix + '-amount');
+  if (amt && !amt.dataset.allocWatch) {
+    amt.dataset.allocWatch = '1';
+    amt.addEventListener('input', () => _refreshExpenseAllocCheck(prefix));
+  }
+  // The refund checkbox flips the sign of the total, so it moves the same line.
+  const refund = document.getElementById(prefix + '-is-refund');
+  if (refund && !refund.dataset.allocWatch) {
+    refund.dataset.allocWatch = '1';
+    refund.addEventListener('change', () => _refreshExpenseAllocCheck(prefix));
+  }
+}
+
+/** "Allocated $X of $Y — $Z left / $Z over", coloured like the payout figure. */
+function _refreshExpenseAllocCheck(prefix) {
+  prefix = _expenseAllocPrefix(prefix);
+  const el = document.getElementById(prefix + '-alloc-check');
+  if (!el) return;
+  if (!_expenseAllocSplitOpen(prefix)) { el.textContent = ''; return; }
+  const rows = _expenseAllocState(prefix);
+  const total = _expenseAllocTotal(prefix);
+  const allocated = Math.round(rows.reduce((s, a) => s + (Number.isFinite(Number(a.amount)) ? Number(a.amount) : 0), 0) * 100) / 100;
+  const left = Math.round((total - allocated) * 100) / 100;
+  const money = (n) => '$' + Math.abs(n).toFixed(2);
+  let tail;
+  let colour;
+  if (Math.abs(left) < 0.01) {
+    tail = ' — fully allocated';
+    colour = '#1D9E75';
+  } else if (total >= 0 ? left > 0 : left < 0) {
+    // Under-allocated is legitimate: the remainder is a plain operational expense.
+    tail = ' — ' + money(left) + ' left';
+    colour = 'var(--muted-2)';
+  } else {
+    tail = ' — ' + money(left) + ' over';
+    colour = '#E24B4A';
+  }
+  el.textContent = 'Allocated ' + money(allocated) + ' of ' + money(total) + tail;
+  el.style.color = colour;
+}
+
+/**
+ * The allocations a save path should persist.
+ *
+ * THE GOVERNING RULE: [] whenever the split editor is closed, so single-stay
+ * saves keep reading #<prefix>-booking-link and behave byte-for-byte as before.
+ * Returned raw (blank amounts as NaN) so validation can reject them by name.
+ */
+function readExpenseAllocations(prefix) {
+  prefix = _expenseAllocPrefix(prefix);
+  if (!_expenseAllocSplitOpen(prefix)) return [];
+  return _expenseAllocState(prefix).map(a => ({ bookingId: String(a.bookingId || ''), amount: Number(a.amount) }));
+}
+
+/** Load an expense's stored allocations into the editor's draft state. */
+function seedExpenseAllocations(prefix, allocs) {
+  prefix = _expenseAllocPrefix(prefix);
+  _expenseAllocs[prefix] = normalizeExpenseAllocations(allocs);
+  return _expenseAllocs[prefix];
+}
+
+/**
+ * Collapse the editor and drop the draft WITHOUT touching the single-stay
+ * select. Every teardown path has to call this: addExpense reads state rather
+ * than the DOM, so a cancelled or abandoned split would otherwise leak into the
+ * next expense and be saved silently.
+ */
+function _resetExpenseAllocUI(prefix) {
+  prefix = _expenseAllocPrefix(prefix);
+  _expenseAllocs[prefix] = [];
+  const wrap = document.getElementById(prefix + '-alloc-wrap');
+  if (wrap) { wrap.style.display = 'none'; delete wrap.dataset.splitOpen; }
+  const rowsHost = document.getElementById(prefix + '-alloc-rows');
+  if (rowsHost) rowsHost.innerHTML = '';
+  const check = document.getElementById(prefix + '-alloc-check');
+  if (check) { check.textContent = ''; check.style.color = 'var(--muted-2)'; }
+  const btn = document.getElementById(prefix + '-alloc-split-btn');
+  if (btn) btn.style.display = '';
+}
+
+/** Open the split editor, seeding row 0 from whatever the single select holds. */
+function expenseAllocOpenSplit(prefix) {
+  prefix = _expenseAllocPrefix(prefix);
+  const wrap = document.getElementById(prefix + '-alloc-wrap');
+  if (!wrap) return;
+  const rows = _expenseAllocState(prefix);
+  if (!rows.length) {
+    // Seed with the FULL signed total so opening the editor never changes what
+    // the expense is worth — "Split evenly" is an explicit second step.
+    const current = document.getElementById(prefix + '-booking-link')?.value || '';
+    rows.push({ bookingId: String(current || ''), amount: _expenseAllocTotal(prefix) });
+  }
+  wrap.style.display = 'block';
+  wrap.dataset.splitOpen = '1';
+  const btn = document.getElementById(prefix + '-alloc-split-btn');
+  if (btn) btn.style.display = 'none';
+  _bindExpenseAllocTotalWatcher(prefix);
+  _renderExpenseAllocRows(prefix);
+}
+globalThis.expenseAllocOpenSplit = expenseAllocOpenSplit;
+
+/** Collapse back to the single-stay control, keeping row 0's stay linked. */
+function expenseAllocCloseSplit(prefix) {
+  prefix = _expenseAllocPrefix(prefix);
+  const rows = _expenseAllocState(prefix);
+  const first = rows[0] && rows[0].bookingId ? String(rows[0].bookingId) : '';
+  const sel = document.getElementById(prefix + '-booking-link');
+  if (sel) {
+    // The stay may be outside the picker's 120-day window, so make sure the
+    // option exists before assigning or the link would silently vanish.
+    if (first && !Array.from(sel.options).some(o => o.value === first)) {
+      const opt = document.createElement('option');
+      opt.value = first;
+      opt.textContent = _expenseAllocStayLabel(first);
+      sel.appendChild(opt);
+    }
+    sel.value = first;
+  }
+  _resetExpenseAllocUI(prefix);
+}
+globalThis.expenseAllocCloseSplit = expenseAllocCloseSplit;
+
+/** Add an empty allocation row. */
+function expenseAllocAddRow(prefix) {
+  prefix = _expenseAllocPrefix(prefix);
+  if (!_expenseAllocSplitOpen(prefix)) { expenseAllocOpenSplit(prefix); return; }
+  _expenseAllocState(prefix).push({ bookingId: '', amount: NaN });
+  _renderExpenseAllocRows(prefix);
+}
+globalThis.expenseAllocAddRow = expenseAllocAddRow;
+
+/** Remove one allocation row; dropping to a single stay collapses the editor. */
+function expenseAllocRemoveRow(prefix, idx) {
+  prefix = _expenseAllocPrefix(prefix);
+  const rows = _expenseAllocState(prefix);
+  const i = Number(idx);
+  if (!Number.isInteger(i) || i < 0 || i >= rows.length) return;
+  rows.splice(i, 1);
+  // One stay is not a split — hand the link back to the plain select so the UI
+  // matches what will actually be saved.
+  if (rows.length <= 1) { expenseAllocCloseSplit(prefix); return; }
+  _renderExpenseAllocRows(prefix);
+}
+globalThis.expenseAllocRemoveRow = expenseAllocRemoveRow;
+
+/** Pre-fill an even split of the current signed total across the existing rows. */
+function expenseAllocSplitEven(prefix) {
+  prefix = _expenseAllocPrefix(prefix);
+  const rows = _expenseAllocState(prefix);
+  if (!rows.length) return;
+  const shares = evenSplitAmounts(_expenseAllocTotal(prefix), rows.length);
+  rows.forEach((r, i) => { r.amount = shares[i]; });
+  _renderExpenseAllocRows(prefix);
+}
+globalThis.expenseAllocSplitEven = expenseAllocSplitEven;
+
+/**
+ * Save-time validation. Returns an error string, or '' when the allocations are
+ * safe to persist. Never runs on the single-stay path (the list is empty there).
+ */
+function _validateExpenseAllocations(allocs) {
+  const seen = new Set();
+  for (const a of allocs) {
+    if (!a.bookingId) return 'Pick a stay for every split row';
+    if (seen.has(a.bookingId)) return 'The same stay is listed twice — merge those rows';
+    seen.add(a.bookingId);
+    if (!Number.isFinite(a.amount)) return 'Enter an amount for every split row';
+  }
+  return '';
+}
+
+/** Signed total of a raw allocation list (validated ⇒ every amount is finite). */
+function _sumExpenseAllocList(allocs) {
+  return Math.round(allocs.reduce((s, a) => s + (Number.isFinite(Number(a.amount)) ? Number(a.amount) : 0), 0) * 100) / 100;
+}
+
+/**
+ * One aggregated banner for stays that have no clean record yet. Per the agreed
+ * behaviour this WARNS and the expense still saves — a stay can legitimately
+ * have no scheduled clean, and auto-creating one would invent work.
+ */
+function _warnMissingCleanRecords(ids) {
+  if (!ids || !ids.length) return;
+  const names = ids.map((id) => {
+    const b = _expenseAllocFindBooking(id);
+    return b ? (b.name || 'Guest') : 'Unknown stay';
+  });
+  globalThis.showBanner('⚠ Saved — no clean record yet for ' + names.length + ' stay' + (names.length === 1 ? '' : 's') + ': ' + names.join(', '), 'warn');
+}
+
+/**
+ * Push each allocated amount into its stay's clean.cost, SEQUENTIALLY: two
+ * allocations can resolve to the same clean row, and parallel writes to it race.
+ * `unlinkedIds` are stays the expense no longer touches — they get re-summed and
+ * cleared when nothing else is allocated to them.
+ * Returns the ids that had no clean record (for the aggregated warning).
+ */
+async function _recomputeAllocationTargets(linkedIds, unlinkedIds) {
+  const applyFn = typeof globalThis.applyExpenseToBookingClean === 'function' ? globalThis.applyExpenseToBookingClean : null;
+  const clearFn = typeof globalThis.clearExpenseFromBookingClean === 'function' ? globalThis.clearExpenseFromBookingClean : null;
+  const missing = [];
+  for (const bid of (linkedIds || [])) {
+    if (!bid || !applyFn) continue;
+    try {
+      // The amount argument is ignored by design — bookings.js re-sums the live
+      // allocations, so passing one expense's total would clobber the others.
+      const res = await applyFn(bid, 0);
+      if (res && res.ok === false && res.error === 'no clean record for booking') missing.push(bid);
+    } catch (err) { console.warn('[StayOps] applyExpenseToBookingClean failed:', err); }
+  }
+  for (const bid of (unlinkedIds || [])) {
+    if (!bid || !clearFn) continue;
+    try {
+      await clearFn(bid);
+    } catch (err) { console.warn('[StayOps] clearExpenseFromBookingClean failed:', err); }
+  }
+  return missing;
+}
 
 function getExpenseCats() {
   const cats = window._appConfig && window._appConfig.expense_cats;
@@ -3010,7 +3539,11 @@ function _buildReportDoc(fy) {
     return (yr===fy&&mo>=6)||(yr===fy+1&&mo<=5);
   });
   const fyTotalExp = allExp.reduce((s,e)=>s+Number(e.amount||0),0);
-  const fyNetInc = fyNet - fyTotalExp;
+  // Same de-double-count as renderReport — this PDF is emailed to the owner by
+  // sendOwnerReport(), so a wrong net income here leaves the building.
+  const fyTotalExpForNet = allExp.reduce((s,e)=>s+unallocatedExpenseAmount(e),0);
+  const fyExpInPayouts = Math.round((fyTotalExp - fyTotalExpForNet) * 100) / 100;
+  const fyNetInc = fyNet - fyTotalExpForNet;
 
   const kpis = [
     { label:'Total Revenue', val: fmt2(fyRev) },
@@ -3103,19 +3636,25 @@ function _buildReportDoc(fy) {
   // Net Income Summary
   doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(...FOREST);
   doc.text('Net Income Summary', 10, y); y += 4;
+  // Built as a variable so the highlight below can target the LAST row: the
+  // reconciliation line is conditional, so a hard-coded index would bold the
+  // wrong row whenever an expense is allocated to a stay.
+  const netSummaryBody = [
+    ['Total Revenue (Gross)', fmt2(fyRev)],
+    ['Owner Payout (after fees)', fmt2(fyNet)],
+    ['Total Expenses', '- ' + fmt2(fyTotalExp)],
+  ];
+  if (fyExpInPayouts) netSummaryBody.push(['less cleaning already deducted from payouts', '+ ' + fmt2(fyExpInPayouts)]);
+  netSummaryBody.push(['Net Income', (fyNetInc<0?'- ':'')+fmt2(Math.abs(fyNetInc))]);
+  const netSummaryLastRow = netSummaryBody.length - 1;
   doc.autoTable({
     startY: y, margin: { left:10, right:10 },
     head: [['Item','Amount']],
-    body: [
-      ['Total Revenue (Gross)', fmt2(fyRev)],
-      ['Owner Payout (after fees)', fmt2(fyNet)],
-      ['Total Expenses', '- ' + fmt2(fyTotalExp)],
-      ['Net Income', (fyNetInc<0?'- ':'')+fmt2(Math.abs(fyNetInc))],
-    ],
+    body: netSummaryBody,
     headStyles: { fillColor: FOREST, textColor:[255,255,255], fontSize:8 },
     bodyStyles: { fontSize:9 },
     alternateRowStyles: { fillColor:[248,252,248] },
-    didDrawRow: data => { if (data.row.index===3) { data.row.cells.forEach(c => { c.styles.fontStyle='bold'; c.styles.fillColor=fyNetInc>=0?[220,236,220]:[254,226,226]; }); } }
+    didDrawRow: data => { if (data.row.index===netSummaryLastRow) { data.row.cells.forEach(c => { c.styles.fontStyle='bold'; c.styles.fillColor=fyNetInc>=0?[220,236,220]:[254,226,226]; }); } }
   });
 
   return doc;
