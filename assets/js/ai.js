@@ -11,6 +11,40 @@ import { saveAppConfigToCloud } from './supabase.js';
 
 export { renderSmartPricingPanel } from './smart-pricing.js';
 
+/** Parse a JSON object out of a model reply.
+ *
+ *  Asking for "ONLY JSON" is a request, not a guarantee: given an ambiguous
+ *  document (a cleaner's invoice spanning several stays is the usual one) the
+ *  model narrates instead — "The receipt covers…" — and a bare JSON.parse then
+ *  surfaces a raw SyntaxError to the host. So strip any markdown fence, slice
+ *  from the first { to the last }, and repair trailing commas. This mirrors the
+ *  defensive parse analyseExpenses has always done inline.
+ *
+ *  Throws when there is no object at all (including an empty reply) — callers
+ *  rely on that to show an error rather than silently reporting success. */
+function parseAIJson(rawText) {
+  const stripped = String(rawText ?? '')
+    .replace(/```(?:json)?\s*/gi, '')
+    .replace(/```\s*/g, '')
+    .trim();
+  const start = stripped.indexOf('{');
+  const end = stripped.lastIndexOf('}');
+  if (start === -1 || end === -1 || end < start) throw new Error('No JSON found in response');
+  const slice = stripped.slice(start, end + 1);
+  // Parse the text as-is FIRST. The trailing-comma repair below is a raw regex
+  // that cannot tell a dangling comma from one inside a string value, so running
+  // it unconditionally would quietly rewrite {"description":"Paint, } brushes"}.
+  // Only reach for it once the reply has proven to be malformed.
+  try {
+    return JSON.parse(slice);
+  } catch {
+    // Best-effort salvage of an already-malformed reply. The repair is not
+    // string-aware, so a field holding ", }" can lose its comma here — but the
+    // alternative for this input is failing outright, so recovery wins.
+    return JSON.parse(slice.replace(/,(\s*[}\]])/g, '$1'));
+  }
+}
+
 // ── AI EXPENSE ANALYSER ───────────────────────────────────────────────────
 export async function analyseExpenses() {
   const resultEl = document.getElementById('expense-analysis-result');
@@ -579,9 +613,15 @@ export async function extractExpenseFromReceipt() {
     });
     if (!response.ok) throw new Error(data.error?.message || 'API error');
     const rawText = data.content?.[0]?.text || '{}';
-    // Strip markdown fences: ```json ... ``` or ``` ... ```
-    const cleaned = rawText.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
-    const parsed = JSON.parse(cleaned || '{}');
+    let parsed;
+    try {
+      parsed = parseAIJson(rawText);
+    } catch (parseErr) {
+      // Keep the model's actual words for debugging, but never show the host a
+      // raw SyntaxError — an invoice the reader can't handle is a normal outcome.
+      console.warn('[StayOps] Receipt parse failed:', parseErr.message, '| reply:', String(rawText).slice(0, 300));
+      throw new Error('Could not read this receipt automatically — please enter the details manually');
+    }
     if (parsed.merchant) document.getElementById('exp-merchant').value = parsed.merchant;
     if (parsed.description) document.getElementById('exp-description').value = parsed.description;
     if (parsed.amount != null) {
@@ -718,8 +758,7 @@ Return EXACTLY this JSON shape:
 
     if (!response.ok) throw new Error('API error');
     const rawText = data.content?.[0]?.text || '{}';
-    const cleaned = rawText.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
-    const result = JSON.parse(cleaned);
+    const result = parseAIJson(rawText);
 
     _lastSuggestKey = `${merchant}|${amount}|${date}`;
     const currentBookingSel = document.getElementById(prefix + '-booking-link')?.value || '';
@@ -881,8 +920,7 @@ export async function extractBookingFromScreenshot() {
       throw new Error('API error ' + response.status + ': ' + (data.error?.message || JSON.stringify(data)));
     }
     const text = data.content?.[0]?.text || '';
-    const clean = text.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
-    const parsed = JSON.parse(clean);
+    const parsed = parseAIJson(text);
 
     globalThis.switchModalTab('manual', document.querySelectorAll('#modal .tab')[0]);
 
