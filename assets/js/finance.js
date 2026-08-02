@@ -2653,8 +2653,15 @@ function closeExpenseEdit() {
   if (eeSuggest) eeSuggest.style.display = 'none';
   editingExpenseId = null;
   editingExpensePhotoBase64 = null;
+  // Restores the modal to "edit" shape and, on the cancel path, drops the
+  // pending bank link so it can't attach itself to some later expense.
+  _exitReconCreateMode();
 }
 async function saveExpenseEdit() {
+  // The same modal doubles as the recon "Create New" form; that path builds a
+  // NEW row instead of mutating an existing one, so it never reaches the
+  // editingExpenseId lookup below (which would bail on a null id).
+  if (_reconCreateMode) return _saveReconNewExpense();
   const e = expenses.find(x => String(x.id) === String(editingExpenseId) || String(x._cloudId) === String(editingExpenseId));
   if (!e) return;
   // Capture the OLD stay links, and validate the split, BEFORE anything is
@@ -4192,33 +4199,109 @@ async function reconLinkToExpense(txnId, expenseId) {
 }
 globalThis.reconLinkToExpense = reconLinkToExpense;
 
-/** Pre-fill the expense form from an unaccounted transaction, then navigate to expenses. */
+/** Pre-fill the expense form from an unaccounted transaction. */
 let _pendingReconTxnId = null;
+// True while #expense-edit-modal is borrowed to CREATE an expense from a bank
+// transaction instead of editing an existing one.
+let _reconCreateMode = false;
 
+/** Open the shared expense modal ON TOP of the reconciliation list, prefilled
+ *  from a bank transaction.
+ *
+ *  Deliberately does NOT navigate. The inline add-form panel lives inside
+ *  #finance-expenses-view, which showFinanceSub hides to show reconciliation, so
+ *  it can never float over this list — but #expense-edit-modal is a top-level
+ *  .modal-overlay and can. Staying put is what keeps the host's pill filter and
+ *  tab alive: nothing re-enters the view, so nothing resets them. */
 function reconCreateExpense(txnId, date, amount, description) {
-  _pendingReconTxnId = txnId; // Store txnId to auto-link after expense is saved
+  _pendingReconTxnId = txnId; // auto-linked by _autoLinkPendingReconTxn after save
+  _reconCreateMode = true;
 
-  // Navigate to the expenses sub-view
-  showFinanceSub('expenses');
+  const numAmount = Number(amount);
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('ee-merchant', '');
+  set('ee-description', description || '');
+  set('ee-amount', Number.isFinite(numAmount) ? Math.abs(numAmount) : amount);
+  set('ee-date', date || localDateStr());
+  set('ee-receipt-num', '');
+  set('ee-tax-note', '');
+  const refundEl = document.getElementById('ee-is-refund');
+  if (refundEl) refundEl.checked = Number.isFinite(numAmount) && numAmount < 0;
+  const catEl = document.getElementById('ee-category');
+  if (catEl) catEl.value = '';
+  renderExpenseCatPickerFor('ee');
+  const typeSel = document.getElementById('ee-receipt-type');
+  if (typeSel) typeSel.value = 'missing';
+  if (typeof renderExpenseBookingPicker === 'function') renderExpenseBookingPicker('ee', '');
+  _resetExpenseAllocUI('ee');
 
-  // Open the add form if it's not already open
-  const panel = document.getElementById('expense-add-form-panel');
-  if (panel && panel.style.display === 'none') {
-    toggleExpenseAddForm();
-  }
+  // No expense row exists yet, so there is nothing for the receipt controls to
+  // attach to — hide them rather than show a control that silently does nothing.
+  // editingExpenseId must be null so a stale edit target can't be saved over.
+  editingExpenseId = null;
+  editingExpensePhotoBase64 = null;
+  const receiptSection = document.getElementById('ee-receipt-section');
+  if (receiptSection) receiptSection.style.display = 'none';
+  const titleEl = document.getElementById('ee-modal-title');
+  if (titleEl) titleEl.textContent = 'New Expense';
+  const saveBtn = document.getElementById('ee-save-btn');
+  if (saveBtn) saveBtn.textContent = '💾 Save & Match';
+  const suggest = document.getElementById('ee-ai-suggest-card');
+  if (suggest) suggest.style.display = 'none';
 
-  // Pre-fill form fields
-  setTimeout(() => {
-    const dateEl   = document.getElementById('exp-date');
-    const amountEl = document.getElementById('exp-amount');
-    const descEl   = document.getElementById('exp-description');
-    const refundEl = document.getElementById('exp-is-refund');
-    const numAmount = Number(amount);
-    if (dateEl)   dateEl.value   = date;
-    if (amountEl) amountEl.value = Number.isFinite(numAmount) ? Math.abs(numAmount) : amount;
-    if (descEl)   descEl.value   = description;
-    if (refundEl) refundEl.checked = Number.isFinite(numAmount) && numAmount < 0;
-  }, 100);
+  document.getElementById('expense-edit-modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  setTimeout(globalThis.attachModalHandleDrag, 0);
+}
+
+/** Put the shared modal back into plain "edit" shape and drop the pending link.
+ *  Clearing _pendingReconTxnId is the important half: abandoning a recon create
+ *  used to leave it set, so the NEXT unrelated expense the host saved was
+ *  silently matched to that bank transaction and stamped paid/reconciled. */
+function _exitReconCreateMode(clearPending = true) {
+  if (!_reconCreateMode) return;
+  _reconCreateMode = false;
+  // On a SUCCESSFUL save the pending id must survive: addExpense links it
+  // asynchronously, once saveExpenseToCloud resolves. Only cancelling clears it.
+  if (clearPending) _pendingReconTxnId = null;
+  const receiptSection = document.getElementById('ee-receipt-section');
+  if (receiptSection) receiptSection.style.display = '';
+  const titleEl = document.getElementById('ee-modal-title');
+  if (titleEl) titleEl.textContent = 'Edit Expense';
+  const saveBtn = document.getElementById('ee-save-btn');
+  if (saveBtn) saveBtn.textContent = '💾 Save Changes';
+  _resetExpenseAllocUI('ee');
+}
+
+/** Save the recon-created expense. Reuses addExpense() wholesale — it already
+ *  auto-links the pending bank txn once the cloud id returns — passing every
+ *  field explicitly so it reads the 'ee' modal rather than the inline 'exp'
+ *  form, and silent:true so it leaves that untouched form alone. */
+function _saveReconNewExpense() {
+  const val = id => (document.getElementById(id)?.value || '').trim();
+  const allocations = readExpenseAllocations('ee');
+  const created = addExpense({
+    merchant: val('ee-merchant'),
+    description: val('ee-description'),
+    amount: parseFloat(val('ee-amount')),
+    isRefund: document.getElementById('ee-is-refund')?.checked || false,
+    date: val('ee-date') || localDateStr(),
+    category: val('ee-category'),
+    receiptType: val('ee-receipt-type') || 'missing',
+    receiptNum: val('ee-receipt-num'),
+    taxNote: val('ee-tax-note'),
+    bookingId: allocations.length ? allocations[0].bookingId : (val('ee-booking-link') || null),
+    allocations,
+    silent: true,
+  });
+  // addExpense returns the row on success and undefined on every bail (missing
+  // merchant/amount, invalid split, or the async unallocated-remainder confirm).
+  // Leave the modal open on those so the host keeps their draft.
+  if (!created) return;
+  // Exit create mode FIRST, keeping _pendingReconTxnId alive for the pending
+  // async link; closeExpenseEdit's own _exitReconCreateMode() then no-ops.
+  _exitReconCreateMode(false);
+  closeExpenseEdit();
 }
 
 /** Mark an unaccounted bank transaction as a personal (non-business) charge. */
@@ -4254,9 +4337,37 @@ async function _autoLinkPendingReconTxn(expenseId) {
   _pendingReconTxnId = null;
   if (!txnId || !expenseId || !window._sb) return;
   try {
-    await window._sb.from('bank_transactions').update({ expense_id: expenseId }).eq('id', txnId);
-    await window._sb.from('expenses').update({ reconciled: true, bank_transaction_id: txnId, payment_status: 'paid' }).eq('id', expenseId);
+    // supabase-js does not throw on a failed write, so check each result instead
+    // of bannering "linked" over an RLS-blocked update (mirrors reconLinkToExpense,
+    // report 3.2). A half-applied link is worse than none: the bank row would
+    // point at an expense that was never marked reconciled.
+    const w = (typeof globalThis.sbWrite === 'function')
+      ? globalThis.sbWrite
+      : async (builder, _opts) => { const { error } = await builder; return { ok: !error, error }; };
+    const r1 = await w(window._sb.from('bank_transactions').update({ expense_id: expenseId }).eq('id', txnId), { label: 'reconciliation link' });
+    if (!r1.ok) { globalThis.showBanner('⚠ Expense saved, but could not link it to the bank transaction', 'warn'); return; }
+    const r2 = await w(window._sb.from('expenses').update({ reconciled: true, bank_transaction_id: txnId, payment_status: 'paid' }).eq('id', expenseId), { label: 'reconciliation link' });
+    if (!r2.ok) { globalThis.showBanner('⚠ Matched, but the expense was not marked reconciled', 'warn'); return; }
     globalThis.showBanner('✓ Expense created & linked to bank transaction', 'ok');
+
+    // Patch the cached row and re-render FROM CACHE rather than refetching:
+    // _renderReconFromCache leaves _reconFilter and _reconTab untouched, so the
+    // host lands back on exactly the filtered list they were working. The row
+    // is now 'matched', so it drops out of the Unaccounted filter on its own.
+    const txn = (_reconTxns || []).find(t => String(t.id) === String(txnId));
+    if (txn) {
+      txn.status = 'matched';
+      txn.expense_id = expenseId;
+      const exp = (Array.isArray(expenses) ? expenses : []).find(e => (e._cloudId || e.id) === expenseId);
+      if (exp) txn.expenseMerchant = exp.merchant || exp.description || 'Linked';
+    }
+    const listEl = document.getElementById('reconciliation-list');
+    if (listEl) {
+      const scrollY = listEl.parentElement ? listEl.parentElement.scrollTop : window.scrollY;
+      _renderReconFromCache();
+      const listEl2 = document.getElementById('reconciliation-list');
+      if (listEl2 && listEl2.parentElement) listEl2.parentElement.scrollTop = scrollY;
+    }
   } catch (e) {
     console.warn('[StayOps] Auto-link recon failed:', e);
   }

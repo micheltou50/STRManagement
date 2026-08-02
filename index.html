@@ -2500,7 +2500,7 @@
 <div class="modal-overlay" id="expense-edit-modal" onclick="if(event.target===this)closeExpenseEdit()">
   <div class="modal" style="max-height:90vh;overflow-y:auto">
     <div class="modal-drag-zone"><div class="modal-handle"></div></div>
-    <div class="modal-title">Edit Expense</div>
+    <div class="modal-title" id="ee-modal-title">Edit Expense</div>
     <label>Store / Merchant</label>
     <input type="text" id="ee-merchant">
     <label>Description</label>
@@ -2548,8 +2548,10 @@
     <label style="font-size:13px;font-weight:600;color:var(--ink-2);margin-top:8px">Tax note (optional)</label>
     <input type="text" id="ee-tax-note" placeholder="e.g. Capital asset · check depreciation · 50% private use" autocomplete="off">
 
-    <!-- Receipt section -->
-    <div style="margin-top:8px;padding:12px;background:var(--surface2);border-radius:var(--radius-sm)">
+    <!-- Receipt section. Hidden while the modal is in recon "create" mode: the
+         upload handlers all write to an EXISTING expense, so there is nothing to
+         attach to until the row has been saved. -->
+    <div id="ee-receipt-section" style="margin-top:8px;padding:12px;background:var(--surface2);border-radius:var(--radius-sm)">
       <div style="font-size:12px;font-weight:600;color:var(--muted-2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.4px">Receipts</div>
       <div id="ee-receipt-slot-1" style="margin-bottom:6px;display:none">
         <div style="display:flex;align-items:center;gap:8px">
@@ -2578,7 +2580,7 @@
       <div id="ee-upload-status" style="font-size:12px;margin-top:6px;display:none"></div>
     </div>
 
-    <button class="btn-primary" onclick="saveExpenseEdit()" style="margin-top:12px">💾 Save Changes</button>
+    <button class="btn-primary" id="ee-save-btn" onclick="saveExpenseEdit()" style="margin-top:12px">💾 Save Changes</button>
     <button class="btn-secondary" onclick="closeExpenseEdit()">Cancel</button>
   </div>
 </div>
