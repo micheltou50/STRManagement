@@ -13,6 +13,17 @@ import {
 
 export { autoReconcile };
 
+// Why the last parse produced nothing. Every bail below used to be a bare
+// console.log + `return []`, so "empty file", "couldn't find the columns" and
+// "the AI call was rejected" were indistinguishable to the host — the import
+// just quietly did nothing. Mirrors the _lastReceiptUploadError pattern the
+// receipt uploader uses to surface its real error in the banner.
+let _lastBankImportError = '';
+function _setBankImportError(msg) { _lastBankImportError = String(msg || ''); }
+/** Clear before a parse; read after one returns [] to explain why. */
+export function resetBankImportError() { _lastBankImportError = ''; }
+export function getBankImportError() { return _lastBankImportError; }
+
 const ALLOWED_AI_CATEGORIES = [
   'cleaning',
   'maintenance',
@@ -217,12 +228,22 @@ Respond ONLY in JSON, no markdown:\n\
     const data = await res.json();
     if (!res.ok || !data.content || !data.content[0] || !data.content[0].text) {
       console.log('[StayOps] parseCSV: AI format detection HTTP/error', data.error || res.status);
+      // 401 here means the request went out unauthenticated — the call falls
+      // back to bare fetch when authFetch isn't assigned yet, which sends no
+      // Authorization header and ai-proxy's verifyAuth rejects it. Name it, or
+      // the host just sees "no transactions found".
+      _setBankImportError(
+        res.status === 401
+          ? 'the AI column-detector was rejected as signed-out (401) — reload and try again'
+          : `the AI column-detector failed (${(data.error && (data.error.message || data.error)) || 'HTTP ' + res.status})`
+      );
       return null;
     }
     const text = data.content[0].text.trim().replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
     return JSON.parse(text);
   } catch (e) {
     console.log('[StayOps] parseCSV: AI format detection failed', e && e.message ? e.message : e);
+    _setBankImportError('the AI column-detector could not be reached (' + ((e && e.message) || e) + ')');
     return null;
   }
 }
@@ -353,6 +374,7 @@ export async function parseCSV(fileText) {
   }
   if (!rows.length) {
     console.log('[StayOps] Parsed 0 transactions from CSV');
+    _setBankImportError('the file had no readable rows — it may be empty, or not a CSV');
     return [];
   }
 
@@ -380,11 +402,23 @@ export async function parseCSV(fileText) {
 
   if (!mapping) {
     console.log('[StayOps] Parsed 0 transactions from CSV');
+    // Distinguish the two ways this lands here: the AI column-detector never
+    // answered (usually auth/proxy — see _setBankImportError in
+    // detectCsvFormatWithAi), or it answered but neither it nor the heuristic
+    // could identify a date/amount column.
+    _setBankImportError(
+      _lastBankImportError
+        ? _lastBankImportError + ', and the fallback could not identify the date/amount columns'
+        : "couldn't identify which columns hold the date and amount"
+    );
     return [];
   }
 
   const out = parseRowsWithBankMapping(rows, mapping);
   console.log('[StayOps] Parsed', out.length, 'transactions from CSV');
+  if (!out.length) {
+    _setBankImportError(`the columns were detected (${rows.length} row${rows.length === 1 ? '' : 's'} read) but no row produced a usable date + amount`);
+  }
   return out;
 }
 
@@ -454,6 +488,11 @@ Return JUST the array. Example:
   });
   if (!res.ok) {
     console.log('[StayOps] parseBankFileWithAI HTTP error', res.status);
+    _setBankImportError(
+      res.status === 401
+        ? 'the AI reader was rejected as signed-out (401) — reload and try again'
+        : `the AI reader failed (HTTP ${res.status})`
+    );
     return [];
   }
   const data = await res.json();
@@ -464,9 +503,18 @@ Return JUST the array. Example:
     parsed = JSON.parse(cleaned);
   } catch (e) {
     console.log('[StayOps] parseBankFileWithAI JSON parse error:', e && e.message);
+    // Same failure mode the receipt reader hit: asked for JSON, got prose.
+    _setBankImportError(
+      text.trim()
+        ? 'the AI described the file instead of returning data — it may not look like a statement'
+        : 'the AI returned an empty response'
+    );
     return [];
   }
-  if (!Array.isArray(parsed)) return [];
+  if (!Array.isArray(parsed)) {
+    _setBankImportError('the AI returned an unexpected shape instead of a list of transactions');
+    return [];
+  }
   // Coerce to the same shape parseCSV returns, filtering anything malformed.
   const out = [];
   for (const r of parsed) {
@@ -763,7 +811,7 @@ export async function checkDuplicates(transactions, userId) {
     const winHi = _shiftIsoDate(t.date, DUP_DATE_WINDOW);
     const { data: rows, error } = await sb
       .from('expenses')
-      .select('id, amount, description, vendor, date')
+      .select('id, amount, description, vendor, date, bank_transaction_id')
       .eq('user_id', userId)
       .gte('date', winLo)
       .lte('date', winHi);
@@ -773,6 +821,14 @@ export async function checkDuplicates(transactions, userId) {
     } else if (Array.isArray(rows)) {
       for (const row of rows) {
         if (!amountClose(row.amount, t.amount)) continue;
+        // THE BANK IS THE ARBITER. An expense that already carries its own bank
+        // line is, by definition, accounted for by a DIFFERENT statement row, so
+        // this incoming line cannot be its duplicate. Without this a recurring
+        // same-amount payment (the weekly Megan Orme $165 clean) matched the
+        // previous week's expense every import, greying out the whole statement
+        // and saving nothing. Re-importing the SAME line is a separate concern,
+        // caught by the bank_transactions pass below.
+        if (row.bank_transaction_id) continue;
         const vendorMatch =
           row.vendor && t.vendor && descriptionSimilar(row.vendor, t.vendor);
         const descMatch = descriptionSimilar(row.description, t.description);

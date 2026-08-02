@@ -6,7 +6,7 @@
  * function declarations. `_bankImportReviewActive` is exported (read by the
  * barrel's renderExpenses to suppress a re-render while a review is open).
  */
-import { parseCSV, parseBankFileWithAI, categoriseTransactions, checkDuplicates, confirmTransaction, skipTransaction, logImportSession } from './bank-import.js';
+import { parseCSV, parseBankFileWithAI, categoriseTransactions, checkDuplicates, confirmTransaction, skipTransaction, logImportSession, getBankImportError, resetBankImportError } from './bank-import.js';
 import { findMatchesForTransaction, getReconciliationSummary } from './reconciliation.js';
 import { expenses } from './state.js';
 import { escHtml, fmt } from './utils.js';
@@ -592,10 +592,15 @@ async function bankImportOnFileSelected(ev) {
   const processParsed = async (parsed, sourceLabel) => {
     console.log('[StayOps] Bank import parsed:', parsed.length, 'rows from', sourceLabel);
     if (!parsed.length) {
+      // Prefer the specific reason the parser recorded over the generic advice,
+      // so a failed import says WHAT broke instead of leaving the host guessing.
+      const why = typeof getBankImportError === 'function' ? getBankImportError() : '';
       globalThis.showBanner(
-        useAI
-          ? 'AI did not find transactions in that file — try a clearer PDF/screenshot, or use a CSV export'
-          : 'No expense transactions found — check the file format (CSV or tab-delimited)',
+        why
+          ? 'Import failed: ' + why
+          : (useAI
+            ? 'AI did not find transactions in that file — try a clearer PDF/screenshot, or use a CSV export'
+            : 'No expense transactions found — check the file format (CSV or tab-delimited)'),
         'warn'
       );
       _bankImportViewMode =
@@ -646,6 +651,10 @@ async function bankImportOnFileSelected(ev) {
     globalThis.showBanner('Could not read file', 'warn');
     bankImportRestoreBackup();
   };
+
+  // Drop any reason recorded by a previous attempt so a fresh failure can't be
+  // reported with a stale explanation.
+  if (typeof resetBankImportError === 'function') resetBankImportError();
 
   if (useAI) {
     globalThis.showBanner('⏳ Reading bank statement with AI — this can take 10-30 sec', 'info');
