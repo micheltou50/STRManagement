@@ -496,14 +496,21 @@ export function clearExpensePhoto() {
   expensePhotoBase64 = null;
   expensePhotoMediaType = 'image/jpeg';
   expensePhotoConverting = false;
-  document.getElementById('expense-photo-preview').style.display = 'none';
+  // These two were the only unguarded lookups in this function, and the inline
+  // add form genuinely can be absent: bankImportShowLoading replaces
+  // #finance-expenses-view's innerHTML wholesale, so after any import the panel
+  // and its preview elements are gone until the backup is restored. Clearing the
+  // staged photo from anywhere else then threw on null.
+  const preview = document.getElementById('expense-photo-preview');
+  if (preview) preview.style.display = 'none';
   const fileInput = document.getElementById('expense-file-input');
   if (fileInput) fileInput.value = '';
   const pdfDiv = document.getElementById('expense-pdf-preview');
   if (pdfDiv) { pdfDiv.style.display = 'none'; pdfDiv.textContent = ''; }
   const img = document.getElementById('expense-photo-img');
   if (img) img.style.display = 'block';
-  document.getElementById('expense-extract-status').style.display = 'none';
+  const extractStatus = document.getElementById('expense-extract-status');
+  if (extractStatus) extractStatus.style.display = 'none';
   updateAddReceiptUI();
 }
 
