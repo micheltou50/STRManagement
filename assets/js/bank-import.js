@@ -251,10 +251,15 @@ Respond ONLY in JSON, no markdown:\n\
       // back to bare fetch when authFetch isn't assigned yet, which sends no
       // Authorization header and ai-proxy's verifyAuth rejects it. Name it, or
       // the host just sees "no transactions found".
+      // Keep the SERVER's own wording. ai-proxy distinguishes "Missing
+      // authorization token" (the request carried no Bearer header) from
+      // "Invalid or expired token" (it did, and Supabase rejected it) — opposite
+      // causes, opposite fixes, and a canned 401 string hides which one it was.
+      const why = (data && data.error && (data.error.message || data.error)) || ('HTTP ' + res.status);
       _setBankImportError(
         res.status === 401
-          ? 'the AI column-detector was rejected as signed-out (401) — reload and try again'
-          : `the AI column-detector failed (${(data.error && (data.error.message || data.error)) || 'HTTP ' + res.status})`
+          ? `the AI column-detector was refused — ${why}`
+          : `the AI column-detector failed (${why})`
       );
       return null;
     }
@@ -649,7 +654,11 @@ async function callHaikuBatch(items, propertyListStr) {
 
   const data = await _safeJson(res);
   if (!res.ok || !data || !data.content || !data.content[0] || !data.content[0].text) {
-    console.log('[StayOps] Claude categorise error:', (data && data.error) || data || ('HTTP ' + res.status));
+    const why = (data && data.error && (data.error.message || data.error)) || ('HTTP ' + res.status);
+    console.log('[StayOps] Claude categorise error:', why);
+    // Surface the reason so a whole import that silently fell back to rules can
+    // still explain itself, rather than only whispering it to the console.
+    if (res.status === 401) _setBankImportError(`the AI was refused — ${why}`);
     // Returning null is not fatal — the caller falls back to rule-based
     // categorisation, so the import still completes without AI.
     return null;
