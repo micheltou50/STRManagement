@@ -20,6 +20,16 @@ export { autoReconcile };
 // receipt uploader uses to surface its real error in the banner.
 let _lastBankImportError = '';
 function _setBankImportError(msg) { _lastBankImportError = String(msg || ''); }
+
+/** Read a JSON body without throwing. A non-OK ai-proxy reply often carries an
+ *  EMPTY or non-JSON body — a 405 from a static dev server, a gateway error
+ *  page, a proxy timeout. A bare `await res.json()` then throws "Unexpected end
+ *  of JSON input", and because the categorise call did that BEFORE testing
+ *  res.ok, one failed AI call aborted the entire import instead of degrading to
+ *  rule-based categorisation. */
+async function _safeJson(res) {
+  try { return await res.json(); } catch { return null; }
+}
 /** Clear before a parse; read after one returns [] to explain why. */
 export function resetBankImportError() { _lastBankImportError = ''; }
 export function getBankImportError() { return _lastBankImportError; }
@@ -495,7 +505,7 @@ Return JUST the array. Example:
     );
     return [];
   }
-  const data = await res.json();
+  const data = await _safeJson(res);
   const text = (data && data.content && data.content[0] && data.content[0].text) || '';
   const cleaned = text.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
   let parsed;
@@ -628,9 +638,11 @@ async function callHaikuBatch(items, propertyListStr) {
     }),
   });
 
-  const data = await res.json();
-  if (!res.ok || !data.content || !data.content[0] || !data.content[0].text) {
-    console.log('[StayOps] Claude categorise error:', data.error || data);
+  const data = await _safeJson(res);
+  if (!res.ok || !data || !data.content || !data.content[0] || !data.content[0].text) {
+    console.log('[StayOps] Claude categorise error:', (data && data.error) || data || ('HTTP ' + res.status));
+    // Returning null is not fatal — the caller falls back to rule-based
+    // categorisation, so the import still completes without AI.
     return null;
   }
   const text = data.content[0].text.trim().replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
