@@ -4235,13 +4235,26 @@ function reconCreateExpense(txnId, date, amount, description) {
   if (typeof renderExpenseBookingPicker === 'function') renderExpenseBookingPicker('ee', '');
   _resetExpenseAllocUI('ee');
 
-  // No expense row exists yet, so there is nothing for the receipt controls to
-  // attach to — hide them rather than show a control that silently does nothing.
+  // No expense row exists yet, so the EDIT receipt controls (which attach to an
+  // existing row) are useless here — swap them for the create-mode block, which
+  // stages a receipt the same way the inline Add panel does and offers
+  // "Read with AI" to fill this form.
   // editingExpenseId must be null so a stale edit target can't be saved over.
   editingExpenseId = null;
   editingExpensePhotoBase64 = null;
   const receiptSection = document.getElementById('ee-receipt-section');
   if (receiptSection) receiptSection.style.display = 'none';
+  const createReceipt = document.getElementById('ee-create-receipt-block');
+  if (createReceipt) createReceipt.style.display = 'block';
+  const aiBtn = document.getElementById('ee-ai-read-btn');
+  if (aiBtn) aiBtn.style.display = 'block';
+  const exStatus = document.getElementById('ee-extract-status');
+  if (exStatus) { exStatus.style.display = 'none'; exStatus.textContent = ''; }
+  // Receipt staging is module-global, shared with the inline Add panel. Clear it
+  // so a receipt staged there earlier and never saved can't silently ride along
+  // on this expense — addExpense uploads whatever is staged, sight unseen.
+  if (typeof clearExpensePhoto === 'function') clearExpensePhoto();
+  if (typeof clearExpensePhoto2 === 'function') clearExpensePhoto2();
   const titleEl = document.getElementById('ee-modal-title');
   if (titleEl) titleEl.textContent = 'New Expense';
   const saveBtn = document.getElementById('ee-save-btn');
@@ -4266,6 +4279,10 @@ function _exitReconCreateMode(clearPending = true) {
   if (clearPending) _pendingReconTxnId = null;
   const receiptSection = document.getElementById('ee-receipt-section');
   if (receiptSection) receiptSection.style.display = '';
+  const createReceipt = document.getElementById('ee-create-receipt-block');
+  if (createReceipt) createReceipt.style.display = 'none';
+  const exStatus = document.getElementById('ee-extract-status');
+  if (exStatus) { exStatus.style.display = 'none'; exStatus.textContent = ''; }
   const titleEl = document.getElementById('ee-modal-title');
   if (titleEl) titleEl.textContent = 'Edit Expense';
   const saveBtn = document.getElementById('ee-save-btn');
