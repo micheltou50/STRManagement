@@ -34,9 +34,9 @@ async function _safeJson(res) {
 /** Report analysing-phase progress to the UI, if a UI is listening.
  *  Routed through globalThis so this parsing module keeps no UI imports, and
  *  so it is a harmless no-op when the importer runs headless or in tests. */
-function _importProgress(text) {
+function _importProgress(step, detail) {
   try {
-    if (typeof globalThis._bankImportProgress === 'function') globalThis._bankImportProgress(text);
+    if (typeof globalThis._bankImportProgress === 'function') globalThis._bankImportProgress(step, detail);
   } catch (_) { /* progress is cosmetic — never let it break an import */ }
 }
 /** Clear before a parse; read after one returns [] to explain why. */
@@ -695,7 +695,7 @@ export async function categoriseTransactions(transactions, userId) {
   const needsAI = [];
 
   for (let i = 0; i < transactions.length; i++) {
-    _importProgress(`Matching vendors — ${i + 1} of ${transactions.length}`);
+    _importProgress('vendors', `${i + 1} of ${transactions.length}`);
     const t = transactions[i];
     const pattern = normaliseVendorPattern(t.description);
     const mapping = await fetchVendorMappings(userId, pattern);
@@ -741,11 +741,9 @@ export async function categoriseTransactions(transactions, userId) {
   let aiUnavailable = false;
   for (let start = 0; start < needsAI.length; start += 10) {
     const batch = needsAI.slice(start, start + 10);
-    _importProgress(
-      aiUnavailable
-        ? `Categorising ${Math.min(start + batch.length, needsAI.length)} of ${needsAI.length} (AI unavailable — using rules)`
-        : `Categorising ${Math.min(start + batch.length, needsAI.length)} of ${needsAI.length} with AI`
-    );
+    _importProgress('vendors', aiUnavailable
+      ? `${Math.min(start + batch.length, needsAI.length)} of ${needsAI.length} — using rules`
+      : `${Math.min(start + batch.length, needsAI.length)} of ${needsAI.length} with AI`);
     const batchForApi = batch.map((b, j) => ({
       batchIndex: j,
       description: b.description,
@@ -844,6 +842,7 @@ export async function checkDuplicates(transactions, userId) {
 
   const out = [];
   for (const t of transactions) {
+    _importProgress('duplicates', `${out.length + 1} of ${transactions.length}`);
     let isDuplicate = false;
     let existingExpenseId = null;
     let dupMatch = null;

@@ -88,6 +88,7 @@ function bankImportTruncate(s, n) {
 async function bankImportApplyMatchPreviews(rows, userId) {
   if (!userId) return;
   for (let i = 0; i < rows.length; i++) {
+    globalThis._bankImportProgress('matches', (i + 1) + ' of ' + rows.length);
     const r = rows[i];
     if (r.isDuplicate) continue;
     if (r.skip && r.reason === 'personal') continue;
@@ -327,19 +328,78 @@ function bankImportRestoreBackup() {
   }
 }
 
-function bankImportShowLoading() {
+// The analysing phase runs four distinct passes, each O(rows) and each a
+// different length, so a single bar would stall visibly on the slowest and read
+// as frozen. Ticking named steps makes the wait legible instead of hiding it.
+// Order MUST mirror processParsed's actual sequence — checkDuplicates runs
+// before categoriseTransactions — because reporting a step marks every earlier
+// one done, so a list out of order would tick backwards.
+const BANK_IMPORT_STEPS = [
+  { key: 'read',       label: 'Reading file' },
+  { key: 'duplicates', label: 'Checking for duplicates' },
+  { key: 'vendors',    label: 'Matching known vendors' },
+  { key: 'matches',    label: 'Finding matching expenses' },
+];
+
+function bankImportShowLoading(rowCount) {
   const container = bankImportGetContainer();
   if (!container) return;
   if (_bankImportBackupHtml == null) {
     _bankImportBackupHtml = container.innerHTML;
   }
+  const title = _bankImportFilename ? 'Importing ' + escHtml(_bankImportFilename) : 'Importing statement';
+  const sub = Number.isFinite(rowCount)
+    ? rowCount + ' transaction' + (rowCount === 1 ? '' : 's') + ' found'
+    : 'Reading your statement';
+  const rows = BANK_IMPORT_STEPS.map(s => `
+      <div id="bis-${s.key}" style="display:flex;align-items:center;gap:10px;padding:7px 0">
+        <span id="bis-${s.key}-icon" style="font-size:15px;line-height:1;width:16px;text-align:center;color:var(--muted-2)">○</span>
+        <span id="bis-${s.key}-label" style="font-size:14px;color:var(--muted-2)">${s.label}</span>
+        <span id="bis-${s.key}-detail" style="margin-left:auto;font-size:13px;color:var(--muted-2)"></span>
+      </div>`).join('');
   container.innerHTML = `
     <div class="settings-back" onclick="globalThis.bankImportCancelLoad()">‹ Finance</div>
-    <div class="card" style="margin:20px 16px;padding:24px;text-align:center">
-      <div style="font-size:15px;font-weight:600;margin-bottom:8px;color:var(--primary)">Analysing transactions…</div>
-      <div style="font-size:13px;color:var(--muted-2)" id="bank-import-progress">Please wait while we check for duplicates and categorise entries.</div>
+    <div class="card" style="margin:20px 16px;padding:20px">
+      <div style="font-size:15px;font-weight:600;color:var(--ink-1)">${title}</div>
+      <div id="bank-import-progress" style="font-size:13px;color:var(--muted-2);margin:4px 0 14px">${sub}</div>
+      ${rows}
     </div>`;
 }
+
+/** Mark a step active (with optional detail) and everything before it done.
+ *  Reported from bank-import.js via globalThis so the parser keeps no UI imports. */
+globalThis._bankImportProgress = (stepKey, detail) => {
+  const idx = BANK_IMPORT_STEPS.findIndex(s => s.key === stepKey);
+  if (idx === -1) return;
+  BANK_IMPORT_STEPS.forEach((s, i) => {
+    const icon = document.getElementById('bis-' + s.key + '-icon');
+    const label = document.getElementById('bis-' + s.key + '-label');
+    const det = document.getElementById('bis-' + s.key + '-detail');
+    if (!icon || !label || !det) return;
+    if (i < idx) {
+      icon.textContent = '✓'; icon.style.color = 'var(--primary)';
+      label.style.color = 'var(--muted-2)'; label.style.fontWeight = '400';
+      if (!det.dataset.kept) { det.textContent = 'done'; det.style.color = 'var(--muted-2)'; }
+    } else if (i === idx) {
+      icon.textContent = '◍'; icon.style.color = 'var(--primary)';
+      label.style.color = 'var(--ink-1)'; label.style.fontWeight = '600';
+      det.textContent = detail || ''; det.style.color = 'var(--primary)';
+    } else {
+      icon.textContent = '○'; icon.style.color = 'var(--muted-2)';
+      label.style.color = 'var(--muted-2)'; label.style.fontWeight = '400';
+      det.textContent = '';
+    }
+  });
+};
+
+/** Pin a permanent detail on a step (e.g. the row count on "Reading file")
+ *  so it survives being marked done. */
+globalThis._bankImportStepResult = (stepKey, text) => {
+  const det = document.getElementById('bis-' + stepKey + '-detail');
+  if (!det) return;
+  det.textContent = text;
+  det.dataset.kept = '1';
+};
 
 /** Live progress for the analysing phase.
  *
@@ -349,11 +409,6 @@ function bankImportShowLoading() {
  *  and no counter it reads as a hang, which is exactly how a working import got
  *  reported as "nothing happens". bank-import.js calls this through globalThis
  *  so the parser stays free of UI imports. */
-globalThis._bankImportProgress = (text) => {
-  const el = document.getElementById('bank-import-progress');
-  if (el) el.textContent = text;
-};
-
 function canBankImportRow(r) {
   if (r.skip && r.reason === 'personal') return false;
   if (r.userMarkedSkip) return false;
@@ -621,7 +676,11 @@ async function bankImportOnFileSelected(ev) {
       return;
     }
 
-    bankImportShowLoading();
+    bankImportShowLoading(parsed.length);
+    // The file is already parsed by the time this screen appears, so step 1 is
+    // complete on arrival — show its result rather than a spinner that never ran.
+    globalThis._bankImportStepResult('read', parsed.length + ' rows');
+    globalThis._bankImportProgress('duplicates', '');
     try {
       console.log('[StayOps] Bank import: analysing', parsed.length, 'parsed rows');
       let rows = await checkDuplicates(parsed, userId);
