@@ -1,5 +1,6 @@
 _appConfig
 _autoLinkPendingReconTxn
+_bankImportProgress
 _checkModalsClosed
 _confirmInvoiceIssued
 _finReportsSegBound

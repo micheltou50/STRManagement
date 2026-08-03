@@ -337,9 +337,22 @@ function bankImportShowLoading() {
     <div class="settings-back" onclick="globalThis.bankImportCancelLoad()">‹ Finance</div>
     <div class="card" style="margin:20px 16px;padding:24px;text-align:center">
       <div style="font-size:15px;font-weight:600;margin-bottom:8px;color:var(--primary)">Analysing transactions…</div>
-      <div style="font-size:13px;color:var(--muted-2)">Please wait while we check for duplicates and categorise entries.</div>
+      <div style="font-size:13px;color:var(--muted-2)" id="bank-import-progress">Please wait while we check for duplicates and categorise entries.</div>
     </div>`;
 }
+
+/** Live progress for the analysing phase.
+ *
+ *  That phase is O(rows) sequential network calls — vendor mappings and
+ *  duplicate lookups are per row — so a 95-row statement makes a few hundred
+ *  round trips and can run for minutes. With a static "Analysing transactions…"
+ *  and no counter it reads as a hang, which is exactly how a working import got
+ *  reported as "nothing happens". bank-import.js calls this through globalThis
+ *  so the parser stays free of UI imports. */
+globalThis._bankImportProgress = (text) => {
+  const el = document.getElementById('bank-import-progress');
+  if (el) el.textContent = text;
+};
 
 function canBankImportRow(r) {
   if (r.skip && r.reason === 'personal') return false;

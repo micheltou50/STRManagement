@@ -30,6 +30,15 @@ function _setBankImportError(msg) { _lastBankImportError = String(msg || ''); }
 async function _safeJson(res) {
   try { return await res.json(); } catch { return null; }
 }
+
+/** Report analysing-phase progress to the UI, if a UI is listening.
+ *  Routed through globalThis so this parsing module keeps no UI imports, and
+ *  so it is a harmless no-op when the importer runs headless or in tests. */
+function _importProgress(text) {
+  try {
+    if (typeof globalThis._bankImportProgress === 'function') globalThis._bankImportProgress(text);
+  } catch (_) { /* progress is cosmetic — never let it break an import */ }
+}
 /** Clear before a parse; read after one returns [] to explain why. */
 export function resetBankImportError() { _lastBankImportError = ''; }
 export function getBankImportError() { return _lastBankImportError; }
@@ -677,6 +686,7 @@ export async function categoriseTransactions(transactions, userId) {
   const needsAI = [];
 
   for (let i = 0; i < transactions.length; i++) {
+    _importProgress(`Matching vendors — ${i + 1} of ${transactions.length}`);
     const t = transactions[i];
     const pattern = normaliseVendorPattern(t.description);
     const mapping = await fetchVendorMappings(userId, pattern);
@@ -715,15 +725,29 @@ export async function categoriseTransactions(transactions, userId) {
     needsAI.push({ ...t, origIndex: i, vendorPattern: pattern });
   }
 
+  // Once the proxy has refused one batch it will refuse the rest identically
+  // (it is down, or the session is not authenticated), so stop asking and let
+  // every remaining row take the rule-based path. Without this a 95-row import
+  // fired ten doomed requests and logged ten identical errors.
+  let aiUnavailable = false;
   for (let start = 0; start < needsAI.length; start += 10) {
     const batch = needsAI.slice(start, start + 10);
+    _importProgress(
+      aiUnavailable
+        ? `Categorising ${Math.min(start + batch.length, needsAI.length)} of ${needsAI.length} (AI unavailable — using rules)`
+        : `Categorising ${Math.min(start + batch.length, needsAI.length)} of ${needsAI.length} with AI`
+    );
     const batchForApi = batch.map((b, j) => ({
       batchIndex: j,
       description: b.description,
       amount: b.amount,
       date: b.date,
     }));
-    const aiRaw = await callHaikuBatch(batchForApi, propertyListStr);
+    const aiRaw = aiUnavailable ? null : await callHaikuBatch(batchForApi, propertyListStr);
+    if (aiRaw == null && !aiUnavailable) {
+      aiUnavailable = true;
+      console.log('[StayOps] Bank import: AI categorisation unavailable — falling back to rules for the remaining rows');
+    }
     const byIndex = new Map();
     if (Array.isArray(aiRaw)) {
       aiRaw.forEach((row) => {
