@@ -24,11 +24,37 @@ let _bankImportFilename = '';
 let _bankImportCreatedExpenseIds = [];
 let _bankImportJustImported = false;
 
+// Pinned for the lifetime of one import. It must not be re-resolved between
+// showing and restoring, or the backup HTML would be written back into a
+// different element than it was taken from.
+let _bankImportContainerEl = null;
+
+/** Where the import UI renders.
+ *
+ *  This used to always return #finance-expenses-view. But "Import Statement"
+ *  also exists on the Transaction Map (finance.js), and showFinanceSub sets
+ *  display:none on every sub-view except the active one — so importing from
+ *  there rendered the progress checklist AND the whole review screen into a
+ *  hidden element. The import ran correctly and looked like it did nothing. */
 function bankImportGetContainer() {
+  if (_bankImportContainerEl && _bankImportContainerEl.isConnected) return _bankImportContainerEl;
   if (_bankImportViewMode === 'portfolio') {
     return document.getElementById('portfolio-finance');
   }
   return document.getElementById('finance-expenses-view');
+}
+
+/** Choose and pin the container for this import: whichever finance sub-view the
+ *  host is actually looking at, falling back to the expenses list. */
+function bankImportPinContainer() {
+  if (_bankImportViewMode === 'portfolio') {
+    _bankImportContainerEl = document.getElementById('portfolio-finance');
+    return;
+  }
+  const visible = ['finance-reconciliation-view', 'finance-expenses-view']
+    .map(id => document.getElementById(id))
+    .find(el => el && el.offsetParent !== null);
+  _bankImportContainerEl = visible || document.getElementById('finance-expenses-view');
 }
 
 function getOrCreateBankCsvFileInput() {
@@ -250,6 +276,7 @@ function exitBankImportReview() {
   _bankImportFilename = '';
   const wasPortfolio = _bankImportViewMode === 'portfolio';
   _bankImportViewMode = 'single';
+  _bankImportContainerEl = null; // release the pin; next import re-picks
   if (wasPortfolio) {
     ensureBankImportToolbarPortfolio();
   } else {
@@ -321,6 +348,7 @@ function bankImportRestoreBackup() {
   _bankImportRows = [];
   const wasPortfolio = _bankImportViewMode === 'portfolio';
   _bankImportViewMode = 'single';
+  _bankImportContainerEl = null; // release the pin; next import re-picks
   if (wasPortfolio) {
     ensureBankImportToolbarPortfolio();
   } else {
@@ -641,11 +669,16 @@ async function bankImportOnFileSelected(ev) {
 
   _bankImportViewMode =
     typeof isPortfolioMode === 'function' && isPortfolioMode() ? 'portfolio' : 'single';
+  // Decide NOW, while the host's current view is still on screen, where this
+  // import will draw — otherwise it renders into whichever sub-view happens to
+  // be hidden and the whole thing is invisible.
+  bankImportPinContainer();
   console.log(
     '[StayOps] Bank import:',
     file.name,
     '—',
-    _bankImportViewMode === 'portfolio' ? 'portfolio (all properties)' : 'single-property'
+    _bankImportViewMode === 'portfolio' ? 'portfolio (all properties)' : 'single-property',
+    '— rendering into', _bankImportContainerEl ? _bankImportContainerEl.id : '(none)'
   );
 
   // Branch on file type: text CSV uses the synchronous parser, PDF/image
