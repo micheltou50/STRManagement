@@ -148,6 +148,40 @@ export async function loadPayoutLinesForBooking(bookingCloudId) {
  * Pass payout._cloudId to update an existing row, omit to create a new one.
  * Returns the saved camelCase payout object (with _cloudId set), or null on error.
  */
+/** Find an already-saved payout matching this one.
+ *
+ *  A platform reference is authoritative when present — the same reference for
+ *  the same user IS the same payout. Otherwise fall back to the natural key
+ *  (platform + date + net), which is what a pasted statement gives us. Net is
+ *  compared with a 1c tolerance because the totals are rolled up from lines and
+ *  can differ in the last cent between extractions of the same statement. */
+async function findExistingPayout(userId, payload) {
+  try {
+    const ref = (payload.payout_reference || '').trim();
+    if (ref) {
+      const { data } = await window._sb.from('platform_payouts')
+        .select('*').eq('user_id', userId).eq('payout_reference', ref)
+        .neq('status', 'deleted').limit(1);
+      if (data && data.length) return data[0];
+    }
+    if (!payload.payout_date) return null;
+    const net = Number(payload.net_amount) || 0;
+    const { data } = await window._sb.from('platform_payouts')
+      .select('*').eq('user_id', userId)
+      .eq('platform', payload.platform)
+      .eq('payout_date', payload.payout_date)
+      .neq('status', 'deleted')
+      .gte('net_amount', net - 0.01)
+      .lte('net_amount', net + 0.01)
+      .limit(1);
+    return (data && data.length) ? data[0] : null;
+  } catch (e) {
+    // Never block a save because the duplicate check itself failed.
+    console.warn('[StayOps] findExistingPayout failed (allowing save)', e);
+    return null;
+  }
+}
+
 export async function savePlatformPayout(payout) {
   try {
     const user = await getCurrentSupabaseUser();
@@ -170,6 +204,22 @@ export async function savePlatformPayout(payout) {
       notes:                payout.notes || null,
       updated_at:           new Date().toISOString(),
     };
+    // Re-pasting a statement used to insert a second copy of every payout in
+    // it — there was no key of any kind. Duplicates are not cosmetic here: they
+    // inflate "expected", produce two identical candidates in the match sheet,
+    // and manufacture a phantom out-of-balance in the period reconcile.
+    //
+    // Enforced here rather than with a unique constraint on purpose: two
+    // genuinely distinct payouts can share (platform, date, amount), and a hard
+    // constraint would fail a legitimate save with a 23505 the host cannot act
+    // on. This can say "already imported" instead.
+    if (!payout._cloudId && !payout.allowDuplicate) {
+      const existing = await findExistingPayout(user.id, payload);
+      if (existing) {
+        console.log('[StayOps] savePlatformPayout: duplicate skipped', existing.id);
+        return Object.assign(_payoutRowToJs(existing), { _duplicate: true });
+      }
+    }
     let query;
     if (payout._cloudId) {
       query = window._sb.from('platform_payouts')

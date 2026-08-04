@@ -466,6 +466,7 @@ async function savePayoutFromPasteModal() {
   // failure and report a precise message. For a typical monthly Airbnb (3-6
   // payouts) this is plenty fast.
   let savedCount = 0;
+  let duplicateCount = 0;
   let totalLinesInserted = 0;
   let totalMatched = 0;
   const failures = [];
@@ -508,6 +509,12 @@ async function savePayoutFromPasteModal() {
       failures.push(`Payout ${pIdx + 1} (${payout.payoutReference || payout.payoutDate || 'no-ref'}) — save failed`);
       continue;
     }
+    // Already imported. Skip its lines too — re-inserting them would duplicate
+    // every booking match under the payout that already exists.
+    if (savedPayout._duplicate) {
+      duplicateCount++;
+      continue;
+    }
 
     // Resolve booking matches: per-line override beats auto-match.
     // Override keys are "<pIdx>.<lIdx>".
@@ -548,8 +555,9 @@ async function savePayoutFromPasteModal() {
 
   if (typeof globalThis.showBanner === 'function') {
     const partial = failures.length ? ` (${failures.length} failed — see console)` : '';
+    const dupes = duplicateCount ? ` · ${duplicateCount} already imported` : '';
     globalThis.showBanner(
-      `✓ ${savedCount} payout${savedCount === 1 ? '' : 's'} saved · ${totalLinesInserted} line${totalLinesInserted === 1 ? '' : 's'} · ${totalMatched} matched${partial}`,
+      `✓ ${savedCount} payout${savedCount === 1 ? '' : 's'} saved · ${totalLinesInserted} line${totalLinesInserted === 1 ? '' : 's'} · ${totalMatched} matched${dupes}${partial}`,
       failures.length ? 'warn' : 'ok'
     );
   }
