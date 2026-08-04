@@ -38,6 +38,10 @@ function _payoutRowToJs(row) {
     source:               row.source || 'manual',
     rawSourceText:        row.raw_source_text || '',
     bankTransactionId:    row.bank_transaction_id || null,
+    // Needed by payoutSettlementState — without it every payout loaded through
+    // loadPlatformPayouts looked 'outstanding' even when the host had marked it
+    // received. loadPayoutLinesForBooking already carried this field.
+    receivedAt:           row.received_at || null,
     status:               row.status || 'active',
     notes:                row.notes || '',
     createdAt:            row.created_at || null,

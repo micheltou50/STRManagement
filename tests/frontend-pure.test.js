@@ -276,3 +276,105 @@ test('even split round-trip: 5 stays off one invoice leave nothing unallocated',
     assert.strictEqual(unallocatedExpenseAmount(e), 0, `no remainder for n=${n}`);
   });
 });
+
+// ── MONEY-IN LEDGER + PERIOD RECONCILE ───────────────────────────────────────
+// The two pure modules the money-in unification rests on. These carry real
+// invariants, not smoke tests: one deposit can settle N payouts, amounts are
+// stored absolute with the sign in `direction`, and the reconcile arithmetic is
+// integer cents so an out-of-balance figure can actually reach exactly zero.
+const moneyInUrl = pathToFileURL(path.join(__dirname, '..', 'assets', 'js', 'money-in-model.js')).href;
+const reconcileUrl = pathToFileURL(path.join(__dirname, '..', 'assets', 'js', 'reconcile-period.js')).href;
+
+test('buildMoneyInLedger(): one deposit settling N payouts collapses to ONE matched row', async () => {
+  const { buildMoneyInLedger } = await import(moneyInUrl);
+  const rows = buildMoneyInLedger({
+    payouts: [
+      { _cloudId: 'p1', net: 1208.75, bankTransactionId: 't1', status: 'active' },
+      { _cloudId: 'p2', net: 100.00,  bankTransactionId: 't1', status: 'active' },
+    ],
+    creditTxns: [{ id: 't1', date: '2026-03-11', amount: 1308.75 }],
+  });
+  assert.strictEqual(rows.length, 1);
+  assert.strictEqual(rows[0].kind, 'matched');
+  assert.deepStrictEqual(rows[0].payoutIds, ['p1', 'p2']);
+  assert.strictEqual(rows[0].varianceCents, 0);
+});
+
+test('buildMoneyInLedger(): separates expected-not-received from unexplained deposits', async () => {
+  const { buildMoneyInLedger, summariseMoneyIn } = await import(moneyInUrl);
+  const rows = buildMoneyInLedger({
+    payouts: [
+      { _cloudId: 'p3', net: 918.65, payoutDate: '2026-03-30', bankTransactionId: null, status: 'active' },
+      { _cloudId: 'p4', net: 50, bankTransactionId: null, status: 'deleted' }, // soft-deleted
+    ],
+    creditTxns: [{ id: 't2', date: '2026-03-20', amount: 400, description: 'MYSTERY' }],
+  });
+  assert.strictEqual(rows.find(r => r.txnId === 't2').kind, 'credit_only');
+  assert.strictEqual(rows.find(r => r.key === 'payout:p3').kind, 'payout_only');
+  assert.ok(!rows.some(r => r.payoutIds.includes('p4')), 'soft-deleted payout must not appear');
+  const s = summariseMoneyIn(rows);
+  assert.strictEqual(s.expected, 1);
+  assert.strictEqual(s.unexplained, 1);
+});
+
+test('computePeriodReconcile(): closing = opening + credits - debits, over cleared rows only', async () => {
+  const { computePeriodReconcile } = await import(reconcileUrl);
+  const r = computePeriodReconcile({
+    openingBalanceCents: 100000,
+    statementClosingCents: 120000,
+    transactions: [
+      { id: 'a', amount: 500, direction: 'credit', cleared: true },
+      { id: 'b', amount: 300, direction: 'debit', cleared: true },
+      { id: 'c', amount: 999, direction: 'debit', cleared: false },
+    ],
+  });
+  assert.strictEqual(r.calculatedClosingCents, 120000);
+  assert.strictEqual(r.outOfBalanceCents, 0);
+  assert.strictEqual(r.balanced, true);
+  assert.strictEqual(r.unclearedCount, 1);
+});
+
+test('computePeriodReconcile(): integer cents, so 0.1 + 0.2 lands on exactly $0.30', async () => {
+  const { computePeriodReconcile } = await import(reconcileUrl);
+  // Float accumulation here is what leaves an out-of-balance stuck at
+  // $0.0000001 and unable to reach zero, which would make the feature useless.
+  const r = computePeriodReconcile({
+    openingBalanceCents: 0,
+    statementClosingCents: 30,
+    transactions: [
+      { id: 'a', amount: 0.1, direction: 'credit', cleared: true },
+      { id: 'b', amount: 0.2, direction: 'credit', cleared: true },
+    ],
+  });
+  assert.strictEqual(r.calculatedClosingCents, 30);
+  assert.strictEqual(r.balanced, true);
+});
+
+test('computePeriodReconcile(): null direction is a debit; signed amounts are absoluted', async () => {
+  const { computePeriodReconcile } = await import(reconcileUrl);
+  assert.strictEqual(
+    computePeriodReconcile({ transactions: [{ id: 'a', amount: 100, cleared: true }] }).debitsCents, 10000);
+  assert.strictEqual(
+    computePeriodReconcile({ transactions: [{ id: 'a', amount: -250, direction: 'debit', cleared: true }] }).debitsCents, 25000);
+});
+
+test('explainOutOfBalance(): names the likely cause, and says nothing when balanced', async () => {
+  const { explainOutOfBalance } = await import(reconcileUrl);
+  assert.strictEqual(explainOutOfBalance(0, [], []).length, 0);
+  const single = explainOutOfBalance(30000,
+    [{ id: 'b', amount: 300, direction: 'debit', description: 'ANZ FEE', date: '2026-03-02' }], []);
+  assert.strictEqual(single[0].kind, 'single-transaction');
+  const missing = explainOutOfBalance(91865, [], [{ net: 918.65, platform: 'airbnb', payoutDate: '2026-03-30' }]);
+  assert.ok(missing.some(h => h.kind === 'missing-deposit'));
+  assert.strictEqual(explainOutOfBalance(777, [], [])[0].kind, 'generic');
+});
+
+test('payoutSettlementState(): three states, and bank evidence outranks attestation', async () => {
+  const reconUrl = pathToFileURL(path.join(__dirname, '..', 'assets', 'js', 'reconciliation.js')).href;
+  const { payoutSettlementState } = await import(reconUrl);
+  assert.strictEqual(payoutSettlementState({ bank_transaction_id: 'x' }), 'settled');
+  assert.strictEqual(payoutSettlementState({ bank_transaction_id: 'x', received_at: '2026-03-10' }), 'settled');
+  assert.strictEqual(payoutSettlementState({ received_at: '2026-03-10' }), 'attested');
+  assert.strictEqual(payoutSettlementState({}), 'outstanding');
+  assert.strictEqual(payoutSettlementState(null), 'outstanding');
+});

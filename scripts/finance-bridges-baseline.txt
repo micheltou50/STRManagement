@@ -59,6 +59,8 @@ getRecurringTemplates
 getTotalDepreciationForFY
 mgmtCheckboxChange
 mgmtToggleSelectAll
+moneyInFindDeposit
+moneyInSetFilter
 openExpenseEdit
 openExpenseView
 openPayoutPasteModal

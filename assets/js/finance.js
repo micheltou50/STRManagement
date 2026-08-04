@@ -22,7 +22,8 @@ import {
   getExpensePhoto2UploadSnapshot,
   isExpensePhotoConverting,
 } from './ai.js';
-import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud, getCurrentSupabaseUser } from './supabase.js';
+import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud, getCurrentSupabaseUser, loadPlatformPayouts } from './supabase.js';
+import { renderMoneyInList, moneyInFiltersHtml } from './finance-money-in.js';
 import {
   bookingRevenue,
   bookingCleaningFee,
@@ -3738,6 +3739,10 @@ function exportReportCSV() {
 let _reconTxns = [];         // cached list from last fetch
 let _reconFilter = 'all';    // current pill filter
 let _reconTab = 'bank';      // 'bank' (debits → expenses) | 'payout' (credits → payouts)
+// Platform statements for the Money In ledger. Loaded alongside the bank rows so
+// the join can show a payout that never arrived — the thing a credit-only list
+// structurally cannot display.
+let _moneyInPayouts = [];
 
 function showReconciliationView() {
   _reconTab = 'bank';
@@ -3761,6 +3766,15 @@ async function renderReconciliationView() {
   }
 
   _reconTxns = await getAllTransactionsWithStatus(user.id);
+  // loadPlatformPayouts has existed since the payout feature shipped and had no
+  // caller at all — the Money In ledger is its first consumer. Non-fatal: a
+  // failure just means the ledger shows deposits without their statements.
+  try {
+    _moneyInPayouts = typeof loadPlatformPayouts === 'function' ? await loadPlatformPayouts() : [];
+  } catch (e) {
+    console.warn('[StayOps] Money In: could not load platform payouts', e);
+    _moneyInPayouts = [];
+  }
   _reconFilter = 'all';
   _renderReconFromCache();
 }
@@ -3781,6 +3795,21 @@ function _renderReconFromCache() {
   const listEl     = document.getElementById('reconciliation-list');
   if (tabsEl) renderReconciliationTabs(tabsEl);
   if (!summaryBar || !filtersEl || !listEl) return;
+
+  // Money In is a different shape of question from Money Out: it joins bank
+  // credits to platform statements so a payout that never arrived is visible
+  // too. A credit-only list structurally cannot show that.
+  if (_reconTab === 'payout') {
+    const credits = (_reconTxns || []).filter(t => t && t.direction === 'credit');
+    const { summaryHtml } = renderMoneyInList(listEl, {
+      payouts: _moneyInPayouts,
+      credits,
+      filter: _moneyInFilter,
+    });
+    summaryBar.innerHTML = summaryHtml;
+    filtersEl.innerHTML = moneyInFiltersHtml(_moneyInFilter);
+    return;
+  }
 
   const scoped = _reconScopedTxns();
   const totals = { matched: 0, matched_payout: 0, unaccounted: 0, personal: 0, skipped: 0 };
@@ -3818,11 +3847,11 @@ function renderReconciliationTabs(container) {
     `<button type="button" onclick="${onclick}" style="font-size:12px;color:var(--primary);background:transparent;border:1px solid var(--primary);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;white-space:nowrap">${label}</button>`;
   container.innerHTML = `
     <div style="display:flex;gap:6px;margin:10px 0 8px">
-      ${tabBtn('bank', 'Bank Reconciliation', isBank)}
-      ${tabBtn('payout', 'Payout Match', !isBank)}
+      ${tabBtn('bank', 'Money Out', isBank)}
+      ${tabBtn('payout', 'Money In', !isBank)}
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
-      <p style="margin:0;font-size:12.5px;color:var(--muted-2);font-family:'Plus Jakarta Sans',sans-serif">${isBank ? 'Money out — match each debit to an expense.' : 'Money in — match each deposit to a payout.'}</p>
+      <p style="margin:0;font-size:12.5px;color:var(--muted-2);font-family:'Plus Jakarta Sans',sans-serif">${isBank ? 'Match each payment to an expense.' : 'Every platform payout and the deposit that settles it.'}</p>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         ${isBank ? '' : actionBtn('openPayoutPasteModal()', 'Paste Payout')}
         ${actionBtn('bankImportPickFile()', 'Import Statement')}
@@ -3835,6 +3864,33 @@ function switchReconTab(tab) {
   _reconFilter = 'all';
   _renderReconFromCache();
 }
+
+/** Filter for the Money In ledger. Separate from _reconFilter because the row
+ *  kinds are different (received / not received / unexplained, not the debit
+ *  statuses), so sharing one variable would leave an unreachable filter selected
+ *  when switching tabs. */
+let _moneyInFilter = 'all';
+function moneyInSetFilter(kind) {
+  _moneyInFilter = kind || 'all';
+  _renderReconFromCache();
+}
+globalThis.moneyInSetFilter = moneyInSetFilter;
+
+/** Jump from a not-received payout to the deposits that might settle it. There
+ *  is no reverse matcher, so this narrows the list to unexplained deposits and
+ *  tells the host what to look for. */
+function moneyInFindDeposit(payoutId) {
+  const p = (_moneyInPayouts || []).find(x => String(x._cloudId) === String(payoutId));
+  _moneyInFilter = 'credit_only';
+  _renderReconFromCache();
+  if (p) {
+    globalThis.showBanner(
+      `Looking for $${_fmtAud(Math.abs(Number(p.net) || 0))} around ${p.expectedArrivalDate || p.payoutDate || '?'} — tap Match payout on the deposit that matches.`,
+      'info'
+    );
+  }
+}
+globalThis.moneyInFindDeposit = moneyInFindDeposit;
 globalThis.switchReconTab = switchReconTab;
 
 function renderReconciliationFilters(container) {
