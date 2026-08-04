@@ -529,6 +529,8 @@ export { normalizeDriveLinks, retryQueuedExpenses, saveExpenseToCloud, deleteExp
 // Moved verbatim to supabase-payouts.js (first by-entity data-layer slice).
 // Re-exported here so `import { … } from './supabase.js'` resolves unchanged.
 export * from './supabase-payouts.js';
+// Bank accounts + period reconciliations (the out-of-balance close).
+export * from './supabase-bank-accounts.js';
 
 
 // ── INVENTORY ─────────────────────────────────────────────────────────────────

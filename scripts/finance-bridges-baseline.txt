@@ -74,6 +74,13 @@ reconMatchExpense
 reconMatchPayout
 reconRestoreTxn
 reconUnlinkPayout
+reconcileClosePeriod
+reconcileSetAccount
+reconcileSetOpening
+reconcileSetPeriodEnd
+reconcileSetStatement
+reconcileToggle
+reconcileUndo
 refreshFinanceReconciliationSummary
 removeEditReceipt
 renderDepreciationPanel
@@ -92,6 +99,7 @@ selectExpenseSubcat
 setExpensePayoutMode
 showAppModal
 showBanner
+showReconcileView
 showStatementView
 switchReconTab
 taxExportFYNext

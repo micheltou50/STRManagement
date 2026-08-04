@@ -951,6 +951,10 @@ export async function confirmTransaction(transaction, userId, propertyId, catego
     description: transaction.description,
     bank_name: transaction.bankName || null,
     import_batch_id: transaction.importBatchId || null,
+    // Which account this row belongs to. Without it a row is invisible to the
+    // period reconcile, which filters by account — the worst failure mode,
+    // because the balance would silently be computed over a subset.
+    bank_account_id: transaction.bankAccountId || null,
     is_personal: false,
     skipped: false,
     direction,
@@ -1103,6 +1107,10 @@ export async function skipTransaction(transaction, userId, markAsPersonal = fals
     description: transaction.description,
     bank_name: transaction.bankName || null,
     import_batch_id: transaction.importBatchId || null,
+    // Which account this row belongs to. Without it a row is invisible to the
+    // period reconcile, which filters by account — the worst failure mode,
+    // because the balance would silently be computed over a subset.
+    bank_account_id: transaction.bankAccountId || null,
     is_personal: markAsPersonal,
     skipped: true,
   };

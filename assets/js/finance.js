@@ -53,6 +53,9 @@ import {
   _getInvoiceIdentity,
 } from './finance-invoices.js';
 import './finance-tax-export.js';
+// Period reconcile (out-of-balance close). Side-effect import: registers its own
+// globalThis bridges for the inline-onclick API, same as the other slices.
+import './finance-reconcile.js';
 import {
   showTaxExportView,
   exportTaxPDF,
@@ -402,11 +405,12 @@ function showFinanceSub(sub) {
   else if (sub === 'depreciation') financeSubView = 'depreciation';
   else if (sub === 'tax-export') financeSubView = 'tax-export';
   else if (sub === 'statement') financeSubView = 'statement';
+  else if (sub === 'reconcile') financeSubView = 'reconcile';
   _financeTab = sub;
   _syncFinanceNav(sub);
   const hub = document.getElementById('finance-hub');
   if (hub) hub.style.display = 'none';
-  ['finance-expenses-view', 'finance-reports-view', 'finance-reconciliation-view', 'finance-recurring-view', 'finance-depreciation-view', 'finance-tax-export-view', 'finance-statement-view'].forEach(id => {
+  ['finance-expenses-view', 'finance-reports-view', 'finance-reconciliation-view', 'finance-recurring-view', 'finance-depreciation-view', 'finance-tax-export-view', 'finance-statement-view', 'finance-reconcile-view'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
@@ -427,6 +431,9 @@ function showFinanceSub(sub) {
     const sEl = document.getElementById('finance-statement-view');
     if (sEl) fadeTransition(sEl, true);
     _renderStatement();
+  } else if (sub === 'reconcile') {
+    const rEl = document.getElementById('finance-reconcile-view');
+    if (rEl) fadeTransition(rEl, true);
   } else if (sub === 'reports') {
     const el = document.getElementById('finance-reports-view');
     if (el) fadeTransition(el, true);

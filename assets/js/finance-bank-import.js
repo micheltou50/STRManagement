@@ -8,6 +8,7 @@
  */
 import { parseCSV, parseBankFileWithAI, categoriseTransactions, checkDuplicates, confirmTransaction, skipTransaction, logImportSession, getBankImportError, resetBankImportError } from './bank-import.js';
 import { findMatchesForTransaction, getReconciliationSummary } from './reconciliation.js';
+import { getOrCreateDefaultBankAccount } from './supabase.js';
 import { expenses } from './state.js';
 import { escHtml, fmt } from './utils.js';
 import { isPortfolioMode } from './property.js';
@@ -714,6 +715,28 @@ async function bankImportOnFileSelected(ev) {
     // complete on arrival — show its result rather than a spinner that never ran.
     globalThis._bankImportStepResult('read', parsed.length + ' rows');
     globalThis._bankImportProgress('duplicates', '');
+
+    // Stamp provenance on every row of THIS file before anything is written.
+    // bank_name and import_batch_id were declared in the schema but never
+    // populated (0 of 89 rows), so there was no way to undo an import or trace a
+    // period back to its statement — the most likely cause of a stuck
+    // out-of-balance. bank_account_id decides which account's balance a row
+    // counts toward; without it the reconcile silently computes over a subset.
+    const _batchId = (globalThis.crypto && globalThis.crypto.randomUUID)
+      ? globalThis.crypto.randomUUID() : null;
+    let _acctId = null;
+    try {
+      const acct = typeof getOrCreateDefaultBankAccount === 'function'
+        ? await getOrCreateDefaultBankAccount() : null;
+      _acctId = acct ? acct._cloudId : null;
+    } catch (e) { console.warn('[StayOps] Bank import: no default account', e); }
+    const _bankLabel = _bankImportFilename ? _bankImportFilename.replace(/\.[^.]+$/, '') : null;
+    for (const p of parsed) {
+      if (!p) continue;
+      p.importBatchId = _batchId;
+      p.bankAccountId = _acctId;
+      if (!p.bankName) p.bankName = _bankLabel;
+    }
     try {
       console.log('[StayOps] Bank import: analysing', parsed.length, 'parsed rows');
       let rows = await checkDuplicates(parsed, userId);
