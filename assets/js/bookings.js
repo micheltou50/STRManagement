@@ -3,6 +3,7 @@
  * Uses globalThis for main.js / supabase hooks assigned at boot.
  */
 import { bookings, cleans, notes, expenses, replaceArrayInPlace } from './state.js';
+import { payoutSettlementState } from './reconciliation.js';
 import {
   escHtml,
   fmt,
@@ -1143,12 +1144,22 @@ async function _renderBookingPayoutsSection(bookingCloudId, expected) {
   const payoutStatusRows = uniquePayouts.map(p => {
     const platformStr = (p.platform || 'platform').replace('_', '.');
     const refStr = p.payoutReference || '(no ref)';
-    const confirmed = !!(p.receivedAt || p.bankTransactionId);
-    const confirmedDate = p.receivedAt || (p.bankTransactionId ? 'bank-matched' : null);
-    const right = confirmed
+    // Three states, not two. `receivedAt || bankTransactionId` used to collapse
+    // "the bank proves it arrived" and "the host ticked a box" into one green
+    // tick — which is why a payout confirmed here still showed as an unmatched
+    // deposit in the Transaction Map. Amber is the honest middle: claimed, not
+    // yet evidenced.
+    const settlement = payoutSettlementState(p);
+    const right = settlement === 'settled'
       ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#166534;font-weight:600">
            <span style="width:8px;height:8px;border-radius:50%;background:#22c55e"></span>
-           Received${confirmedDate && confirmedDate !== 'bank-matched' ? ' ' + escHtml(confirmedDate) : ''}
+           Received${p.receivedAt ? ' ' + escHtml(p.receivedAt) : ''} · bank matched
+         </span>`
+      : settlement === 'attested'
+      ? `<span title="Marked received by hand — no matching bank deposit found yet"
+               style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#92400e;font-weight:600">
+           <span style="width:8px;height:8px;border-radius:50%;background:#f59e0b"></span>
+           Marked received${p.receivedAt ? ' ' + escHtml(p.receivedAt) : ''} · not bank-verified
          </span>`
       : `<button onclick="markPayoutAsReceivedForBooking('${escHtml(p.cloudId)}','${escHtml(bookingCloudId)}',${expected})"
              style="background:var(--moss,#166534);color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">

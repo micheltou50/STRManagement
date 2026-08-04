@@ -71,6 +71,7 @@ reconMarkSkipped
 reconMatchExpense
 reconMatchPayout
 reconRestoreTxn
+reconUnlinkPayout
 refreshFinanceReconciliationSummary
 removeEditReceipt
 renderDepreciationPanel

@@ -1051,3 +1051,10 @@ globalThis.bankImportPersonalRow = bankImportPersonalRow;
 globalThis.bankImportConfirmAllSuggested = bankImportConfirmAllSuggested;
 globalThis.bankImportRunImport = bankImportRunImport;
 globalThis.bankImportPickFile = () => getOrCreateBankCsvFileInput().click();
+// finance-payout-paste.js guards its post-save refresh on this name existing as
+// a global, and nothing ever assigned it — so saving a pasted statement never
+// refreshed the reconciliation summary. It slipped past check-finance-split.sh
+// because that script's bridge regex ends in `[[:space:]]*=`, which also matches
+// the first `=` of a `typeof ... === 'function'` guard, so the name was already
+// sitting in the baseline as if it had been bridged.
+globalThis.refreshFinanceReconciliationSummary = refreshFinanceReconciliationSummary;

@@ -253,6 +253,30 @@ export async function setTransactionClassification(transactionId, flags = {}) {
  * @param {string} userId
  * @returns {Promise<Array<{ payout: object, score: number, matchReason: string }>>}
  */
+/**
+ * The settlement state of a platform payout — THREE states, deliberately not two.
+ *
+ * Two independent markers exist and they mean different things:
+ *   - `bank_transaction_id` is EVIDENCE: a real deposit was matched to it.
+ *   - `received_at` is an ATTESTATION: the host ticked "Mark received" in the
+ *     booking detail. It says someone believes it arrived; it proves nothing.
+ *
+ * Collapsing them with `receivedAt || bankTransactionId` (as the booking panel
+ * did) is what made the payout list and the Transaction Map disagree — a payout
+ * ticked in Bookings still showed as an unmatched deposit here. It also cannot
+ * be used for balance arithmetic: only bank evidence belongs in a bank total.
+ *
+ * @returns {'settled'|'attested'|'outstanding'}
+ */
+export function payoutSettlementState(payout) {
+  if (!payout) return 'outstanding';
+  const bankId = payout.bank_transaction_id ?? payout.bankTransactionId ?? null;
+  if (bankId) return 'settled';
+  const received = payout.received_at ?? payout.receivedAt ?? null;
+  if (received) return 'attested';
+  return 'outstanding';
+}
+
 export async function findPayoutMatchesForBankTransaction(bankTxn, userId, opts = {}) {
   const sb = getSb();
   if (!sb || !userId || !bankTxn || !bankTxn.date || bankTxn.amount == null) return [];
@@ -269,13 +293,18 @@ export async function findPayoutMatchesForBankTransaction(bankTxn, userId, opts 
   const fromStr = from.toISOString().split('T')[0];
   const toStr   = to.toISOString().split('T')[0];
 
+  // Window on BOTH date columns. The score below measures distance from
+  // `expected_arrival_date || payout_date`, so filtering on payout_date alone
+  // silently dropped exactly the payouts that score best: one whose expected
+  // arrival lands on the deposit but whose payout_date is more than 5 days
+  // earlier was never even fetched.
   let query = sb
     .from('platform_payouts')
-    .select('id, platform, payout_reference, payout_date, expected_arrival_date, net_amount, currency, status, bank_transaction_id')
+    .select('id, platform, payout_reference, payout_date, expected_arrival_date, net_amount, currency, status, bank_transaction_id, received_at')
     .eq('user_id', userId)
     .neq('status', 'deleted')
-    .gte('payout_date', fromStr)
-    .lte('payout_date', toStr);
+    .or(`and(payout_date.gte.${fromStr},payout_date.lte.${toStr}),`
+      + `and(expected_arrival_date.gte.${fromStr},expected_arrival_date.lte.${toStr})`);
   if (!includeLinked) query = query.is('bank_transaction_id', null);
   const { data, error } = await query;
   if (error) {
@@ -310,7 +339,15 @@ export async function findPayoutMatchesForBankTransaction(bankTxn, userId, opts 
     if (desc.includes('stayz') && p.platform === 'stayz') score += 5;
 
     const reason = `${diff < 0.01 ? 'exact $' : 'approx $'}${dayDiff <= 1 ? ' / ±1d' : ' / ±' + Math.round(dayDiff) + 'd'}`;
-    out.push({ payout: p, score: Math.min(100, score), matchReason: reason });
+    out.push({
+      payout: p,
+      score: Math.min(100, score),
+      matchReason: reason,
+      // Lets the match sheet distinguish "already bank-matched" from "the host
+      // says this arrived but nothing proves it" — the latter is still worth
+      // linking, and is the one the old two-state boolean hid.
+      settlementState: payoutSettlementState(p),
+    });
   }
   out.sort((a, b) => b.score - a.score);
   return out;
@@ -324,7 +361,7 @@ export async function findPayoutMatchesForBankTransaction(bankTxn, userId, opts 
  * @param {string} bankTxId
  * @param {string} payoutId
  */
-export async function linkTransactionToPayout(bankTxId, payoutId) {
+export async function linkTransactionToPayout(bankTxId, payoutId, opts = {}) {
   const sb = getSb();
   if (!sb || !bankTxId || !payoutId) {
     console.log('[StayOps] linkTransactionToPayout: missing id(s)');
@@ -337,6 +374,18 @@ export async function linkTransactionToPayout(bankTxId, payoutId) {
   if (error) {
     console.log('[StayOps] linkTransactionToPayout error:', error.message || error);
     return { success: false };
+  }
+  // Bank evidence implies it arrived, so fill the attestation date too — but
+  // only when empty, so a host's own earlier claim is never overwritten. The
+  // `.is(null)` guard is the whole point: a plain update would clobber it.
+  // Separate statement because PostgREST cannot express coalesce() in an update.
+  if (opts.bankDate) {
+    const { error: rErr } = await sb
+      .from('platform_payouts')
+      .update({ received_at: opts.bankDate })
+      .eq('id', payoutId)
+      .is('received_at', null);
+    if (rErr) console.log('[StayOps] linkTransactionToPayout received_at fill:', rErr.message || rErr);
   }
   console.log(`[StayOps] Reconciled: payout ${payoutId} ↔ bank tx ${bankTxId}`);
   return { success: true };
@@ -419,13 +468,19 @@ export async function autoReconcile(userId) {
     return { autoLinked: 0, suggested: 0, unmatched: 0 };
   }
 
+  // Debits only. Amounts are stored ABSOLUTE with the sign carried by
+  // `direction`, so without this filter a $500 deposit and a $500 expense look
+  // identical to findMatchesForTransaction and a payout could be auto-linked to
+  // an expense. Credits belong to the payout path, not this one. Null direction
+  // is treated as debit, matching the column default and getReconciliationSummary.
   const { data: rows, error } = await sb
     .from('bank_transactions')
     .select('id, date, amount, description')
     .eq('user_id', userId)
     .is('expense_id', null)
     .eq('is_personal', false)
-    .eq('skipped', false);
+    .eq('skipped', false)
+    .or('direction.is.null,direction.eq.debit');
 
   if (error) {
     console.log('[StayOps] autoReconcile query error:', error.message || error);
@@ -588,8 +643,10 @@ export async function getReconciliationSummary(userId) {
       .from('expenses')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
-      .not('receipt_url', 'is', null)
-      .neq('receipt_url', '')
+      // `receipt_url` does not exist on `expenses` — the receipt column is
+      // `drive_link`. PostgREST rejected the whole query, so this count has
+      // silently been 0 since it was written.
+      .not('drive_link', 'is', null)
       .is('bank_transaction_id', null),
     sb
       .from('bank_transactions')

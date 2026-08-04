@@ -8,7 +8,7 @@ import {
   savePropertyConfig,
   getAllProperties,
 } from './config.js';
-import { getAllTransactionsWithStatus, findPayoutMatchesForBankTransaction, linkTransactionToPayout, setTransactionClassification } from './reconciliation.js';
+import { getAllTransactionsWithStatus, findPayoutMatchesForBankTransaction, linkTransactionToPayout, unlinkPayoutFromTransaction, setTransactionClassification } from './reconciliation.js';
 import { bookings, cleans, expenses, replaceArrayInPlace } from './state.js';
 import {
   escHtml, fmt, fmt2, fyLabel, fyMonths, escapeJsSingleQuotedHtmlAttr, fadeTransition, localDateStr,
@@ -3908,9 +3908,15 @@ function renderReconciliationList(container) {
       const platformLabel = escHtml((p.platform || 'platform').replace('_', '.'));
       const refLabel = escHtml(p.payoutReference || 'no ref');
       badge = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#1565C0"><span style="width:6px;height:6px;border-radius:50%;background:#2196F3;display:inline-block"></span> ${platformLabel} · ${refLabel}</span>`;
+      // Unlink is the only way back from a wrong match; without it the link was
+      // permanent (unlinkPayoutFromTransaction shipped with no caller at all).
+      const unlinkBtn = p.id
+        ? `<button onclick="reconUnlinkPayout('${escapeJsSingleQuotedHtmlAttr(String(p.id))}','${t.id}')" style="font-size:10px;color:#78909C;background:none;border:1px solid #B0BEC5;border-radius:6px;padding:2px 8px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Unlink</button>`
+        : '';
       rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
         ${badge}
         ${p.payoutDate ? `<span style="font-size:10px;color:var(--muted-2)">Payout ${escHtml(p.payoutDate)}</span>` : ''}
+        ${unlinkBtn}
       </div>`;
     } else if (t.status === 'personal') {
       badge = `<span style="display:inline-block;font-size:11px;background:#F3E5F5;color:#9C27B0;border-radius:4px;padding:2px 8px">Personal</span>`;
@@ -4121,7 +4127,11 @@ globalThis.reconMatchPayout = reconMatchPayout;
 
 /** Link a bank credit row to a platform_payouts row and update UI in place. */
 async function reconLinkToPayout(txnId, payoutId) {
-  const result = await linkTransactionToPayout(txnId, payoutId);
+  // Pass the deposit's own date so the payout's attestation date gets filled
+  // from evidence rather than staying blank — keeps this view and the booking
+  // panel telling the same story.
+  const linkTxn = _reconTxns.find(t => String(t.id) === String(txnId));
+  const result = await linkTransactionToPayout(txnId, payoutId, { bankDate: linkTxn && linkTxn.date });
   if (!result.success) {
     globalThis.showBanner('⚠ Link failed — see console', 'warn');
     return;
@@ -4157,6 +4167,32 @@ async function reconLinkToPayout(txnId, payoutId) {
   await renderReconciliationView();
 }
 globalThis.reconLinkToPayout = reconLinkToPayout;
+
+/** Undo a payout↔deposit link.
+ *
+ *  unlinkPayoutFromTransaction has existed since the payout feature shipped but
+ *  had NO caller anywhere, so a mis-matched deposit was permanent. Deliberately
+ *  leaves received_at alone: unlinking removes the evidence, not the host's
+ *  claim, so the payout drops from 'settled' to 'attested' rather than back to
+ *  'outstanding'. */
+async function reconUnlinkPayout(payoutId, txnId) {
+  const ok = await globalThis.showAppModal({
+    title: 'Unlink this deposit?',
+    msg: 'The payout goes back to needing a match. Nothing is deleted.',
+    confirmText: 'Unlink',
+  });
+  if (!ok) return;
+  const result = await unlinkPayoutFromTransaction(payoutId);
+  if (!result.success) {
+    globalThis.showBanner('⚠ Could not unlink — see console', 'warn');
+    return;
+  }
+  const txn = _reconTxns.find(t => String(t.id) === String(txnId));
+  if (txn) { txn.status = 'unaccounted'; txn.payout = null; }
+  globalThis.showBanner('✓ Deposit unlinked', 'ok');
+  _renderReconFromCache();
+}
+globalThis.reconUnlinkPayout = reconUnlinkPayout;
 
 /** Link a bank transaction to an existing expense */
 async function reconLinkToExpense(txnId, expenseId) {
