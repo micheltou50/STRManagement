@@ -8,7 +8,7 @@ import {
   savePropertyConfig,
   getAllProperties,
 } from './config.js';
-import { getAllTransactionsWithStatus, findPayoutMatchesForBankTransaction, linkTransactionToPayout, unlinkPayoutFromTransaction, setTransactionClassification } from './reconciliation.js';
+import { getAllTransactionsWithStatus, findPayoutMatchesForBankTransaction, linkTransactionToPayout, unlinkPayoutFromTransaction, setTransactionClassification, findMatchesForExpense, linkTransactionToExpense } from './reconciliation.js';
 import { bookings, cleans, expenses, replaceArrayInPlace } from './state.js';
 import {
   escHtml, fmt, fmt2, fyLabel, fyMonths, escapeJsSingleQuotedHtmlAttr, fadeTransition, localDateStr,
@@ -3939,8 +3939,14 @@ function renderReconciliationList(container) {
   const scoped = _reconScopedTxns();
   const isBank = _reconTab !== 'payout';
 
+  // Computed up front and appended to EVERY path below. Both early returns used
+  // to bail before it, which hid these rows exactly when they matter most: with
+  // zero unaccounted bank debits, the Unaccounted filter took the early return
+  // and showed "no transactions" while unpaid expenses were sitting there.
+  const unpaidHtml = _unpaidExpenseRowsHtml();
+
   if (scoped.length === 0) {
-    container.innerHTML = `<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px;font-family:'Plus Jakarta Sans',sans-serif">${isBank ? 'No bank debits imported yet. Tap Import Statement to add a bank statement.' : 'No deposits to match yet. Import a bank statement, or tap Paste Payout to add a platform statement.'}</div>`;
+    container.innerHTML = `<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px;font-family:'Plus Jakarta Sans',sans-serif">${isBank ? 'No bank debits imported yet. Tap Import Statement to add a bank statement.' : 'No deposits to match yet. Import a bank statement, or tap Paste Payout to add a platform statement.'}</div>` + unpaidHtml;
     return;
   }
 
@@ -3949,7 +3955,9 @@ function renderReconciliationList(container) {
     : scoped.filter(t => t.status === _reconFilter);
 
   if (filtered.length === 0) {
-    container.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">No transactions in this filter.</div>';
+    container.innerHTML = (unpaidHtml
+      ? ''
+      : '<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">No transactions in this filter.</div>') + unpaidHtml;
     return;
   }
 
@@ -4024,7 +4032,60 @@ function renderReconciliationList(container) {
       </div>
       <div style="flex-shrink:0;text-align:right">${rightInfo}</div>
     </div>`;
+  }).join('') + unpaidHtml;
+}
+
+/** Expenses with no bank payment against them.
+ *
+ *  The list above renders BANK ROWS only, so an expense the host recorded but
+ *  that has no matching payment was invisible — you could see a payment with no
+ *  expense, never an expense with no payment. Half of reconciliation was simply
+ *  not on screen, which is why "I imported the statement, now let me match my
+ *  expenses" had nowhere to happen.
+ *
+ *  Reads the already-hydrated in-memory `expenses` array, so this costs no
+ *  queries. Only shown on Money Out, and only under the All/Unaccounted filters
+ *  — these are unmatched by definition, so they do not belong under Matched. */
+function _unpaidExpenseRowsHtml() {
+  if (_reconTab === 'payout') return '';
+  if (_reconFilter !== 'all' && _reconFilter !== 'unaccounted') return '';
+  const list = (Array.isArray(expenses) ? expenses : []).filter(e =>
+    e && !e.bankTransactionId && !e._bankTransactionId
+    && String(e.status || 'active') !== 'deleted'
+    && Number(e.amount) > 0);
+  if (!list.length) return '';
+
+  // Only the imported date range can actually be matched. Outside it there is
+  // no bank data to match against, so flagging those as work would be crying
+  // wolf — they are shown as a count, not as a to-do list.
+  const dates = (_reconTxns || []).map(t => t && t.date).filter(Boolean).sort();
+  const covFrom = dates[0] || null;
+  const covTo = dates[dates.length - 1] || null;
+  const inRange = e => !covFrom || !covTo || (e.date >= covFrom && e.date <= covTo);
+  const actionable = list.filter(inRange).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const outside = list.length - actionable.length;
+
+  const rows = actionable.map(e => {
+    const id = escapeJsSingleQuotedHtmlAttr(String(e._cloudId || e.id || ''));
+    const label = escHtml(e.merchant || e.description || 'Expense');
+    return `<div style="background:#fff;border-radius:10px;padding:12px 14px;margin-bottom:8px;border:0.5px solid rgba(0,0,0,0.06);display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:11px;color:var(--muted-2);margin-bottom:2px">${escHtml(e.date || '')}</div>
+        <div style="font-size:14px;font-weight:500;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</div>
+        <div style="font-size:15px;font-weight:600;color:var(--ink-1);margin-top:2px">$${_fmtAud(Math.abs(Number(e.amount) || 0))}</div>
+      </div>
+      <div style="flex-shrink:0;text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+        <span style="display:inline-block;font-size:11px;background:#FFF3E0;color:#E65100;border-radius:4px;padding:2px 8px">No payment</span>
+        <button onclick="reconFindPaymentForExpense('${id}')" style="font-size:11px;color:#E65100;background:none;border:1px solid #FFB74D;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Find payment</button>
+      </div>
+    </div>`;
   }).join('');
+
+  const header = `<div style="font-size:11px;font-weight:700;color:var(--muted-2);text-transform:uppercase;letter-spacing:.4px;margin:16px 0 6px">Expenses with no payment · ${actionable.length}</div>`;
+  const note = outside
+    ? `<div style="font-size:12px;color:var(--muted-2);padding:4px 2px 10px">${outside} more fall outside the dates your statement covers — import those months to match them.</div>`
+    : '';
+  return header + (rows || `<div style="font-size:12.5px;color:var(--muted-2);padding:4px 2px 10px">All expenses in the imported period have a payment.</div>`) + note;
 }
 
 /** Show nearby expenses to match an unaccounted transaction to */
@@ -4256,6 +4317,76 @@ async function reconUnlinkPayout(payoutId, txnId) {
   _renderReconFromCache();
 }
 globalThis.reconUnlinkPayout = reconUnlinkPayout;
+
+/** From an EXPENSE, find the bank payment that settles it — the reverse of
+ *  reconMatchExpense. findMatchesForExpense has existed since the reconciliation
+ *  feature shipped and had no caller anywhere, so this direction was never
+ *  reachable from the UI. */
+async function reconFindPaymentForExpense(expenseId) {
+  const user = await getCurrentSupabaseUser();
+  if (!user) { globalThis.showBanner('Sign in first', 'warn'); return; }
+  const exp = (Array.isArray(expenses) ? expenses : [])
+    .find(e => String(e._cloudId || e.id) === String(expenseId));
+  if (!exp) { globalThis.showBanner('⚠ Expense not found', 'warn'); return; }
+
+  const matches = await findMatchesForExpense(exp, user.id);
+  if (!matches.length) {
+    globalThis.showBanner(
+      `No unmatched payment within ±3 days of ${exp.date} for $${_fmtAud(Math.abs(Number(exp.amount) || 0))}. It may have been paid another way, or that month is not imported yet.`,
+      'warn');
+    return;
+  }
+  const rows = matches.slice(0, 8).map(m => {
+    const t = m.transaction || m.txn || m;
+    const amt = _fmtAud(Math.abs(Number(t.amount) || 0));
+    const score = m.score != null ? ` · score ${m.score}` : '';
+    return `<div onclick="reconLinkExpenseToTxn('${escapeJsSingleQuotedHtmlAttr(String(t.id))}','${escapeJsSingleQuotedHtmlAttr(String(expenseId))}')"
+        style="padding:10px 12px;border-bottom:0.5px solid var(--hairline-1);cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">
+        <div style="font-size:13px;font-weight:600;color:var(--ink-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(t.description || 'Payment')}</div>
+        <div style="font-size:11.5px;color:var(--muted-2);margin-top:2px">${escHtml(t.date || '')} · $${amt}${escHtml(score)}</div>
+      </div>`;
+  }).join('');
+
+  let overlay = document.getElementById('recon-match-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'recon-match-overlay';
+    document.body.appendChild(overlay);
+  }
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.4);display:flex;align-items:flex-end;justify-content:center';
+  overlay.innerHTML = `
+    <div style="background:#fff;width:100%;max-width:560px;border-radius:16px 16px 0 0;max-height:70vh;overflow-y:auto;padding:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <strong style="font-family:'Plus Jakarta Sans',sans-serif;font-size:15px">Find the payment</strong>
+        <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="border:none;background:none;font-size:20px;cursor:pointer;color:var(--muted-2)">×</button>
+      </div>
+      <div style="font-size:12.5px;color:var(--muted-2);margin-bottom:8px;font-family:'Plus Jakarta Sans',sans-serif">${escHtml(exp.merchant || exp.description || 'Expense')} · $${_fmtAud(Math.abs(Number(exp.amount) || 0))}</div>
+      ${rows}
+    </div>`;
+  overlay.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+globalThis.reconFindPaymentForExpense = reconFindPaymentForExpense;
+
+/** Link the chosen bank payment to the expense, then refresh in place. */
+async function reconLinkExpenseToTxn(txnId, expenseId) {
+  const result = await linkTransactionToExpense(txnId, expenseId);
+  if (!result || !result.success) {
+    globalThis.showBanner('⚠ Could not link — see console', 'warn');
+    return;
+  }
+  const overlay = document.getElementById('recon-match-overlay');
+  if (overlay) overlay.style.display = 'none';
+  document.body.style.overflow = '';
+  const exp = (Array.isArray(expenses) ? expenses : [])
+    .find(e => String(e._cloudId || e.id) === String(expenseId));
+  if (exp) { exp.bankTransactionId = txnId; exp.reconciled = true; exp.paymentStatus = 'paid'; }
+  const txn = _reconTxns.find(t => String(t.id) === String(txnId));
+  if (txn) { txn.status = 'matched'; txn.expense_id = expenseId; txn.expenseMerchant = (exp && (exp.merchant || exp.description)) || 'Linked'; }
+  globalThis.showBanner('✓ Payment matched to expense', 'ok');
+  _renderReconFromCache();
+}
+globalThis.reconLinkExpenseToTxn = reconLinkExpenseToTxn;
 
 /** Link a bank transaction to an existing expense */
 async function reconLinkToExpense(txnId, expenseId) {

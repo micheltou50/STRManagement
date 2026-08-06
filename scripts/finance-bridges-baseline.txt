@@ -66,6 +66,8 @@ openExpenseView
 openPayoutPasteModal
 openReceiptViewer
 reconCreateExpense
+reconFindPaymentForExpense
+reconLinkExpenseToTxn
 reconLinkToExpense
 reconLinkToPayout
 reconMarkPersonal

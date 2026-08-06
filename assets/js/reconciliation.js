@@ -153,7 +153,11 @@ export async function findMatchesForExpense(expense, userId) {
     .gte('date', minDate)
     .lte('date', maxDate)
     .gte('amount', amt - 0.5)
-    .lte('amount', amt + 0.5);
+    .lte('amount', amt + 0.5)
+    // Debits only. Amounts are stored absolute with the sign carried by
+    // `direction`, so without this a $500 deposit looks identical to a $500
+    // payment and could be offered as settling an expense.
+    .or('direction.is.null,direction.eq.debit');
 
   if (error) {
     console.log('[StayOps] findMatchesForExpense query error:', error.message || error);
