@@ -849,6 +849,9 @@ export async function checkDuplicates(transactions, userId) {
     _importProgress('duplicates', `${out.length + 1} of ${transactions.length}`);
     let isDuplicate = false;
     let existingExpenseId = null;
+    // Distinct from isDuplicate: this row IS the payment for an expense the host
+    // already recorded, so it must be imported and linked, not discarded.
+    let matchesExistingExpense = false;
     let dupMatch = null;
     let reason;
 
@@ -881,8 +884,23 @@ export async function checkDuplicates(transactions, userId) {
           row.vendor && t.vendor && descriptionSimilar(row.vendor, t.vendor);
         const descMatch = descriptionSimilar(row.description, t.description);
         if (vendorMatch || descMatch) {
-          isDuplicate = true;
+          // NOT a duplicate — this is the PAYMENT for an expense the host already
+          // entered, which is precisely what reconciliation is for.
+          //
+          // This used to set isDuplicate, and canBankImportRow drops duplicates,
+          // so the bank row was discarded. The importer therefore kept only the
+          // payments it could NOT explain (minting an expense for each, hence the
+          // "Unknown" rows) and threw away the ones it could — leaving the
+          // matching expense permanently unpayable, with no bank line in
+          // existence to match it to later. 33 expenses ended up in that state.
+          //
+          // Let it import instead: confirmTransaction already links a row to a
+          // matching expense at score >= 80, and bankImportApplyMatchPreviews
+          // already copies that expense's property/category onto the row and
+          // marks it confirmed. Only a genuine RE-IMPORT of the same statement
+          // line (the bank_transactions pass below) is a real duplicate.
           existingExpenseId = row.id;
+          matchesExistingExpense = true;
           dupMatch = { kind: 'expense', label: row.vendor || row.description || '', amount: Number(row.amount) || 0, date: row.date };
           break;
         }
@@ -919,7 +937,7 @@ export async function checkDuplicates(transactions, userId) {
       }
     }
 
-    out.push({ ...t, isDuplicate, existingExpenseId, dupMatch, ...(reason ? { reason } : {}) });
+    out.push({ ...t, isDuplicate, existingExpenseId, matchesExistingExpense, dupMatch, ...(reason ? { reason } : {}) });
   }
   return out;
 }
@@ -1006,23 +1024,33 @@ export async function confirmTransaction(transaction, userId, propertyId, catego
   const matches = await findMatchesForTransaction(transaction, userId);
   const top = matches[0];
 
+  // checkDuplicates already identified the expense this payment settles (same
+  // amount, inside the date window, matching vendor/description). Trust it over
+  // the score threshold: a near-miss of 79 would otherwise fall through and
+  // CREATE a second expense for a purchase the host already entered — exactly
+  // the double-record this path exists to prevent.
+  const forcedExpenseId = transaction.matchesExistingExpense ? transaction.existingExpenseId : null;
+  const targetExpenseId = forcedExpenseId || (top && top.score >= 80 ? top.expense.id : null);
+
   let expenseOut;
 
-  if (top && top.score >= 80) {
-    const linked = await linkTransactionToExpense(bankTxId, top.expense.id);
+  if (targetExpenseId) {
+    const linked = await linkTransactionToExpense(bankTxId, targetExpenseId);
     if (!linked.success) {
       console.log('[StayOps] confirmTransaction: linkTransactionToExpense failed');
       throw new Error('Failed to link bank transaction to expense');
     }
 
-    expenseOut = top.expense;
+    expenseOut = (top && top.expense && top.expense.id === targetExpenseId)
+      ? top.expense
+      : { id: targetExpenseId };
     const v = expenseOut.vendor && String(expenseOut.vendor).trim();
     if (!v) {
       const vendorVal = transaction.vendor || pattern;
       const { data: patched, error: patchErr } = await sb
         .from('expenses')
         .update({ vendor: vendorVal })
-        .eq('id', top.expense.id)
+        .eq('id', targetExpenseId)
         .select()
         .single();
       if (!patchErr && patched) expenseOut = patched;
