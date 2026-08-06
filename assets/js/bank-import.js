@@ -771,12 +771,15 @@ export async function categoriseTransactions(transactions, userId) {
       const { propertyId, propertyName } = resolvePropertyFromGuess(guess);
       const conf = row && ['high', 'medium', 'low'].includes(row.confidence) ? row.confidence : 'medium';
 
+      // Spread the source row FIRST. This used to rebuild from an explicit
+      // field list, which silently dropped anything it didn't know about —
+      // that is exactly how the importBatchId / bankAccountId / bankName
+      // stamped at file level vanished before insert, leaving every imported
+      // row with no account (invisible to the period reconcile) and no batch
+      // (no undo). The learned-mapping branch above always spread; this one
+      // must too. origIndex is stripped below since it is loop bookkeeping.
       result[t.origIndex] = {
-        date: t.date,
-        description: t.description,
-        amount: t.amount,
-        type: t.type,
-        rawLine: t.rawLine,
+        ...t,
         vendor,
         category,
         propertyId,
@@ -786,6 +789,7 @@ export async function categoriseTransactions(transactions, userId) {
         skip: false,
         vendorPattern: t.vendorPattern,
       };
+      delete result[t.origIndex].origIndex;
     }
   }
 

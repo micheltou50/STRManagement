@@ -1006,14 +1006,17 @@ async function bankImportRunImport() {
       'ok'
     );
 
-    // Show receipt prompt for newly created expenses, then go to Transaction Map
+    // Refresh the Transaction Map UNCONDITIONALLY, then overlay the receipt
+    // prompt on top if there is one. The prompt path used to skip the refresh,
+    // so exitBankImportReview()'s restored pre-import snapshot stayed on
+    // screen: the imported rows were in the database but the host was looking
+    // at a photograph of the old list, and only the prompt's own "View
+    // Transaction Map" button (not × or Add Receipt) ever re-rendered it.
     _bankImportJustImported = true;
-    if (_bankImportCreatedExpenseIds.length) {
-      setTimeout(() => _showBankImportReceiptPrompt(), 600);
-    } else {
-      // No new expenses — go straight to Transaction Map
-      setTimeout(() => showReconciliationView(), 600);
-    }
+    setTimeout(() => {
+      showReconciliationView();
+      if (_bankImportCreatedExpenseIds.length) _showBankImportReceiptPrompt();
+    }, 600);
   } finally {
     exitBankImportReview();
   }
