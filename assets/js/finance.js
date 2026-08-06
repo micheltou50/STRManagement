@@ -3835,9 +3835,16 @@ function _reconSummaryHtml(totals) {
        <div style="font-size:18px;font-weight:600;color:${valColor}">$${_fmtAud(val)}</div>
        <div style="font-size:11px;color:${labelColor}">${label}</div>
      </div>`;
+  // Unaccounted must mean "money still needing a decision", from BOTH sides:
+  // bank payments with no expense, and expenses with no payment. Counting only
+  // the bank side read as $0.00 — "nothing to do" — while unpaid expenses sat
+  // in the list right below it.
+  const unpaidTotal = isBank
+    ? _unpaidExpenses().actionable.reduce((s, e) => s + Math.abs(Number(e.amount) || 0), 0)
+    : 0;
   const tiles = isBank
     ? tile(totals.matched, 'Matched', '#E8F5E9', '#2E7D32', '#388E3C') +
-      tile(totals.unaccounted, 'Unaccounted', '#FFF3E0', '#E65100', '#F57C00') +
+      tile(totals.unaccounted + unpaidTotal, 'Unaccounted', '#FFF3E0', '#E65100', '#F57C00') +
       tile(totals.personal, 'Personal', '#F3E5F5', '#7B1FA2', '#9C27B0')
     : tile(totals.matched_payout, 'Matched', '#E3F2FD', '#1565C0', '#1976D2') +
       tile(totals.unaccounted, 'Unmatched', '#FFF3E0', '#E65100', '#F57C00') +
@@ -4046,24 +4053,38 @@ function renderReconciliationList(container) {
  *  Reads the already-hydrated in-memory `expenses` array, so this costs no
  *  queries. Only shown on Money Out, and only under the All/Unaccounted filters
  *  — these are unmatched by definition, so they do not belong under Matched. */
-function _unpaidExpenseRowsHtml() {
-  if (_reconTab === 'payout') return '';
-  if (_reconFilter !== 'all' && _reconFilter !== 'unaccounted') return '';
+/** Expenses with no bank payment, split into what can be actioned now and what
+ *  cannot. Single source of truth for BOTH the Unaccounted tile and the rows
+ *  below it — computing them separately is how a summary starts disagreeing
+ *  with the list it summarises. */
+function _unpaidExpenses() {
+  // loadExpensesFromCloud maps this column as snake_case `bank_transaction_id`
+  // (supabase-expenses.js:60), NOT bankTransactionId — checking the camelCase
+  // name matched nothing, so "has this been paid?" silently answered "no" for
+  // every expense. Both spellings are accepted so an optimistically-updated row
+  // is treated as paid before the next hydrate.
+  const isPaid = e => !!(e.bank_transaction_id || e.bankTransactionId);
   const list = (Array.isArray(expenses) ? expenses : []).filter(e =>
-    e && !e.bankTransactionId && !e._bankTransactionId
+    e && !isPaid(e)
     && String(e.status || 'active') !== 'deleted'
     && Number(e.amount) > 0);
-  if (!list.length) return '';
 
   // Only the imported date range can actually be matched. Outside it there is
   // no bank data to match against, so flagging those as work would be crying
-  // wolf — they are shown as a count, not as a to-do list.
+  // wolf — they are counted, not listed as a to-do.
   const dates = (_reconTxns || []).map(t => t && t.date).filter(Boolean).sort();
   const covFrom = dates[0] || null;
   const covTo = dates[dates.length - 1] || null;
   const inRange = e => !covFrom || !covTo || (e.date >= covFrom && e.date <= covTo);
   const actionable = list.filter(inRange).sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  const outside = list.length - actionable.length;
+  return { actionable, outside: list.length - actionable.length };
+}
+
+function _unpaidExpenseRowsHtml() {
+  if (_reconTab === 'payout') return '';
+  if (_reconFilter !== 'all' && _reconFilter !== 'unaccounted') return '';
+  const { actionable, outside } = _unpaidExpenses();
+  if (!actionable.length && !outside) return '';
 
   const rows = actionable.map(e => {
     const id = escapeJsSingleQuotedHtmlAttr(String(e._cloudId || e.id || ''));
@@ -4380,7 +4401,9 @@ async function reconLinkExpenseToTxn(txnId, expenseId) {
   document.body.style.overflow = '';
   const exp = (Array.isArray(expenses) ? expenses : [])
     .find(e => String(e._cloudId || e.id) === String(expenseId));
-  if (exp) { exp.bankTransactionId = txnId; exp.reconciled = true; exp.paymentStatus = 'paid'; }
+  // Write the snake_case field the cloud mapper actually produces, so the row
+  // drops out of the unpaid list immediately rather than only after a hydrate.
+  if (exp) { exp.bank_transaction_id = txnId; exp.bankTransactionId = txnId; exp.reconciled = true; exp.paymentStatus = 'paid'; }
   const txn = _reconTxns.find(t => String(t.id) === String(txnId));
   if (txn) { txn.status = 'matched'; txn.expense_id = expenseId; txn.expenseMerchant = (exp && (exp.merchant || exp.description)) || 'Linked'; }
   globalThis.showBanner('✓ Payment matched to expense', 'ok');
