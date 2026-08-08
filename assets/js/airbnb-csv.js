@@ -89,6 +89,7 @@ const PICKABLE = new Set(['accommodation', 'cleaning_fee', 'cancellation', 'reso
  * screen exists to answer.
  */
 let _lastRejection = null;
+let _lastRejectionDetail = null;
 export function lastAirbnbCsvRejection() { return _lastRejection; }
 
 const REJECTION_TEXT = {
@@ -100,12 +101,19 @@ const REJECTION_TEXT = {
   dates_not_month_first: 'the dates are not in Airbnb’s month-first format',
 };
 
-/** Human-readable form of lastAirbnbCsvRejection(), for UI copy. */
+/** Human-readable form of lastAirbnbCsvRejection(), for UI copy. Includes the
+ *  concrete numbers where there are any — "the layout is probably different"
+ *  is not something a host can act on, but a named row with two figures is. */
 export function describeAirbnbCsvRejection() {
-  return REJECTION_TEXT[_lastRejection] || 'the layout was not recognised';
+  const base = REJECTION_TEXT[_lastRejection] || 'the layout was not recognised';
+  return _lastRejectionDetail ? `${base} (${_lastRejectionDetail})` : base;
 }
 
-function _reject(reason) { _lastRejection = reason; return null; }
+function _reject(reason, detail) {
+  _lastRejection = reason;
+  _lastRejectionDetail = detail || null;
+  return null;
+}
 
 /** Cheap "is this a spreadsheet export?" test, used to tell a wrong-layout CSV
  *  apart from genuinely unstructured prose. */
@@ -324,16 +332,18 @@ function _crossCheck(rows, cols) {
   if (cols.amount === undefined || cols.paidOut === undefined || cols.date === undefined) {
     return 'money_or_date_column_unresolved';
   }
-  let moneyChecked = 0;
+  let agreed = 0;
+  let disagreed = 0;
+  let firstMismatch = null;
   let nightsChecked = 0;
   let nightsAgree = 0;
 
   for (const row of rows) {
-    if (moneyChecked >= 5 && nightsChecked >= 3) break;
+    if (agreed + disagreed >= 8 && nightsChecked >= 3) break;
     const type = _cell(row, cols, 'type');
     if (_isPayoutRow(type) || !/reservation/i.test(String(type))) continue;
 
-    if (moneyChecked < 5) {
+    if (agreed + disagreed < 8) {
       const grossCents = _parseMoneyCents(_cell(row, cols, 'grossEarnings'));
       const built = _reservationLines(row, cols);
       if (grossCents !== null && built) {
@@ -342,8 +352,16 @@ function _crossCheck(rows, cols) {
         // Gross covers accommodation + cleaning; both are itemised subsets.
         const derived = Math.round((accom ? accom.amount : 0) * 100)
           + Math.round((cleaning ? cleaning.amount : 0) * 100);
-        if (Math.abs(derived - grossCents) > 1) return 'money_columns_disagree';
-        moneyChecked += 1;
+        if (Math.abs(derived - grossCents) <= 1) {
+          agreed += 1;
+        } else {
+          disagreed += 1;
+          if (!firstMismatch) {
+            firstMismatch = `row dated ${_cell(row, cols, 'date') || '?'}: Amount ${_cell(row, cols, 'amount') || '(blank)'}`
+              + ` plus fees ${_cell(row, cols, 'serviceFee') || '0'}/${_cell(row, cols, 'fastPayFee') || '0'}`
+              + ` gives ${(derived / 100).toFixed(2)}, but Gross earnings reads ${(grossCents / 100).toFixed(2)}`;
+          }
+        }
       }
     }
 
@@ -358,8 +376,19 @@ function _crossCheck(rows, cols) {
       }
     }
   }
+
+  // Reject only on WHOLESALE disagreement. Failing on the first mismatching row
+  // was far too strict: pass-through occupancy taxes, part refunds and resolution
+  // credits all legitimately break the Amount-plus-fees-equals-Gross identity on
+  // individual rows, and rejecting the file over one of them threw away a
+  // perfectly parseable year. A genuinely mis-bound column fails EVERY row, which
+  // is what this now tests. Residual per-row error is caught downstream by the
+  // balancing line and its variance warning, in front of the host, before saving.
+  if (agreed === 0 && disagreed >= 3) {
+    return { reason: 'money_columns_disagree', detail: firstMismatch };
+  }
   // Every checkable row disagreeing means the dates are not month-first.
-  if (nightsChecked >= 3 && nightsAgree === 0) return 'dates_not_month_first';
+  if (nightsChecked >= 3 && nightsAgree === 0) return { reason: 'dates_not_month_first' };
   return null;
 }
 
@@ -414,7 +443,7 @@ export function parseAirbnbTransactionCsv(text) {
   if (!typedRows.length) return _reject('no_airbnb_row_types');
 
   const failure = _crossCheck(bodyRows, cols);
-  if (failure) return _reject(failure); // half-parsing is worse than falling back to AI
+  if (failure) return _reject(failure.reason, failure.detail); // half-parsing is worse than falling back to AI
 
   records.forEach((row, idx) => {
     if (idx === headerIdx) { meta.headerRows += 1; return; }
@@ -517,5 +546,6 @@ export function parseAirbnbTransactionCsv(text) {
   }
 
   _lastRejection = null;
+  _lastRejectionDetail = null;
   return { source: 'paste_csv', recognised: true, payouts, meta };
 }

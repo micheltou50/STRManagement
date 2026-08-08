@@ -325,3 +325,40 @@ test('a rejection always carries a reason the UI can show', async () => {
   assert.strictEqual(looksTabular(bank), true, 'a CSV is tabular');
   assert.strictEqual(looksTabular('Please see attached.'), false, 'prose is not');
 });
+
+// Row where Amount + fees === Gross earnings (self-consistent).
+const okRow = (d, code, gross) => {
+  const g = gross.toFixed(2);
+  const amt = (gross - 9.90).toFixed(2);
+  return `${d}/2026,,Reservation,${code},01/01/2026,${d}/2026,${d}/2026,0,G,Listing,,,AUD,${amt},,9.90,,0.00,${g},0.00,2026`;
+};
+// Same row but Gross earnings deliberately inconsistent.
+const oddRow = (d, code) =>
+  `${d}/2026,,Reservation,${code},01/01/2026,${d}/2026,${d}/2026,0,G,Listing,,,AUD,290.10,,9.90,,0.00,777.77,0.00,2026`;
+
+test('a few inconsistent rows do NOT throw away a parseable year', async () => {
+  // Pass-through taxes, part refunds and resolution credits all legitimately
+  // break the Amount+fees===Gross identity on individual rows. Rejecting the
+  // whole file over one of them sent a good export to the AI, which then 504'd.
+  const { parseAirbnbTransactionCsv } = await load();
+  const pay = '05/20/2026,,Payout,,,,,,,,Transfer,,AUD,,2000.00,,,,,,2026';
+  const rows = [
+    okRow('05/01', 'HM1', 300), okRow('05/02', 'HM2', 400),
+    okRow('05/03', 'HM3', 500), okRow('05/04', 'HM4', 600),
+    oddRow('05/05', 'HM5'), oddRow('05/06', 'HM6'),
+  ];
+  const out = parseAirbnbTransactionCsv(file(pay, ...rows));
+  assert.ok(out, 'a mostly-consistent file must still parse');
+  assert.strictEqual(out.payouts.length, 1);
+});
+
+test('a wholesale-mis-bound file is refused, and says which numbers disagreed', async () => {
+  const { parseAirbnbTransactionCsv, lastAirbnbCsvRejection, describeAirbnbCsvRejection } = await load();
+  const pay = '05/20/2026,,Payout,,,,,,,,Transfer,,AUD,,2000.00,,,,,,2026';
+  const rows = ['05/01', '05/02', '05/03', '05/04'].map((d, i) => oddRow(d, 'HM' + i));
+  assert.strictEqual(parseAirbnbTransactionCsv(file(pay, ...rows)), null);
+  assert.strictEqual(lastAirbnbCsvRejection(), 'money_columns_disagree');
+  const msg = describeAirbnbCsvRejection();
+  assert.match(msg, /777\.77/, 'the message must name the actual figures');
+  assert.match(msg, /300\.00/);
+});
