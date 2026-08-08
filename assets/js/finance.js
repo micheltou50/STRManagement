@@ -4085,13 +4085,26 @@ function _unpaidExpenses() {
   const covTo = dates[dates.length - 1] || null;
   const inRange = e => !covFrom || !covTo || (e.date >= covFrom && e.date <= covTo);
   const actionable = list.filter(inRange).sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  return { actionable, outside: list.length - actionable.length };
+  // Split the remainder by WHICH side of the imported window it falls on. "75
+  // more fall outside the dates your statement covers" is true but unusable —
+  // it does not say which statement to go and fetch.
+  const out = list.filter(e => !inRange(e));
+  const before = out.filter(e => covFrom && e.date < covFrom);
+  const after = out.filter(e => covTo && e.date > covTo);
+  return {
+    actionable,
+    outside: out.length,
+    outsideBefore: before.length,
+    outsideAfter: after.length,
+    covFrom,
+    covTo,
+  };
 }
 
 function _unpaidExpenseRowsHtml() {
   if (_reconTab === 'payout') return '';
   if (_reconFilter !== 'all' && _reconFilter !== 'unaccounted') return '';
-  const { actionable, outside } = _unpaidExpenses();
+  const { actionable, outside, outsideBefore, outsideAfter, covFrom, covTo } = _unpaidExpenses();
   if (!actionable.length && !outside) return '';
 
   const rows = actionable.map(e => {
@@ -4111,8 +4124,14 @@ function _unpaidExpenseRowsHtml() {
   }).join('');
 
   const header = `<div style="font-size:11px;font-weight:700;color:var(--muted-2);text-transform:uppercase;letter-spacing:.4px;margin:16px 0 6px">Expenses with no payment · ${actionable.length}</div>`;
+  // Name the actual gap. These cannot be matched because there is no bank data
+  // for their dates, not because anything is wrong with them — and the host
+  // needs to know WHICH statement to go and import.
+  const gaps = [];
+  if (outsideBefore) gaps.push(`${outsideBefore} dated before ${escHtml(covFrom || '?')}`);
+  if (outsideAfter) gaps.push(`${outsideAfter} dated after ${escHtml(covTo || '?')}`);
   const note = outside
-    ? `<div style="font-size:12px;color:var(--muted-2);padding:4px 2px 10px">${outside} more fall outside the dates your statement covers — import those months to match them.</div>`
+    ? `<div style="font-size:12px;color:var(--muted-2);padding:4px 2px 10px">${outside} more can't be checked — ${gaps.join(' and ')}, and your imported bank data only covers ${escHtml(covFrom || '?')} to ${escHtml(covTo || '?')}. Import a statement for those dates to match them.</div>`
     : '';
   return header + (rows || `<div style="font-size:12.5px;color:var(--muted-2);padding:4px 2px 10px">All expenses in the imported period have a payment.</div>`) + note;
 }
