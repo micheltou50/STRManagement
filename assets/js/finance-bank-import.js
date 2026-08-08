@@ -645,7 +645,26 @@ function renderBankImportReview() {
     : '';
   const newSection = newHeader + newItems.map(({ row, i }) => renderReviewCard(row, i)).join('');
 
-  container.innerHTML = headerHtml + `<div id="bank-import-list">${dupSection}${newSection}</div>`;
+  // The summary bar at the top uses position:sticky, which silently stops
+  // sticking once the review is rendered inside a scrolling container — with 100+
+  // rows "Import All" then scrolls away and the only way to finish the import is
+  // to scroll back to the top and find it. A fixed bar keeps the primary action
+  // reachable from anywhere in the list, and states plainly how many rows it will
+  // actually import.
+  const readyNow = _bankImportRows.filter(canBankImportRow).length;
+  const footerHtml = `
+    <div style="height:76px"></div>
+    <div style="position:fixed;left:0;right:0;bottom:0;z-index:60;background:#fff;border-top:0.5px solid var(--hairline-1);padding:10px 16px;display:flex;align-items:center;gap:10px;justify-content:space-between;font-family:'Plus Jakarta Sans',sans-serif">
+      <span style="font-size:12.5px;color:var(--muted-2)"><strong style="color:var(--ink-1)">${readyNow}</strong> ready to import</span>
+      <div style="display:flex;gap:8px">
+        <button type="button" onclick="globalThis.exitBankImportReview()" style="font-size:12.5px;padding:9px 14px;border-radius:8px;border:1px solid var(--hairline-1);background:#fff;color:var(--muted-2);font-weight:600;cursor:pointer;font-family:inherit">Cancel</button>
+        <button type="button" onclick="globalThis.bankImportRunImport()" ${readyNow ? '' : 'disabled'}
+          style="font-size:12.5px;padding:9px 18px;border-radius:8px;border:none;font-weight:700;cursor:${readyNow ? 'pointer' : 'not-allowed'};font-family:inherit;background:${readyNow ? 'var(--primary)' : 'var(--hairline-1)'};color:${readyNow ? '#fff' : 'var(--muted-2)'}">
+          ${readyNow ? 'Import ' + readyNow : 'Nothing to import'}
+        </button>
+      </div>
+    </div>`;
+  container.innerHTML = headerHtml + `<div id="bank-import-list">${dupSection}${newSection}</div>` + footerHtml;
 
   _bankImportRows.forEach((row, i) => {
     const ps = document.getElementById('bank-import-prop-' + i);
@@ -931,7 +950,22 @@ async function bankImportRunImport() {
   }
   const toImport = _bankImportRows.map((r, i) => ({ r, i })).filter(({ r }) => canBankImportRow(r));
   if (!toImport.length) {
-    globalThis.showBanner('Confirm property and category for at least one transaction', 'warn');
+    // Say WHY nothing is importable. "Confirm property and category" is wrong
+    // advice when the real reason is that every row is a re-import or was
+    // skipped, and it left the host pressing a button that appeared to do
+    // nothing.
+    const n = _bankImportRows.length;
+    const dup = _bankImportRows.filter(r => r.isDuplicate).length;
+    const skip = _bankImportRows.filter(r => r.userMarkedSkip || (r.skip && r.reason === 'personal') || r.userMarkedPersonal).length;
+    const needsCat = _bankImportRows.filter(r =>
+      !r.isDuplicate && !r.userMarkedSkip && !r.userMarkedPersonal && !(r.skip && r.reason === 'personal')
+      && (!String(r.propertyId || '').trim() || !String(r.category || '').trim())).length;
+    const why = needsCat
+      ? `${needsCat} of ${n} still need a property and category`
+      : dup === n
+        ? `all ${n} rows are already imported`
+        : `${dup} already imported · ${skip} skipped`;
+    globalThis.showBanner('Nothing to import — ' + why, 'warn');
     return;
   }
 
