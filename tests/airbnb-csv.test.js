@@ -380,3 +380,20 @@ test('reservation lines carry guest and check-in so a codeless booking can match
   assert.strictEqual(accom.guestName, 'Daniel Wilson');
   assert.strictEqual(accom.checkin, '2026-02-14', 'the stay start, ISO, from the Start date column');
 });
+
+test('the app\'s own filename banner is not reported as an unreadable row', async () => {
+  // attachPayoutStatementFile() prefixes '--- file.csv ---' to whatever it reads.
+  // Counting that as a skipped row told the host a transaction was missed.
+  const { parseAirbnbTransactionCsv } = await load();
+  const attached = '--- airbnb_transactions.csv ---\n' + file(REAL_PAYOUT, REAL_RESERVATION);
+  const out = parseAirbnbTransactionCsv(attached);
+  assert.strictEqual(out.meta.skipped.length, 0, 'no false alarm');
+  assert.strictEqual(out.payouts.length, 1);
+
+  const viaExcel = '=== Sheet: Sheet1 ===\n' + file(REAL_PAYOUT, REAL_RESERVATION);
+  assert.strictEqual(parseAirbnbTransactionCsv(viaExcel).meta.skipped.length, 0);
+
+  // A genuinely short data row must STILL be reported.
+  const truncated = file(REAL_PAYOUT, REAL_RESERVATION, '02/15/2026,,Reservation');
+  assert.strictEqual(parseAirbnbTransactionCsv(truncated).meta.skipped.length, 1);
+});

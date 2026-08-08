@@ -165,9 +165,18 @@ export function parseCsvRecords(text) {
   }
   if (field !== '' || quoted || row.length) endRow();
 
-  // Drop blank lines and the '--- file.csv ---' / '=== Sheet: x ===' banners the
-  // attach handler injects (finance-payout-paste.js:103,153) — single-cell rows.
-  return records.filter(r => r.length > 1 || (r.length === 1 && r[0] !== ''));
+  return records.filter(r => {
+    if (r.length > 1) return true;
+    const only = String(r[0] || '').trim();
+    if (!only) return false; // blank line
+    // The attach handler labels pasted content with '--- file.csv ---' and
+    // '=== Sheet: x ===' (finance-payout-paste.js:103,153). These are the app's
+    // own banners, not data — counting them as unreadable rows told the host a
+    // transaction had been missed when nothing had.
+    if (/^-{3,}.*-{3,}$/.test(only)) return false;
+    if (/^={3,}\s*Sheet:/i.test(only)) return false;
+    return true;
+  });
 }
 
 /**
