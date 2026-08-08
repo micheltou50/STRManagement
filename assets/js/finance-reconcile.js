@@ -37,6 +37,7 @@ const money = c => centsToAmount(c).toLocaleString('en-AU', { minimumFractionDig
 
 let _accounts = [];
 let _acctId = null;
+let _periodStart = '';
 let _periodEnd = '';
 let _openingCents = 0;
 let _statementCents = 0;
@@ -48,6 +49,14 @@ let _openingLocked = false;
 function _monthEnd(d) {
   const dt = d ? new Date(d) : new Date();
   return new Date(dt.getFullYear(), dt.getMonth() + 1, 0).toISOString().slice(0, 10);
+}
+
+/** Fallback period start when nothing better is known. A statement can cover a
+ *  month or a whole financial year, so this is only a default — the real value
+ *  comes from the uploaded statement or from the host editing the field. */
+function _monthStart(d) {
+  const dt = d ? new Date(d) : new Date();
+  return new Date(dt.getFullYear(), dt.getMonth(), 1).toISOString().slice(0, 10);
 }
 
 export async function showReconcileView() {
@@ -86,11 +95,22 @@ async function loadPeriod() {
   // against a number nobody checked. Only the very first period is editable.
   _openingCents = deriveOpeningBalanceCents(prior, acct);
   _openingLocked = !!prior;
-  _txns = await loadTransactionsForPeriod(_acctId, _periodEnd);
+  // A period runs from the day after the last close (or the month start) to the
+  // statement date. Without a start the list pulled in every earlier
+  // transaction, which cannot reconcile against an opening balance that already
+  // includes them.
+  if (!_periodStart) {
+    _periodStart = prior && prior.period_end
+      ? new Date(new Date(prior.period_end).getTime() + 86400000).toISOString().slice(0, 10)
+      : _monthStart(_periodEnd);
+  }
+  _txns = await loadTransactionsForPeriod(_acctId, _periodEnd, _periodStart);
   _history = await loadReconciliations(_acctId);
-  // Default: everything already reconciled in an earlier period stays ticked,
-  // everything else starts unticked so the host actively confirms each line.
-  _cleared = new Set(_txns.filter(t => t.reconciledAt).map(t => String(t.id)));
+  // Everything in the period came FROM the statement being reconciled, so start
+  // it all ticked and let the host UNtick the exceptions. Asking someone to tick
+  // 167 boxes one at a time to confirm data the app itself imported is busywork,
+  // and it hid the out-of-balance figure behind an hour of clicking.
+  _cleared = new Set(_txns.map(t => String(t.id)));
   render();
 }
 
@@ -146,8 +166,12 @@ function render() {
           <label style="font-size:11px;color:var(--muted-2)">Account</label>
           <select onchange="reconcileSetAccount(this.value)" style="width:100%">${acctOpts}</select>
         </div>
-        <div style="flex:1;min-width:150px">
-          <label style="font-size:11px;color:var(--muted-2)">Statement date</label>
+        <div style="flex:1;min-width:130px">
+          <label style="font-size:11px;color:var(--muted-2)">Statement covers from</label>
+          <input type="date" value="${escHtml(_periodStart)}" onchange="reconcileSetPeriodStart(this.value)" style="width:100%">
+        </div>
+        <div style="flex:1;min-width:130px">
+          <label style="font-size:11px;color:var(--muted-2)">to</label>
           <input type="date" value="${escHtml(_periodEnd)}" onchange="reconcileSetPeriodEnd(this.value)" style="width:100%">
         </div>
       </div>
@@ -193,8 +217,11 @@ function render() {
         </button>
       </div>
 
-      <div style="font-size:11px;font-weight:700;color:var(--muted-2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">
-        Transactions to ${escHtml(_periodEnd)} · ${r.clearedCount} of ${_txns.length} ticked
+      <div style="font-size:11px;font-weight:700;color:var(--muted-2);text-transform:uppercase;letter-spacing:.4px;margin:0 0 2px">
+        ${escHtml(_periodStart)} to ${escHtml(_periodEnd)} · ${r.clearedCount} of ${_txns.length} ticked
+      </div>
+      <div style="font-size:12px;color:var(--muted-2);margin-bottom:6px">
+        All ticked by default — these came from statements you imported. Untick anything that is not on this statement.
       </div>
       <div style="background:#fff;border:1px solid var(--hairline-1);border-radius:12px;overflow:hidden">
         ${rows || `<div style="padding:20px;text-align:center;color:var(--muted-2);font-size:13px">No transactions on or before this date. Import a bank statement first.</div>`}
@@ -268,7 +295,11 @@ async function reconcileReadStatement(input) {
       say('Could not find the opening and closing balances on that statement — enter them by hand below.', false);
       return;
     }
+    // Take BOTH dates from the statement — it may cover a month or a whole
+    // financial year, and guessing "the month containing the end date" is what
+    // made the list span from January for a one-month statement.
     if (parsed.periodEnd && /^\d{4}-\d{2}-\d{2}$/.test(parsed.periodEnd)) _periodEnd = parsed.periodEnd;
+    if (parsed.periodStart && /^\d{4}-\d{2}-\d{2}$/.test(parsed.periodStart)) _periodStart = parsed.periodStart;
     // Load the period FIRST: loadPeriod re-derives the opening balance from the
     // previous close, so setting the balances before it would wipe them.
     await loadPeriod();
@@ -293,6 +324,7 @@ function reconcileSetOpening(v) { _openingCents = toCents(v); render(); }
 function reconcileSetStatement(v) { _statementCents = toCents(v); render(); }
 async function reconcileSetAccount(id) { _acctId = id; await loadPeriod(); }
 async function reconcileSetPeriodEnd(d) { _periodEnd = d || _monthEnd(); await loadPeriod(); }
+async function reconcileSetPeriodStart(d) { _periodStart = d || _monthStart(_periodEnd); await loadPeriod(); }
 
 async function reconcileClosePeriod() {
   const r = currentResult();
@@ -334,5 +366,6 @@ globalThis.reconcileSetOpening = reconcileSetOpening;
 globalThis.reconcileSetStatement = reconcileSetStatement;
 globalThis.reconcileSetAccount = reconcileSetAccount;
 globalThis.reconcileSetPeriodEnd = reconcileSetPeriodEnd;
+globalThis.reconcileSetPeriodStart = reconcileSetPeriodStart;
 globalThis.reconcileClosePeriod = reconcileClosePeriod;
 globalThis.reconcileUndo = reconcileUndo;

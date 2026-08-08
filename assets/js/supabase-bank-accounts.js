@@ -100,7 +100,7 @@ export async function saveBankAccount(account) {
 /** Transactions eligible for a period: on or before the statement date, for one
  *  account, excluding personal/skipped and anything already reconciled in an
  *  EARLIER closed period. */
-export async function loadTransactionsForPeriod(accountId, periodEnd) {
+export async function loadTransactionsForPeriod(accountId, periodEnd, periodStart) {
   try {
     const user = await getCurrentSupabaseUser();
     if (!user || !accountId || !periodEnd) return [];
@@ -109,6 +109,12 @@ export async function loadTransactionsForPeriod(accountId, periodEnd) {
       .select('id, date, amount, description, direction, import_batch_id, reconciled_at, reconciliation_id')
       .eq('user_id', user.id)
       .eq('bank_account_id', accountId)
+      // A statement covers a PERIOD. Listing everything up to the end date
+      // pulled in months of earlier transactions, which can never reconcile:
+      // the opening balance is the balance at the START of this period, so
+      // anything before it is already inside that figure. That mismatch is what
+      // made the screen show "0 of 167 ticked" for a one-month statement.
+      .gte('date', periodStart || '1900-01-01')
       .lte('date', periodEnd)
       .eq('is_personal', false)
       .eq('skipped', false)

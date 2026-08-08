@@ -81,6 +81,7 @@ reconcileReadStatement
 reconcileSetAccount
 reconcileSetOpening
 reconcileSetPeriodEnd
+reconcileSetPeriodStart
 reconcileSetStatement
 reconcileToggle
 reconcileUndo
