@@ -77,6 +77,7 @@ reconMatchPayout
 reconRestoreTxn
 reconUnlinkPayout
 reconcileClosePeriod
+reconcileReadStatement
 reconcileSetAccount
 reconcileSetOpening
 reconcileSetPeriodEnd

@@ -22,7 +22,7 @@ export { renderSmartPricingPanel } from './smart-pricing.js';
  *
  *  Throws when there is no object at all (including an empty reply) — callers
  *  rely on that to show an error rather than silently reporting success. */
-function parseAIJson(rawText) {
+export function parseAIJson(rawText) {
   const stripped = String(rawText ?? '')
     .replace(/```(?:json)?\s*/gi, '')
     .replace(/```\s*/g, '')

@@ -152,6 +152,16 @@ function render() {
         </div>
       </div>
 
+      <!-- Reading the balances off the statement beats typing them: a wrong
+           digit here sends the host hunting a phantom out-of-balance. -->
+      <div onclick="document.getElementById('reconcile-stmt-input').click()"
+           style="border:2px dashed var(--hairline-1);border-radius:12px;padding:14px 12px;text-align:center;cursor:pointer;margin-bottom:12px;background:var(--surface2)">
+        <div style="font-size:13.5px;font-weight:700;color:var(--ink-1)">Upload your bank statement</div>
+        <div style="font-size:12px;color:var(--muted-2);margin-top:3px">PDF, photo or CSV — reads the opening and closing balance for you</div>
+      </div>
+      <input type="file" id="reconcile-stmt-input" accept="application/pdf,image/*,.csv,.txt" style="display:none" onchange="reconcileReadStatement(this)">
+      <div id="reconcile-stmt-status" style="display:none;font-size:12.5px;padding:8px 10px;border-radius:8px;margin-bottom:12px"></div>
+
       <div style="background:#fff;border:1px solid var(--hairline-1);border-radius:12px;padding:14px;margin-bottom:12px">
         <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0">
           <span style="color:var(--muted-2)">Opening balance${_openingLocked ? ' (from last close)' : ''}</span>
@@ -192,6 +202,86 @@ function render() {
       ${historyHtml}
     </div>`;
 }
+
+/** Read the statement period and balances off the statement itself.
+ *
+ *  Reuses the same ai-proxy path the bank import uses. Only four numbers are
+ *  wanted — period start/end and opening/closing balance — so the prompt is
+ *  deliberately narrow and the reply is parsed with the tolerant JSON reader
+ *  rather than a bare JSON.parse (the model will happily add a sentence).
+ *
+ *  Nothing is saved: it fills the fields and the host confirms. A statement that
+ *  cannot be read leaves the manual inputs exactly as they were. */
+async function reconcileReadStatement(input) {
+  const file = input && input.files && input.files[0];
+  if (input) input.value = '';
+  if (!file) return;
+  const status = document.getElementById('reconcile-stmt-status');
+  const say = (msg, ok) => {
+    if (!status) return;
+    status.style.display = 'block';
+    status.style.background = ok === true ? '#E8F5E9' : ok === false ? '#FDECEA' : '#FFF8E1';
+    status.style.color = ok === true ? '#2E7D32' : ok === false ? '#C0392B' : '#E65100';
+    status.textContent = msg;
+  };
+  if (file.size > 12 * 1024 * 1024) { say('That file is over 12 MB — try a single statement, not a full year.', false); return; }
+  say('⟳ Reading your statement…');
+
+  try {
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    const isImage = (file.type || '').startsWith('image/');
+    let content;
+    if (isPdf || isImage) {
+      const dataUrl = await new Promise((res, rej) => {
+        const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = rej; r.readAsDataURL(file);
+      });
+      const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+      content = isPdf
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
+        : { type: 'image', source: { type: 'base64', media_type: file.type || 'image/jpeg', data: b64 } };
+    } else {
+      const text = await new Promise((res, rej) => {
+        const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = rej; r.readAsText(file);
+      });
+      content = { type: 'text', text: 'Bank statement:\n' + text.slice(0, 60000) };
+    }
+
+    const { AIService } = await import('./ai-logic.js');
+    const { response, data } = await AIService.request({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 400,
+      messages: [{ role: 'user', content: [content, { type: 'text', text:
+        'This is a bank statement. Return ONLY a JSON object, no markdown, with exactly these fields: '
+        + '{"periodStart":"YYYY-MM-DD","periodEnd":"YYYY-MM-DD","openingBalance":number,"closingBalance":number}. '
+        + 'openingBalance is the balance brought forward at the START of the statement period. '
+        + 'closingBalance is the balance at the END. Both are plain numbers with no currency symbol or commas; '
+        + 'use a negative number if the account is overdrawn. Use null for anything you cannot find.' }] }],
+    });
+    if (!response.ok) throw new Error((data && data.error && (data.error.message || data.error)) || 'API error');
+
+    const { parseAIJson } = await import('./ai.js');
+    const parsed = parseAIJson(data.content?.[0]?.text || '{}');
+
+    const open = Number(parsed.openingBalance);
+    const close = Number(parsed.closingBalance);
+    if (!Number.isFinite(open) && !Number.isFinite(close)) {
+      say('Could not find the opening and closing balances on that statement — enter them by hand below.', false);
+      return;
+    }
+    if (parsed.periodEnd && /^\d{4}-\d{2}-\d{2}$/.test(parsed.periodEnd)) _periodEnd = parsed.periodEnd;
+    // Load the period FIRST: loadPeriod re-derives the opening balance from the
+    // previous close, so setting the balances before it would wipe them.
+    await loadPeriod();
+    if (Number.isFinite(open)) { _openingCents = toCents(open); _openingLocked = false; }
+    if (Number.isFinite(close)) _statementCents = toCents(close);
+    render();
+    say(`✓ Read ${parsed.periodStart || '?'} → ${parsed.periodEnd || '?'} · opening $${money(_openingCents)} · closing $${money(_statementCents)}. Check they match your statement, then tick the rows.`, true);
+  } catch (err) {
+    console.warn('[StayOps] reconcileReadStatement failed', err);
+    say('Could not read that statement — ' + ((err && err.message) || 'unknown error') + '. You can still enter the balances by hand.', false);
+  }
+}
+globalThis.reconcileReadStatement = reconcileReadStatement;
 
 // ── handlers (inline-onclick API) ────────────────────────────────────────────
 function reconcileToggle(id) {
