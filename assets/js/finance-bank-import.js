@@ -736,13 +736,17 @@ async function bankImportOnFileSelected(ev) {
     globalThis._bankImportProgress('duplicates', '');
 
     // Stamp provenance on every row of THIS file before anything is written.
-    // bank_name and import_batch_id were declared in the schema but never
-    // populated (0 of 89 rows), so there was no way to undo an import or trace a
-    // period back to its statement — the most likely cause of a stuck
-    // out-of-balance. bank_account_id decides which account's balance a row
-    // counts toward; without it the reconcile silently computes over a subset.
-    const _batchId = (globalThis.crypto && globalThis.crypto.randomUUID)
-      ? globalThis.crypto.randomUUID() : null;
+    // bank_account_id decides which account's balance a row counts toward;
+    // without it the reconcile silently computes over a subset.
+    //
+    // import_batch_id is deliberately NOT set here. It is a FOREIGN KEY to
+    // bank_import_log, so a generated uuid points at no row and Postgres
+    // rejects EVERY insert with
+    //   violates foreign key constraint "bank_transactions_import_batch_id_fkey"
+    // — which is exactly what it did: a whole import failing with nothing
+    // written. Populating it properly means creating the bank_import_log row
+    // BEFORE the transactions and threading its id through, which is a separate
+    // change; leaving it null matches the behaviour of every existing row.
     let _acctId = null;
     try {
       const acct = typeof getOrCreateDefaultBankAccount === 'function'
@@ -752,7 +756,6 @@ async function bankImportOnFileSelected(ev) {
     const _bankLabel = _bankImportFilename ? _bankImportFilename.replace(/\.[^.]+$/, '') : null;
     for (const p of parsed) {
       if (!p) continue;
-      p.importBatchId = _batchId;
       p.bankAccountId = _acctId;
       if (!p.bankName) p.bankName = _bankLabel;
     }
