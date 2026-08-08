@@ -547,5 +547,8 @@ export function parseAirbnbTransactionCsv(text) {
 
   _lastRejection = null;
   _lastRejectionDetail = null;
-  return { source: 'paste_csv', recognised: true, payouts, meta };
+  // 'csv' — NOT a new value. platform_payouts_source_check already allows
+  // exactly ('manual','paste_ai','csv','email','api'); inventing 'paste_csv'
+  // made every insert fail the constraint.
+  return { source: 'csv', recognised: true, payouts, meta };
 }

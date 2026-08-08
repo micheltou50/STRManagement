@@ -362,3 +362,11 @@ test('a wholesale-mis-bound file is refused, and says which numbers disagreed', 
   assert.match(msg, /777\.77/, 'the message must name the actual figures');
   assert.match(msg, /300\.00/);
 });
+
+test('source is a value the database actually allows', async () => {
+  // platform_payouts_source_check permits only manual/paste_ai/csv/email/api.
+  // An invented value passes every test and fails every insert at runtime.
+  const { parseAirbnbTransactionCsv } = await load();
+  const out = parseAirbnbTransactionCsv(file(REAL_PAYOUT, REAL_RESERVATION));
+  assert.ok(['manual', 'paste_ai', 'csv', 'email', 'api'].includes(out.source), `bad source: ${out.source}`);
+});
