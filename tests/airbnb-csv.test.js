@@ -370,3 +370,13 @@ test('source is a value the database actually allows', async () => {
   const out = parseAirbnbTransactionCsv(file(REAL_PAYOUT, REAL_RESERVATION));
   assert.ok(['manual', 'paste_ai', 'csv', 'email', 'api'].includes(out.source), `bad source: ${out.source}`);
 });
+
+test('reservation lines carry guest and check-in so a codeless booking can match', async () => {
+  // 7 of 60 bookings came from the original spreadsheet import with no
+  // confirmation code, so code-only matching could never link their payouts.
+  const { parseAirbnbTransactionCsv } = await load();
+  const p = parseAirbnbTransactionCsv(file(REAL_PAYOUT, REAL_RESERVATION)).payouts[0];
+  const accom = p.lines.find(l => l.lineType === 'accommodation');
+  assert.strictEqual(accom.guestName, 'Daniel Wilson');
+  assert.strictEqual(accom.checkin, '2026-02-14', 'the stay start, ISO, from the Start date column');
+});

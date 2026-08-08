@@ -281,10 +281,14 @@ function _reservationLines(row, cols) {
   const code = String(_cell(row, cols, 'confirmation') || '').trim() || null;
   const who = guest || String(_cell(row, cols, 'listing') || '').trim() || 'Reservation';
   const desc = nights ? `${who} · ${nights} night${nights === '1' ? '' : 's'}` : who;
+  // Carried so a line can still find its booking when there is no confirmation
+  // code to match on: bookings imported from the original spreadsheet have none,
+  // and a code-only matcher can never link their payouts to a stay.
+  const stay = { guestName: guest || null, checkin: _parseUsDateToIso(_cell(row, cols, 'startDate')) };
 
-  const lines = [{ lineType: 'accommodation', description: desc, amount: accomCents / 100, confirmationCode: code }];
+  const lines = [{ lineType: 'accommodation', description: desc, amount: accomCents / 100, confirmationCode: code, ...stay }];
   if (cleaningCents !== 0) {
-    lines.push({ lineType: 'cleaning_fee', description: 'Cleaning fee', amount: cleaningCents / 100, confirmationCode: code });
+    lines.push({ lineType: 'cleaning_fee', description: 'Cleaning fee', amount: cleaningCents / 100, confirmationCode: code, ...stay });
   }
   if (feeCents !== 0) {
     // Fees are written positive in the file and MUST be emitted negative, or

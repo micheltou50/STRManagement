@@ -198,14 +198,40 @@ function _payoutPasteStatus(msg, kind) {
  *  populated by replaceArrayInPlace during hydration). The in-memory field is
  *  `b.confirmCode` (set by loadBookingsFromCloud), NOT `confirmationCode` or
  *  `confirmation_code` — those are DB / AI shapes. */
-function _matchPayoutLineToBooking(confirmationCode) {
-  if (!confirmationCode) return null;
-  const target = String(confirmationCode).trim().toLowerCase();
-  if (!target) return null;
-  return bookings.find(b => {
-    const code = String(b.confirmCode || '').trim().toLowerCase();
-    return code && code === target;
-  }) || null;
+/**
+ * Find the booking a payout line belongs to.
+ *
+ * Confirmation code first — it is exact. But 7 of 60 bookings came from the
+ * original spreadsheet import and carry no code at all, so a code-only matcher
+ * could never link their payouts to a stay, and the review screen reported
+ * "No booking with code HM…" for stays that were sitting right there.
+ * Guest name + check-in date is the fallback, and only when it is unambiguous.
+ * 'guest_dates' is already a permitted matched_by value in the schema.
+ *
+ * @returns {{booking:object, matchedBy:string, confidence:string}|null}
+ */
+function _matchPayoutLineToBooking(confirmationCode, line) {
+  const norm = s => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+  const target = norm(confirmationCode);
+  if (target) {
+    const byCode = bookings.find(b => {
+      const code = norm(b.confirmCode);
+      return code && code === target;
+    });
+    if (byCode) return { booking: byCode, matchedBy: 'confirmation_code', confidence: 'high' };
+  }
+
+  const name = norm(line && line.guestName);
+  const checkin = String((line && line.checkin) || '').trim();
+  if (!name || !checkin) return null;
+  const hits = bookings.filter(b =>
+    norm(b.name) === name && String(b.checkin || '').trim() === checkin);
+  // One and only one. Two stays by the same guest on the same night would be a
+  // guess, and a wrong booking link is worse than none.
+  return hits.length === 1
+    ? { booking: hits[0], matchedBy: 'guest_dates', confidence: 'medium' }
+    : null;
 }
 
 async function extractPayoutWithAI() {
@@ -479,9 +505,12 @@ function _renderPayoutPasteReview(extracted) {
         : '');
 
     const linesHtml = lines.map((line, lIdx) => {
-      const matched = _matchPayoutLineToBooking(line.confirmationCode);
+      const match = _matchPayoutLineToBooking(line.confirmationCode, line);
+      const matched = match ? match.booking : null;
       const matchedId = matched ? matched._cloudId : null;
-      const matchedLabel = matched ? `${matched.name || 'Guest'} · ${matched.checkin || '?'}` : null;
+      const matchedLabel = matched
+        ? `${matched.name || 'Guest'} · ${matched.checkin || '?'}${match.matchedBy === 'guest_dates' ? ' (by name + date)' : ''}`
+        : null;
       const showsBookingPicker = ['accommodation', 'cleaning_fee', 'cancellation', 'resolution'].includes(line.lineType);
       const amtColor = (Number(line.amount) || 0) < 0 ? '#A32D2D' : '#1D9E75';
       const selectKey = `${pIdx}.${lIdx}`;
@@ -645,10 +674,10 @@ async function savePayoutFromPasteModal() {
         matchedBy = bookingId ? 'manual' : null;
         confidence = bookingId ? 'high' : 'low';
       } else {
-        const auto = _matchPayoutLineToBooking(l.confirmationCode);
-        bookingId = auto ? auto._cloudId : null;
-        matchedBy = bookingId ? 'confirmation_code' : null;
-        confidence = bookingId ? 'high' : 'low';
+        const auto = _matchPayoutLineToBooking(l.confirmationCode, l);
+        bookingId = auto ? auto.booking._cloudId : null;
+        matchedBy = auto ? auto.matchedBy : null;
+        confidence = auto ? auto.confidence : 'low';
       }
       return {
         lineType: l.lineType || 'other',
