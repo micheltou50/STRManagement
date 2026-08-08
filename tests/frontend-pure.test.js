@@ -408,3 +408,84 @@ test('payoutSettlementState(): three states, and bank evidence outranks attestat
   assert.strictEqual(payoutSettlementState({}), 'outstanding');
   assert.strictEqual(payoutSettlementState(null), 'outstanding');
 });
+
+// planPayoutAutoMatch — the one-click "Match all". Matching was manual only, so
+// 34 payouts against 29 deposits never got reconciled. Every case here is about
+// REFUSING to guess: a wrong link hides a genuinely missing deposit behind a
+// plausible one, which is the exact silent error this whole area exists to stop.
+const payout = (id, date, net, extra = {}) =>
+  ({ _cloudId: id, payoutDate: date, expectedArrivalDate: null, net, bankTransactionId: null, ...extra });
+const credit = (id, date, amount, extra = {}) =>
+  ({ id, date, amount, direction: 'credit', isPersonal: false, skipped: false, ...extra });
+
+test('planPayoutAutoMatch(): links a clean one-to-one match', async () => {
+  const { planPayoutAutoMatch } = await import(moneyInUrl);
+  const plan = planPayoutAutoMatch({
+    payouts: [payout('p1', '2026-07-20', 1489.18)],
+    creditTxns: [credit('c1', '2026-07-24', 1489.18)],
+  });
+  assert.strictEqual(plan.links.length, 1);
+  assert.strictEqual(plan.links[0].credit.id, 'c1');
+  assert.strictEqual(plan.unmatched.length, 0);
+});
+
+test('planPayoutAutoMatch(): refuses when two payouts want the same deposit', async () => {
+  const { planPayoutAutoMatch } = await import(moneyInUrl);
+  const plan = planPayoutAutoMatch({
+    payouts: [payout('p1', '2026-07-20', 500), payout('p2', '2026-07-21', 500)],
+    creditTxns: [credit('c1', '2026-07-22', 500)],
+  });
+  assert.strictEqual(plan.links.length, 0, 'linking either one would be a coin toss');
+  assert.strictEqual(plan.ambiguous.length, 2);
+});
+
+test('planPayoutAutoMatch(): refuses when one payout has two candidate deposits', async () => {
+  const { planPayoutAutoMatch } = await import(moneyInUrl);
+  const plan = planPayoutAutoMatch({
+    payouts: [payout('p1', '2026-07-20', 500)],
+    creditTxns: [credit('c1', '2026-07-21', 500), credit('c2', '2026-07-23', 500)],
+  });
+  assert.strictEqual(plan.links.length, 0);
+  assert.strictEqual(plan.ambiguous[0].candidates.length, 2);
+});
+
+test('planPayoutAutoMatch(): a deposit already settling a payout is off the table', async () => {
+  const { planPayoutAutoMatch } = await import(moneyInUrl);
+  const plan = planPayoutAutoMatch({
+    payouts: [payout('p1', '2026-07-20', 500, { bankTransactionId: 'c1' }), payout('p2', '2026-07-20', 500)],
+    creditTxns: [credit('c1', '2026-07-22', 500)],
+  });
+  assert.strictEqual(plan.links.length, 0, 'c1 is taken; p2 must not steal it');
+  assert.strictEqual(plan.unmatched.length, 1);
+});
+
+test('planPayoutAutoMatch(): honours the arrival window and skips personal rows', async () => {
+  const { planPayoutAutoMatch } = await import(moneyInUrl);
+  const tooLate = planPayoutAutoMatch({
+    payouts: [payout('p1', '2026-07-01', 500)],
+    creditTxns: [credit('c1', '2026-07-20', 500)],
+  });
+  assert.strictEqual(tooLate.links.length, 0, '19 days later is not this payout');
+
+  const arrivesLater = planPayoutAutoMatch({
+    payouts: [payout('p1', '2026-07-01', 500, { expectedArrivalDate: '2026-07-15' })],
+    creditTxns: [credit('c1', '2026-07-18', 500)],
+  });
+  assert.strictEqual(arrivesLater.links.length, 1, 'window extends from expected arrival');
+
+  const personal = planPayoutAutoMatch({
+    payouts: [payout('p1', '2026-07-20', 500)],
+    creditTxns: [credit('c1', '2026-07-22', 500, { isPersonal: true })],
+  });
+  assert.strictEqual(personal.links.length, 0);
+});
+
+test('planPayoutAutoMatch(): a cent of difference is not a match', async () => {
+  const { planPayoutAutoMatch } = await import(moneyInUrl);
+  const plan = planPayoutAutoMatch({
+    payouts: [payout('p1', '2026-07-20', 1489.18)],
+    creditTxns: [credit('c1', '2026-07-22', 1489.19)],
+  });
+  assert.strictEqual(plan.links.length, 0);
+  assert.strictEqual(plan.unmatched.length, 1);
+});

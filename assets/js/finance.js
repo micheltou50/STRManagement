@@ -24,6 +24,7 @@ import {
 } from './ai.js';
 import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud, getCurrentSupabaseUser, loadPlatformPayouts } from './supabase.js';
 import { renderMoneyInList, moneyInFiltersHtml } from './finance-money-in.js';
+import { planPayoutAutoMatch } from './money-in-model.js';
 import {
   bookingRevenue,
   bookingCleaningFee,
@@ -3814,7 +3815,14 @@ function _renderReconFromCache() {
       filter: _moneyInFilter,
     });
     summaryBar.innerHTML = summaryHtml;
-    filtersEl.innerHTML = moneyInFiltersHtml(_moneyInFilter);
+    // The button states its own count, so the host knows exactly what will
+    // happen before clicking, and it only appears when there is something to
+    // do. Every link it makes is individually reversible via Unlink.
+    const plan = planPayoutAutoMatch({ payouts: _moneyInPayouts, creditTxns: credits });
+    const matchAllHtml = plan.links.length
+      ? `<button onclick="moneyInMatchAll()" style="margin-left:8px;font-size:12px;font-weight:600;padding:6px 12px;border-radius:999px;border:1px solid var(--primary);background:var(--primary);color:#fff;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Match ${plan.links.length} deposit${plan.links.length === 1 ? '' : 's'}</button>`
+      : '';
+    filtersEl.innerHTML = moneyInFiltersHtml(_moneyInFilter) + matchAllHtml;
     return;
   }
 
@@ -4269,6 +4277,52 @@ async function reconMatchPayout(txnId, date, amount, description) {
   document.body.style.overflow = 'hidden';
 }
 globalThis.reconMatchPayout = reconMatchPayout;
+
+/**
+ * Link every payout that has exactly one unambiguous deposit, in one pass.
+ *
+ * Matching was one-at-a-time only, which is not a workflow anyone finishes
+ * across 30-odd payouts — so the money-in view stayed permanently unreconciled
+ * even when the deposits were sitting right there. planPayoutAutoMatch does the
+ * deciding (and refuses anything ambiguous); this just applies it and reports.
+ */
+async function moneyInMatchAll() {
+  const credits = (_reconTxns || []).filter(t => t && t.direction === 'credit');
+  const plan = planPayoutAutoMatch({ payouts: _moneyInPayouts, creditTxns: credits });
+  if (!plan.links.length) {
+    globalThis.showBanner('Nothing to match automatically — no payout has a single unambiguous deposit', 'warn');
+    return;
+  }
+
+  const total = plan.links.length;
+  let linked = 0;
+  const failed = [];
+  for (const { payout, credit } of plan.links) {
+    globalThis.showBanner(`⏳ Matching ${linked + 1} of ${total}...`, 'ok');
+    const res = await linkTransactionToPayout(credit.id, payout._cloudId, { bankDate: credit.date });
+    if (res && res.success) {
+      linked += 1;
+    } else {
+      failed.push(`${payout.payoutDate || '?'} $${Math.abs(Number(payout.net) || 0).toFixed(2)}`);
+    }
+  }
+
+  // Refetch rather than patch: dozens of rows changed, and a stale in-memory
+  // view here is exactly how a payout ends up looking settled when it is not.
+  await renderReconciliationView();
+
+  // Name what was left behind. Reporting only the successes would present a
+  // partial match as a complete one.
+  const leftovers = [];
+  if (plan.ambiguous.length) leftovers.push(`${plan.ambiguous.length} need a choice (more than one possible deposit)`);
+  if (plan.unmatched.length) leftovers.push(`${plan.unmatched.length} have no matching deposit imported`);
+  if (failed.length) leftovers.push(`${failed.length} failed to save: ${failed.join(', ')}`);
+
+  globalThis.showBanner(
+    `✓ ${linked} of ${total} linked` + (leftovers.length ? ` · ${leftovers.join(' · ')}` : ''),
+    failed.length ? 'warn' : 'ok');
+}
+globalThis.moneyInMatchAll = moneyInMatchAll;
 
 /** Link a bank credit row to a platform_payouts row and update UI in place. */
 async function reconLinkToPayout(txnId, payoutId) {

@@ -114,6 +114,84 @@ export function buildMoneyInLedger({ payouts = [], creditTxns = [] } = {}) {
   return rows;
 }
 
+function _addDays(iso, n) {
+  const d = new Date(String(iso) + 'T00:00:00Z');
+  if (Number.isNaN(d.getTime())) return null;
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Work out which unsettled payouts can be linked to which unclaimed deposits.
+ *
+ * Payouts and deposits were only ever matchable one at a time, by hand. With 34
+ * payouts against 29 deposits that is not a workflow anyone completes, so the
+ * money-in view sat permanently unreconciled.
+ *
+ * ONLY genuine one-to-one matches are proposed. A payout is linked when it has
+ * exactly one candidate deposit AND no other payout wants that same deposit.
+ * Anything else is returned as ambiguous for the host to decide, because a wrong
+ * link is worse than no link: it hides a genuinely missing deposit behind a
+ * plausible one, and that is precisely the kind of silent error the reconcile
+ * screen exists to make impossible.
+ *
+ * Window: a payout is issued on payoutDate and lands a few days later, so the
+ * deposit is looked for from payoutDate - daysBefore to expectedArrival +
+ * daysAfter. ISO date strings compare correctly as strings.
+ *
+ * @returns {{links:Array<{payout,credit}>, ambiguous:Array, unmatched:Array}}
+ */
+export function planPayoutAutoMatch({ payouts = [], creditTxns = [], daysBefore = 2, daysAfter = 7 } = {}) {
+  // A deposit already settling some payout is off the table.
+  const taken = new Set();
+  for (const p of payouts) {
+    if (p && p.bankTransactionId) taken.add(String(p.bankTransactionId));
+  }
+
+  const open = payouts.filter(p =>
+    p && String(p.status || 'active') !== 'deleted' && !p.bankTransactionId);
+  const free = creditTxns.filter(t =>
+    t && t.id != null && !t.isPersonal && !t.skipped && !taken.has(String(t.id)));
+
+  // Candidates for every payout first — claiming as we go would let an early
+  // payout take a deposit that a later one needed uniquely.
+  const candidates = new Map();
+  for (const p of open) {
+    const target = Math.abs(toCents(p.net));
+    const from = p.payoutDate || p.expectedArrivalDate;
+    const to = p.expectedArrivalDate || p.payoutDate;
+    if (!from || !to || !target) { candidates.set(String(p._cloudId), []); continue; }
+    const lo = _addDays(from, -daysBefore);
+    const hi = _addDays(to, daysAfter);
+    candidates.set(String(p._cloudId), free.filter(t =>
+      t.date && lo && hi && t.date >= lo && t.date <= hi
+      && Math.abs(toCents(t.amount)) === target));
+  }
+
+  // How many payouts are competing for each deposit.
+  const wantedBy = new Map();
+  for (const hits of candidates.values()) {
+    for (const t of hits) {
+      const k = String(t.id);
+      wantedBy.set(k, (wantedBy.get(k) || 0) + 1);
+    }
+  }
+
+  const links = [];
+  const ambiguous = [];
+  const unmatched = [];
+  for (const p of open) {
+    const hits = candidates.get(String(p._cloudId)) || [];
+    if (!hits.length) { unmatched.push(p); continue; }
+    if (hits.length === 1 && wantedBy.get(String(hits[0].id)) === 1) {
+      links.push({ payout: p, credit: hits[0] });
+    } else {
+      ambiguous.push({ payout: p, candidates: hits });
+    }
+  }
+  return { links, ambiguous, unmatched };
+}
+
 /** Headline counts for the summary tiles. Money-in specific — "matched /
  *  unaccounted / personal" never described this side of the ledger. */
 export function summariseMoneyIn(rows = []) {

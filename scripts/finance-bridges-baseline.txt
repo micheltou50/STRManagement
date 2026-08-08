@@ -60,6 +60,7 @@ getTotalDepreciationForFY
 mgmtCheckboxChange
 mgmtToggleSelectAll
 moneyInFindDeposit
+moneyInMatchAll
 moneyInSetFilter
 openExpenseEdit
 openExpenseView
