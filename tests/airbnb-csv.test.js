@@ -296,3 +296,32 @@ test('the module imports with no window defined', async () => {
   const mod = await load();
   assert.strictEqual(typeof mod.parseAirbnbTransactionCsv, 'function');
 });
+
+test('a rejection always carries a reason the UI can show', async () => {
+  // Falling through to the AI in silence costs ten seconds and returns an
+  // unexplained 504 — the host is left with nothing to act on.
+  const { parseAirbnbTransactionCsv, lastAirbnbCsvRejection, describeAirbnbCsvRejection, looksTabular } = await load();
+
+  assert.strictEqual(parseAirbnbTransactionCsv('Please see attached.'), null);
+  assert.ok(lastAirbnbCsvRejection(), 'a reason must be recorded');
+  assert.ok(describeAirbnbCsvRejection().length > 10, 'and be human-readable');
+
+  // A bank CSV has neither the headings nor the 21-column shape.
+  const bank = 'Date,Description,Debit,Credit,Balance\n' + Array.from({ length: 8 },
+    (_, i) => `0${i + 1}/01/2026,EFTPOS SHOP,45.20,,1000.00`).join('\n');
+  assert.strictEqual(parseAirbnbTransactionCsv(bank), null);
+  assert.strictEqual(lastAirbnbCsvRejection(), 'no_header');
+
+  // Right headings, wrong vocabulary in the Type column.
+  const wrongTypes = file(...Array.from({ length: 6 },
+    (_, i) => `0${i + 1}/01/2026,,Groceries,,,,,,,,Shop,,AUD,45.20,,,,,,,2026`));
+  assert.strictEqual(parseAirbnbTransactionCsv(wrongTypes), null);
+  assert.strictEqual(lastAirbnbCsvRejection(), 'no_airbnb_row_types');
+
+  // A successful parse must clear the previous reason.
+  assert.ok(parseAirbnbTransactionCsv(file(REAL_PAYOUT, REAL_RESERVATION)));
+  assert.strictEqual(lastAirbnbCsvRejection(), null);
+
+  assert.strictEqual(looksTabular(bank), true, 'a CSV is tabular');
+  assert.strictEqual(looksTabular('Please see attached.'), false, 'prose is not');
+});

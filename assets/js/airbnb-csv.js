@@ -83,6 +83,42 @@ const LINE_TYPES = new Set([
 const PICKABLE = new Set(['accommodation', 'cleaning_fee', 'cancellation', 'resolution']);
 
 /**
+ * Why the last parse gave up. Falling through to the AI in silence means a
+ * mis-recognised file costs the host ten seconds and an unexplained 504, with
+ * nothing to act on — the exact "no way of finding out" complaint this whole
+ * screen exists to answer.
+ */
+let _lastRejection = null;
+export function lastAirbnbCsvRejection() { return _lastRejection; }
+
+const REJECTION_TEXT = {
+  empty: 'the file appears to be empty',
+  no_header: 'no recognisable column headings, and the rows are not the 21-column layout',
+  no_airbnb_row_types: 'no Payout or Reservation rows found in the Type column',
+  money_or_date_column_unresolved: 'the Amount, Paid out or Date column could not be identified',
+  money_columns_disagree: 'the money columns did not add up as expected, so the layout is probably different',
+  dates_not_month_first: 'the dates are not in Airbnb’s month-first format',
+};
+
+/** Human-readable form of lastAirbnbCsvRejection(), for UI copy. */
+export function describeAirbnbCsvRejection() {
+  return REJECTION_TEXT[_lastRejection] || 'the layout was not recognised';
+}
+
+function _reject(reason) { _lastRejection = reason; return null; }
+
+/** Cheap "is this a spreadsheet export?" test, used to tell a wrong-layout CSV
+ *  apart from genuinely unstructured prose. */
+export function looksTabular(text) {
+  const lines = String(text ?? '').split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 5) return false;
+  // 3 commas, not 5: a 5-column bank export has only 4 per line, and it is just
+  // as much a spreadsheet as a 21-column Airbnb one. Prose rarely reaches 3.
+  const commaHeavy = lines.filter(l => (l.match(/,/g) || []).length >= 3).length;
+  return commaHeavy >= Math.min(5, Math.floor(lines.length * 0.5));
+}
+
+/**
  * RFC-4180 tokenizer over the WHOLE text, not line by line: listing titles and
  * bank Details strings are free text and legitimately contain commas, quotes
  * and newlines. Both existing splitters in this repo mishandle a doubled quote.
@@ -334,7 +370,7 @@ function _crossCheck(rows, cols) {
  */
 export function parseAirbnbTransactionCsv(text) {
   const records = parseCsvRecords(text);
-  if (!records.length) return null;
+  if (!records.length) return _reject('empty');
 
   const meta = {
     totalRecords: records.length,
@@ -366,7 +402,7 @@ export function parseAirbnbTransactionCsv(text) {
   } else if (records.some(r => r.length === POSITIONAL.year + 1)) {
     cols = { ...POSITIONAL }; // headerless "Completed Payouts" variant
   }
-  if (!cols) return null;
+  if (!cols) return _reject('no_header');
 
   const bodyRows = records.filter((r, i) => i !== headerIdx && r.length > 4);
   // Must actually look like this export: a Type column carrying Airbnb's own
@@ -375,10 +411,10 @@ export function parseAirbnbTransactionCsv(text) {
     const t = String(_cell(r, cols, 'type') || '');
     return _isPayoutRow(t) || /reservation|resolution|adjust|cancel|tax/i.test(t);
   });
-  if (!typedRows.length) return null;
+  if (!typedRows.length) return _reject('no_airbnb_row_types');
 
   const failure = _crossCheck(bodyRows, cols);
-  if (failure) return null; // half-parsing is worse than falling back to AI
+  if (failure) return _reject(failure); // half-parsing is worse than falling back to AI
 
   records.forEach((row, idx) => {
     if (idx === headerIdx) { meta.headerRows += 1; return; }
@@ -480,5 +516,6 @@ export function parseAirbnbTransactionCsv(text) {
     seenKey.add(key);
   }
 
+  _lastRejection = null;
   return { source: 'paste_csv', recognised: true, payouts, meta };
 }

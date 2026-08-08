@@ -14,7 +14,7 @@ import { AIService } from './ai-logic.js';
 import { isRevenueBearingBooking } from './booking-revenue.js';
 import { savePlatformPayout, insertPayoutLines } from './supabase.js';
 import { _financeActiveCloudPropertyId } from './finance-shared.js';
-import { parseAirbnbTransactionCsv } from './airbnb-csv.js';
+import { parseAirbnbTransactionCsv, describeAirbnbCsvRejection, looksTabular } from './airbnb-csv.js';
 
 let _payoutExtracted = null;     // last AI-parsed payload (state B)
 let _payoutMatchOverrides = {};  // user-edited booking matches by line index
@@ -250,6 +250,19 @@ async function extractPayoutWithAI() {
         `This is an Airbnb export, but it has no completed payouts in it`
         + (n ? ` — ${n} reservation${n === 1 ? ' is' : 's are'} booked but not yet paid out.` : '.')
         + ' Export a date range that includes the payouts you want, then paste again.');
+      return;
+    }
+    // Not recognised. If it is a big spreadsheet export, the AI below will just
+    // burn ten seconds and return 504 — so say what actually happened instead of
+    // failing silently and blaming the network.
+    if (!parsed && looksTabular(rawText) && rawText.length > 8000) {
+      const firstLine = rawText.split(/\r?\n/).find(l => l.trim() && !l.startsWith('---') && !l.startsWith('===')) || '';
+      console.warn('[StayOps] CSV not recognised —', describeAirbnbCsvRejection(), '| first row:', firstLine.slice(0, 400));
+      _payoutPasteStatus(
+        `⚠ This is a spreadsheet export, but not a layout StayOps recognises — ${describeAirbnbCsvRejection()}. `
+        + 'It is also too long for the AI fallback to read in one pass. Paste a shorter date range for now; '
+        + 'the exact column headings are in the browser console if you want to report them.',
+        'err');
       return;
     }
   }
