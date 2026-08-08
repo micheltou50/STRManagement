@@ -14,6 +14,7 @@ import { AIService } from './ai-logic.js';
 import { isRevenueBearingBooking } from './booking-revenue.js';
 import { savePlatformPayout, insertPayoutLines } from './supabase.js';
 import { _financeActiveCloudPropertyId } from './finance-shared.js';
+import { parseAirbnbTransactionCsv } from './airbnb-csv.js';
 
 let _payoutExtracted = null;     // last AI-parsed payload (state B)
 let _payoutMatchOverrides = {};  // user-edited booking matches by line index
@@ -220,6 +221,39 @@ async function extractPayoutWithAI() {
     _payoutPasteStatus('⚠ That looks too short — paste the full statement', 'err');
     return;
   }
+  // A structured Airbnb export is parsed HERE, exactly — before the AI is even
+  // considered. A full financial year returned HTTP 504 because Netlify kills a
+  // synchronous function at 10s, and max_tokens 4000 would have truncated the
+  // reply anyway. Parsing in the browser is instant, free, offline, and cannot
+  // hit either wall. Deliberately ahead of the AIService guard below so this
+  // still works when ai-logic.js failed to load.
+  if (!hasFile) {
+    let parsed = null;
+    try {
+      parsed = parseAirbnbTransactionCsv(rawText);
+    } catch (e) {
+      console.warn('[StayOps] Airbnb CSV parse threw — falling back to AI', e);
+    }
+    if (parsed && parsed.payouts.length) {
+      _payoutExtracted = parsed;
+      _payoutMatchOverrides = {};
+      _renderPayoutPasteReview(parsed);
+      return;
+    }
+    if (parsed && parsed.recognised) {
+      // Recognised, but nothing has actually settled. This must NOT fall
+      // through to the AI: its prompt says each Reservation is usually paired
+      // with its own Payout, so it would fabricate deposits that never reached
+      // the bank and inflate reported income.
+      const n = parsed.meta.unpaidRows;
+      _payoutPasteStatus(
+        `This is an Airbnb export, but it has no completed payouts in it`
+        + (n ? ` — ${n} reservation${n === 1 ? ' is' : 's are'} booked but not yet paid out.` : '.')
+        + ' Export a date range that includes the payouts you want, then paste again.');
+      return;
+    }
+  }
+
   if (!AIService || typeof AIService.request !== 'function') {
     _payoutPasteStatus('⚠ AI service not available', 'err');
     return;
@@ -250,7 +284,7 @@ Extract this shape:
 }
 
 Each payout object:
-- platform: "airbnb" / "booking_com" / "vrbo" / "stayz" / "direct" / "other" — use the user hint unless the statement obviously says otherwise
+- platform: "airbnb" / "booking_com" / "vrbo" / "stayz" / "direct" / "other" — the user hint above is authoritative; only choose a different value when the hint is "other". (Branding can mislead: VRBO statements are issued by Expedia Group, Stayz is VRBO's AU brand.)
 - payoutReference: platform's own ID (Airbnb "PAY-XXXXXXXX", Booking.com invoice #, or null)
 - payoutDate: YYYY-MM-DD — date the platform issued THIS payout (null if not in text)
 - expectedArrivalDate: YYYY-MM-DD if a bank arrival ETA is mentioned for THIS payout, else null
@@ -303,7 +337,21 @@ Return EXACTLY this top-level shape (note the OUTER payouts array):
       max_tokens: 4000,
       messages
     });
-    if (!response.ok) throw new Error(data?.error?.message || 'AI service returned HTTP ' + response.status);
+    if (!response.ok) {
+      // "AI service returned HTTP 504" tells the host nothing they can act on.
+      // A gateway timeout here means one thing: too much text for the 10s
+      // Netlify budget. Airbnb CSVs never reach this code — they are parsed
+      // in-browser above — so this copy is for the other platforms.
+      if (response.status === 504 || response.status === 408 || response.status === 502) {
+        throw new Error('That statement was too long to read in one go — the server gives up after 10 seconds. Paste a shorter date range (a month at a time works), or attach the CSV export instead.');
+      }
+      throw new Error(data?.error?.message || 'AI service returned HTTP ' + response.status);
+    }
+    // Truncation is the OTHER size wall, and it arrives looking like corrupt
+    // JSON rather than an error. Name it before the parse fails confusingly.
+    if (data?.stop_reason === 'max_tokens') {
+      throw new Error('That statement had more line items than can be read in one pass — the reply was cut off partway. Paste a shorter date range, or attach the CSV export instead.');
+    }
     const text = data?.content?.[0]?.text || '';
     if (!text) throw new Error('AI returned an empty response');
     const cleaned = text.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
@@ -365,6 +413,27 @@ function _renderPayoutPasteReview(extracted) {
   const platformsSet = Array.from(new Set(payouts.map(p => p.platform || 'platform')));
   const payoutCount = payouts.length;
 
+  // Every row the parser did NOT turn into a payout has to be visible here.
+  // Counting them into an object nobody renders is how an import shows a
+  // confident green total while quietly dropping hundreds of rows.
+  const meta = extracted.meta || null;
+  const notes = [];
+  if (meta) {
+    if (meta.unpaidRows) notes.push(`${meta.unpaidRows} reservation${meta.unpaidRows === 1 ? '' : 's'} booked but not yet paid out — not imported`);
+    if (meta.zeroPayoutRows) notes.push(`${meta.zeroPayoutRows} $0.00 transfer row${meta.zeroPayoutRows === 1 ? '' : 's'} ignored`);
+    if (meta.skipped && meta.skipped.length) {
+      const why = Array.from(new Set(meta.skipped.map(s => s.reason))).slice(0, 3).join('; ');
+      notes.push(`${meta.skipped.length} row${meta.skipped.length === 1 ? '' : 's'} could not be read (${why})`);
+    }
+    if (meta.listings && meta.listings.length > 1) {
+      notes.push(`⚠ This export covers ${meta.listings.length} listings — every payout will be filed under the property currently selected`);
+    }
+  }
+  const notesHtml = notes.length
+    ? `<div style="margin-top:8px;padding:8px 10px;background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;font-size:11.5px;color:#5D4037;font-family:'Plus Jakarta Sans',sans-serif">
+         ${notes.map(n => `<div style="margin-bottom:2px">${escHtml(n)}</div>`).join('')}
+       </div>` : '';
+
   document.getElementById('payout-paste-header').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;font-family:'Plus Jakarta Sans',sans-serif">
       <div style="min-width:0">
@@ -376,7 +445,8 @@ function _renderPayoutPasteReview(extracted) {
         <div style="font-size:11px;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.4px">Grand Net</div>
         <div style="font-size:18px;font-weight:600;color:var(--ink-1)">${fmtMoney(grandTotalNet)}</div>
       </div>
-    </div>`;
+    </div>
+    ${notesHtml}`;
 
   // Build one card per payout, each with its own header band and line items.
   const cardsHtml = payouts.map((payout, pIdx) => {
@@ -384,9 +454,16 @@ function _renderPayoutPasteReview(extracted) {
     const linesSum = lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
     const totalNet = Number(payout.totalNet) || 0;
     const variance = Math.abs(linesSum - totalNet);
-    const varianceWarn = totalNet && variance > 1
+    // The CSV parser appends a balancing line so net always equals the real
+    // deposit — which would make the variance test below mathematically
+    // unreachable and silently retire the only mismatch alarm in this flow.
+    // The flag it sets is what keeps the warning alive.
+    const unallocated = Number(payout._unallocatedCents) || 0;
+    const varianceWarn = (totalNet && variance > 1)
       ? `<div style="margin-top:6px;font-size:11px;color:#A32D2D;font-family:'Plus Jakarta Sans',sans-serif">⚠ Lines sum (${fmtMoney(linesSum)}) doesn't match stated total (${fmtMoney(totalNet)})</div>`
-      : '';
+      : (unallocated
+        ? `<div style="margin-top:6px;font-size:11px;color:#A32D2D;font-family:'Plus Jakarta Sans',sans-serif">⚠ ${fmtMoney(unallocated / 100)} of this deposit could not be attributed to a reservation — check it against the statement</div>`
+        : '');
 
     const linesHtml = lines.map((line, lIdx) => {
       const matched = _matchPayoutLineToBooking(line.confirmationCode);
@@ -395,10 +472,16 @@ function _renderPayoutPasteReview(extracted) {
       const showsBookingPicker = ['accommodation', 'cleaning_fee', 'cancellation', 'resolution'].includes(line.lineType);
       const amtColor = (Number(line.amount) || 0) < 0 ? '#A32D2D' : '#1D9E75';
       const selectKey = `${pIdx}.${lIdx}`;
+      // Only the auto-matched option is rendered up front; the full booking list
+      // is filled in on first focus (see the focus handler below). A financial
+      // year is ~40 payouts and ~100 line items, and eagerly stamping every
+      // booking into every picker built a six-figure options list in one
+      // innerHTML string — enough to lock the browser on the screen whose whole
+      // purpose is reviewing a large import.
       const sel = showsBookingPicker
         ? `<select data-payout-line-match="${escHtml(selectKey)}" style="width:100%;font-size:12px;padding:6px 8px;border-radius:6px;border:1px solid var(--hairline-1);background:#fff;font-family:'Plus Jakarta Sans',sans-serif;margin-top:4px">
             <option value="">— No booking link —</option>
-            ${bookingOptions.map(b => `<option value="${escHtml(b.id)}"${matchedId === b.id ? ' selected' : ''}>${escHtml(b.label)}</option>`).join('')}
+            ${matchedId ? `<option value="${escHtml(matchedId)}" selected>${escHtml(matchedLabel)}</option>` : ''}
           </select>`
         : '';
       const matchBadge = matched
@@ -441,6 +524,17 @@ function _renderPayoutPasteReview(extracted) {
 
   // Track manual booking overrides keyed by "<payoutIdx>.<lineIdx>".
   document.querySelectorAll('[data-payout-line-match]').forEach(sel => {
+    // Populate the full booking list only when the host actually opens this
+    // picker, keeping the initial render proportional to the number of lines
+    // rather than lines × bookings.
+    sel.addEventListener('focus', () => {
+      if (sel.dataset.filled) return;
+      sel.dataset.filled = '1';
+      const current = sel.value;
+      sel.innerHTML = '<option value="">— No booking link —</option>'
+        + bookingOptions.map(b => `<option value="${escHtml(b.id)}">${escHtml(b.label)}</option>`).join('');
+      sel.value = current;
+    });
     sel.addEventListener('change', (ev) => {
       const key = ev.target.getAttribute('data-payout-line-match');
       _payoutMatchOverrides[key] = ev.target.value || null;
@@ -491,7 +585,12 @@ async function savePayoutFromPasteModal() {
       // queries can find them. Without this, payouts land with property_id=NULL
       // and silently disappear from property-filtered reports.
       propertyId: _financeActiveCloudPropertyId() || null,
-      platform: payout.platform || platformSel,
+      // An explicit dropdown choice outranks the model. VRBO statements are
+      // branded Expedia Group, so the AI read "not obviously VRBO" and returned
+      // "other" — overriding a selection the host had deliberately made, and
+      // filing the payout under a platform they never picked. "Other" is the
+      // one selection that means "you work it out", so only then does AI win.
+      platform: (platformSel && platformSel !== 'other') ? platformSel : (payout.platform || 'other'),
       payoutReference: payout.payoutReference || null,
       payoutDate: payout.payoutDate || localDateStr(),
       expectedArrivalDate: payout.expectedArrivalDate || null,
@@ -500,10 +599,17 @@ async function savePayoutFromPasteModal() {
       adjustments,
       net,
       currency: payout.currency || 'AUD',
-      source: 'paste_ai',
+      source: _payoutExtracted.source || 'paste_ai',
+      // Two same-date same-net payouts in one file are legitimate for a
+      // single-listing host. findExistingPayout keys on (platform, date, net),
+      // so without this the second matches the first just inserted and is
+      // silently dropped along with all of its lines.
+      allowDuplicate: !!payout.allowDuplicate,
       // Only attach the raw paste text to the FIRST payout to avoid storing
-      // 3+ copies of the same monthly statement.
-      rawSourceText: pIdx === 0 ? rawText : null,
+      // 3+ copies of the same monthly statement. Capped because a full-FY CSV
+      // now succeeds where it used to time out, and loadPlatformPayouts does a
+      // select('*') on every money-in render.
+      rawSourceText: pIdx === 0 ? rawText.slice(0, 20000) : null,
     });
     if (!savedPayout) {
       failures.push(`Payout ${pIdx + 1} (${payout.payoutReference || payout.payoutDate || 'no-ref'}) — save failed`);
@@ -553,21 +659,38 @@ async function savePayoutFromPasteModal() {
     return;
   }
 
+  const refreshReconciliation = () => {
+    if (typeof globalThis.refreshFinanceReconciliationSummary === 'function') {
+      try { globalThis.refreshFinanceReconciliationSummary(); } catch (_e) { /* non-fatal */ }
+    }
+  };
+
+  if (failures.length) {
+    // Never send the host to the console for this. A partial failure across
+    // dozens of payouts is the "0 matched · 0 created · 0 skipped" shape again:
+    // a green banner concealing rows that never landed. Keep the review screen
+    // open, name the ones that failed, and say that retrying is safe — the
+    // dedupe guard skips whatever already saved.
+    console.warn('[StayOps] partial payout save failures:', failures);
+    _payoutPasteStatus(
+      `⚠ ${savedCount} saved, ${failures.length} did not: ${failures.join('; ')}. `
+      + 'Press Save again to retry — anything already saved is skipped automatically.',
+      'err');
+    refreshReconciliation();
+    return;
+  }
+
   if (typeof globalThis.showBanner === 'function') {
-    const partial = failures.length ? ` (${failures.length} failed — see console)` : '';
     const dupes = duplicateCount ? ` · ${duplicateCount} already imported` : '';
     globalThis.showBanner(
-      `✓ ${savedCount} payout${savedCount === 1 ? '' : 's'} saved · ${totalLinesInserted} line${totalLinesInserted === 1 ? '' : 's'} · ${totalMatched} matched${dupes}${partial}`,
-      failures.length ? 'warn' : 'ok'
+      `✓ ${savedCount} payout${savedCount === 1 ? '' : 's'} saved · ${totalLinesInserted} line${totalLinesInserted === 1 ? '' : 's'} · ${totalMatched} matched${dupes}`
+      + ' — now open Reconcile → Money in to match them to your bank deposits',
+      'ok'
     );
   }
-  if (failures.length) console.warn('[StayOps] partial payout save failures:', failures);
 
   closePayoutPasteModal();
-  // Refresh the reconciliation view if it's visible
-  if (typeof globalThis.refreshFinanceReconciliationSummary === 'function') {
-    try { globalThis.refreshFinanceReconciliationSummary(); } catch (_e) { /* non-fatal */ }
-  }
+  refreshReconciliation();
 }
 
 // ── Global bridges (inline-onclick API — names must stay stable) ─────────────
