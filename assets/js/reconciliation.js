@@ -41,7 +41,12 @@ function amountDiff(a, b) {
 /** @returns {{ score: number, matchReason: string } | null} */
 function scoreExpenseToTransaction(expenseDate, expenseAmount, txnDate, txnAmount) {
   const days = dayDiffBetween(expenseDate, txnDate);
-  if (days > 3) return null;
+  // Up to 10 days. This cut-off is the one that matters: confirmTransaction
+  // links at score >= 80 and CREATES below it, so anything the scorer rejects
+  // becomes a second expense for a purchase already recorded. At 3 days it
+  // rejected the ordinary case — an invoice dated the 22nd, paid the 27th —
+  // and authored duplicates worth $1,768 in a single import.
+  if (days > 10) return null;
   const ad = amountDiff(expenseAmount, txnAmount);
   if (ad > 0.5) return null;
   const exactAmt = ad < 0.01;
@@ -55,7 +60,14 @@ function scoreExpenseToTransaction(expenseDate, expenseAmount, txnDate, txnAmoun
     return { score: 90, matchReason: 'Date within 1 day, exact amount' };
   }
   if (days >= 2 && days <= 3 && exactAmt) {
-    return { score: 80, matchReason: 'Date within 2-3 days, exact amount' };
+    return { score: 85, matchReason: 'Date within 2-3 days, exact amount' };
+  }
+  if (days >= 4 && days <= 10 && exactAmt) {
+    // Still >= 80, so it LINKS rather than creating. An amount agreeing to the
+    // cent inside ten days is a strong signal on its own; the risk is only the
+    // same amount recurring in that window, which the candidate sort handles by
+    // preferring the closer date.
+    return { score: 80, matchReason: `Amount matches exactly, paid ${days} days later` };
   }
   if (days === 0 && !exactAmt) {
     return { score: 50, matchReason: 'Exact date, amount within $0.50' };
@@ -65,6 +77,11 @@ function scoreExpenseToTransaction(expenseDate, expenseAmount, txnDate, txnAmoun
   }
   if (days >= 2 && days <= 3 && !exactAmt) {
     return { score: 40, matchReason: 'Date within 2-3 days, amount within $0.50' };
+  }
+  if (days >= 4 && days <= 10 && !exactAmt) {
+    // Below the auto-link threshold on purpose: a near-amount a week apart is a
+    // suggestion for the host to confirm, not something to link automatically.
+    return { score: 35, matchReason: `Amount within $0.50, ${days} days apart` };
   }
   return null;
 }
@@ -93,8 +110,11 @@ export async function findMatchesForTransaction(transaction, userId) {
   const amt = Number(transaction.amount);
   if (!Number.isFinite(amt)) return [];
 
-  const minDate = addDays(txnDate, -3);
-  const maxDate = addDays(txnDate, 3);
+  // ±10 days — same reasoning as findMatchesForExpense and DUP_DATE_WINDOW.
+  // This is the matcher confirmTransaction uses to decide link-vs-create, so a
+  // window narrower than the real payment lag makes it CREATE a duplicate.
+  const minDate = addDays(txnDate, -10);
+  const maxDate = addDays(txnDate, 10);
 
   const { data, error } = await sb
     .from('expenses')
@@ -140,8 +160,11 @@ export async function findMatchesForExpense(expense, userId) {
   const amt = Number(expense.amount);
   if (!Number.isFinite(amt)) return [];
 
-  const minDate = addDays(expDate, -3);
-  const maxDate = addDays(expDate, 3);
+  // ±10 days, matching DUP_DATE_WINDOW in bank-import.js: an expense is dated
+  // when the invoice is, and paid up to a week later. ±3 could not reach the
+  // payment for a Bunnings run entered on the 22nd and debited on the 27th.
+  const minDate = addDays(expDate, -10);
+  const maxDate = addDays(expDate, 10);
 
   const { data, error } = await sb
     .from('bank_transactions')

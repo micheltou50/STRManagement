@@ -823,7 +823,15 @@ function descriptionSimilar(d1, d2) {
   return n >= 2 || (n >= 1 && wa.size <= 3);
 }
 
-const DUP_DATE_WINDOW = 4; // days — the bank posts a couple of days after the expense was logged
+// Days between the expense date and the bank posting it. An expense is dated
+// when the invoice is, but it is paid days later, so the real-world lag is
+// bigger than "a couple of days". At 4 this window missed by ONE day on the
+// common case (Bunnings 22 Jul paid 27 Jul, two Megan Orme cleans 23 Jun paid
+// 29 Jun) and, finding no match, the importer authored a second expense for a
+// purchase already recorded -- $1,768 double-counted in a single import.
+// Amount still has to agree to the cent, so widening the window costs precision
+// only when the same amount recurs inside ten days.
+const DUP_DATE_WINDOW = 10;
 
 function _shiftIsoDate(iso, delta) {
   // UTC math so a local timezone can't roll the calendar date back a day
