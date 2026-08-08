@@ -972,6 +972,8 @@ async function bankImportRunImport() {
   let imported = 0;
   let matchedCount = 0;
   let createdCount = 0;
+  let failedCount = 0;
+  let firstError = '';
   _bankImportCreatedExpenseIds = [];
   const duplicates = _bankImportRows.filter((r) => r.isDuplicate).length;
 
@@ -1012,8 +1014,13 @@ async function bankImportRunImport() {
           expenses.push(local);
         }
       } catch (err) {
-        console.log('[StayOps] confirmTransaction failed:', err && err.message ? err.message : err);
-        globalThis.showBanner('Some rows failed to import — check console', 'warn');
+        // Keep the FIRST real error so the summary can state it. "Check console"
+        // is useless on a phone, and it left an import that silently wrote
+        // nothing looking like an import that simply had nothing to do.
+        const msg = (err && (err.message || err.details || err.hint)) || String(err);
+        console.log('[StayOps] confirmTransaction failed:', msg, err);
+        if (!firstError) firstError = msg;
+        failedCount++;
       }
     }
 
@@ -1030,15 +1037,26 @@ async function bankImportRunImport() {
       duplicates,
     });
 
-    globalThis.showBanner(
-      matchedCount +
-        ' matched to existing invoices · ' +
-        createdCount +
-        ' new expenses created · ' +
-        skippedZ +
-        ' skipped',
-      'ok'
-    );
+    // An import that wrote nothing must say so, and say why. Reporting
+    // "0 matched · 0 created · 0 skipped" in a success-coloured banner made a
+    // total failure look like a no-op with nothing to do.
+    if (failedCount && !imported) {
+      globalThis.showBanner(
+        `Import failed — ${failedCount} row${failedCount === 1 ? '' : 's'} could not be saved. ${firstError || 'No error reported.'}`,
+        'warn'
+      );
+    } else {
+      globalThis.showBanner(
+        matchedCount +
+          ' matched to existing invoices · ' +
+          createdCount +
+          ' new expenses created · ' +
+          skippedZ +
+          ' skipped' +
+          (failedCount ? ` · ${failedCount} failed (${firstError})` : ''),
+        failedCount ? 'warn' : 'ok'
+      );
+    }
 
     // Refresh the Transaction Map UNCONDITIONALLY, then overlay the receipt
     // prompt on top if there is one. The prompt path used to skip the refresh,
