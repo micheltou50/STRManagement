@@ -136,7 +136,7 @@ function render() {
     const on = _cleared.has(String(t.id));
     const isCredit = String(t.direction || 'debit') === 'credit';
     return `<label style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:0.5px solid var(--hairline-1);cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">
-        <input type="checkbox" ${on ? 'checked' : ''} onchange="reconcileToggle('${escHtml(String(t.id))}')" style="width:16px;height:16px;flex-shrink:0">
+        <input class="tickbox" type="checkbox" ${on ? 'checked' : ''} onchange="reconcileToggle('${escHtml(String(t.id))}')">
         <span style="font-size:11px;color:var(--muted-2);width:74px;flex-shrink:0">${escHtml(t.date || '')}</span>
         <span style="font-size:12.5px;color:var(--ink-1);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(t.description || '')}</span>
         <span style="font-size:12.5px;font-weight:600;color:${isCredit ? '#2E7D32' : 'var(--ink-1)'};flex-shrink:0">${isCredit ? '+' : '−'}$${money(Math.abs(toCents(t.amount)))}</span>

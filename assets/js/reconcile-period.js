@@ -88,6 +88,34 @@ export function explainOutOfBalance(outOfBalanceCents, transactions = [], payout
   const target = Math.abs(outOfBalanceCents);
   const money = c => '$' + (c / 100).toFixed(2);
 
+  // Leads, because when it fires it is almost always the whole answer, and no
+  // amount-matching hint below can see it. A stretch of the period with money
+  // going out and none coming in means the deposits for that stretch were never
+  // imported: early imports captured debits only, so a re-imported account can
+  // hold months of expenses with zero income against them. That gap is
+  // arithmetically unreconcilable no matter what the host ticks.
+  const dated = transactions
+    .filter(t => t && t.date)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  if (dated.length) {
+    const isCredit = t => String(t.direction || 'debit') === 'credit';
+    const firstIn = dated.find(isCredit);
+    const from = String(dated[0].date);
+    const until = String(firstIn ? firstIn.date : dated[dated.length - 1].date);
+    const days = Math.round((new Date(until) - new Date(from)) / 86400000);
+    const outCount = dated.filter(t => String(t.date) < until && !isCredit(t)).length;
+    // 45 days: long enough that a real account with no income is implausible,
+    // short enough to still catch a single missed statement.
+    if (days >= 45 && outCount > 0) {
+      hints.push({
+        kind: 'missing-deposits',
+        message: firstIn
+          ? `No money in at all between ${from} and ${until} — ${outCount} payments went out over those ${days} days and nothing came in. Those deposits were almost certainly never imported. Re-import the bank statement covering that stretch, then reconcile again.`
+          : `No money in anywhere in this period — ${outCount} payments went out and nothing came in. The deposits were never imported. Re-import the bank statement for this period, then reconcile again.`,
+      });
+    }
+  }
+
   // Exactly one transaction's amount → that row is missing, or counted twice.
   const exact = transactions.filter(t => t && Math.abs(toCents(t.amount)) === target);
   for (const t of exact.slice(0, 3)) {

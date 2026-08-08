@@ -369,6 +369,36 @@ test('explainOutOfBalance(): names the likely cause, and says nothing when balan
   assert.strictEqual(explainOutOfBalance(777, [], [])[0].kind, 'generic');
 });
 
+// The real-world shape: early imports wrote debits only, so the account held
+// months of expenses with no income against them. That is unreconcilable, and
+// the generic "check for a missing transaction" hint sent the host looking for
+// one row when ~100 deposits were absent.
+test('explainOutOfBalance(): calls out a long stretch with money out but none in', async () => {
+  const { explainOutOfBalance } = await import(reconcileUrl);
+  const txns = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(Date.UTC(2026, 0, 22) + i * 8 * 86400000).toISOString().slice(0, 10);
+    txns.push({ id: 'd' + i, amount: 200, direction: 'debit', description: 'PAYMENT', date: d });
+  }
+  txns.push({ id: 'c1', amount: 5000, direction: 'credit', description: 'AIRBNB', date: '2026-05-11' });
+
+  const gap = explainOutOfBalance(2940093, txns, []);
+  assert.strictEqual(gap[0].kind, 'missing-deposits', 'leads with the gap — it is the whole answer');
+  assert.match(gap[0].message, /2026-01-22 and 2026-05-11/);
+
+  // No credits at all anywhere is the same fault, worded for that case.
+  const none = explainOutOfBalance(2940093, txns.slice(0, 12), []);
+  assert.strictEqual(none[0].kind, 'missing-deposits');
+  assert.match(none[0].message, /No money in anywhere/);
+
+  // A normal period that simply opens with an expense must NOT be flagged.
+  const healthy = explainOutOfBalance(500, [
+    { id: 'a', amount: 200, direction: 'debit', description: 'FEE', date: '2026-06-01' },
+    { id: 'b', amount: 900, direction: 'credit', description: 'AIRBNB', date: '2026-06-09' },
+  ], []);
+  assert.ok(!healthy.some(h => h.kind === 'missing-deposits'));
+});
+
 test('payoutSettlementState(): three states, and bank evidence outranks attestation', async () => {
   const reconUrl = pathToFileURL(path.join(__dirname, '..', 'assets', 'js', 'reconciliation.js')).href;
   const { payoutSettlementState } = await import(reconUrl);
