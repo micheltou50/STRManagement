@@ -4142,21 +4142,34 @@ async function reconMatchExpense(txnId, date, amount) {
   const txnDate = new Date(date + 'T00:00:00');
   if (Number.isNaN(txnDate.getTime())) { globalThis.showBanner('Invalid date', 'warn'); return; }
 
-  // Find expenses within ±7 days and ±50% amount. Already-linked expenses are
-  // KEPT in the list (rendered as "Linked", not tappable) instead of hidden, so
-  // a matching payment that's already accounted for is visible rather than
-  // silently vanishing — avoids "where did that expense go?" and double-linking.
-  const nearby = (Array.isArray(expenses) ? expenses : []).filter(e => {
+  // A CANDIDATE is within $0.50 — the same tolerance findMatchesForExpense and
+  // the importer's near-miss tier use. This was ±50%, which offered a $341
+  // landscaping bill as a "similar expense" for a $620 payment to a different
+  // person: the window admitted anything from $310 to $930 and there is no
+  // vendor check here at all. Measured against 156 real expense-to-payment
+  // links in this account, 155 agree to the cent and the remaining one to two
+  // cents — nothing has EVER legitimately matched outside a dollar, so the wide
+  // window contributed only noise, dressed up by the header as similarity.
+  //
+  // Everything else inside ±7 days is still listed, but BELOW a divider and
+  // labelled with how far off it is, because the honest use for it is manual
+  // browsing (a part-payment, a deposit), never a suggestion.
+  const MATCH_TOL = 0.50;
+  const inWindow = (Array.isArray(expenses) ? expenses : []).filter(e => {
     const eDate = new Date((e.date || '') + 'T00:00:00');
     if (Number.isNaN(eDate.getTime())) return false;
     const dayDiff = Math.abs((eDate - txnDate) / 86400000);
     if (dayDiff > 7) return false;
     const eAmt = Math.abs(Number(e.amount || 0));
     if (eAmt === 0) return false;
-    const amtDiff = Math.abs(eAmt - amt);
-    if (amtDiff > amt * 0.5 && amtDiff > 5) return false;
     return true;
-  }).sort((a, b) => {
+  });
+  const isCandidate = e => Math.abs(Math.abs(Number(e.amount || 0)) - amt) <= MATCH_TOL;
+  // Already-linked expenses are KEPT in the list (rendered as "Linked", not
+  // tappable) instead of hidden, so a matching payment that's already accounted
+  // for is visible rather than silently vanishing — avoids "where did that
+  // expense go?" and double-linking.
+  const nearby = inWindow.filter(isCandidate).sort((a, b) => {
     // Unlinked (actionable) first, so linked rows can't push a linkable match
     // out of the top-8 slice below.
     const aLinked = !!(a.reconciled || a.bank_transaction_id);
@@ -4172,16 +4185,29 @@ async function reconMatchExpense(txnId, date, amount) {
     return aDate - bDate;
   }).slice(0, 8);
 
-  if (!nearby.length) {
-    globalThis.showBanner('No similar expenses found within 7 days — try Create New instead', 'warn');
+  const others = inWindow.filter(e => !isCandidate(e)).sort((a, b) => {
+    const aLinked = !!(a.reconciled || a.bank_transaction_id);
+    const bLinked = !!(b.reconciled || b.bank_transaction_id);
+    if (aLinked !== bLinked) return aLinked ? 1 : -1;
+    // Closest amount first — if the host is browsing, nearest is most useful.
+    return Math.abs(Math.abs(Number(a.amount)) - amt) - Math.abs(Math.abs(Number(b.amount)) - amt);
+  }).slice(0, 6);
+
+  if (!nearby.length && !others.length) {
+    globalThis.showBanner('No expenses within 7 days of this payment — try Create New instead', 'warn');
     return;
   }
 
   const linkableCount = nearby.filter(e => !(e.reconciled || e.bank_transaction_id)).length;
-  const list = nearby.map(e => {
+  const renderRow = (e) => {
     const eAmt = Math.abs(Number(e.amount || 0));
-    const exactAmt = Math.abs(eAmt - amt) < 0.02;
-    const amtBadge = exactAmt ? '<span style="color:#1D9E75;font-weight:600;font-size:10px;margin-left:4px">exact match</span>' : '';
+    const gap = eAmt - amt;
+    const exactAmt = Math.abs(gap) < 0.02;
+    // Never let a different number pass as a match: say which way it is off and
+    // by how much, right next to the amount.
+    const amtBadge = exactAmt
+      ? '<span style="color:#1D9E75;font-weight:600;font-size:10px;margin-left:4px">exact match</span>'
+      : `<span style="color:#A32D2D;font-weight:600;font-size:10px;margin-left:4px">$${_fmtAud(Math.abs(gap))} ${gap > 0 ? 'more' : 'less'}</span>`;
     const isLinked = !!(e.reconciled || e.bank_transaction_id);
     const eid = escapeJsSingleQuotedHtmlAttr(String(e._cloudId || e.id));
     // Linked rows are informational only: dimmed, no tap handler, "Linked" badge.
@@ -4196,7 +4222,17 @@ async function reconMatchExpense(txnId, date, amount) {
       </div>
       ${action}
     </div>`;
-  }).join('');
+  };
+
+  const list = nearby.map(renderRow).join('');
+  const othersList = others.length
+    ? `<div style="font-size:11px;font-weight:700;color:var(--muted-2);text-transform:uppercase;letter-spacing:.4px;margin:16px 0 4px">Different amounts — not matches</div>
+       <div style="font-size:11.5px;color:var(--muted-2);margin-bottom:6px">Within 7 days but a different figure. Only link one of these if you know it is a part-payment.</div>
+       ${others.map(renderRow).join('')}`
+    : '';
+  const headline = nearby.length
+    ? `${nearby.length} matching expense${nearby.length !== 1 ? 's' : ''} found${linkableCount ? ' — tap to link' : ''}`
+    : 'No expense matches this amount';
 
   let overlay = document.getElementById('recon-match-overlay');
   if (!overlay) { overlay = document.createElement('div'); overlay.id = 'recon-match-overlay'; document.body.appendChild(overlay); }
@@ -4210,8 +4246,9 @@ async function reconMatchExpense(txnId, date, amount) {
         </div>
         <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--surface2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted-2)">×</button>
       </div>
-      <div style="font-size:12px;color:var(--muted-2);margin-bottom:10px">${nearby.length} similar expense${nearby.length !== 1 ? 's' : ''} found${linkableCount ? ' — tap to link' : ''}</div>
+      <div style="font-size:12px;color:var(--muted-2);margin-bottom:10px">${headline}</div>
       ${list}
+      ${othersList}
       <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--surface2);color:var(--muted-2);font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Cancel</button>
     </div>`;
   document.body.style.overflow = 'hidden';
