@@ -116,8 +116,17 @@ export async function loadTransactionsForPeriod(accountId, periodEnd, periodStar
       // made the screen show "0 of 167 ticked" for a one-month statement.
       .gte('date', periodStart || '1900-01-01')
       .lte('date', periodEnd)
-      .eq('is_personal', false)
-      .eq('skipped', false)
+      // Deliberately NOT filtered by is_personal / skipped.
+      //
+      // Those flags answer "is this a property expense?" — a bookkeeping
+      // question. A reconciliation answers a different one: "does the money
+      // that moved through this account add up to the balance the bank
+      // reports?" Every row on the statement moved the balance, whatever it was
+      // for. Excluding personal rows meant that marking one — an entirely
+      // legitimate act — silently made the out-of-balance figure unreachable,
+      // because the money had still left the account. The host funding this
+      // account from their own is the clearest case: 36 transfers worth $48,200
+      // that are not income and are not optional to the balance.
       .order('date');
     if (error) { console.warn('[StayOps] loadTransactionsForPeriod error', error); return []; }
     return (data || []).map(r => ({
