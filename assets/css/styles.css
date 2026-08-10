@@ -776,6 +776,29 @@ textarea {
   min-height: 44px;
 }
 
+/* A bare checkbox needs its appearance handed back. The global `input` rules
+   set appearance:none (which strips the tick entirely) plus padding and
+   min-height:44px (which inflates it into a 40px pill) — so a ticked box
+   rendered identically to an unticked one. Every other checkbox in the app
+   dodges this by hiding the input and drawing its own box; this restores the
+   native control instead, for the places where that is enough. */
+.tickbox {
+  -webkit-appearance: checkbox;
+  appearance: checkbox;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  accent-color: var(--primary);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
 input:focus,
 select:focus,
 textarea:focus {

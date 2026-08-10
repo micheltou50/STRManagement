@@ -13,6 +13,36 @@ import {
 
 export { autoReconcile };
 
+// Why the last parse produced nothing. Every bail below used to be a bare
+// console.log + `return []`, so "empty file", "couldn't find the columns" and
+// "the AI call was rejected" were indistinguishable to the host — the import
+// just quietly did nothing. Mirrors the _lastReceiptUploadError pattern the
+// receipt uploader uses to surface its real error in the banner.
+let _lastBankImportError = '';
+function _setBankImportError(msg) { _lastBankImportError = String(msg || ''); }
+
+/** Read a JSON body without throwing. A non-OK ai-proxy reply often carries an
+ *  EMPTY or non-JSON body — a 405 from a static dev server, a gateway error
+ *  page, a proxy timeout. A bare `await res.json()` then throws "Unexpected end
+ *  of JSON input", and because the categorise call did that BEFORE testing
+ *  res.ok, one failed AI call aborted the entire import instead of degrading to
+ *  rule-based categorisation. */
+async function _safeJson(res) {
+  try { return await res.json(); } catch { return null; }
+}
+
+/** Report analysing-phase progress to the UI, if a UI is listening.
+ *  Routed through globalThis so this parsing module keeps no UI imports, and
+ *  so it is a harmless no-op when the importer runs headless or in tests. */
+function _importProgress(step, detail) {
+  try {
+    if (typeof globalThis._bankImportProgress === 'function') globalThis._bankImportProgress(step, detail);
+  } catch (_) { /* progress is cosmetic — never let it break an import */ }
+}
+/** Clear before a parse; read after one returns [] to explain why. */
+export function resetBankImportError() { _lastBankImportError = ''; }
+export function getBankImportError() { return _lastBankImportError; }
+
 const ALLOWED_AI_CATEGORIES = [
   'cleaning',
   'maintenance',
@@ -217,12 +247,27 @@ Respond ONLY in JSON, no markdown:\n\
     const data = await res.json();
     if (!res.ok || !data.content || !data.content[0] || !data.content[0].text) {
       console.log('[StayOps] parseCSV: AI format detection HTTP/error', data.error || res.status);
+      // 401 here means the request went out unauthenticated — the call falls
+      // back to bare fetch when authFetch isn't assigned yet, which sends no
+      // Authorization header and ai-proxy's verifyAuth rejects it. Name it, or
+      // the host just sees "no transactions found".
+      // Keep the SERVER's own wording. ai-proxy distinguishes "Missing
+      // authorization token" (the request carried no Bearer header) from
+      // "Invalid or expired token" (it did, and Supabase rejected it) — opposite
+      // causes, opposite fixes, and a canned 401 string hides which one it was.
+      const why = (data && data.error && (data.error.message || data.error)) || ('HTTP ' + res.status);
+      _setBankImportError(
+        res.status === 401
+          ? `the AI column-detector was refused — ${why}`
+          : `the AI column-detector failed (${why})`
+      );
       return null;
     }
     const text = data.content[0].text.trim().replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
     return JSON.parse(text);
   } catch (e) {
     console.log('[StayOps] parseCSV: AI format detection failed', e && e.message ? e.message : e);
+    _setBankImportError('the AI column-detector could not be reached (' + ((e && e.message) || e) + ')');
     return null;
   }
 }
@@ -353,6 +398,7 @@ export async function parseCSV(fileText) {
   }
   if (!rows.length) {
     console.log('[StayOps] Parsed 0 transactions from CSV');
+    _setBankImportError('the file had no readable rows — it may be empty, or not a CSV');
     return [];
   }
 
@@ -380,11 +426,23 @@ export async function parseCSV(fileText) {
 
   if (!mapping) {
     console.log('[StayOps] Parsed 0 transactions from CSV');
+    // Distinguish the two ways this lands here: the AI column-detector never
+    // answered (usually auth/proxy — see _setBankImportError in
+    // detectCsvFormatWithAi), or it answered but neither it nor the heuristic
+    // could identify a date/amount column.
+    _setBankImportError(
+      _lastBankImportError
+        ? _lastBankImportError + ', and the fallback could not identify the date/amount columns'
+        : "couldn't identify which columns hold the date and amount"
+    );
     return [];
   }
 
   const out = parseRowsWithBankMapping(rows, mapping);
   console.log('[StayOps] Parsed', out.length, 'transactions from CSV');
+  if (!out.length) {
+    _setBankImportError(`the columns were detected (${rows.length} row${rows.length === 1 ? '' : 's'} read) but no row produced a usable date + amount`);
+  }
   return out;
 }
 
@@ -454,9 +512,14 @@ Return JUST the array. Example:
   });
   if (!res.ok) {
     console.log('[StayOps] parseBankFileWithAI HTTP error', res.status);
+    _setBankImportError(
+      res.status === 401
+        ? 'the AI reader was rejected as signed-out (401) — reload and try again'
+        : `the AI reader failed (HTTP ${res.status})`
+    );
     return [];
   }
-  const data = await res.json();
+  const data = await _safeJson(res);
   const text = (data && data.content && data.content[0] && data.content[0].text) || '';
   const cleaned = text.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
   let parsed;
@@ -464,9 +527,18 @@ Return JUST the array. Example:
     parsed = JSON.parse(cleaned);
   } catch (e) {
     console.log('[StayOps] parseBankFileWithAI JSON parse error:', e && e.message);
+    // Same failure mode the receipt reader hit: asked for JSON, got prose.
+    _setBankImportError(
+      text.trim()
+        ? 'the AI described the file instead of returning data — it may not look like a statement'
+        : 'the AI returned an empty response'
+    );
     return [];
   }
-  if (!Array.isArray(parsed)) return [];
+  if (!Array.isArray(parsed)) {
+    _setBankImportError('the AI returned an unexpected shape instead of a list of transactions');
+    return [];
+  }
   // Coerce to the same shape parseCSV returns, filtering anything malformed.
   const out = [];
   for (const r of parsed) {
@@ -580,9 +652,15 @@ async function callHaikuBatch(items, propertyListStr) {
     }),
   });
 
-  const data = await res.json();
-  if (!res.ok || !data.content || !data.content[0] || !data.content[0].text) {
-    console.log('[StayOps] Claude categorise error:', data.error || data);
+  const data = await _safeJson(res);
+  if (!res.ok || !data || !data.content || !data.content[0] || !data.content[0].text) {
+    const why = (data && data.error && (data.error.message || data.error)) || ('HTTP ' + res.status);
+    console.log('[StayOps] Claude categorise error:', why);
+    // Surface the reason so a whole import that silently fell back to rules can
+    // still explain itself, rather than only whispering it to the console.
+    if (res.status === 401) _setBankImportError(`the AI was refused — ${why}`);
+    // Returning null is not fatal — the caller falls back to rule-based
+    // categorisation, so the import still completes without AI.
     return null;
   }
   const text = data.content[0].text.trim().replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
@@ -617,6 +695,7 @@ export async function categoriseTransactions(transactions, userId) {
   const needsAI = [];
 
   for (let i = 0; i < transactions.length; i++) {
+    _importProgress('vendors', `${i + 1} of ${transactions.length}`);
     const t = transactions[i];
     const pattern = normaliseVendorPattern(t.description);
     const mapping = await fetchVendorMappings(userId, pattern);
@@ -655,15 +734,27 @@ export async function categoriseTransactions(transactions, userId) {
     needsAI.push({ ...t, origIndex: i, vendorPattern: pattern });
   }
 
+  // Once the proxy has refused one batch it will refuse the rest identically
+  // (it is down, or the session is not authenticated), so stop asking and let
+  // every remaining row take the rule-based path. Without this a 95-row import
+  // fired ten doomed requests and logged ten identical errors.
+  let aiUnavailable = false;
   for (let start = 0; start < needsAI.length; start += 10) {
     const batch = needsAI.slice(start, start + 10);
+    _importProgress('vendors', aiUnavailable
+      ? `${Math.min(start + batch.length, needsAI.length)} of ${needsAI.length} — using rules`
+      : `${Math.min(start + batch.length, needsAI.length)} of ${needsAI.length} with AI`);
     const batchForApi = batch.map((b, j) => ({
       batchIndex: j,
       description: b.description,
       amount: b.amount,
       date: b.date,
     }));
-    const aiRaw = await callHaikuBatch(batchForApi, propertyListStr);
+    const aiRaw = aiUnavailable ? null : await callHaikuBatch(batchForApi, propertyListStr);
+    if (aiRaw == null && !aiUnavailable) {
+      aiUnavailable = true;
+      console.log('[StayOps] Bank import: AI categorisation unavailable — falling back to rules for the remaining rows');
+    }
     const byIndex = new Map();
     if (Array.isArray(aiRaw)) {
       aiRaw.forEach((row) => {
@@ -680,12 +771,15 @@ export async function categoriseTransactions(transactions, userId) {
       const { propertyId, propertyName } = resolvePropertyFromGuess(guess);
       const conf = row && ['high', 'medium', 'low'].includes(row.confidence) ? row.confidence : 'medium';
 
+      // Spread the source row FIRST. This used to rebuild from an explicit
+      // field list, which silently dropped anything it didn't know about —
+      // that is exactly how the importBatchId / bankAccountId / bankName
+      // stamped at file level vanished before insert, leaving every imported
+      // row with no account (invisible to the period reconcile) and no batch
+      // (no undo). The learned-mapping branch above always spread; this one
+      // must too. origIndex is stripped below since it is loop bookkeeping.
       result[t.origIndex] = {
-        date: t.date,
-        description: t.description,
-        amount: t.amount,
-        type: t.type,
-        rawLine: t.rawLine,
+        ...t,
         vendor,
         category,
         propertyId,
@@ -695,6 +789,7 @@ export async function categoriseTransactions(transactions, userId) {
         skip: false,
         vendorPattern: t.vendorPattern,
       };
+      delete result[t.origIndex].origIndex;
     }
   }
 
@@ -728,7 +823,32 @@ function descriptionSimilar(d1, d2) {
   return n >= 2 || (n >= 1 && wa.size <= 3);
 }
 
-const DUP_DATE_WINDOW = 4; // days — the bank posts a couple of days after the expense was logged
+// Bank-narration boilerplate carries no identity, and descriptionSimilar
+// accepts a single shared token for short strings — so a merchant literally
+// named "ANZ Mortgage" would text-match EVERY "ANZ MOBILE BANKING PAYMENT …"
+// narration via the shared "anz". Strip the boilerplate from both sides before
+// comparing, so only the words that name someone can match.
+const NARRATION_STOPWORDS = new Set([
+  'anz', 'visa', 'debit', 'credit', 'card', 'purchase', 'payment', 'payments',
+  'transfer', 'banking', 'mobile', 'internet', 'bpay', 'eftpos', 'deposit',
+  'the', 'and', 'pty', 'ltd', 'from', 'account',
+]);
+
+function merchantSimilar(merchant, bankDescription) {
+  const strip = (s) => String(s || '').toLowerCase().split(/\s+/)
+    .filter((w) => w.length > 2 && !NARRATION_STOPWORDS.has(w)).join(' ');
+  return descriptionSimilar(strip(merchant), strip(bankDescription));
+}
+
+// Days between the expense date and the bank posting it. An expense is dated
+// when the invoice is, but it is paid days later, so the real-world lag is
+// bigger than "a couple of days". At 4 this window missed by ONE day on the
+// common case (Bunnings 22 Jul paid 27 Jul, two Megan Orme cleans 23 Jun paid
+// 29 Jun) and, finding no match, the importer authored a second expense for a
+// purchase already recorded -- $1,768 double-counted in a single import.
+// Amount still has to agree to the cent, so widening the window costs precision
+// only when the same amount recurs inside ten days.
+const DUP_DATE_WINDOW = 10;
 
 function _shiftIsoDate(iso, delta) {
   // UTC math so a local timezone can't roll the calendar date back a day
@@ -751,19 +871,28 @@ export async function checkDuplicates(transactions, userId) {
 
   const out = [];
   for (const t of transactions) {
+    _importProgress('duplicates', `${out.length + 1} of ${transactions.length}`);
     let isDuplicate = false;
     let existingExpenseId = null;
+    // Distinct from isDuplicate: this row IS the payment for an expense the host
+    // already recorded, so it must be imported and linked, not discarded.
+    let matchesExistingExpense = false;
     let dupMatch = null;
+    let nearMiss = null;
     let reason;
 
     // Match against an already-logged EXPENSE within a date window (the bank
     // posts a few days after the expense was recorded), same amount, and a
-    // similar vendor/description.
+    // similar vendor/description. `merchant` is in the select because it is the
+    // field hosts actually fill in — "Megan Orme" — while `description` holds
+    // invoice prose and `vendor` is usually blank on manual entries. Comparing
+    // only the latter two meant an exact-amount payment to a recorded merchant
+    // failed the text gate and minted a duplicate expense.
     const winLo = _shiftIsoDate(t.date, -DUP_DATE_WINDOW);
     const winHi = _shiftIsoDate(t.date, DUP_DATE_WINDOW);
     const { data: rows, error } = await sb
       .from('expenses')
-      .select('id, amount, description, vendor, date')
+      .select('id, amount, description, vendor, merchant, date, bank_transaction_id, property_id, category')
       .eq('user_id', userId)
       .gte('date', winLo)
       .lte('date', winHi);
@@ -772,14 +901,85 @@ export async function checkDuplicates(transactions, userId) {
       console.log('[StayOps] checkDuplicates query error:', error.message || error);
     } else if (Array.isArray(rows)) {
       for (const row of rows) {
-        if (!amountClose(row.amount, t.amount)) continue;
+        // THE BANK IS THE ARBITER. An expense that already carries its own bank
+        // line is, by definition, accounted for by a DIFFERENT statement row, so
+        // this incoming line cannot be its duplicate. Without this a recurring
+        // same-amount payment (the weekly Megan Orme $165 clean) matched the
+        // previous week's expense every import, greying out the whole statement
+        // and saving nothing. Re-importing the SAME line is a separate concern,
+        // caught by the bank_transactions pass below.
+        if (row.bank_transaction_id) continue;
+        const amountGap = Math.abs(Number(row.amount) - Number(t.amount));
+        if (amountGap > 0.5) continue;
         const vendorMatch =
           row.vendor && t.vendor && descriptionSimilar(row.vendor, t.vendor);
         const descMatch = descriptionSimilar(row.description, t.description);
-        if (vendorMatch || descMatch) {
-          isDuplicate = true;
+        const merchantMatch = merchantSimilar(row.merchant, t.description);
+        const textMatch = vendorMatch || descMatch || merchantMatch;
+
+        // Tier 2 — close, but not certain: the amount is off by up to 50c on a
+        // matching merchant (an invoice of $178.75 paid as $178.50 by typo).
+        // This is a QUESTION for the host, not an answer. It used to be neither
+        // linked nor asked: any row the exact-match tier rejected fell through
+        // to "create a new expense", so a 25c mistype silently double-counted
+        // the clean. Best candidate wins: smallest amount gap, then nearest
+        // date.
+        //
+        // DELIBERATELY NOT a near-miss: an exact amount with no text match.
+        // The score path in confirmTransaction already auto-links those at
+        // >= 80, and bankImportApplyMatchPreviews locks the row with a green
+        // "Matches" strip — asking a question about the same expense would
+        // fight that tier (two owners, contradictory UI), and because the
+        // score is >= 80 a "No" answer would be silently overridden by the
+        // score-path link. Review caught exactly that. One owner per case:
+        // exact amount → score path; near amount + text → this question.
+        //
+        // Credits never ask: a refund can equal a recorded expense to the
+        // cent, but confirmTransaction's credit branch returns before any
+        // expense linking, so the promise "Will link" would be a lie.
+        if (!amountClose(row.amount, t.amount) || !textMatch) {
+          if (amountGap > 0.01 && textMatch && t.type !== 'credit') {
+            const dayGap = Math.abs(
+              (new Date(String(row.date).slice(0, 10) + 'T00:00:00Z') -
+               new Date(String(t.date).slice(0, 10) + 'T00:00:00Z')) / 86400000);
+            const cand = {
+              id: row.id,
+              label: row.merchant || row.vendor || row.description || 'expense',
+              amount: Number(row.amount) || 0,
+              date: row.date,
+              diff: amountGap,
+              days: dayGap,
+              propertyId: row.property_id || '',
+              category: row.category || '',
+            };
+            if (!nearMiss || cand.diff < nearMiss.diff - 1e-9 ||
+                (Math.abs(cand.diff - nearMiss.diff) < 1e-9 && cand.days < nearMiss.days)) {
+              nearMiss = cand;
+            }
+          }
+          continue;
+        }
+        {
+          // NOT a duplicate — this is the PAYMENT for an expense the host already
+          // entered, which is precisely what reconciliation is for.
+          //
+          // This used to set isDuplicate, and canBankImportRow drops duplicates,
+          // so the bank row was discarded. The importer therefore kept only the
+          // payments it could NOT explain (minting an expense for each, hence the
+          // "Unknown" rows) and threw away the ones it could — leaving the
+          // matching expense permanently unpayable, with no bank line in
+          // existence to match it to later. 33 expenses ended up in that state.
+          //
+          // Let it import instead: confirmTransaction already links a row to a
+          // matching expense at score >= 80, and bankImportApplyMatchPreviews
+          // already copies that expense's property/category onto the row and
+          // marks it confirmed. Only a genuine RE-IMPORT of the same statement
+          // line (the bank_transactions pass below) is a real duplicate.
           existingExpenseId = row.id;
-          dupMatch = { kind: 'expense', label: row.vendor || row.description || '', amount: Number(row.amount) || 0, date: row.date };
+          matchesExistingExpense = true;
+          dupMatch = { kind: 'expense', label: row.merchant || row.vendor || row.description || '', amount: Number(row.amount) || 0, date: row.date };
+          // A certain match supersedes any near-miss candidate collected earlier.
+          nearMiss = null;
           break;
         }
       }
@@ -815,7 +1015,18 @@ export async function checkDuplicates(transactions, userId) {
       }
     }
 
-    out.push({ ...t, isDuplicate, existingExpenseId, dupMatch, ...(reason ? { reason } : {}) });
+    // A near-miss only survives when nothing certain claimed the row — a
+    // confirmed expense match or a prior-import duplicate outranks a question.
+    // Written explicitly (null, not omitted): checkDuplicates runs TWICE in the
+    // pipeline (before and after categorisation), and `...t` carries pass 1's
+    // decoration into pass 2 — a row that upgraded to a certain match must not
+    // keep a stale question from the earlier pass.
+    const keepNearMiss = nearMiss && !matchesExistingExpense && !isDuplicate;
+    out.push({
+      ...t, isDuplicate, existingExpenseId, matchesExistingExpense, dupMatch,
+      nearMissExpense: keepNearMiss ? nearMiss : null,
+      ...(reason ? { reason } : {}),
+    });
   }
   return out;
 }
@@ -851,6 +1062,10 @@ export async function confirmTransaction(transaction, userId, propertyId, catego
     description: transaction.description,
     bank_name: transaction.bankName || null,
     import_batch_id: transaction.importBatchId || null,
+    // Which account this row belongs to. Without it a row is invisible to the
+    // period reconcile, which filters by account — the worst failure mode,
+    // because the balance would silently be computed over a subset.
+    bank_account_id: transaction.bankAccountId || null,
     is_personal: false,
     skipped: false,
     direction,
@@ -898,23 +1113,49 @@ export async function confirmTransaction(transaction, userId, propertyId, catego
   const matches = await findMatchesForTransaction(transaction, userId);
   const top = matches[0];
 
+  // checkDuplicates already identified the expense this payment settles (same
+  // amount, inside the date window, matching vendor/description). Trust it over
+  // the score threshold: a near-miss of 79 would otherwise fall through and
+  // CREATE a second expense for a purchase the host already entered — exactly
+  // the double-record this path exists to prevent.
+  const forcedExpenseId = transaction.matchesExistingExpense ? transaction.existingExpenseId : null;
+  // A near-miss the host explicitly confirmed on the review screen ("same
+  // purchase") links like a certain match. Only an explicit 'link' counts —
+  // an undecided or 'create' row falls through to the score path as before.
+  const nearMissChosenId =
+    transaction.nearMissDecision === 'link' && transaction.nearMissExpense
+      ? transaction.nearMissExpense.id
+      : null;
+  // An expense the host explicitly DECLINED ("No — new expense") must never be
+  // linked by any later tier. Near-misses currently score below the auto-link
+  // threshold by construction, so this guard is unreachable today — it exists
+  // so a future tolerance change cannot quietly turn "No" into a dead button.
+  const declinedId =
+    transaction.nearMissDecision === 'create' && transaction.nearMissExpense
+      ? String(transaction.nearMissExpense.id)
+      : null;
+  const scoreTop = top && top.score >= 80 && String(top.expense.id) !== declinedId ? top.expense.id : null;
+  const targetExpenseId = forcedExpenseId || nearMissChosenId || scoreTop;
+
   let expenseOut;
 
-  if (top && top.score >= 80) {
-    const linked = await linkTransactionToExpense(bankTxId, top.expense.id);
+  if (targetExpenseId) {
+    const linked = await linkTransactionToExpense(bankTxId, targetExpenseId);
     if (!linked.success) {
       console.log('[StayOps] confirmTransaction: linkTransactionToExpense failed');
       throw new Error('Failed to link bank transaction to expense');
     }
 
-    expenseOut = top.expense;
+    expenseOut = (top && top.expense && top.expense.id === targetExpenseId)
+      ? top.expense
+      : { id: targetExpenseId };
     const v = expenseOut.vendor && String(expenseOut.vendor).trim();
     if (!v) {
       const vendorVal = transaction.vendor || pattern;
       const { data: patched, error: patchErr } = await sb
         .from('expenses')
         .update({ vendor: vendorVal })
-        .eq('id', top.expense.id)
+        .eq('id', targetExpenseId)
         .select()
         .single();
       if (!patchErr && patched) expenseOut = patched;
@@ -974,7 +1215,11 @@ export async function confirmTransaction(transaction, userId, propertyId, catego
   });
   if (mapErr) console.log('[StayOps] vendor_mappings upsert warning:', mapErr.message || mapErr);
 
-  const action = top && top.score >= 80 ? 'matched' : 'created';
+  // From the actual outcome, not the score: a host-confirmed near-miss links at
+  // score 35-50, and reporting it as 'created' pushed the ALREADY-EXISTING
+  // expense into the in-memory array a second time — the exact double-count
+  // this feature exists to prevent, resurrected in the session UI.
+  const action = targetExpenseId ? 'matched' : 'created';
   return {
     ...expenseOut,
     action,
@@ -1003,6 +1248,10 @@ export async function skipTransaction(transaction, userId, markAsPersonal = fals
     description: transaction.description,
     bank_name: transaction.bankName || null,
     import_batch_id: transaction.importBatchId || null,
+    // Which account this row belongs to. Without it a row is invisible to the
+    // period reconcile, which filters by account — the worst failure mode,
+    // because the balance would silently be computed over a subset.
+    bank_account_id: transaction.bankAccountId || null,
     is_personal: markAsPersonal,
     skipped: true,
   };

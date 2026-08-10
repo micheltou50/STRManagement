@@ -11,6 +11,40 @@ import { saveAppConfigToCloud } from './supabase.js';
 
 export { renderSmartPricingPanel } from './smart-pricing.js';
 
+/** Parse a JSON object out of a model reply.
+ *
+ *  Asking for "ONLY JSON" is a request, not a guarantee: given an ambiguous
+ *  document (a cleaner's invoice spanning several stays is the usual one) the
+ *  model narrates instead — "The receipt covers…" — and a bare JSON.parse then
+ *  surfaces a raw SyntaxError to the host. So strip any markdown fence, slice
+ *  from the first { to the last }, and repair trailing commas. This mirrors the
+ *  defensive parse analyseExpenses has always done inline.
+ *
+ *  Throws when there is no object at all (including an empty reply) — callers
+ *  rely on that to show an error rather than silently reporting success. */
+export function parseAIJson(rawText) {
+  const stripped = String(rawText ?? '')
+    .replace(/```(?:json)?\s*/gi, '')
+    .replace(/```\s*/g, '')
+    .trim();
+  const start = stripped.indexOf('{');
+  const end = stripped.lastIndexOf('}');
+  if (start === -1 || end === -1 || end < start) throw new Error('No JSON found in response');
+  const slice = stripped.slice(start, end + 1);
+  // Parse the text as-is FIRST. The trailing-comma repair below is a raw regex
+  // that cannot tell a dangling comma from one inside a string value, so running
+  // it unconditionally would quietly rewrite {"description":"Paint, } brushes"}.
+  // Only reach for it once the reply has proven to be malformed.
+  try {
+    return JSON.parse(slice);
+  } catch {
+    // Best-effort salvage of an already-malformed reply. The repair is not
+    // string-aware, so a field holding ", }" can lose its comma here — but the
+    // alternative for this input is failing outright, so recovery wins.
+    return JSON.parse(slice.replace(/,(\s*[}\]])/g, '$1'));
+  }
+}
+
 // ── AI EXPENSE ANALYSER ───────────────────────────────────────────────────
 export async function analyseExpenses() {
   const resultEl = document.getElementById('expense-analysis-result');
@@ -462,14 +496,21 @@ export function clearExpensePhoto() {
   expensePhotoBase64 = null;
   expensePhotoMediaType = 'image/jpeg';
   expensePhotoConverting = false;
-  document.getElementById('expense-photo-preview').style.display = 'none';
+  // These two were the only unguarded lookups in this function, and the inline
+  // add form genuinely can be absent: bankImportShowLoading replaces
+  // #finance-expenses-view's innerHTML wholesale, so after any import the panel
+  // and its preview elements are gone until the backup is restored. Clearing the
+  // staged photo from anywhere else then threw on null.
+  const preview = document.getElementById('expense-photo-preview');
+  if (preview) preview.style.display = 'none';
   const fileInput = document.getElementById('expense-file-input');
   if (fileInput) fileInput.value = '';
   const pdfDiv = document.getElementById('expense-pdf-preview');
   if (pdfDiv) { pdfDiv.style.display = 'none'; pdfDiv.textContent = ''; }
   const img = document.getElementById('expense-photo-img');
   if (img) img.style.display = 'block';
-  document.getElementById('expense-extract-status').style.display = 'none';
+  const extractStatus = document.getElementById('expense-extract-status');
+  if (extractStatus) extractStatus.style.display = 'none';
   updateAddReceiptUI();
 }
 
@@ -547,8 +588,15 @@ function findCleanerReceiptBooking(merchant, dateStr, cands) {
   return hits[0].booking;
 }
 
-export async function extractExpenseFromReceipt() {
-  const status = document.getElementById('expense-extract-status');
+/** Read the staged receipt and fill an expense form.
+ *  @param {'exp'|'ee'} [prefix] which form to fill. 'exp' is the inline Add
+ *  panel (the historical, and still default, caller). 'ee' is the shared modal,
+ *  which bank reconciliation borrows to create an expense from a bank line.
+ *  The staged photo itself is module-global, not per-form, so both share it. */
+export async function extractExpenseFromReceipt(prefix = 'exp') {
+  const F = id => document.getElementById(prefix + '-' + id);
+  const status = document.getElementById(prefix === 'exp' ? 'expense-extract-status' : prefix + '-extract-status');
+  if (!status) return;
   status.style.display = 'block';
   if (!expensePhotoBase64) {
     status.style.background = '#FFF8E1'; status.style.color = '#E65100';
@@ -579,23 +627,36 @@ export async function extractExpenseFromReceipt() {
     });
     if (!response.ok) throw new Error(data.error?.message || 'API error');
     const rawText = data.content?.[0]?.text || '{}';
-    // Strip markdown fences: ```json ... ``` or ``` ... ```
-    const cleaned = rawText.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
-    const parsed = JSON.parse(cleaned || '{}');
-    if (parsed.merchant) document.getElementById('exp-merchant').value = parsed.merchant;
-    if (parsed.description) document.getElementById('exp-description').value = parsed.description;
+    let parsed;
+    try {
+      parsed = parseAIJson(rawText);
+    } catch (parseErr) {
+      // Keep the model's actual words for debugging, but never show the host a
+      // raw SyntaxError — an invoice the reader can't handle is a normal outcome.
+      console.warn('[StayOps] Receipt parse failed:', parseErr.message, '| reply:', String(rawText).slice(0, 300));
+      throw new Error('Could not read this receipt automatically — please enter the details manually');
+    }
+    if (parsed.merchant && F('merchant')) F('merchant').value = parsed.merchant;
+    if (parsed.description && F('description')) F('description').value = parsed.description;
     if (parsed.amount != null) {
       const n = Number(parsed.amount);
-      document.getElementById('exp-amount').value = Number.isFinite(n) ? Math.abs(n) : parsed.amount;
-      const refundEl = document.getElementById('exp-is-refund');
+      if (F('amount')) F('amount').value = Number.isFinite(n) ? Math.abs(n) : parsed.amount;
+      const refundEl = F('is-refund');
       if (refundEl) refundEl.checked = Number.isFinite(n) && n < 0;
     }
-    if (parsed.date) document.getElementById('exp-date').value = parsed.date;
-    if (parsed.receiptNum) document.getElementById('exp-receipt-num').value = parsed.receiptNum;
+    if (parsed.date && F('date')) F('date').value = parsed.date;
+    if (parsed.receiptNum && F('receipt-num')) F('receipt-num').value = parsed.receiptNum;
     if (parsed.category) {
-      const sel = document.getElementById('exp-category');
-      for (let opt of sel.options) { if (opt.value === parsed.category) { sel.value = parsed.category; break; } }
-      if (typeof globalThis.renderExpenseBookingPicker === 'function') globalThis.renderExpenseBookingPicker('exp', document.getElementById('exp-booking-link')?.value || '');
+      const sel = F('category');
+      // The 'ee' modal keeps its category in a hidden input driven by the cat
+      // picker, so only walk .options when this really is a <select>.
+      if (sel && sel.options) {
+        for (let opt of sel.options) { if (opt.value === parsed.category) { sel.value = parsed.category; break; } }
+      } else if (sel) {
+        sel.value = parsed.category;
+        if (typeof globalThis.renderExpenseCatPickerFor === 'function') globalThis.renderExpenseCatPickerFor(prefix);
+      }
+      if (typeof globalThis.renderExpenseBookingPicker === 'function') globalThis.renderExpenseBookingPicker(prefix, F('booking-link')?.value || '');
     }
     // Auto-link the receipt to its stay: deterministic cleaner-name +
     // clean-date match first, then the model's pick (validated against the
@@ -604,7 +665,7 @@ export async function extractExpenseFromReceipt() {
     let linkedBooking = null;
     const amt = Number(parsed.amount);
     if (candidates.length && !(Number.isFinite(amt) && amt < 0)) {
-      const matchDate = parsed.date || document.getElementById('exp-date').value || '';
+      const matchDate = parsed.date || F('date')?.value || '';
       linkedBooking = findCleanerReceiptBooking(parsed.merchant, matchDate, candidates);
       if (!linkedBooking && parsed.bookingId != null) {
         const hit = candidates.find(({ booking: b }) => String(b._cloudId || b.id) === String(parsed.bookingId));
@@ -613,10 +674,10 @@ export async function extractExpenseFromReceipt() {
     }
     if (linkedBooking) {
       const linkedId = String(linkedBooking._cloudId || linkedBooking.id);
-      if (typeof globalThis.renderExpenseBookingPicker === 'function') globalThis.renderExpenseBookingPicker('exp', linkedId);
-      const sel = document.getElementById('exp-booking-link');
+      if (typeof globalThis.renderExpenseBookingPicker === 'function') globalThis.renderExpenseBookingPicker(prefix, linkedId);
+      const sel = F('booking-link');
       if (sel && sel.value === linkedId) {
-        const wrap = document.getElementById('exp-booking-link-wrap');
+        const wrap = F('booking-link-wrap');
         if (wrap) wrap.style.display = 'block';
       } else {
         linkedBooking = null; // not selectable in the picker — don't claim a link
@@ -626,11 +687,15 @@ export async function extractExpenseFromReceipt() {
     status.textContent = linkedBooking
       ? `✓ Receipt read — linked to ${linkedBooking.name || 'Guest'}'s stay (${linkedBooking.checkin} → ${linkedBooking.checkout}). Review, then tap Save Expense`
       : '✓ Receipt read — review details, then tap Save Expense';
-    const panel = document.getElementById('expense-add-form-panel');
-    const chevron = document.getElementById('expense-add-chevron');
-    if (panel) panel.style.display = 'block';
-    if (chevron) chevron.textContent = '⌄';
-    setTimeout(() => triggerExpenseSuggestion('exp'), 300);
+    // Only the inline panel can be collapsed; the 'ee' modal is already open on
+    // screen and has no chevron, so force-showing that panel would be wrong.
+    if (prefix === 'exp') {
+      const panel = document.getElementById('expense-add-form-panel');
+      const chevron = document.getElementById('expense-add-chevron');
+      if (panel) panel.style.display = 'block';
+      if (chevron) chevron.textContent = '⌄';
+    }
+    setTimeout(() => triggerExpenseSuggestion(prefix), 300);
   } catch(err) {
     status.style.background = '#FDECEA'; status.style.color = '#C0392B';
     status.textContent = '✗ Error: ' + (err.message || 'Could not read receipt');
@@ -718,8 +783,7 @@ Return EXACTLY this JSON shape:
 
     if (!response.ok) throw new Error('API error');
     const rawText = data.content?.[0]?.text || '{}';
-    const cleaned = rawText.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
-    const result = JSON.parse(cleaned);
+    const result = parseAIJson(rawText);
 
     _lastSuggestKey = `${merchant}|${amount}|${date}`;
     const currentBookingSel = document.getElementById(prefix + '-booking-link')?.value || '';
@@ -881,8 +945,7 @@ export async function extractBookingFromScreenshot() {
       throw new Error('API error ' + response.status + ': ' + (data.error?.message || JSON.stringify(data)));
     }
     const text = data.content?.[0]?.text || '';
-    const clean = text.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
-    const parsed = JSON.parse(clean);
+    const parsed = parseAIJson(text);
 
     globalThis.switchModalTab('manual', document.querySelectorAll('#modal .tab')[0]);
 

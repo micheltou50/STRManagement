@@ -6,8 +6,9 @@
  * function declarations. `_bankImportReviewActive` is exported (read by the
  * barrel's renderExpenses to suppress a re-render while a review is open).
  */
-import { parseCSV, parseBankFileWithAI, categoriseTransactions, checkDuplicates, confirmTransaction, skipTransaction, logImportSession } from './bank-import.js';
+import { parseCSV, parseBankFileWithAI, categoriseTransactions, checkDuplicates, confirmTransaction, skipTransaction, logImportSession, getBankImportError, resetBankImportError } from './bank-import.js';
 import { findMatchesForTransaction, getReconciliationSummary } from './reconciliation.js';
+import { getOrCreateDefaultBankAccount } from './supabase.js';
 import { expenses } from './state.js';
 import { escHtml, fmt } from './utils.js';
 import { isPortfolioMode } from './property.js';
@@ -24,11 +25,37 @@ let _bankImportFilename = '';
 let _bankImportCreatedExpenseIds = [];
 let _bankImportJustImported = false;
 
+// Pinned for the lifetime of one import. It must not be re-resolved between
+// showing and restoring, or the backup HTML would be written back into a
+// different element than it was taken from.
+let _bankImportContainerEl = null;
+
+/** Where the import UI renders.
+ *
+ *  This used to always return #finance-expenses-view. But "Import Statement"
+ *  also exists on the Transaction Map (finance.js), and showFinanceSub sets
+ *  display:none on every sub-view except the active one — so importing from
+ *  there rendered the progress checklist AND the whole review screen into a
+ *  hidden element. The import ran correctly and looked like it did nothing. */
 function bankImportGetContainer() {
+  if (_bankImportContainerEl && _bankImportContainerEl.isConnected) return _bankImportContainerEl;
   if (_bankImportViewMode === 'portfolio') {
     return document.getElementById('portfolio-finance');
   }
   return document.getElementById('finance-expenses-view');
+}
+
+/** Choose and pin the container for this import: whichever finance sub-view the
+ *  host is actually looking at, falling back to the expenses list. */
+function bankImportPinContainer() {
+  if (_bankImportViewMode === 'portfolio') {
+    _bankImportContainerEl = document.getElementById('portfolio-finance');
+    return;
+  }
+  const visible = ['finance-reconciliation-view', 'finance-expenses-view']
+    .map(id => document.getElementById(id))
+    .find(el => el && el.offsetParent !== null);
+  _bankImportContainerEl = visible || document.getElementById('finance-expenses-view');
 }
 
 function getOrCreateBankCsvFileInput() {
@@ -88,6 +115,7 @@ function bankImportTruncate(s, n) {
 async function bankImportApplyMatchPreviews(rows, userId) {
   if (!userId) return;
   for (let i = 0; i < rows.length; i++) {
+    globalThis._bankImportProgress('matches', (i + 1) + ' of ' + rows.length);
     const r = rows[i];
     if (r.isDuplicate) continue;
     if (r.skip && r.reason === 'personal') continue;
@@ -249,6 +277,7 @@ function exitBankImportReview() {
   _bankImportFilename = '';
   const wasPortfolio = _bankImportViewMode === 'portfolio';
   _bankImportViewMode = 'single';
+  _bankImportContainerEl = null; // release the pin; next import re-picks
   if (wasPortfolio) {
     ensureBankImportToolbarPortfolio();
   } else {
@@ -320,6 +349,7 @@ function bankImportRestoreBackup() {
   _bankImportRows = [];
   const wasPortfolio = _bankImportViewMode === 'portfolio';
   _bankImportViewMode = 'single';
+  _bankImportContainerEl = null; // release the pin; next import re-picks
   if (wasPortfolio) {
     ensureBankImportToolbarPortfolio();
   } else {
@@ -327,25 +357,96 @@ function bankImportRestoreBackup() {
   }
 }
 
-function bankImportShowLoading() {
+// The analysing phase runs four distinct passes, each O(rows) and each a
+// different length, so a single bar would stall visibly on the slowest and read
+// as frozen. Ticking named steps makes the wait legible instead of hiding it.
+// Order MUST mirror processParsed's actual sequence — checkDuplicates runs
+// before categoriseTransactions — because reporting a step marks every earlier
+// one done, so a list out of order would tick backwards.
+const BANK_IMPORT_STEPS = [
+  { key: 'read',       label: 'Reading file' },
+  { key: 'duplicates', label: 'Checking for duplicates' },
+  { key: 'vendors',    label: 'Matching known vendors' },
+  { key: 'matches',    label: 'Finding matching expenses' },
+];
+
+function bankImportShowLoading(rowCount) {
   const container = bankImportGetContainer();
   if (!container) return;
   if (_bankImportBackupHtml == null) {
     _bankImportBackupHtml = container.innerHTML;
   }
+  const title = _bankImportFilename ? 'Importing ' + escHtml(_bankImportFilename) : 'Importing statement';
+  const sub = Number.isFinite(rowCount)
+    ? rowCount + ' transaction' + (rowCount === 1 ? '' : 's') + ' found'
+    : 'Reading your statement';
+  const rows = BANK_IMPORT_STEPS.map(s => `
+      <div id="bis-${s.key}" style="display:flex;align-items:center;gap:10px;padding:7px 0">
+        <span id="bis-${s.key}-icon" style="font-size:15px;line-height:1;width:16px;text-align:center;color:var(--muted-2)">○</span>
+        <span id="bis-${s.key}-label" style="font-size:14px;color:var(--muted-2)">${s.label}</span>
+        <span id="bis-${s.key}-detail" style="margin-left:auto;font-size:13px;color:var(--muted-2)"></span>
+      </div>`).join('');
   container.innerHTML = `
     <div class="settings-back" onclick="globalThis.bankImportCancelLoad()">‹ Finance</div>
-    <div class="card" style="margin:20px 16px;padding:24px;text-align:center">
-      <div style="font-size:15px;font-weight:600;margin-bottom:8px;color:var(--primary)">Analysing transactions…</div>
-      <div style="font-size:13px;color:var(--muted-2)">Please wait while we check for duplicates and categorise entries.</div>
+    <div class="card" style="margin:20px 16px;padding:20px">
+      <div style="font-size:15px;font-weight:600;color:var(--ink-1)">${title}</div>
+      <div id="bank-import-progress" style="font-size:13px;color:var(--muted-2);margin:4px 0 14px">${sub}</div>
+      ${rows}
     </div>`;
 }
 
+/** Mark a step active (with optional detail) and everything before it done.
+ *  Reported from bank-import.js via globalThis so the parser keeps no UI imports. */
+globalThis._bankImportProgress = (stepKey, detail) => {
+  const idx = BANK_IMPORT_STEPS.findIndex(s => s.key === stepKey);
+  if (idx === -1) return;
+  BANK_IMPORT_STEPS.forEach((s, i) => {
+    const icon = document.getElementById('bis-' + s.key + '-icon');
+    const label = document.getElementById('bis-' + s.key + '-label');
+    const det = document.getElementById('bis-' + s.key + '-detail');
+    if (!icon || !label || !det) return;
+    if (i < idx) {
+      icon.textContent = '✓'; icon.style.color = 'var(--primary)';
+      label.style.color = 'var(--muted-2)'; label.style.fontWeight = '400';
+      if (!det.dataset.kept) { det.textContent = 'done'; det.style.color = 'var(--muted-2)'; }
+    } else if (i === idx) {
+      icon.textContent = '◍'; icon.style.color = 'var(--primary)';
+      label.style.color = 'var(--ink-1)'; label.style.fontWeight = '600';
+      det.textContent = detail || ''; det.style.color = 'var(--primary)';
+    } else {
+      icon.textContent = '○'; icon.style.color = 'var(--muted-2)';
+      label.style.color = 'var(--muted-2)'; label.style.fontWeight = '400';
+      det.textContent = '';
+    }
+  });
+};
+
+/** Pin a permanent detail on a step (e.g. the row count on "Reading file")
+ *  so it survives being marked done. */
+globalThis._bankImportStepResult = (stepKey, text) => {
+  const det = document.getElementById('bis-' + stepKey + '-detail');
+  if (!det) return;
+  det.textContent = text;
+  det.dataset.kept = '1';
+};
+
+/** Live progress for the analysing phase.
+ *
+ *  That phase is O(rows) sequential network calls — vendor mappings and
+ *  duplicate lookups are per row — so a 95-row statement makes a few hundred
+ *  round trips and can run for minutes. With a static "Analysing transactions…"
+ *  and no counter it reads as a hang, which is exactly how a working import got
+ *  reported as "nothing happens". bank-import.js calls this through globalThis
+ *  so the parser stays free of UI imports. */
 function canBankImportRow(r) {
   if (r.skip && r.reason === 'personal') return false;
   if (r.userMarkedSkip) return false;
   if (r.userMarkedPersonal) return false;
   if (r.isDuplicate) return false;
+  // A near-miss is a question, and an unanswered question must not import:
+  // defaulting to "create" is how a 25c mistype silently double-counted a
+  // clean, and defaulting to "link" would attach the wrong amount unasked.
+  if (r.nearMissExpense && !r.nearMissDecision) return false;
   const pid = String(r.propertyId || '').trim();
   const cat = String(r.category || '').trim();
   if (!pid || !cat) return false;
@@ -491,6 +592,7 @@ function renderBankImportReview() {
                 <span style="width:8px;height:8px;border-radius:50%;background:${confDot};flex-shrink:0"></span>
                 <span>${confLabel}</span>
               </div>
+              ${row.nearMissExpense ? bankImportNearMissBoxHtml(row, i) : ''}
               <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
                 ${isPersonal || row.userMarkedSkip ? `<button type="button" onclick="globalThis.bankImportUndoSkip(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--moss);color:var(--moss);background:#f0faf4;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Undo</button>` : `<button type="button" onclick="globalThis.bankImportSkipRow(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--hairline-1);background:white;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Skip</button>
                 <button type="button" onclick="globalThis.bankImportPersonalRow(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--red);color:var(--red);background:#fff5f5;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Personal</button>`}
@@ -548,7 +650,31 @@ function renderBankImportReview() {
     : '';
   const newSection = newHeader + newItems.map(({ row, i }) => renderReviewCard(row, i)).join('');
 
-  container.innerHTML = headerHtml + `<div id="bank-import-list">${dupSection}${newSection}</div>`;
+  // The summary bar at the top uses position:sticky, which silently stops
+  // sticking once the review is rendered inside a scrolling container — with 100+
+  // rows "Import All" then scrolls away and the only way to finish the import is
+  // to scroll back to the top and find it. A fixed bar keeps the primary action
+  // reachable from anywhere in the list, and states plainly how many rows it will
+  // actually import.
+  const readyNow = _bankImportRows.filter(canBankImportRow).length;
+  // Undecided near-misses are why "ready" is lower than the row count — say so,
+  // or the gap reads as the importer silently dropping rows.
+  const needDecision = _bankImportRows.filter((r) =>
+    r.nearMissExpense && !r.nearMissDecision && !r.isDuplicate &&
+    !(r.skip && r.reason === 'personal') && !r.userMarkedSkip && !r.userMarkedPersonal).length;
+  const footerHtml = `
+    <div style="height:76px"></div>
+    <div style="position:fixed;left:0;right:0;bottom:0;z-index:60;background:#fff;border-top:0.5px solid var(--hairline-1);padding:10px 16px;display:flex;align-items:center;gap:10px;justify-content:space-between;font-family:'Plus Jakarta Sans',sans-serif">
+      <span style="font-size:12.5px;color:var(--muted-2)"><strong style="color:var(--ink-1)">${readyNow}</strong> ready to import${needDecision ? ` · <strong style="color:#E65100">${needDecision}</strong> need${needDecision === 1 ? 's' : ''} a decision` : ''}</span>
+      <div style="display:flex;gap:8px">
+        <button type="button" onclick="globalThis.exitBankImportReview()" style="font-size:12.5px;padding:9px 14px;border-radius:8px;border:1px solid var(--hairline-1);background:#fff;color:var(--muted-2);font-weight:600;cursor:pointer;font-family:inherit">Cancel</button>
+        <button type="button" onclick="globalThis.bankImportRunImport()" ${readyNow ? '' : 'disabled'}
+          style="font-size:12.5px;padding:9px 18px;border-radius:8px;border:none;font-weight:700;cursor:${readyNow ? 'pointer' : 'not-allowed'};font-family:inherit;background:${readyNow ? 'var(--primary)' : 'var(--hairline-1)'};color:${readyNow ? '#fff' : 'var(--muted-2)'}">
+          ${readyNow ? 'Import ' + readyNow : 'Nothing to import'}
+        </button>
+      </div>
+    </div>`;
+  container.innerHTML = headerHtml + `<div id="bank-import-list">${dupSection}${newSection}</div>` + footerHtml;
 
   _bankImportRows.forEach((row, i) => {
     const ps = document.getElementById('bank-import-prop-' + i);
@@ -573,11 +699,16 @@ async function bankImportOnFileSelected(ev) {
 
   _bankImportViewMode =
     typeof isPortfolioMode === 'function' && isPortfolioMode() ? 'portfolio' : 'single';
+  // Decide NOW, while the host's current view is still on screen, where this
+  // import will draw — otherwise it renders into whichever sub-view happens to
+  // be hidden and the whole thing is invisible.
+  bankImportPinContainer();
   console.log(
     '[StayOps] Bank import:',
     file.name,
     '—',
-    _bankImportViewMode === 'portfolio' ? 'portfolio (all properties)' : 'single-property'
+    _bankImportViewMode === 'portfolio' ? 'portfolio (all properties)' : 'single-property',
+    '— rendering into', _bankImportContainerEl ? _bankImportContainerEl.id : '(none)'
   );
 
   // Branch on file type: text CSV uses the synchronous parser, PDF/image
@@ -592,10 +723,15 @@ async function bankImportOnFileSelected(ev) {
   const processParsed = async (parsed, sourceLabel) => {
     console.log('[StayOps] Bank import parsed:', parsed.length, 'rows from', sourceLabel);
     if (!parsed.length) {
+      // Prefer the specific reason the parser recorded over the generic advice,
+      // so a failed import says WHAT broke instead of leaving the host guessing.
+      const why = typeof getBankImportError === 'function' ? getBankImportError() : '';
       globalThis.showBanner(
-        useAI
-          ? 'AI did not find transactions in that file — try a clearer PDF/screenshot, or use a CSV export'
-          : 'No expense transactions found — check the file format (CSV or tab-delimited)',
+        why
+          ? 'Import failed: ' + why
+          : (useAI
+            ? 'AI did not find transactions in that file — try a clearer PDF/screenshot, or use a CSV export'
+            : 'No expense transactions found — check the file format (CSV or tab-delimited)'),
         'warn'
       );
       _bankImportViewMode =
@@ -603,7 +739,36 @@ async function bankImportOnFileSelected(ev) {
       return;
     }
 
-    bankImportShowLoading();
+    bankImportShowLoading(parsed.length);
+    // The file is already parsed by the time this screen appears, so step 1 is
+    // complete on arrival — show its result rather than a spinner that never ran.
+    globalThis._bankImportStepResult('read', parsed.length + ' rows');
+    globalThis._bankImportProgress('duplicates', '');
+
+    // Stamp provenance on every row of THIS file before anything is written.
+    // bank_account_id decides which account's balance a row counts toward;
+    // without it the reconcile silently computes over a subset.
+    //
+    // import_batch_id is deliberately NOT set here. It is a FOREIGN KEY to
+    // bank_import_log, so a generated uuid points at no row and Postgres
+    // rejects EVERY insert with
+    //   violates foreign key constraint "bank_transactions_import_batch_id_fkey"
+    // — which is exactly what it did: a whole import failing with nothing
+    // written. Populating it properly means creating the bank_import_log row
+    // BEFORE the transactions and threading its id through, which is a separate
+    // change; leaving it null matches the behaviour of every existing row.
+    let _acctId = null;
+    try {
+      const acct = typeof getOrCreateDefaultBankAccount === 'function'
+        ? await getOrCreateDefaultBankAccount() : null;
+      _acctId = acct ? acct._cloudId : null;
+    } catch (e) { console.warn('[StayOps] Bank import: no default account', e); }
+    const _bankLabel = _bankImportFilename ? _bankImportFilename.replace(/\.[^.]+$/, '') : null;
+    for (const p of parsed) {
+      if (!p) continue;
+      p.bankAccountId = _acctId;
+      if (!p.bankName) p.bankName = _bankLabel;
+    }
     try {
       console.log('[StayOps] Bank import: analysing', parsed.length, 'parsed rows');
       let rows = await checkDuplicates(parsed, userId);
@@ -646,6 +811,10 @@ async function bankImportOnFileSelected(ev) {
     globalThis.showBanner('Could not read file', 'warn');
     bankImportRestoreBackup();
   };
+
+  // Drop any reason recorded by a previous attempt so a fresh failure can't be
+  // reported with a stale explanation.
+  if (typeof resetBankImportError === 'function') resetBankImportError();
 
   if (useAI) {
     globalThis.showBanner('⏳ Reading bank statement with AI — this can take 10-30 sec', 'info');
@@ -701,6 +870,66 @@ function bankImportOnCatChange(i) {
   if (!cs) return;
   row.category = cs.value;
   row.uiConfirmed = true;
+  renderBankImportReview();
+}
+
+/** The "close, but not certain" card section: an expense of a similar amount
+ *  sits within the match window, and the import will neither link it silently
+ *  (the amount may be genuinely different) nor create a new expense silently
+ *  (a 25c payment typo double-counted a clean that way). The host decides;
+ *  the row is excluded from "ready" until they do. */
+function bankImportNearMissBoxHtml(row, i) {
+  const m = row.nearMissExpense;
+  if (!m) return '';
+  const diff = Math.abs(Number(m.diff) || 0);
+  const gapText = diff >= 0.005
+    ? `$${diff.toFixed(2)} difference`
+    : 'same amount, different wording';
+  const line = `${escHtml(m.label)} · $${Number(m.amount || 0).toFixed(2)}${m.date ? ' · ' + escHtml(bankImportFmtDayMon(m.date)) : ''}`;
+  if (row.nearMissDecision === 'link') {
+    return `<div style="background:#EAF3DE;border:1px solid #C5DDA8;border-radius:8px;padding:8px 10px;font-size:12px;color:#3B6D11;font-family:'Plus Jakarta Sans',sans-serif;display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <span style="min-width:0">✓ Will link to ${line}</span>
+        <button type="button" onclick="globalThis.bankImportNearMissDecide(${i}, null)" style="font-size:11px;padding:3px 8px;border-radius:6px;border:1px solid #C5DDA8;background:white;cursor:pointer;font-family:inherit;flex-shrink:0">Undo</button>
+      </div>`;
+  }
+  if (row.nearMissDecision === 'create') {
+    return `<div style="background:var(--surface2);border:1px solid var(--hairline-1);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--muted-2);font-family:'Plus Jakarta Sans',sans-serif;display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <span style="min-width:0">Will import as a new expense (not ${line})</span>
+        <button type="button" onclick="globalThis.bankImportNearMissDecide(${i}, null)" style="font-size:11px;padding:3px 8px;border-radius:6px;border:1px solid var(--hairline-1);background:white;cursor:pointer;font-family:inherit;flex-shrink:0">Undo</button>
+      </div>`;
+  }
+  return `<div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;padding:9px 11px;font-family:'Plus Jakarta Sans',sans-serif">
+      <div style="font-size:12px;color:#5D4037;margin-bottom:6px">Possible match: <strong>${line}</strong> — ${gapText}. Same purchase?</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" onclick="globalThis.bankImportNearMissDecide(${i}, 'link')" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--moss);color:var(--moss);background:#f0faf4;cursor:pointer;font-family:inherit;font-weight:600">Yes — link it</button>
+        <button type="button" onclick="globalThis.bankImportNearMissDecide(${i}, 'create')" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--hairline-1);background:white;cursor:pointer;font-family:inherit">No — new expense</button>
+      </div>
+    </div>`;
+}
+
+function bankImportNearMissDecide(i, decision) {
+  const row = _bankImportRows[i];
+  if (!row || !row.nearMissExpense) return;
+  row.nearMissDecision = decision || null;
+  if (decision === 'link') {
+    // Linking adopts the matched expense's home: property and category come
+    // from the record the host already made, exactly as the certain-match path
+    // does via bankImportApplyMatchPreviews. Without this the row still fails
+    // canBankImportRow's property/category gate and "ready" never moves.
+    // Remember what was adopted, so Undo → "No" doesn't quietly file the NEW
+    // expense under the property of the record the host just declined.
+    if (!String(row.propertyId || '').trim() && row.nearMissExpense.propertyId) {
+      row.propertyId = row.nearMissExpense.propertyId;
+      row._nearMissAdoptedProperty = true;
+    }
+    if (!String(row.category || '').trim() && row.nearMissExpense.category) {
+      row.category = row.nearMissExpense.category;
+      row._nearMissAdoptedCategory = true;
+    }
+  } else {
+    if (row._nearMissAdoptedProperty) { row.propertyId = ''; row._nearMissAdoptedProperty = false; }
+    if (row._nearMissAdoptedCategory) { row.category = ''; row._nearMissAdoptedCategory = false; }
+  }
   renderBankImportReview();
 }
 
@@ -794,13 +1023,35 @@ async function bankImportRunImport() {
   }
   const toImport = _bankImportRows.map((r, i) => ({ r, i })).filter(({ r }) => canBankImportRow(r));
   if (!toImport.length) {
-    globalThis.showBanner('Confirm property and category for at least one transaction', 'warn');
+    // Say WHY nothing is importable. "Confirm property and category" is wrong
+    // advice when the real reason is that every row is a re-import or was
+    // skipped, and it left the host pressing a button that appeared to do
+    // nothing.
+    const n = _bankImportRows.length;
+    const dup = _bankImportRows.filter(r => r.isDuplicate).length;
+    const skip = _bankImportRows.filter(r => r.userMarkedSkip || (r.skip && r.reason === 'personal') || r.userMarkedPersonal).length;
+    const needsCat = _bankImportRows.filter(r =>
+      !r.isDuplicate && !r.userMarkedSkip && !r.userMarkedPersonal && !(r.skip && r.reason === 'personal')
+      && (!String(r.propertyId || '').trim() || !String(r.category || '').trim())).length;
+    const undecided = _bankImportRows.filter(r =>
+      r.nearMissExpense && !r.nearMissDecision && !r.isDuplicate &&
+      !(r.skip && r.reason === 'personal') && !r.userMarkedSkip && !r.userMarkedPersonal).length;
+    const why = undecided
+      ? `${undecided} row${undecided === 1 ? ' has' : 's have'} a possible match waiting on your decision`
+      : needsCat
+        ? `${needsCat} of ${n} still need a property and category`
+        : dup === n
+          ? `all ${n} rows are already imported`
+          : `${dup} already imported · ${skip} skipped`;
+    globalThis.showBanner('Nothing to import — ' + why, 'warn');
     return;
   }
 
   let imported = 0;
   let matchedCount = 0;
   let createdCount = 0;
+  let failedCount = 0;
+  let firstError = '';
   _bankImportCreatedExpenseIds = [];
   const duplicates = _bankImportRows.filter((r) => r.isDuplicate).length;
 
@@ -841,8 +1092,13 @@ async function bankImportRunImport() {
           expenses.push(local);
         }
       } catch (err) {
-        console.log('[StayOps] confirmTransaction failed:', err && err.message ? err.message : err);
-        globalThis.showBanner('Some rows failed to import — check console', 'warn');
+        // Keep the FIRST real error so the summary can state it. "Check console"
+        // is useless on a phone, and it left an import that silently wrote
+        // nothing looking like an import that simply had nothing to do.
+        const msg = (err && (err.message || err.details || err.hint)) || String(err);
+        console.log('[StayOps] confirmTransaction failed:', msg, err);
+        if (!firstError) firstError = msg;
+        failedCount++;
       }
     }
 
@@ -859,24 +1115,38 @@ async function bankImportRunImport() {
       duplicates,
     });
 
-    globalThis.showBanner(
-      matchedCount +
-        ' matched to existing invoices · ' +
-        createdCount +
-        ' new expenses created · ' +
-        skippedZ +
-        ' skipped',
-      'ok'
-    );
-
-    // Show receipt prompt for newly created expenses, then go to Transaction Map
-    _bankImportJustImported = true;
-    if (_bankImportCreatedExpenseIds.length) {
-      setTimeout(() => _showBankImportReceiptPrompt(), 600);
+    // An import that wrote nothing must say so, and say why. Reporting
+    // "0 matched · 0 created · 0 skipped" in a success-coloured banner made a
+    // total failure look like a no-op with nothing to do.
+    if (failedCount && !imported) {
+      globalThis.showBanner(
+        `Import failed — ${failedCount} row${failedCount === 1 ? '' : 's'} could not be saved. ${firstError || 'No error reported.'}`,
+        'warn'
+      );
     } else {
-      // No new expenses — go straight to Transaction Map
-      setTimeout(() => showReconciliationView(), 600);
+      globalThis.showBanner(
+        matchedCount +
+          ' matched to existing invoices · ' +
+          createdCount +
+          ' new expenses created · ' +
+          skippedZ +
+          ' skipped' +
+          (failedCount ? ` · ${failedCount} failed (${firstError})` : ''),
+        failedCount ? 'warn' : 'ok'
+      );
     }
+
+    // Refresh the Transaction Map UNCONDITIONALLY, then overlay the receipt
+    // prompt on top if there is one. The prompt path used to skip the refresh,
+    // so exitBankImportReview()'s restored pre-import snapshot stayed on
+    // screen: the imported rows were in the database but the host was looking
+    // at a photograph of the old list, and only the prompt's own "View
+    // Transaction Map" button (not × or Add Receipt) ever re-rendered it.
+    _bankImportJustImported = true;
+    setTimeout(() => {
+      showReconciliationView();
+      if (_bankImportCreatedExpenseIds.length) _showBankImportReceiptPrompt();
+    }, 600);
   } finally {
     exitBankImportReview();
   }
@@ -933,7 +1203,15 @@ globalThis.bankImportCancelLoad = bankImportRestoreBackup;
 globalThis.bankImportOnPropChange = bankImportOnPropChange;
 globalThis.bankImportOnCatChange = bankImportOnCatChange;
 globalThis.bankImportSkipRow = bankImportSkipRow;
+globalThis.bankImportNearMissDecide = bankImportNearMissDecide;
 globalThis.bankImportPersonalRow = bankImportPersonalRow;
 globalThis.bankImportConfirmAllSuggested = bankImportConfirmAllSuggested;
 globalThis.bankImportRunImport = bankImportRunImport;
 globalThis.bankImportPickFile = () => getOrCreateBankCsvFileInput().click();
+// finance-payout-paste.js guards its post-save refresh on this name existing as
+// a global, and nothing ever assigned it — so saving a pasted statement never
+// refreshed the reconciliation summary. It slipped past check-finance-split.sh
+// because that script's bridge regex ends in `[[:space:]]*=`, which also matches
+// the first `=` of a `typeof ... === 'function'` guard, so the name was already
+// sitting in the baseline as if it had been bridged.
+globalThis.refreshFinanceReconciliationSummary = refreshFinanceReconciliationSummary;

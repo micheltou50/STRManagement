@@ -1,5 +1,7 @@
 _appConfig
 _autoLinkPendingReconTxn
+_bankImportProgress
+_bankImportStepResult
 _checkModalsClosed
 _confirmInvoiceIssued
 _finReportsSegBound
@@ -19,6 +21,7 @@ bankImportCancelLoad
 bankImportConfirmAllSuggested
 bankImportDismissMatch
 bankImportImportAnyway
+bankImportNearMissDecide
 bankImportOnCatChange
 bankImportOnPropChange
 bankImportPersonalRow
@@ -57,11 +60,16 @@ getRecurringTemplates
 getTotalDepreciationForFY
 mgmtCheckboxChange
 mgmtToggleSelectAll
+moneyInFindDeposit
+moneyInMatchAll
+moneyInSetFilter
 openExpenseEdit
 openExpenseView
 openPayoutPasteModal
 openReceiptViewer
 reconCreateExpense
+reconFindPaymentForExpense
+reconLinkExpenseToTxn
 reconLinkToExpense
 reconLinkToPayout
 reconMarkPersonal
@@ -69,6 +77,16 @@ reconMarkSkipped
 reconMatchExpense
 reconMatchPayout
 reconRestoreTxn
+reconUnlinkPayout
+reconcileClosePeriod
+reconcileReadStatement
+reconcileSetAccount
+reconcileSetOpening
+reconcileSetPeriodEnd
+reconcileSetPeriodStart
+reconcileSetStatement
+reconcileToggle
+reconcileUndo
 refreshFinanceReconciliationSummary
 removeEditReceipt
 renderDepreciationPanel
@@ -87,6 +105,7 @@ selectExpenseSubcat
 setExpensePayoutMode
 showAppModal
 showBanner
+showReconcileView
 showStatementView
 switchReconTab
 taxExportFYNext
