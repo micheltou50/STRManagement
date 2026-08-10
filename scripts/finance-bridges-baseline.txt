@@ -21,6 +21,7 @@ bankImportCancelLoad
 bankImportConfirmAllSuggested
 bankImportDismissMatch
 bankImportImportAnyway
+bankImportNearMissDecide
 bankImportOnCatChange
 bankImportOnPropChange
 bankImportPersonalRow

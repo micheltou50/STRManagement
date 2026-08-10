@@ -823,6 +823,23 @@ function descriptionSimilar(d1, d2) {
   return n >= 2 || (n >= 1 && wa.size <= 3);
 }
 
+// Bank-narration boilerplate carries no identity, and descriptionSimilar
+// accepts a single shared token for short strings — so a merchant literally
+// named "ANZ Mortgage" would text-match EVERY "ANZ MOBILE BANKING PAYMENT …"
+// narration via the shared "anz". Strip the boilerplate from both sides before
+// comparing, so only the words that name someone can match.
+const NARRATION_STOPWORDS = new Set([
+  'anz', 'visa', 'debit', 'credit', 'card', 'purchase', 'payment', 'payments',
+  'transfer', 'banking', 'mobile', 'internet', 'bpay', 'eftpos', 'deposit',
+  'the', 'and', 'pty', 'ltd', 'from', 'account',
+]);
+
+function merchantSimilar(merchant, bankDescription) {
+  const strip = (s) => String(s || '').toLowerCase().split(/\s+/)
+    .filter((w) => w.length > 2 && !NARRATION_STOPWORDS.has(w)).join(' ');
+  return descriptionSimilar(strip(merchant), strip(bankDescription));
+}
+
 // Days between the expense date and the bank posting it. An expense is dated
 // when the invoice is, but it is paid days later, so the real-world lag is
 // bigger than "a couple of days". At 4 this window missed by ONE day on the
@@ -861,16 +878,21 @@ export async function checkDuplicates(transactions, userId) {
     // already recorded, so it must be imported and linked, not discarded.
     let matchesExistingExpense = false;
     let dupMatch = null;
+    let nearMiss = null;
     let reason;
 
     // Match against an already-logged EXPENSE within a date window (the bank
     // posts a few days after the expense was recorded), same amount, and a
-    // similar vendor/description.
+    // similar vendor/description. `merchant` is in the select because it is the
+    // field hosts actually fill in — "Megan Orme" — while `description` holds
+    // invoice prose and `vendor` is usually blank on manual entries. Comparing
+    // only the latter two meant an exact-amount payment to a recorded merchant
+    // failed the text gate and minted a duplicate expense.
     const winLo = _shiftIsoDate(t.date, -DUP_DATE_WINDOW);
     const winHi = _shiftIsoDate(t.date, DUP_DATE_WINDOW);
     const { data: rows, error } = await sb
       .from('expenses')
-      .select('id, amount, description, vendor, date, bank_transaction_id')
+      .select('id, amount, description, vendor, merchant, date, bank_transaction_id, property_id, category')
       .eq('user_id', userId)
       .gte('date', winLo)
       .lte('date', winHi);
@@ -879,7 +901,6 @@ export async function checkDuplicates(transactions, userId) {
       console.log('[StayOps] checkDuplicates query error:', error.message || error);
     } else if (Array.isArray(rows)) {
       for (const row of rows) {
-        if (!amountClose(row.amount, t.amount)) continue;
         // THE BANK IS THE ARBITER. An expense that already carries its own bank
         // line is, by definition, accounted for by a DIFFERENT statement row, so
         // this incoming line cannot be its duplicate. Without this a recurring
@@ -888,10 +909,57 @@ export async function checkDuplicates(transactions, userId) {
         // and saving nothing. Re-importing the SAME line is a separate concern,
         // caught by the bank_transactions pass below.
         if (row.bank_transaction_id) continue;
+        const amountGap = Math.abs(Number(row.amount) - Number(t.amount));
+        if (amountGap > 0.5) continue;
         const vendorMatch =
           row.vendor && t.vendor && descriptionSimilar(row.vendor, t.vendor);
         const descMatch = descriptionSimilar(row.description, t.description);
-        if (vendorMatch || descMatch) {
+        const merchantMatch = merchantSimilar(row.merchant, t.description);
+        const textMatch = vendorMatch || descMatch || merchantMatch;
+
+        // Tier 2 — close, but not certain: the amount is off by up to 50c on a
+        // matching merchant (an invoice of $178.75 paid as $178.50 by typo).
+        // This is a QUESTION for the host, not an answer. It used to be neither
+        // linked nor asked: any row the exact-match tier rejected fell through
+        // to "create a new expense", so a 25c mistype silently double-counted
+        // the clean. Best candidate wins: smallest amount gap, then nearest
+        // date.
+        //
+        // DELIBERATELY NOT a near-miss: an exact amount with no text match.
+        // The score path in confirmTransaction already auto-links those at
+        // >= 80, and bankImportApplyMatchPreviews locks the row with a green
+        // "Matches" strip — asking a question about the same expense would
+        // fight that tier (two owners, contradictory UI), and because the
+        // score is >= 80 a "No" answer would be silently overridden by the
+        // score-path link. Review caught exactly that. One owner per case:
+        // exact amount → score path; near amount + text → this question.
+        //
+        // Credits never ask: a refund can equal a recorded expense to the
+        // cent, but confirmTransaction's credit branch returns before any
+        // expense linking, so the promise "Will link" would be a lie.
+        if (!amountClose(row.amount, t.amount) || !textMatch) {
+          if (amountGap > 0.01 && textMatch && t.type !== 'credit') {
+            const dayGap = Math.abs(
+              (new Date(String(row.date).slice(0, 10) + 'T00:00:00Z') -
+               new Date(String(t.date).slice(0, 10) + 'T00:00:00Z')) / 86400000);
+            const cand = {
+              id: row.id,
+              label: row.merchant || row.vendor || row.description || 'expense',
+              amount: Number(row.amount) || 0,
+              date: row.date,
+              diff: amountGap,
+              days: dayGap,
+              propertyId: row.property_id || '',
+              category: row.category || '',
+            };
+            if (!nearMiss || cand.diff < nearMiss.diff - 1e-9 ||
+                (Math.abs(cand.diff - nearMiss.diff) < 1e-9 && cand.days < nearMiss.days)) {
+              nearMiss = cand;
+            }
+          }
+          continue;
+        }
+        {
           // NOT a duplicate — this is the PAYMENT for an expense the host already
           // entered, which is precisely what reconciliation is for.
           //
@@ -909,7 +977,9 @@ export async function checkDuplicates(transactions, userId) {
           // line (the bank_transactions pass below) is a real duplicate.
           existingExpenseId = row.id;
           matchesExistingExpense = true;
-          dupMatch = { kind: 'expense', label: row.vendor || row.description || '', amount: Number(row.amount) || 0, date: row.date };
+          dupMatch = { kind: 'expense', label: row.merchant || row.vendor || row.description || '', amount: Number(row.amount) || 0, date: row.date };
+          // A certain match supersedes any near-miss candidate collected earlier.
+          nearMiss = null;
           break;
         }
       }
@@ -945,7 +1015,18 @@ export async function checkDuplicates(transactions, userId) {
       }
     }
 
-    out.push({ ...t, isDuplicate, existingExpenseId, matchesExistingExpense, dupMatch, ...(reason ? { reason } : {}) });
+    // A near-miss only survives when nothing certain claimed the row — a
+    // confirmed expense match or a prior-import duplicate outranks a question.
+    // Written explicitly (null, not omitted): checkDuplicates runs TWICE in the
+    // pipeline (before and after categorisation), and `...t` carries pass 1's
+    // decoration into pass 2 — a row that upgraded to a certain match must not
+    // keep a stale question from the earlier pass.
+    const keepNearMiss = nearMiss && !matchesExistingExpense && !isDuplicate;
+    out.push({
+      ...t, isDuplicate, existingExpenseId, matchesExistingExpense, dupMatch,
+      nearMissExpense: keepNearMiss ? nearMiss : null,
+      ...(reason ? { reason } : {}),
+    });
   }
   return out;
 }
@@ -1038,7 +1119,23 @@ export async function confirmTransaction(transaction, userId, propertyId, catego
   // CREATE a second expense for a purchase the host already entered — exactly
   // the double-record this path exists to prevent.
   const forcedExpenseId = transaction.matchesExistingExpense ? transaction.existingExpenseId : null;
-  const targetExpenseId = forcedExpenseId || (top && top.score >= 80 ? top.expense.id : null);
+  // A near-miss the host explicitly confirmed on the review screen ("same
+  // purchase") links like a certain match. Only an explicit 'link' counts —
+  // an undecided or 'create' row falls through to the score path as before.
+  const nearMissChosenId =
+    transaction.nearMissDecision === 'link' && transaction.nearMissExpense
+      ? transaction.nearMissExpense.id
+      : null;
+  // An expense the host explicitly DECLINED ("No — new expense") must never be
+  // linked by any later tier. Near-misses currently score below the auto-link
+  // threshold by construction, so this guard is unreachable today — it exists
+  // so a future tolerance change cannot quietly turn "No" into a dead button.
+  const declinedId =
+    transaction.nearMissDecision === 'create' && transaction.nearMissExpense
+      ? String(transaction.nearMissExpense.id)
+      : null;
+  const scoreTop = top && top.score >= 80 && String(top.expense.id) !== declinedId ? top.expense.id : null;
+  const targetExpenseId = forcedExpenseId || nearMissChosenId || scoreTop;
 
   let expenseOut;
 
@@ -1118,7 +1215,11 @@ export async function confirmTransaction(transaction, userId, propertyId, catego
   });
   if (mapErr) console.log('[StayOps] vendor_mappings upsert warning:', mapErr.message || mapErr);
 
-  const action = top && top.score >= 80 ? 'matched' : 'created';
+  // From the actual outcome, not the score: a host-confirmed near-miss links at
+  // score 35-50, and reporting it as 'created' pushed the ALREADY-EXISTING
+  // expense into the in-memory array a second time — the exact double-count
+  // this feature exists to prevent, resurrected in the session UI.
+  const action = targetExpenseId ? 'matched' : 'created';
   return {
     ...expenseOut,
     action,

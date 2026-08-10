@@ -443,6 +443,10 @@ function canBankImportRow(r) {
   if (r.userMarkedSkip) return false;
   if (r.userMarkedPersonal) return false;
   if (r.isDuplicate) return false;
+  // A near-miss is a question, and an unanswered question must not import:
+  // defaulting to "create" is how a 25c mistype silently double-counted a
+  // clean, and defaulting to "link" would attach the wrong amount unasked.
+  if (r.nearMissExpense && !r.nearMissDecision) return false;
   const pid = String(r.propertyId || '').trim();
   const cat = String(r.category || '').trim();
   if (!pid || !cat) return false;
@@ -588,6 +592,7 @@ function renderBankImportReview() {
                 <span style="width:8px;height:8px;border-radius:50%;background:${confDot};flex-shrink:0"></span>
                 <span>${confLabel}</span>
               </div>
+              ${row.nearMissExpense ? bankImportNearMissBoxHtml(row, i) : ''}
               <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
                 ${isPersonal || row.userMarkedSkip ? `<button type="button" onclick="globalThis.bankImportUndoSkip(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--moss);color:var(--moss);background:#f0faf4;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Undo</button>` : `<button type="button" onclick="globalThis.bankImportSkipRow(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--hairline-1);background:white;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Skip</button>
                 <button type="button" onclick="globalThis.bankImportPersonalRow(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--red);color:var(--red);background:#fff5f5;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Personal</button>`}
@@ -652,10 +657,15 @@ function renderBankImportReview() {
   // reachable from anywhere in the list, and states plainly how many rows it will
   // actually import.
   const readyNow = _bankImportRows.filter(canBankImportRow).length;
+  // Undecided near-misses are why "ready" is lower than the row count — say so,
+  // or the gap reads as the importer silently dropping rows.
+  const needDecision = _bankImportRows.filter((r) =>
+    r.nearMissExpense && !r.nearMissDecision && !r.isDuplicate &&
+    !(r.skip && r.reason === 'personal') && !r.userMarkedSkip && !r.userMarkedPersonal).length;
   const footerHtml = `
     <div style="height:76px"></div>
     <div style="position:fixed;left:0;right:0;bottom:0;z-index:60;background:#fff;border-top:0.5px solid var(--hairline-1);padding:10px 16px;display:flex;align-items:center;gap:10px;justify-content:space-between;font-family:'Plus Jakarta Sans',sans-serif">
-      <span style="font-size:12.5px;color:var(--muted-2)"><strong style="color:var(--ink-1)">${readyNow}</strong> ready to import</span>
+      <span style="font-size:12.5px;color:var(--muted-2)"><strong style="color:var(--ink-1)">${readyNow}</strong> ready to import${needDecision ? ` · <strong style="color:#E65100">${needDecision}</strong> need${needDecision === 1 ? 's' : ''} a decision` : ''}</span>
       <div style="display:flex;gap:8px">
         <button type="button" onclick="globalThis.exitBankImportReview()" style="font-size:12.5px;padding:9px 14px;border-radius:8px;border:1px solid var(--hairline-1);background:#fff;color:var(--muted-2);font-weight:600;cursor:pointer;font-family:inherit">Cancel</button>
         <button type="button" onclick="globalThis.bankImportRunImport()" ${readyNow ? '' : 'disabled'}
@@ -863,6 +873,66 @@ function bankImportOnCatChange(i) {
   renderBankImportReview();
 }
 
+/** The "close, but not certain" card section: an expense of a similar amount
+ *  sits within the match window, and the import will neither link it silently
+ *  (the amount may be genuinely different) nor create a new expense silently
+ *  (a 25c payment typo double-counted a clean that way). The host decides;
+ *  the row is excluded from "ready" until they do. */
+function bankImportNearMissBoxHtml(row, i) {
+  const m = row.nearMissExpense;
+  if (!m) return '';
+  const diff = Math.abs(Number(m.diff) || 0);
+  const gapText = diff >= 0.005
+    ? `$${diff.toFixed(2)} difference`
+    : 'same amount, different wording';
+  const line = `${escHtml(m.label)} · $${Number(m.amount || 0).toFixed(2)}${m.date ? ' · ' + escHtml(bankImportFmtDayMon(m.date)) : ''}`;
+  if (row.nearMissDecision === 'link') {
+    return `<div style="background:#EAF3DE;border:1px solid #C5DDA8;border-radius:8px;padding:8px 10px;font-size:12px;color:#3B6D11;font-family:'Plus Jakarta Sans',sans-serif;display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <span style="min-width:0">✓ Will link to ${line}</span>
+        <button type="button" onclick="globalThis.bankImportNearMissDecide(${i}, null)" style="font-size:11px;padding:3px 8px;border-radius:6px;border:1px solid #C5DDA8;background:white;cursor:pointer;font-family:inherit;flex-shrink:0">Undo</button>
+      </div>`;
+  }
+  if (row.nearMissDecision === 'create') {
+    return `<div style="background:var(--surface2);border:1px solid var(--hairline-1);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--muted-2);font-family:'Plus Jakarta Sans',sans-serif;display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <span style="min-width:0">Will import as a new expense (not ${line})</span>
+        <button type="button" onclick="globalThis.bankImportNearMissDecide(${i}, null)" style="font-size:11px;padding:3px 8px;border-radius:6px;border:1px solid var(--hairline-1);background:white;cursor:pointer;font-family:inherit;flex-shrink:0">Undo</button>
+      </div>`;
+  }
+  return `<div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;padding:9px 11px;font-family:'Plus Jakarta Sans',sans-serif">
+      <div style="font-size:12px;color:#5D4037;margin-bottom:6px">Possible match: <strong>${line}</strong> — ${gapText}. Same purchase?</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" onclick="globalThis.bankImportNearMissDecide(${i}, 'link')" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--moss);color:var(--moss);background:#f0faf4;cursor:pointer;font-family:inherit;font-weight:600">Yes — link it</button>
+        <button type="button" onclick="globalThis.bankImportNearMissDecide(${i}, 'create')" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--hairline-1);background:white;cursor:pointer;font-family:inherit">No — new expense</button>
+      </div>
+    </div>`;
+}
+
+function bankImportNearMissDecide(i, decision) {
+  const row = _bankImportRows[i];
+  if (!row || !row.nearMissExpense) return;
+  row.nearMissDecision = decision || null;
+  if (decision === 'link') {
+    // Linking adopts the matched expense's home: property and category come
+    // from the record the host already made, exactly as the certain-match path
+    // does via bankImportApplyMatchPreviews. Without this the row still fails
+    // canBankImportRow's property/category gate and "ready" never moves.
+    // Remember what was adopted, so Undo → "No" doesn't quietly file the NEW
+    // expense under the property of the record the host just declined.
+    if (!String(row.propertyId || '').trim() && row.nearMissExpense.propertyId) {
+      row.propertyId = row.nearMissExpense.propertyId;
+      row._nearMissAdoptedProperty = true;
+    }
+    if (!String(row.category || '').trim() && row.nearMissExpense.category) {
+      row.category = row.nearMissExpense.category;
+      row._nearMissAdoptedCategory = true;
+    }
+  } else {
+    if (row._nearMissAdoptedProperty) { row.propertyId = ''; row._nearMissAdoptedProperty = false; }
+    if (row._nearMissAdoptedCategory) { row.category = ''; row._nearMissAdoptedCategory = false; }
+  }
+  renderBankImportReview();
+}
+
 function bankImportSkipRow(i) {
   const row = _bankImportRows[i];
   if (!row) return;
@@ -963,11 +1033,16 @@ async function bankImportRunImport() {
     const needsCat = _bankImportRows.filter(r =>
       !r.isDuplicate && !r.userMarkedSkip && !r.userMarkedPersonal && !(r.skip && r.reason === 'personal')
       && (!String(r.propertyId || '').trim() || !String(r.category || '').trim())).length;
-    const why = needsCat
-      ? `${needsCat} of ${n} still need a property and category`
-      : dup === n
-        ? `all ${n} rows are already imported`
-        : `${dup} already imported · ${skip} skipped`;
+    const undecided = _bankImportRows.filter(r =>
+      r.nearMissExpense && !r.nearMissDecision && !r.isDuplicate &&
+      !(r.skip && r.reason === 'personal') && !r.userMarkedSkip && !r.userMarkedPersonal).length;
+    const why = undecided
+      ? `${undecided} row${undecided === 1 ? ' has' : 's have'} a possible match waiting on your decision`
+      : needsCat
+        ? `${needsCat} of ${n} still need a property and category`
+        : dup === n
+          ? `all ${n} rows are already imported`
+          : `${dup} already imported · ${skip} skipped`;
     globalThis.showBanner('Nothing to import — ' + why, 'warn');
     return;
   }
@@ -1128,6 +1203,7 @@ globalThis.bankImportCancelLoad = bankImportRestoreBackup;
 globalThis.bankImportOnPropChange = bankImportOnPropChange;
 globalThis.bankImportOnCatChange = bankImportOnCatChange;
 globalThis.bankImportSkipRow = bankImportSkipRow;
+globalThis.bankImportNearMissDecide = bankImportNearMissDecide;
 globalThis.bankImportPersonalRow = bankImportPersonalRow;
 globalThis.bankImportConfirmAllSuggested = bankImportConfirmAllSuggested;
 globalThis.bankImportRunImport = bankImportRunImport;
