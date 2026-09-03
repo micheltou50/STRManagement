@@ -3,7 +3,7 @@
  */
 import { cleans } from './state.js';
 import { escHtml, escapeJsSingleQuotedHtmlAttr, fmtShort, _normName, localDateStr, getTurnoverTimes } from './utils.js';
-import { bookingRevenue, bookingStatusLabel, getCancellationBillable, isBillableButMissingPayout } from './booking-revenue.js';
+import { bookingRevenue, bookingStatusLabel, getCancellationBillable, isBillableButMissingPayout, isPayoutPending } from './booking-revenue.js';
 
 function findMatchingCleanForBookingCard(booking) {
   if (!booking) return null;
@@ -178,11 +178,14 @@ export function buildBookingListCardFromBooking(b, options = {}) {
   const priceSpanStyle = isCancelled && !getCancellationBillable(b)
     ? 'font-weight:600;font-size:16px;color:var(--muted-2);text-decoration:line-through;font-family:\'Newsreader\',serif'
     : 'font-weight:600;font-size:16px;color:var(--ink-1);font-family:\'Newsreader\',serif';
-  // Billable late-cancel whose host_payout was never enriched: showing "$0"
-  // would read as "no revenue" when it's really "amount not yet known".
-  const missingPayout = isBillableButMissingPayout(b);
+  // Payout not yet captured — showing "$0" would read as "no revenue" when it's
+  // really "amount not yet known". Two cases: a billable late-cancel never
+  // enriched, or a CONFIRMED booking that arrived with no payout (payout_pending).
+  const missingPayoutCancel = isBillableButMissingPayout(b);
+  const pendingConfirmed = !isCancelled && isPayoutPending(b);
+  const missingPayout = missingPayoutCancel || pendingConfirmed;
   const priceHtml = missingPayout
-    ? `<span style="font-weight:600;font-size:12.5px;color:var(--warn,#b56a3a)" title="Late cancel is billable — host payout not yet enriched from the confirmation email">Billable · payout pending</span>`
+    ? `<span style="font-weight:600;font-size:12.5px;color:var(--warn,#b56a3a)" title="Host payout not yet captured from the confirmation email — verify on the platform">${missingPayoutCancel ? 'Billable · payout pending' : 'Payout pending'}</span>`
     : `<span style="${priceSpanStyle}">$${payout.toLocaleString()}</span>`;
   const row2Style = isCancelled
     ? 'font-size:12px;color:var(--muted-2);margin-top:2px;opacity:0.6'

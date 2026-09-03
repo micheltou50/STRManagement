@@ -53,6 +53,26 @@ function daysBetween(d1, d2) {
   return Math.max(0, Math.round((b - a) / 86400000));
 }
 
+/**
+ * Only persist a real, platform-issued confirmation code. Rejects synthetic
+ * values so they never break matching or tangle two distinct reservations:
+ *  - a long all-digit string (>= 13 digits) is a Snowflake / ms-timestamp /
+ *    URL id, NOT a guest-facing code (e.g. Airbnb "1755486896329011039").
+ *  - Airbnb codes are ~8-12 alphanumerics containing at least one letter
+ *    (e.g. HMPPKAEFNS); Booking.com codes are ~6-12 digits.
+ * Anything else returns '' — an empty code never produces a Tier-1 match
+ * (findExistingBooking guards `if (confCode)`), so an unenriched row can't
+ * collapse onto another.
+ */
+function sanitizeConfirmationCode(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return '';
+  if (/^[0-9]{13,}$/.test(s)) return '';                                    // synthetic long numeric id
+  if (/^[A-Za-z0-9]{6,14}$/.test(s) && /[A-Za-z]/.test(s)) return s.toUpperCase(); // Airbnb-style alphanumeric
+  if (/^[0-9]{6,12}$/.test(s)) return s;                                    // Booking.com-style numeric
+  return '';
+}
+
 /** Safely parse a fetch response as JSON. Throws a readable error on HTML / non-JSON. */
 async function safeJson(res, label) {
   const text = await res.text();
@@ -156,7 +176,12 @@ function findExistingBooking(bookings, confCode, guestName, checkin, propertyId)
     if (byPropDate) return byPropDate;
   }
 
-  // Tier 3: guest name + checkin
+  // Tier 3: guest name + checkin (same person AND same arrival date = the same
+  // reservation). This is the weakest tier we allow — deliberately NO "guest
+  // name only" fallback: a returning guest's NEW reservation (a different code
+  // and different dates) must never collapse onto their prior booking. Matching
+  // on name alone was the latent landmine that could overwrite an already-billed
+  // row, so it is intentionally absent.
   if (guestName && checkin) {
     const normName = guestName.toLowerCase().trim();
     const byNameDate = bookings.find(b =>
@@ -164,16 +189,6 @@ function findExistingBooking(bookings, confCode, guestName, checkin, propertyId)
       b.checkin === checkin
     );
     if (byNameDate) return byNameDate;
-  }
-
-  // Tier 4: guest name only when unique
-  if (guestName) {
-    const normName = guestName.toLowerCase().trim();
-    const matches = bookings.filter(b =>
-      b.guest_name && b.guest_name.toLowerCase().trim() === normName &&
-      b.status !== 'cancelled'
-    );
-    if (matches.length === 1) return matches[0];
   }
 
   return null;
@@ -314,8 +329,13 @@ async function insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, 
     mgmt_fee: mgmtFee,
     mgmt_payout: mgmtFee,
     platform: parsed.platform || detectPlatform(emailFrom || ''),
-    confirmation_code: parsed.confirmationCode || '',
+    confirmation_code: sanitizeConfirmationCode(parsed.confirmationCode),
     status: 'confirmed',
+    // A confirmed booking that arrives without a payout (e.g. a payout-less
+    // alteration/itinerary email) is flagged 'payout_pending' rather than left
+    // looking like a normal, finished $0 booking — so the UI/report can surface
+    // "verify on platform" instead of silently billing $0.
+    enrichment_status: (payout > 0 ? null : 'payout_pending'),
     source: source,
     gmail_message_id: msgId,
     updated_at: new Date().toISOString(),
@@ -640,7 +660,7 @@ async function processEmailResult(parsed, msgId, source, ctx) {
   const propertyId   = resolvedProp.id;
   const propertyName = resolvedProp.name;
   const mgmtFeeRate  = resolvedProp.mgmtFeeRate;
-  const confCode = (parsed.confirmationCode || '').trim();
+  const confCode = sanitizeConfirmationCode(parsed.confirmationCode);
 
   // ── Cancellation ────────────────────────────────────────────────────
   if (emailType === 'cancellation') {
@@ -706,7 +726,14 @@ async function processEmailResult(parsed, msgId, source, ctx) {
 
   // ── Modification (with updated details) ─────────────────────────────
   if (emailType === 'modification') {
-    const match = findExistingBooking(existingBookings, confCode, parsed.guestName, parsed.checkin, propertyId);
+    let match = findExistingBooking(existingBookings, confCode, parsed.guestName, parsed.checkin, propertyId);
+    // Guard: if the matched row carries a real confirmation code that differs
+    // from this email's real code, it's a DIFFERENT reservation — never re-date
+    // or re-price it. Drop the match so we fall through to the insert-as-new path.
+    if (match && confCode) {
+      const mCode = sanitizeConfirmationCode(match.confirmation_code);
+      if (mCode && mCode !== confCode) match = null;
+    }
     if (match) {
       const datesChanged =
         (parsed.checkin && parsed.checkin !== match.checkin) ||
@@ -797,7 +824,13 @@ async function processEmailResult(parsed, msgId, source, ctx) {
 
   // ── Modification notice (alteration accepted, no details) ───────────
   if (emailType === 'modification_notice') {
-    const modMatch = findExistingBooking(existingBookings, confCode, parsed.guestName, parsed.checkin, propertyId);
+    let modMatch = findExistingBooking(existingBookings, confCode, parsed.guestName, parsed.checkin, propertyId);
+    // Same guard as the modification branch: never apply a notice to a row whose
+    // real code differs from this email's real code (a different reservation).
+    if (modMatch && confCode) {
+      const mCode = sanitizeConfirmationCode(modMatch.confirmation_code);
+      if (mCode && mCode !== confCode) modMatch = null;
+    }
     if (modMatch) {
       // Defense in depth: apply any actual values Claude extracted from the body
       // (e.g. when the request email said "wants to change to 8 guests" but
@@ -898,7 +931,10 @@ async function processEmailResult(parsed, msgId, source, ctx) {
   if (stub) {
     const stubName = String(stub.guest_name || '').trim();
     const isStub = stub.source === 'ical' || stub.enrichment_status === 'pending' || stubName === 'Reserved' || stubName === 'Reserved — awaiting details';
-    if (isStub || (stub.confirmation_code || '') !== confCode) {
+    // Only treat a differing code as an enrichment trigger when this email
+    // actually carries a real (sanitized) code — an empty incoming code must
+    // never force a code-mismatch re-enrich against a row that already has one.
+    if (isStub || (confCode && (stub.confirmation_code || '') !== confCode)) {
       const rate = Number(mgmtFeeRate) || 0;
       const payout = parsed.hostPayout || 0;
       const cleaning = parsed.cleaningFee || 0;
@@ -1058,6 +1094,7 @@ module.exports = {
   safeJson,
   detectPlatform,
   daysBetween,
+  sanitizeConfirmationCode,
   looksLikeBookingEmail,
   findExistingBooking,
   resolveProperty,

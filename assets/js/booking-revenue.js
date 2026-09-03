@@ -79,6 +79,18 @@ export function isBillableButMissingPayout(booking) {
   return _num(booking.hostPayout) <= 0;
 }
 
+// A confirmed booking that arrived without a payout — either explicitly flagged
+// by the email scanner (enrichment_status='payout_pending') or simply carrying
+// $0 while still active. Its money hasn't landed yet, so the UI/report should
+// show "verify on platform" and refuse to bill it, rather than treating the $0
+// as final. (Cancelled rows are handled by isBillableButMissingPayout instead.)
+export function isPayoutPending(booking) {
+  if (!booking) return false;
+  if (String(booking.enrichment_status || '') === 'payout_pending') return true;
+  if (String(booking.status || '').toLowerCase() === 'cancelled') return false;
+  return _num(booking.hostPayout) <= 0;
+}
+
 export function bookingAmount(booking, field) {
   return isRevenueBearingBooking(booking) ? _num(booking && booking[field]) : 0;
 }

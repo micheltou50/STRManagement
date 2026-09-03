@@ -292,6 +292,19 @@ function buildInvoicePDF(selected, client, existing) {
   const inv = _getInvoiceIdentity();
   const bank = (window._appConfig && window._appConfig.bank_details) || { name:'', bsb:'', acc:'', bank:'' };
 
+  // Backstop: never mint a brand-new invoice with no money on it (a $0 total
+  // from a payout-pending / empty selection). Re-viewing an existing invoice is
+  // always allowed. This is the last line of defence behind the button guards.
+  if (!existing) {
+    const _newTotal = Array.isArray(selected)
+      ? selected.reduce((s, b) => s + (Number(_invoiceLineData(b).amt) || 0), 0)
+      : 0;
+    if (_newTotal <= 0) {
+      if (typeof globalThis.showBanner === 'function') globalThis.showBanner('⚠ Nothing to invoice — the management total is $0', 'warn');
+      return;
+    }
+  }
+
   // When re-viewing a previously-issued invoice, reuse its stored number and
   // date instead of minting a fresh sequence number / today's date — otherwise
   // every view renumbers it and "Mark as issued" creates a duplicate (1.25).

@@ -32,6 +32,7 @@ import {
   bookingMgmtPayout,
   bookingNetPayout,
   isRevenueBearingBooking,
+  isPayoutPending,
 } from './booking-revenue.js';
 import { _financeActiveCloudPropertyId } from './finance-shared.js';
 // Slice modules split out of this file (2026-07-08). Each installs its own
@@ -1276,7 +1277,8 @@ function renderManagement() {
         if (invoiced) mgmtSelected.delete(_mgmtBookingKey(b));
         const invNums = invoiced ? invMap.get(String(b.id)) : null;
         const invBadge = invNums ? ' <span class="mgmt-invoiced-badge">' + escHtml(invNums[invNums.length - 1]) + '</span>' : '';
-        return `<tr style="${invoiced ? 'opacity:0.45' : 'cursor:pointer'}"><td style="width:36px"><label style="margin:0;cursor:pointer;display:flex"><span class="mgmt-booking-check-wrap" style="position:relative;display:inline-flex;width:20px;height:20px"><input class="mgmt-booking-check" data-booking-id="${bookingId}" type="checkbox" ${checked} ${invoiced ? 'disabled' : ''} style="position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:2"><span class="mgmt-booking-box" style="width:20px;height:20px;border:1.5px solid ${invoiced ? '#ddd' : '#C8C6BF'};border-radius:4px;background:${invoiced ? '#f0f0f0' : '#fff'};display:flex;align-items:center;justify-content:center;box-sizing:border-box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="display:none"><polyline points="20 6 9 17 4 12"></polyline></svg></span></span></label></td><td><strong>${escHtml(b.name||'')}</strong>${invBadge}</td><td>${_fmtSh(b.checkin)}</td><td>${_fmtSh(b.checkout)}</td><td>${b.nights||''}</td><td>$${_fmtAud(bookingRevenue(b))}</td><td style="color:${invoiced ? 'var(--muted-2)' : '#1D9E75'};font-weight:600">$${_fmtAud(bookingMgmtPayout(b))}</td></tr>`;
+        const pendBadge = (!invoiced && isPayoutPending(b)) ? ' <span class="mgmt-invoiced-badge" style="background:#f6ecd3;color:#8a5d12;border-color:#e4c888">payout pending</span>' : '';
+        return `<tr style="${invoiced ? 'opacity:0.45' : 'cursor:pointer'}"><td style="width:36px"><label style="margin:0;cursor:pointer;display:flex"><span class="mgmt-booking-check-wrap" style="position:relative;display:inline-flex;width:20px;height:20px"><input class="mgmt-booking-check" data-booking-id="${bookingId}" type="checkbox" ${checked} ${invoiced ? 'disabled' : ''} style="position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:2"><span class="mgmt-booking-box" style="width:20px;height:20px;border:1.5px solid ${invoiced ? '#ddd' : '#C8C6BF'};border-radius:4px;background:${invoiced ? '#f0f0f0' : '#fff'};display:flex;align-items:center;justify-content:center;box-sizing:border-box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="display:none"><polyline points="20 6 9 17 4 12"></polyline></svg></span></span></label></td><td><strong>${escHtml(b.name||'')}</strong>${invBadge}${pendBadge}</td><td>${_fmtSh(b.checkin)}</td><td>${_fmtSh(b.checkout)}</td><td>${b.nights||''}</td><td>$${_fmtAud(bookingRevenue(b))}</td><td style="color:${invoiced ? 'var(--muted-2)' : '#1D9E75'};font-weight:600">$${_fmtAud(bookingMgmtPayout(b))}</td></tr>`;
       }).join('');
       bd.innerHTML = '<div class="card" style="padding:0;overflow:hidden;overflow-x:auto"><table class="desktop-table"><thead><tr><th style="width:36px"></th><th>Guest</th><th>Check-in</th><th>Check-out</th><th>Nights</th><th>Gross</th><th>Mgmt Payout</th></tr></thead><tbody>' + _mgmtRows + '</tbody></table></div>';
     } else {
@@ -1287,6 +1289,7 @@ function renderManagement() {
         if (invoiced) mgmtSelected.delete(_mgmtBookingKey(b));
         const invNums = invoiced ? invMap.get(String(b.id)) : null;
         const invBadge = invNums ? '<span class="mgmt-invoiced-badge">' + escHtml(invNums[invNums.length - 1]) + '</span>' : '';
+        const pendBadge = (!invoiced && isPayoutPending(b)) ? '<span class="mgmt-invoiced-badge" style="background:#f6ecd3;color:#8a5d12;border-color:#e4c888">payout pending</span>' : '';
         return `<label class="fin-mgmt-book-row" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:0.5px solid rgba(0,0,0,0.08);${invoiced ? 'opacity:0.45;cursor:default' : 'cursor:pointer'};margin:0;text-transform:none">
           <span class="mgmt-booking-check-wrap" style="position:relative;display:inline-flex;width:20px;height:20px;flex-shrink:0">
             <input class="mgmt-booking-check" data-booking-id="${bookingId}" type="checkbox" ${checked} ${invoiced ? 'disabled' : ''}
@@ -1298,7 +1301,7 @@ function renderManagement() {
             </span>
           </span>
           <div style="flex:1;min-width:0">
-            <div style="font-weight:500;font-size:14px;color:var(--ink-1);text-transform:none">${escHtml(b.name||'')}${invBadge}</div>
+            <div style="font-weight:500;font-size:14px;color:var(--ink-1);text-transform:none">${escHtml(b.name||'')}${invBadge}${pendBadge}</div>
             <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n · Host $${bookingRevenue(b).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}${invoiced ? ' · Invoiced' : ''}</div>
           </div>
           <div style="font-size:14px;font-weight:500;color:${invoiced ? 'var(--muted-2)' : '#1D9E75'};font-family:'Plus Jakarta Sans',sans-serif;flex-shrink:0">$${bookingMgmtPayout(b).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
@@ -1340,8 +1343,12 @@ function updateMgmtGenInvoiceBtn() {
   if (!btn || !meta) return;
   const sel = _financeScopedBookings().filter((b) => mgmtSelected.has(_mgmtBookingKey(b)));
   const sum = sel.reduce((s,b)=>s+bookingMgmtPayout(b),0);
-  meta.textContent = `${sel.length} selected · $${sum.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-  const active = sel.length > 0;
+  const anyPending = sel.some((b) => isPayoutPending(b));
+  const meta_suffix = anyPending ? ' · verify payout first' : '';
+  meta.textContent = `${sel.length} selected · $${sum.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}${meta_suffix}`;
+  // A management invoice must carry real money: never enable "generate" for an
+  // empty selection, a $0 management total, or a booking whose payout is pending.
+  const active = sel.length > 0 && sum > 0 && !anyPending;
   btn.disabled = !active;
   btn.style.opacity = active ? '1' : '0.4';
   btn.style.pointerEvents = active ? '' : 'none';
@@ -1351,6 +1358,15 @@ function updateMgmtGenInvoiceBtn() {
 function generateInvoice() {
   const selected = _financeScopedBookings().filter((b) => mgmtSelected.has(_mgmtBookingKey(b)));
   if (!selected.length) { globalThis.showBanner('⚠ Tap bookings above to select them first', 'warn'); return; }
+
+  // Never mint a worthless invoice: block payout-pending rows and a $0 total.
+  const pending = selected.filter((b) => isPayoutPending(b));
+  if (pending.length) {
+    globalThis.showBanner('⚠ ' + pending.length + (pending.length > 1 ? ' bookings have' : ' booking has') + ' no payout yet — verify it on the platform first', 'warn');
+    return;
+  }
+  const mgmtTotal = selected.reduce((s,b)=>s+bookingMgmtPayout(b),0);
+  if (mgmtTotal <= 0) { globalThis.showBanner('⚠ Nothing to invoice — the selected management total is $0', 'warn'); return; }
 
   // Pick client
   const clients = loadClients();
