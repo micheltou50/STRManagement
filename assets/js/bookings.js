@@ -1,3 +1,4 @@
+import { ownerCleaningCost, ownerBookingPayout } from './owner-payout.js';
 /**
  * StayOps — bookings list, detail, CSV import, dashboard calendar (Pass 9).
  * Uses globalThis for main.js / supabase hooks assigned at boot.
@@ -930,7 +931,7 @@ function showDetail(id) {
         <span style="font-size:14px;font-weight:600;color:var(--good,#3f7a5e);font-family:'Newsreader',serif">$${Number(b.hostPayout || 0).toLocaleString()}</span>
       </div>
       <div style="padding:12px 16px;border-top:1px solid var(--hairline-2);display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px;color:var(--ink-2)">Cleaning fee</span>
+        <span style="font-size:13px;color:var(--ink-2)">Cleaning amount used for management</span>
         <span style="font-size:13px;font-weight:500;color:var(--ink-1)">$${Number(b.cleaningFee || 0).toLocaleString()}</span>
       </div>
       <div style="padding:12px 16px;border-top:1px solid var(--hairline-2);display:flex;justify-content:space-between;align-items:center">
@@ -944,7 +945,7 @@ function showDetail(id) {
       <div style="border-top:1px solid var(--hairline-1)"></div>
       <div style="padding:14px 16px;background:var(--surface2);display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:13px;font-weight:600;color:var(--ink-1)">Owner payout</span>
-        <span style="font-size:16px;font-weight:600;color:var(--good,#3f7a5e);font-family:'Newsreader',serif">$${Number(b.netPayout || 0).toLocaleString()}</span>
+        <span style="font-size:16px;font-weight:600;color:var(--good,#3f7a5e);font-family:'Newsreader',serif">$${ownerBookingPayout(b, expenses, cleans).toLocaleString()}</span>
       </div>
     </div>
 
@@ -976,12 +977,12 @@ function showDetail(id) {
 
     ${matchedClean
       ? (() => {
-        const cleanCost = matchedClean.cost != null ? Number(matchedClean.cost) : Number(b.cleaningFee || 0);
+        const cleanCost = ownerCleaningCost(b, expenses, cleans);
         const cleanIdEsc = escapeJsSingleQuotedHtmlAttr(String(matchedClean._cloudId || matchedClean.id));
         return '<div style="font-size:12px;font-weight:500;color:#999;margin:0 0 6px 2px">Cleaning cost</div>' +
       '<div style="background:white;border-radius:12px;border:0.5px solid rgba(0,0,0,0.1);margin-bottom:20px;overflow:hidden;padding:14px">' +
       '<div id="clean-cost-view" style="display:flex;align-items:center;justify-content:space-between;gap:10px">' +
-        '<span style="font-size:20px;font-weight:500;color:var(--ink-1)">' + (cleanCost ? '$' + cleanCost.toLocaleString() : 'Not set') + '</span>' +
+        '<span style="font-size:20px;font-weight:500;color:var(--ink-1)">' + ('$' + cleanCost.toLocaleString()) + '</span>' +
         '<button type="button" onclick="document.getElementById(\'clean-cost-view\').style.display=\'none\';document.getElementById(\'clean-cost-edit\').style.display=\'\'" style="background:none;border:0.5px solid rgba(0,0,0,0.1);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:500;color:#666;cursor:pointer;font-family:inherit;touch-action:manipulation">Edit</button>' +
       '</div>' +
       '<div id="clean-cost-edit" style="display:none;margin-top:12px">' +
@@ -1310,7 +1311,7 @@ async function saveEdit(id) {
       await globalThis.saveBookingToCloud(b);
     } catch (e) {
       console.error('[StayOps] Cloud save failed:', e);
-      globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+      globalThis.showBanner('Save failed. Refresh and review before retrying', 'warn');
     }
   }
   globalThis.showBanner('✅ Booking saved', 'ok');
@@ -1408,7 +1409,7 @@ async function addBooking() {
       await globalThis.saveBookingToCloud(newB);
     } catch (e) {
       console.error('[StayOps] Cloud save failed:', e);
-      globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+      globalThis.showBanner('Save failed. Refresh and review before retrying', 'warn');
     }
   }
 
@@ -1418,7 +1419,7 @@ async function addBooking() {
       if (newClean) await globalThis.saveCleansToCloud([newClean]);
     } catch (e) {
       console.error('[StayOps] Cloud save failed:', e);
-      globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+      globalThis.showBanner('Save failed. Refresh and review before retrying', 'warn');
     }
   }
 
@@ -1449,7 +1450,7 @@ async function addNote() {
       await globalThis.saveNotesToCloud([newNote]);
     } catch (e) {
       console.error('[StayOps] Cloud save failed:', e);
-      globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+      globalThis.showBanner('Save failed. Refresh and review before retrying', 'warn');
     }
   }
   renderNotes();
@@ -1659,7 +1660,7 @@ async function setCancellationBillable(id, billable) {
       await globalThis.saveBookingToCloud(booking);
     } catch (e) {
       console.error('[StayOps] setCancellationBillable: cloud sync failed', e);
-      globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+      globalThis.showBanner('Save failed. Refresh and review before retrying', 'warn');
       return;
     }
   }
@@ -1770,7 +1771,7 @@ function importAirbnbCSV(input) {
         await globalThis.saveBookingsToCloud(newBookings);
       } catch (e) {
         console.error('[StayOps] Cloud save failed:', e);
-        globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+        globalThis.showBanner('Save failed. Refresh and review before retrying', 'warn');
       }
     }
 
@@ -1829,7 +1830,7 @@ function importCSV(input) {
         await globalThis.saveBookingsToCloud(newBookings);
       } catch (e) {
         console.error('[StayOps] Cloud save failed:', e);
-        globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+        globalThis.showBanner('Save failed. Refresh and review before retrying', 'warn');
       }
     }
     document.getElementById('import-preview').textContent = `✓ Imported ${imported} booking${imported !== 1 ? 's' : ''}`;
@@ -1939,7 +1940,7 @@ async function saveCleaningFee(bookingId) {
       await globalThis.saveBookingToCloud(b);
     } catch (e) {
       console.error('[StayOps] Cloud save failed:', e);
-      globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+      globalThis.showBanner('Save failed. Refresh and review before retrying', 'warn');
     }
   }
   globalThis.showBanner('✓ Cleaning fee saved & payout recalculated', 'ok');
@@ -1947,60 +1948,43 @@ async function saveCleaningFee(bookingId) {
   if (typeof showDetail === 'function') showDetail(bookingId);
 }
 
-/** Persist a clean's actual cost AND recompute the booking's mgmt fee + net
- *  payout. Reusable from saveCleanCost (booking-detail UI) and from the
- *  expense-link path (when a Cleaning expense gets attached to a booking).
- *  Returns { ok: true } on success or { ok: false, error } on cloud failure. */
+/** Save actual cleaning cost only. The legacy name is retained for callers.
+ * Management fee, guest cleaning amount and historical net fields are untouched.
+ * Owner reports derive their own net from the saved management payout. */
 async function applyCleanCostAndRecompute(cleanId, bookingId, amount) {
   const c = cleans.find(cl => String(cl.id) === String(cleanId) || (cl._cloudId && String(cl._cloudId) === String(cleanId)));
   if (!c) return { ok: false, error: 'clean not found' };
+  if (typeof globalThis.saveCleanToCloud !== 'function') return { ok: false, error: 'Cloud connection unavailable' };
+  const previousCost = c.cost;
   c.cost = (amount === null || amount === '' || amount === undefined) ? null : Number(amount);
   if (typeof globalThis.saveCleanToCloud === 'function') {
-    // saveCleanToCloud swallows its own errors and returns { ok:false, error }
+    // saveCleanToCloud returns its own errors and returns { ok:false, error }
     // instead of throwing, so a try/catch here can never fire — the returned
     // result is the only signal that the cloud write failed.
     const cleanRes = await globalThis.saveCleanToCloud(c);
-    if (cleanRes && cleanRes.ok === false) return { ok: false, error: cleanRes.error };
+    if (cleanRes && cleanRes.ok === false) { c.cost = previousCost; return { ok: false, error: cleanRes.error }; }
   }
 
-  const b = bookings.find(bk => String(bk.id) === String(bookingId) || (bk._cloudId && String(bk._cloudId) === String(bookingId)));
-  if (b) {
-    const mgmtPct = Number(b.mgmtFeeRaw) || 0;
-    const effectiveClean = (c.cost != null && c.cost !== '') ? Number(c.cost) : (Number(b.cleaningFee) || 0);
-    b.cleaningFee = effectiveClean;
-    const mgmtBase = (Number(b.hostPayout) || 0) - effectiveClean;
-    if (mgmtPct) {
-      b.mgmtFee = Math.round((mgmtBase * mgmtPct) / 100 * 100) / 100;
-      b.mgmtPayout = b.mgmtFee;
-      b.netPayout = Math.round((mgmtBase - b.mgmtFee) * 100) / 100;
-    } else {
-      // No management % on this booking: zero the fee fields explicitly rather
-      // than leaving whatever a previous mgmtFeeRaw wrote there — a stale
-      // mgmtFee/mgmtPayout is billed to the owner on the next invoice.
-      b.mgmtFee = 0;
-      b.mgmtPayout = 0;
-      b.netPayout = Math.round(mgmtBase * 100) / 100;
-    }
-    if (typeof globalThis.saveBookingToCloud === 'function') {
-      try { await globalThis.saveBookingToCloud(b); }
-      catch (e) { return { ok: false, error: e }; }
-    }
-  }
   return { ok: true };
 }
 
 async function saveCleanCost(cleanId, bookingId) {
   const input = document.getElementById('actual-clean-fee');
   if (!input) return;
+  const booking = bookings.find(b => [String(b.id), String(b._cloudId)].includes(String(bookingId)));
+  if (booking && _sumLiveAllocationsForBooking(booking).count) {
+    globalThis.showBanner('This cost comes from linked expenses. Edit the expense allocation to change it.', 'warn');
+    return;
+  }
   const amount = Number(input.value) || 0;
   const res = await applyCleanCostAndRecompute(cleanId, bookingId, amount);
   if (!res.ok) {
     console.error('[StayOps] saveCleanCost failed:', res.error);
-    globalThis.showBanner('Changes saved locally, cloud sync failed', 'warn');
+    globalThis.showBanner('Save failed. Refresh and review before retrying', 'warn');
     if (typeof showDetail === 'function') showDetail(bookingId);
     return;
   }
-  globalThis.showBanner('✓ Cleaning cost saved & payout recalculated', 'ok');
+  globalThis.showBanner('✓ Actual cleaning cost saved; management fee unchanged', 'ok');
   if (typeof showDetail === 'function') showDetail(bookingId);
 }
 
@@ -2009,9 +1993,8 @@ async function saveCleanCost(cleanId, bookingId) {
  *  A clean's cost is a SUM, not "the last linked expense's amount": one cleaner
  *  invoice is often split across several stays ($600 over 4 stays = $150 each,
  *  NOT $600 on all four), and several expenses can point at the same stay (a
- *  clean plus a later credit note). The result is persisted into the booking's
- *  cleaningFee/mgmtFee/mgmtPayout/netPayout and flows into owner invoicing, so
- *  a wrong number here is real money.
+ *  clean plus a later credit note). The result updates only the clean cost mirror. Owner reports read live
+ *  allocations directly; management fields are never changed here.
  *
  *  Goes through expenseAllocations() rather than reading exp.bookingAllocations
  *  directly — that helper is what keeps legacy single-link rows (and the
@@ -2065,11 +2048,10 @@ async function _recomputeBookingCleanCost(bookingId, clearWhenEmpty) {
     // we only wipe it when the caller is explicitly unlinking. Otherwise an
     // unrelated expense edit would silently erase a manually entered cost.
     if (!clearWhenEmpty) return { ok: true, skipped: 'no allocations for booking' };
-    return await applyCleanCostAndRecompute(clean._cloudId || clean.id, b._cloudId || b.id, null);
+    return await applyCleanCostAndRecompute(clean._cloudId || clean.id, b._cloudId || b.id, 0);
   }
   // count > 0 with sum 0 is legitimate (invoice fully offset by a credit note):
-  // write the 0 rather than nulling, which would fall back to the platform's
-  // cleaning fee and re-inflate the stay's cost.
+  // write the explicit zero so no old manual cost survives.
   return await applyCleanCostAndRecompute(clean._cloudId || clean.id, b._cloudId || b.id, sum);
 }
 

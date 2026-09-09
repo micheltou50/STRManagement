@@ -1,3 +1,4 @@
+import { ownerCleaningCost, ownerBookingPayout } from './owner-payout.js';
 /**
  * StayOps — finance, expenses, reports, invoices (Pass 7).
  */
@@ -28,9 +29,7 @@ import { planPayoutAutoMatch } from './money-in-model.js';
 import {
   bookingRevenue,
   bookingCleaningFee,
-  bookingMgmtFee,
   bookingMgmtPayout,
-  bookingNetPayout,
   isRevenueBearingBooking,
   isPayoutPending,
 } from './booking-revenue.js';
@@ -829,7 +828,7 @@ function renderReport() {
     const availNights = new Date(year, month+1, 0).getDate();
     const bookedNights = bs.reduce((s,b) => s + Number(b.nights||0), 0);
     const revenue = bs.reduce((s,b) => s + bookingRevenue(b), 0);
-    const netPayout = bs.reduce((s,b) => s + bookingNetPayout(b), 0);
+    const netPayout = bs.reduce((s,b) => s + ownerBookingPayout(b, expenses, cleans), 0);
     const platformRev = {};
     platforms.forEach(p => { platformRev[p] = bs.filter(b=>_canonicalPlatformName(b.platform)===p).reduce((s,b)=>s+bookingRevenue(b),0); });
     return { label: mo[month], year, month, bs, availNights, bookedNights, revenue, netPayout, platformRev, bookingCount: bs.length };
@@ -1035,7 +1034,7 @@ function renderRevenue() {
     return isRevenueBearingBooking(b) && d.getMonth()===revMonth && d.getFullYear()===revYear;
   });
   const totalHost = monthBookings.reduce((s,b)=>s+bookingRevenue(b),0);
-  const totalMgmt = monthBookings.reduce((s,b)=>s+bookingMgmtFee(b),0);
+  const totalMgmt = monthBookings.reduce((s,b)=>s+bookingMgmtPayout(b),0);
 
   // ── Expenses for this month — split into operational vs owner-paid ──
   const monthExpenses = _financeScopedExpenses().filter(e => {
@@ -1048,12 +1047,14 @@ function renderRevenue() {
   // allocated portion is already subtracted below via totalCleanCost (the clean's
   // cost is mirrored from this very expense), so counting the gross amount cut
   // the displayed payout by double the bill.
-  const totalOperational = operationalExpenses.reduce((s,e) => s + Math.abs(unallocatedExpenseAmount(e)), 0);
+  const totalOperational = operationalExpenses.reduce((s,e) => s + unallocatedExpenseAmount(e), 0);
   const totalOwnerPaid = ownerPaidExpenses.reduce((s,e) => s + Math.abs(Number(e.amount || 0)), 0);
   // ── Cleaning costs from clean records (linked to bookings) ──
-  const monthBookingIds = new Set(monthBookings.map(b => String(b.id)).concat(monthBookings.filter(b => b._cloudId).map(b => String(b._cloudId))));
-  const monthCleanCosts = cleans.filter(c => c.cost != null && c.cost > 0 && monthBookingIds.has(String(c.bookingId)));
-  const totalCleanCost = monthCleanCosts.reduce((s, c) => s + Number(c.cost || 0), 0);
+  const monthCleanCosts = monthBookings.map(b => {
+    const clean = cleans.find(c => [String(b.id), String(b._cloudId)].includes(String(c.bookingId))) || {};
+    return { ...clean, guestName: b.name, cost: ownerCleaningCost(b, expenses, cleans) };
+  }).filter(c => c.cost !== 0);
+  const totalCleanCost = monthCleanCosts.reduce((sum, c) => sum + c.cost, 0);
 
   const expenseMode = getExpensePayoutMode();
   const isDeduct = expenseMode === 'deduct';
@@ -1086,7 +1087,7 @@ function renderRevenue() {
     <div class="finance-row"><span class="finance-label">Gross revenue</span><span class="finance-val" style="color:var(--ink-1);font-weight:500">$${_fmtAud(totalHost)}</span></div>
     <div class="finance-row"><span class="finance-label">Management fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalMgmt)}</span></div>`;
 
-  if (totalCleanCost > 0) {
+  if (totalCleanCost !== 0) {
     summaryHtml += `
     <div class="finance-row" style="cursor:pointer;border-radius:6px;margin:0 -4px;padding:10px 4px;transition:background 0.15s" onclick="var d=document.getElementById('rev-clean-cost-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.cc-chevron').textContent=open?'▾':'▴'" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
       <span class="finance-label" style="display:flex;align-items:center;gap:4px">Cleaning costs (${monthCleanCosts.length}) <span class="cc-chevron" style="font-size:9px;color:var(--muted-2);transition:transform 0.2s">▾</span></span>
@@ -1095,7 +1096,7 @@ function renderRevenue() {
     <div id="rev-clean-cost-detail" style="display:none;padding:10px 14px;margin:2px 0 6px;background:var(--surface2);border-radius:10px">${cleanCostDetailHtml}</div>`;
   }
 
-  if (isDeduct && totalOperational > 0) {
+  if (isDeduct && totalOperational !== 0) {
     // The drawer lists GROSS amounts but the total above is the unallocated part
     // (the rest is already in "Cleaning costs"), so say so rather than leave the
     // rows silently not adding up.
@@ -1154,7 +1155,7 @@ function renderRevenue() {
       _revBreakdownEl.innerHTML = '<div style="color:var(--muted-2);font-size:13px;padding:14px 0">No bookings this month.</div>';
     } else if (window.innerWidth >= 1024) {
       const _fmtSh = d => { if (!d) return ''; return new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day:'numeric', month:'short' }); };
-      const _revRows = _revSorted.map(b => `<tr><td><strong>${escHtml(b.name||'')}</strong></td><td>${_fmtSh(b.checkin)}</td><td>${_fmtSh(b.checkout)}</td><td>${b.nights||''}</td><td>$${_fmtAud(bookingRevenue(b))}</td><td style="color:#E24B4A">$${_fmtAud(bookingCleaningFee(b))}</td><td style="color:#E24B4A">$${_fmtAud(bookingMgmtFee(b))}</td><td style="color:#1D9E75;font-weight:600">$${_fmtAud(bookingNetPayout(b))}</td></tr>`).join('');
+      const _revRows = _revSorted.map(b => `<tr><td><strong>${escHtml(b.name||'')}</strong></td><td>${_fmtSh(b.checkin)}</td><td>${_fmtSh(b.checkout)}</td><td>${b.nights||''}</td><td>$${_fmtAud(bookingRevenue(b))}</td><td style="color:#E24B4A">$${_fmtAud(bookingCleaningFee(b))}</td><td style="color:#E24B4A">$${_fmtAud(bookingMgmtPayout(b))}</td><td style="color:#1D9E75;font-weight:600">$${_fmtAud(ownerBookingPayout(b, expenses, cleans))}</td></tr>`).join('');
       _revBreakdownEl.innerHTML = '<div class="card" style="padding:0;overflow:hidden;overflow-x:auto"><table class="desktop-table"><thead><tr><th>Guest</th><th>Check-in</th><th>Check-out</th><th>Nights</th><th>Gross</th><th>Clean</th><th>Mgmt Fee</th><th>Net Payout</th></tr></thead><tbody>' + _revRows + '</tbody></table></div>';
     } else {
       _revBreakdownEl.innerHTML = _revSorted.map(b=>`
@@ -1162,7 +1163,7 @@ function renderRevenue() {
           <div style="min-width:0"><div style="font-weight:500;font-size:14px;color:var(--ink-1)">${escHtml(b.name||'')}</div><div style="font-size:11px;color:var(--muted-2);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n</div></div>
           <div style="text-align:right;flex-shrink:0">
             <div style="font-size:14px;font-weight:500;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif">$${bookingRevenue(b).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-            <div style="font-size:11px;color:#1D9E75;margin-top:2px;font-family:'Plus Jakarta Sans',sans-serif">$${bookingNetPayout(b).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+            <div style="font-size:11px;color:#1D9E75;margin-top:2px;font-family:'Plus Jakarta Sans',sans-serif">$${ownerBookingPayout(b, expenses, cleans).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
           </div>
         </div>`).join('');
     }
@@ -2270,7 +2271,7 @@ async function saveExpenseReceipts(exp, pendingReceipts) {
       }
     } else {
       const why = globalThis._lastReceiptUploadError ? ': ' + globalThis._lastReceiptUploadError : '';
-      globalThis.showBanner('⚠ Receipt upload failed' + why, 'warn');
+      globalThis.showBanner('Expense kept. Use Edit Expense to retry the receipt; do not recreate it.' + why, 'warn');
     }
   } catch (e) {
     globalThis.showBanner('⚠ Receipt upload failed: ' + e.message, 'warn');
@@ -2426,12 +2427,20 @@ async function deleteExpense(id) {
   // but needs to know which stays to revisit. Without this, deleting an expense
   // left its cost sitting on the clean forever.
   const affectedIds = exp ? expenseAllocations(exp).map(a => String(a.bookingId)).filter(Boolean) : [];
+  if (!exp || typeof deleteExpenseFromCloud !== 'function') return;
+  try {
+    const result = await deleteExpenseFromCloud(exp);
+    if (!result || result.ok === false || result.noUser) throw new Error('Deletion not confirmed');
+  } catch (_error) {
+    globalThis.showBanner('Expense could not be deleted. It has been kept; please retry.', 'warn');
+    return;
+  }
   replaceArrayInPlace(expenses, expenses.filter(e => !_isTarget(e)));
   globalThis.savePropertyData();
   renderExpenses();
   globalThis.showBanner('✓ Expense deleted', 'ok');
   // Sync deletion to Supabase (non-blocking)
-  if (exp && typeof deleteExpenseFromCloud === 'function') deleteExpenseFromCloud(exp).catch(e => console.warn("[StayOps] silent error:", e));
+
   // Unwind the mirror: each stay is re-summed and only cleared when nothing else
   // is allocated to it (other expenses may still point at the same clean).
   if (affectedIds.length) {
@@ -3201,14 +3210,18 @@ async function _recomputeAllocationTargets(linkedIds, unlinkedIds) {
       // The amount argument is ignored by design — bookings.js re-sums the live
       // allocations, so passing one expense's total would clobber the others.
       const res = await applyFn(bid, 0);
-      if (res && res.ok === false && res.error === 'no clean record for booking') missing.push(bid);
-    } catch (err) { console.warn('[StayOps] applyExpenseToBookingClean failed:', err); }
+      if (res && res.ok === false) {
+        if (res.error === 'no clean record for booking') missing.push(bid);
+        else throw new Error(String(res.error || 'Cleaning cost save failed'));
+      }
+    } catch (err) { console.warn('[StayOps] applyExpenseToBookingClean failed:', err); globalThis.showBanner('Cleaning cost sync failed. Refresh and review the stay.', 'warn'); }
   }
   for (const bid of (unlinkedIds || [])) {
     if (!bid || !clearFn) continue;
     try {
-      await clearFn(bid);
-    } catch (err) { console.warn('[StayOps] clearExpenseFromBookingClean failed:', err); }
+      const res = await clearFn(bid);
+      if (res && res.ok === false) throw new Error(String(res.error || 'Cleaning cost save failed'));
+    } catch (err) { console.warn('[StayOps] clearExpenseFromBookingClean failed:', err); globalThis.showBanner('Cleaning cost sync failed. Refresh and review the stay.', 'warn'); }
   }
   return missing;
 }
@@ -3557,7 +3570,7 @@ function _buildReportDoc(fy) {
     const avail = new Date(yr,mo+1,0).getDate();
     const booked = bs.reduce((s,b)=>s+Number(b.nights||0),0);
     const rev = bs.reduce((s,b)=>s+bookingRevenue(b),0);
-    const net = bs.reduce((s,b)=>s+bookingNetPayout(b),0);
+    const net = bs.reduce((s,b)=>s+ownerBookingPayout(b, expenses, cleans),0);
     return { bs, avail, booked, rev, net };
   }
   const allM = months.map(({year,month}) => ({ ...mdata(year,month), label:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][month] }));
@@ -4795,55 +4808,38 @@ function _renderStatement() {
     .find(p => p && (p.propertyId === (typeof getActivePropertyId === 'function' ? getActivePropertyId() : null))) || null;
   const ownerName = activeProp && activeProp.owner && activeProp.owner.name ? String(activeProp.owner.name).trim() : '';
   const isOwnerManaged = !!(activeProp && activeProp.isSelfManaged === false && ownerName);
-  const mgmtFeeRate = Number((window._appConfig && window._appConfig.mgmt_fee_rate) || 0);
 
   const monthStart = new Date(y, m, 1);
   const monthEnd = new Date(y, m + 1, 0);
-  const bk = (globalThis.bookings || []).filter(b => {
+  const bk = _financeScopedBookings().filter(b => {
     if (!isRevenueBearingBooking(b)) return false;
     const ci = new Date(b.checkin);
     return ci >= monthStart && ci <= monthEnd;
   });
-  const exp = (globalThis.expenses || []).filter(e => {
+  const exp = _financeScopedExpenses().filter(e => {
     const d = new Date(e.date);
     return d >= monthStart && d <= monthEnd;
   });
 
   const totalRevenue = bk.reduce((s, b) => s + bookingRevenue(b), 0);
-  const cleaningCollected = bk.reduce((s, b) => s + bookingCleaningFee(b), 0);
-  const platformFees = bk.reduce((s, b) => s + Number(b.platformFee || 0), 0);
-  const cleanerPay = exp.filter(e => (e.category || '').toLowerCase().includes('clean')).reduce((s, e) => s + Number(e.amount || 0), 0);
-  // Owner mode splits expenses into recoverable (owner reimburses) and
-  // non-recoverable (host absorbs). Host mode lumps everything as "other".
-  const otherExpensesAll = exp.filter(e => !(e.category || '').toLowerCase().includes('clean'));
-  const recoverableExpenses = otherExpensesAll
-    .filter(e => e.recoverableFromOwner === true || e.recoverable_from_owner === true)
-    .reduce((s, e) => s + Number(e.amount || 0), 0);
-  const otherExpenses = isOwnerManaged
-    ? recoverableExpenses // only deduct what's actually recoverable from owner
-    : otherExpensesAll.reduce((s, e) => s + Number(e.amount || 0), 0);
-
-  // Management fee: % of gross revenue collected on the owner's behalf.
-  // Only deducted in owner mode (host keeps it).
-  const mgmtFee = isOwnerManaged ? Math.round((totalRevenue * mgmtFeeRate) / 100 * 100) / 100 : 0;
-
-  const net = totalRevenue + cleaningCollected - platformFees - cleanerPay - otherExpenses - mgmtFee;
+  const cleanerPay = bk.reduce((sum, b) => sum + ownerCleaningCost(b, expenses, cleans), 0);
+  const otherExpenses = exp.filter(e => !isOwnerManaged || e.recoverableFromOwner === true || e.recoverable_from_owner === true)
+    .reduce((sum, e) => sum + unallocatedExpenseAmount(e), 0);
+  const mgmtFee = bk.reduce((sum, b) => sum + bookingMgmtPayout(b), 0);
+  const net = totalRevenue - cleanerPay - otherExpenses - mgmtFee;
 
   // Line-item table differs slightly between host vs owner mode.
   const lineItemPairs = isOwnerManaged
     ? [
-        ['Bookings (' + bk.length + ') · gross collected', '$' + totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })],
-        ['Cleaning fees passed through', '$' + cleaningCollected.toLocaleString(undefined, { minimumFractionDigits: 2 })],
-        ['Less: Platform fees', '−$' + platformFees.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+        ['Bookings (' + bk.length + ') · platform payout', '$' + totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })],
         ['Less: Cleaner pay', '−$' + cleanerPay.toLocaleString(undefined, { minimumFractionDigits: 2 })],
         ['Less: Reimbursable expenses', '−$' + otherExpenses.toLocaleString(undefined, { minimumFractionDigits: 2 })],
-        ['Less: Management fee' + (mgmtFeeRate ? ' (' + mgmtFeeRate + '%)' : ''), '−$' + mgmtFee.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+        ['Less: Management fee', '−$' + mgmtFee.toLocaleString(undefined, { minimumFractionDigits: 2 })],
       ]
     : [
         ['Bookings (' + bk.length + ')', '$' + totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })],
-        ['Cleaning fees collected', '$' + cleaningCollected.toLocaleString(undefined, { minimumFractionDigits: 2 })],
-        ['Platform fees', '−$' + platformFees.toLocaleString(undefined, { minimumFractionDigits: 2 })],
         ['Cleaner pay', '−$' + cleanerPay.toLocaleString(undefined, { minimumFractionDigits: 2 })],
+        ['Management fee', '−$' + mgmtFee.toLocaleString(undefined, { minimumFractionDigits: 2 })],
         ['Other expenses', '−$' + otherExpenses.toLocaleString(undefined, { minimumFractionDigits: 2 })],
       ];
   const lineItems = lineItemPairs.map(([k, v]) =>

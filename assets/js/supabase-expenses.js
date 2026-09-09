@@ -225,8 +225,8 @@ export async function deleteExpenseFromCloud(expense) {
   const user = await getCurrentSupabaseUser();
   if (!user || !expense) return { ok: true, noUser: true };
   const builder = expense._cloudId
-    ? window._sb.from('expenses').delete().eq('id', expense._cloudId)
-    : window._sb.from('expenses').delete().eq('user_id', user.id).eq('local_id', String(expense.id));
+    ? window._sb.from('expenses').update({ status: 'deleted', updated_at: new Date().toISOString() }).eq('id', expense._cloudId).eq('user_id', user.id)
+    : window._sb.from('expenses').update({ status: 'deleted', updated_at: new Date().toISOString() }).eq('user_id', user.id).eq('local_id', String(expense.id));
   return sbWrite(builder, { label: 'expense removal' });
 }
 
