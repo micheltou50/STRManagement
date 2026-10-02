@@ -1457,7 +1457,7 @@ export async function assignCleanerToBooking(bookingIdParam) {
     releaseCleaningLock(lockKey);
     return;
   }
-  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Scheduling…'; }
   const newClean = {
     id: prev ? prev.id : Date.now(),
     _cloudId: prev ? prev._cloudId : undefined,
@@ -1529,13 +1529,34 @@ export async function assignCleanerToBooking(bookingIdParam) {
     if (!cleanerEmail && !pushSent) {
       globalThis.showBanner('⚠ Assigned, but no cleaner email or push subscription is configured', 'warn');
     }
+
+    // Prompt to send SMS (same flow as "Schedule Clean" on the Cleaning page).
+    // Only mark notified if the host confirms. The lock stays held while the
+    // prompt is open so a second tap cannot schedule the same clean twice.
+    const sendSms = await globalThis.showAppModal({
+      title: '💬 Send SMS?',
+      msg: `Notify ${cleanerObj.name} about this booking now?`,
+      confirmText: 'Send SMS',
+      cancelText: 'Later'
+    });
+    if (sendSms) {
+      newClean.notified = true;
+      if (typeof saveCleanToCloud === 'function') {
+        saveCleanToCloud(newClean).catch(e => console.error('[StayOps] Cloud save failed:', e));
+      }
+      globalThis.renderBookings();
+      // On mobile the detail sheet and the notify sheet share a stacking layer,
+      // so close the detail sheet first or it would cover the SMS sheet.
+      if (typeof globalThis.closeDetailModal === 'function') globalThis.closeDetailModal();
+      openNotifyModal(newClean.id);
+    }
   } catch (e) {
     console.warn('[StayOps] assignCleanerToBooking save failed', e);
     globalThis.showBanner('⚠ Could not save assignment — try again', 'warn');
   } finally {
     if (saveBtn) {
       saveBtn.disabled = false;
-      saveBtn.textContent = '💾 Save Assignment';
+      saveBtn.textContent = 'Schedule Clean';
     }
     releaseCleaningLock(lockKey);
   }
