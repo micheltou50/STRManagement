@@ -74,12 +74,14 @@ async function sumBookingsForProperty(supabaseAdmin, propertyId, firstDay, lastD
   // Use host_payout (what the host actually receives) instead of total_price
   // (which includes platform fees). Frontend dashboards use host_payout, so the
   // monthly email number must match — otherwise hosts see inflated numbers.
+  // Month attribution is by CHECK-OUT, same as isBookingInMonth() on the
+  // frontend: a 30 Sep → 1 Oct stay belongs to October.
   const { data, error } = await supabaseAdmin
     .from('bookings')
     .select('host_payout,status,cancellation_billable')
     .eq('property_id', propertyId)
-    .gte('checkin', firstDay)
-    .lte('checkin', lastDay);
+    .gte('checkout', firstDay)
+    .lte('checkout', lastDay);
 
   if (error) throw error;
   const rows = Array.isArray(data) ? data : [];

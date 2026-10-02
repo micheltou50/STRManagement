@@ -15,7 +15,7 @@
 import { bookings } from './state.js';
 import { escHtml, fmt2, fyLabel, fyMonths, fadeTransition } from './utils.js';
 import { getCurrentPropertyName, getActivePropertyId, getAllProperties } from './config.js';
-import { isRevenueBearingBooking, bookingMgmtPayout, bookingRevenue } from './booking-revenue.js';
+import { isRevenueBearingBooking, bookingMgmtPayout, bookingRevenue, isBookingInMonth } from './booking-revenue.js';
 import {
   expenseHasReceiptAttached,
   _financeScopedExpenses,
@@ -87,8 +87,7 @@ function _hostMgmtIncomeForFY(fy) {
   months.forEach(({ year, month }) => {
     allBookings.forEach(b => {
       if (!isRevenueBearingBooking(b)) return;
-      const d = new Date(b.checkin);
-      if (d.getFullYear() !== year || d.getMonth() !== month) return;
+      if (!isBookingInMonth(b, year, month)) return;
       const pid = _bookingPropertyId(b) || 'unknown';
       const amt = bookingMgmtPayout(b);
       if (amt <= 0) return;
@@ -235,7 +234,7 @@ function exportTaxPDF() {
   let fyTotalRev = 0;
   platforms.forEach(p => { platRevs[p] = 0; });
   months.forEach(({ year, month }) => {
-    const bs = propertyBookings.filter(b => isRevenueBearingBooking(b) && (() => { const d = new Date(b.checkin); return d.getFullYear() === year && d.getMonth() === month; })());
+    const bs = propertyBookings.filter(b => isRevenueBearingBooking(b) && isBookingInMonth(b, year, month));
     bs.forEach(b => {
       const amt = bookingRevenue(b);
       fyTotalRev += amt;

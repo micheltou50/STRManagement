@@ -870,7 +870,7 @@ function showDetail(id) {
       '">' +
       '<button type="button" onclick="assignCleanerToBooking(\'' +
       safeIdEsc +
-      '\')" id="detail-assign-btn" style="width:100%;background:var(--primary);border-radius:14px;padding:14px;text-align:center;color:white;font-size:14px;font-weight:600;border:none;cursor:pointer;box-sizing:border-box;font-family:\'Plus Jakarta Sans\',sans-serif;touch-action:manipulation">Save assignment</button>'
+      '\')" id="detail-assign-btn" style="width:100%;background:var(--primary);border-radius:14px;padding:14px;text-align:center;color:white;font-size:14px;font-weight:600;border:none;cursor:pointer;box-sizing:border-box;font-family:\'Plus Jakarta Sans\',sans-serif;touch-action:manipulation">Schedule Clean</button>'
     );
   })();
 

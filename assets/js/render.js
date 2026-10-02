@@ -98,7 +98,7 @@ import {
   buildBookingListCardFromBooking,
   normalizePlatformLabel,
 } from './booking-list-card.js';
-import { bookingRevenue, isRevenueBearingBooking } from './booking-revenue.js';
+import { bookingRevenue, isRevenueBearingBooking, isBookingInMonth } from './booking-revenue.js';
 import {
   analyseExpenses,
   renderAIIgnoreList,
@@ -1564,10 +1564,7 @@ function buildSinglePropertyTodayDashboardMarkup() {
   const occupancyThisMonth = Math.max(0, Math.min(100, Math.round((bookedNightsMonth / daysThisMonth) * 100)));
 
   const revenueThisMonth = revenueBookings
-    .filter(b => {
-      const ci = parseLocalDayStart(b.checkin);
-      return !Number.isNaN(ci.getTime()) && ci >= monthStart && ci < monthEnd;
-    })
+    .filter(b => isBookingInMonth(b, thisYear, thisMonth))
     .reduce((s, b) => s + bookingRevenue(b), 0);
 
   const revenueNext30 = revenueBookings
@@ -2057,10 +2054,7 @@ function buildPortfolioTodayDashboardMarkup() {
   const occupancyThisMonth = Math.max(0, Math.min(100, Math.round((bookedNightsMonth / denomDays) * 100)));
 
   const revenueThisMonth = revenueBookings
-    .filter(b => {
-      const ci = parseLocalDayStart(b.checkin);
-      return !Number.isNaN(ci.getTime()) && ci >= monthStart && ci < monthEnd;
-    })
+    .filter(b => isBookingInMonth(b, thisYear, thisMonth))
     .reduce((s, b) => s + bookingRevenue(b), 0);
 
   const revenueNext30 = revenueBookings
