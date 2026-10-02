@@ -194,6 +194,59 @@ function findExistingBooking(bookings, confCode, guestName, checkin, propertyId)
   return null;
 }
 
+/**
+ * Last-resort match for MODIFICATION emails only. Airbnb's "reservation
+ * changed" emails often carry just the guest's first name, the NEW dates and
+ * no real confirmation code, so none of the tiers above can find the booking
+ * (real incident: "Marije" 24–26 Dec vs the stored "Marije Holtland" 23–24
+ * Dec). Inserting it as new left a $0 phantom beside the real booking.
+ *
+ * A candidate is: same property (when known), not cancelled, same FIRST name,
+ * and the email's dates overlap or sit within 3 days of the booking's dates.
+ * A row whose real code differs from the email's real code is never a
+ * candidate (a different reservation). Several candidates → closest check-in.
+ * Never used for new bookings or cancellations.
+ */
+function findModificationCandidate(bookings, confCode, guestName, checkin, checkout, propertyId) {
+  if (!Array.isArray(bookings) || !guestName || !checkin || !checkout) return null;
+  const first = _firstName(guestName);
+  if (!first) return null;
+  const code = sanitizeConfirmationCode(confCode);
+  const NEAR_DAYS = 3;
+  const candidates = bookings.filter(b => {
+    if (!b || b.status === 'cancelled') return false;
+    if (propertyId && b.property_id && String(b.property_id) !== String(propertyId)) return false;
+    if (_firstName(b.guest_name) !== first) return false;
+    if (code) {
+      const bCode = sanitizeConfirmationCode(b.confirmation_code);
+      if (bCode && bCode !== code) return false;
+    }
+    if (!b.checkin || !b.checkout) return false;
+    return checkin <= _shiftYmd(b.checkout, NEAR_DAYS) && checkout >= _shiftYmd(b.checkin, -NEAR_DAYS);
+  });
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => _absDays(a.checkin, checkin) - _absDays(b.checkin, checkin));
+  return candidates[0];
+}
+
+function _firstName(name) {
+  return String(name || '').trim().toLowerCase().split(/\s+/)[0] || '';
+}
+
+function _shiftYmd(ymd, days) {
+  const d = new Date(String(ymd).slice(0, 10) + 'T00:00:00Z');
+  if (Number.isNaN(d.getTime())) return String(ymd || '');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function _absDays(a, b) {
+  const x = new Date(String(a).slice(0, 10) + 'T00:00:00Z');
+  const y = new Date(String(b).slice(0, 10) + 'T00:00:00Z');
+  if (Number.isNaN(x.getTime()) || Number.isNaN(y.getTime())) return Infinity;
+  return Math.abs(Math.round((y - x) / 86400000));
+}
+
 // ── Property resolution ─────────────────────────────────────────────────────
 
 function resolveProperty(parsed, isSingleProperty, propMap, defaultProp) {
@@ -734,6 +787,14 @@ async function processEmailResult(parsed, msgId, source, ctx) {
       const mCode = sanitizeConfirmationCode(match.confirmation_code);
       if (mCode && mCode !== confCode) match = null;
     }
+    // First-name + nearby-dates tier (see findModificationCandidate). A match
+    // found this way is lower confidence, so the guest count — which the parser
+    // defaults to 1 when the email doesn't state it — is left alone.
+    let matchedByName = false;
+    if (!match) {
+      match = findModificationCandidate(existingBookings, confCode, parsed.guestName, parsed.checkin, parsed.checkout, propertyId);
+      matchedByName = !!match;
+    }
     if (match) {
       const datesChanged =
         (parsed.checkin && parsed.checkin !== match.checkin) ||
@@ -746,7 +807,7 @@ async function processEmailResult(parsed, msgId, source, ctx) {
       if (parsed.checkin)   patch.checkin  = parsed.checkin;
       if (parsed.checkout)  patch.checkout = parsed.checkout;
       if (parsed.checkin && parsed.checkout) patch.nights = daysBetween(parsed.checkin, parsed.checkout);
-      if (parsed.guests)      patch.guests     = parsed.guests;
+      if (parsed.guests && !matchedByName) patch.guests = parsed.guests;
       if (parsed.hostPayout)  patch.host_payout  = parsed.hostPayout;
       if (parsed.cleaningFee) patch.cleaning_fee = parsed.cleaningFee;
 
@@ -789,8 +850,9 @@ async function processEmailResult(parsed, msgId, source, ctx) {
           });
         }
       }
-    } else if (parsed.checkin && parsed.checkout) {
-      // Modification with no matching original — insert as new
+    } else if (parsed.checkin && parsed.checkout && confCode) {
+      // No matching original but a REAL platform code: a reservation we never
+      // saw. Insert it so it isn't lost (flagged payout_pending if payout-less).
       const insertedMod = await insertNewBooking(supabaseUrl, sbHeaders, uid, propertyId, msgId, parsed, mgmtFeeRate, propertyUnconfirmed, emailFrom, source);
       if (!insertedMod) {
         // Insert failed — count as error and leave retryable (don't mark done).
@@ -815,9 +877,23 @@ async function processEmailResult(parsed, msgId, source, ctx) {
         });
       }
     } else {
+      // No match and no real code. This is almost always a change to a booking
+      // we already hold under a fuller name that even the first-name tier
+      // couldn't pin down. Inserting it would plant a $0 phantom beside the real
+      // booking, so flag it for the host instead and leave the data alone.
       results.skipped++;
       newlySkipped.push(msgId);
-      results.details.push({ msgId, status: 'skipped', reason: 'Modification but no matching booking and missing dates' });
+      needsReview.push({
+        guest: parsed.guestName || 'Guest',
+        checkin: parsed.checkin || '',
+        checkout: parsed.checkout || '',
+        platform: parsed.platform || detectPlatform(emailFrom),
+        gmail_message_id: msgId,
+        reason: (parsed.checkin && parsed.checkout)
+          ? 'Modification email could not be matched to an existing booking — check the platform'
+          : 'Modification email had no dates and could not be matched to an existing booking',
+      });
+      results.details.push({ msgId, status: 'modification_unmatched', guest: parsed.guestName, checkin: parsed.checkin });
     }
     return;
   }
@@ -830,6 +906,11 @@ async function processEmailResult(parsed, msgId, source, ctx) {
     if (modMatch && confCode) {
       const mCode = sanitizeConfirmationCode(modMatch.confirmation_code);
       if (mCode && mCode !== confCode) modMatch = null;
+    }
+    let modMatchedByName = false;
+    if (!modMatch) {
+      modMatch = findModificationCandidate(existingBookings, confCode, parsed.guestName, parsed.checkin, parsed.checkout, propertyId);
+      modMatchedByName = !!modMatch;
     }
     if (modMatch) {
       // Defense in depth: apply any actual values Claude extracted from the body
@@ -851,7 +932,7 @@ async function processEmailResult(parsed, msgId, source, ctx) {
       if (patch.checkin || patch.checkout) {
         patch.nights = daysBetween(patch.checkin || modMatch.checkin, patch.checkout || modMatch.checkout);
       }
-      if (parsed.guests && Number(parsed.guests) !== Number(modMatch.guests)) {
+      if (parsed.guests && !modMatchedByName && Number(parsed.guests) !== Number(modMatch.guests)) {
         patch.guests = parsed.guests;
         appliedChanges.push('guests: ' + (modMatch.guests || 1) + ' → ' + parsed.guests);
       }
@@ -1097,6 +1178,7 @@ module.exports = {
   sanitizeConfirmationCode,
   looksLikeBookingEmail,
   findExistingBooking,
+  findModificationCandidate,
   resolveProperty,
   loadProperties,
   loadExistingBookings,

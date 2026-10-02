@@ -48,6 +48,17 @@ function daysBetween(d1, d2) {
   return Math.max(0, Math.round((b - a) / 86400000));
 }
 
+// A feed event that is a host block (not a guest stay) — never a booking.
+function isBlockedDatesEvent(ev) {
+  return /not available|unavailable|blocked|^closed\b/i.test(String(ev && ev.summary || ''));
+}
+
+// Calendar day as YYYY-MM-DD (UTC). Feed dates are plain dates, so the few
+// hours of skew against Sydney only ever make "today" one day more lenient.
+function todayYmd() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 async function fetchFeed(url) {
   const res = await fetch(url, { headers: { 'User-Agent': 'StayOps/1.0' } });
   if (!res.ok) throw new Error('Feed HTTP ' + res.status);
@@ -55,7 +66,7 @@ async function fetchFeed(url) {
 }
 
 async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
-  const result = { feedId: feed.id, imported: 0, updated: 0, cancelled: 0, errors: 0 };
+  const result = { feedId: feed.id, imported: 0, adopted: 0, updated: 0, cancelled: 0, errors: 0 };
   const cancellationConfig = await loadCancellationConfig(supabaseUrl, sbHeaders, feed.user_id);
 
   let icsText;
@@ -85,9 +96,50 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
   const byUid = {};
   (Array.isArray(existing) ? existing : []).forEach(b => { byUid[b.ical_uid] = b; });
 
+  // Bookings at this property that arrived by email or sheet before the feed
+  // existed carry no ical_uid. On first sync each live event ADOPTS its booking
+  // (same dates, else same check-in) instead of inserting a duplicate
+  // "Reserved — awaiting details" stub next to it. Only stays that haven't
+  // ended are eligible; history is never touched.
+  const today = todayYmd();
+  const poolRes = await fetch(
+    supabaseUrl + '/rest/v1/bookings?user_id=eq.' + encodeURIComponent(feed.user_id) +
+      '&property_id=eq.' + encodeURIComponent(feed.property_id) +
+      '&ical_uid=is.null&status=eq.confirmed&checkout=gte.' + today +
+      '&select=id,local_id,ical_uid,checkin,checkout,status,enrichment_status,guest_name,guests,property_id',
+    { headers: sbHeaders }
+  );
+  const poolRaw = await poolRes.json();
+  const adoptPool = Array.isArray(poolRaw) ? poolRaw : [];
+
+  // Returns { row } when an existing booking was linked to this event,
+  // { row: null } when nothing matched, { failed: true } when the link PATCH
+  // failed (caller must NOT fall through to a stub insert — retry next sync).
+  async function adoptExistingBooking(ev) {
+    if (!adoptPool.length) return { row: null };
+    let idx = adoptPool.findIndex(b => b.checkin === ev.checkin && b.checkout === ev.checkout);
+    if (idx < 0) idx = adoptPool.findIndex(b => b.checkin === ev.checkin);
+    if (idx < 0) return { row: null };
+    const row = adoptPool[idx];
+    const linkRes = await fetch(supabaseUrl + '/rest/v1/bookings?id=eq.' + encodeURIComponent(row.id), {
+      method: 'PATCH',
+      headers: { ...sbHeaders, Prefer: 'return=minimal' },
+      body: JSON.stringify({ ical_uid: ev.uid, ical_feed_id: feed.id, updated_at: new Date().toISOString() }),
+    });
+    if (!linkRes.ok) { result.errors++; return { failed: true }; }
+    adoptPool.splice(idx, 1);
+    row.ical_uid = ev.uid;
+    byUid[ev.uid] = row;
+    result.adopted++;
+    return { row };
+  }
+
   for (const ev of events) {
     if (!ev.uid || !ev.checkin || !ev.checkout) continue;
-    const prior = byUid[ev.uid];
+    // Host blocks are not bookings. Airbnb exports them as "Airbnb (Not
+    // available)", Booking.com as "CLOSED - Not available", VRBO as "Blocked".
+    if (isBlockedDatesEvent(ev)) continue;
+    let prior = byUid[ev.uid];
 
     if (ev.cancelled) {
       if (prior && prior.status !== 'cancelled') {
@@ -120,6 +172,14 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
         result.cancelled++;
       }
       continue;
+    }
+
+    if (!prior) {
+      // Never backfill history: a past stay with no row gets no stub.
+      if (ev.checkout < today) continue;
+      const adoption = await adoptExistingBooking(ev);
+      if (adoption.failed) continue; // retry next sync rather than insert a duplicate
+      prior = adoption.row;
     }
 
     if (!prior) {
@@ -213,6 +273,10 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
   for (const uid in byUid) {
     if (!liveUids.has(uid) && byUid[uid].status !== 'cancelled') {
       const stale = byUid[uid];
+      // Platforms drop a stay from the export once it has started, so a
+      // vanished UID only means "cancelled" for a stay that is still ahead.
+      // Never auto-cancel an in-progress or finished stay (and its revenue).
+      if (!stale.checkin || stale.checkin < today) continue;
       const cancelledAt = new Date().toISOString();
       const sweepRes = await fetch(supabaseUrl + '/rest/v1/bookings?id=eq.' + encodeURIComponent(stale.id), {
         method: 'PATCH',
@@ -301,11 +365,12 @@ exports.handler = async (event) => {
     return json(500, { error: 'Failed to load feeds: ' + JSON.stringify(feeds).slice(0, 200) });
   }
 
-  const totals = { imported: 0, updated: 0, cancelled: 0, errors: 0, feeds: feeds.length };
+  const totals = { imported: 0, adopted: 0, updated: 0, cancelled: 0, errors: 0, feeds: feeds.length };
   for (const feed of feeds) {
     try {
       const r = await syncOneFeed(SUPABASE_URL, sbHeaders, feed);
       totals.imported += r.imported;
+      totals.adopted += r.adopted || 0;
       totals.updated += r.updated;
       totals.cancelled += r.cancelled;
       totals.errors += r.errors;
@@ -317,3 +382,6 @@ exports.handler = async (event) => {
 
   return json(200, totals);
 };
+
+// Exposed for tests only; the scheduled/HTTP entry point is `handler`.
+exports.syncOneFeed = syncOneFeed;
