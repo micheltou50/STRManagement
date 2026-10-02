@@ -53,6 +53,12 @@ function isBlockedDatesEvent(ev) {
   return /not available|unavailable|blocked|^closed\b/i.test(String(ev && ev.summary || ''));
 }
 
+// Whole days between two plain dates, either direction.
+function absDays(d1, d2) {
+  if (!d1 || !d2) return Infinity;
+  return Math.abs(Math.round((new Date(d2) - new Date(d1)) / 86400000));
+}
+
 // Calendar day as YYYY-MM-DD (UTC). Feed dates are plain dates, so the few
 // hours of skew against Sydney only ever make "today" one day more lenient.
 function todayYmd() {
@@ -112,28 +118,90 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
   const poolRaw = await poolRes.json();
   const adoptPool = Array.isArray(poolRaw) ? poolRaw : [];
 
-  // Returns { row } when an existing booking was linked to this event,
-  // { row: null } when nothing matched, { failed: true } when the link PATCH
-  // failed (caller must NOT fall through to a stub insert — retry next sync).
-  async function adoptExistingBooking(ev) {
-    if (!adoptPool.length) return { row: null };
-    let idx = adoptPool.findIndex(b => b.checkin === ev.checkin && b.checkout === ev.checkout);
-    if (idx < 0) idx = adoptPool.findIndex(b => b.checkin === ev.checkin);
-    if (idx < 0) return { row: null };
-    const row = adoptPool[idx];
+  // Link an existing un-linked booking to a feed event. Returns { row } on
+  // success or { failed: true } when the PATCH failed — the caller must then
+  // NOT fall through to a stub insert (retry next sync, never a duplicate).
+  async function linkBooking(row, ev) {
     const linkRes = await fetch(supabaseUrl + '/rest/v1/bookings?id=eq.' + encodeURIComponent(row.id), {
       method: 'PATCH',
       headers: { ...sbHeaders, Prefer: 'return=minimal' },
       body: JSON.stringify({ ical_uid: ev.uid, ical_feed_id: feed.id, updated_at: new Date().toISOString() }),
     });
     if (!linkRes.ok) { result.errors++; return { failed: true }; }
-    adoptPool.splice(idx, 1);
+    const at = adoptPool.indexOf(row);
+    if (at >= 0) adoptPool.splice(at, 1);
     row.ical_uid = ev.uid;
     byUid[ev.uid] = row;
     result.adopted++;
     return { row };
   }
 
+  // First-pass adoption: same dates, else same check-in (one property cannot
+  // host two stays starting the same day). Returns { row: null } if nothing
+  // matched, else the linkBooking result.
+  async function adoptExistingBooking(ev) {
+    if (!adoptPool.length) return { row: null };
+    let row = adoptPool.find(b => b.checkin === ev.checkin && b.checkout === ev.checkout);
+    if (!row) row = adoptPool.find(b => b.checkin === ev.checkin);
+    if (!row) return { row: null };
+    return linkBooking(row, ev);
+  }
+
+  async function insertStub(ev) {
+    const stub = {
+      user_id: feed.user_id,
+      property_id: feed.property_id,
+      local_id: 'ical-' + feed.id + '-' + ev.uid,
+      ical_uid: ev.uid,
+      ical_feed_id: feed.id,
+      checkin: ev.checkin,
+      checkout: ev.checkout,
+      nights: daysBetween(ev.checkin, ev.checkout),
+      guest_name: 'Reserved — awaiting details',
+      guests: 1,
+      host_payout: 0,
+      cleaning_fee: 0,
+      platform: feed.platform || '',
+      confirmation_code: ev.confirmationCode || '',
+      status: 'confirmed',
+      source: 'ical',
+      enrichment_status: 'pending',
+      property_unconfirmed: false,
+      updated_at: new Date().toISOString(),
+    };
+    const insRes = await fetch(supabaseUrl + '/rest/v1/bookings', {
+      method: 'POST',
+      headers: { ...sbHeaders, Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(stub),
+    });
+    if (insRes.ok || insRes.status === 201) result.imported++;
+    else result.errors++;
+  }
+
+  // Bring a linked booking in line with its feed event: re-date it if the
+  // platform moved it, revive it if it was soft-cancelled and is back.
+  async function applyEventToPrior(prior, ev) {
+    const datesChanged = prior.checkin !== ev.checkin || prior.checkout !== ev.checkout;
+    const needsRevive = prior.status === 'cancelled';
+    if (!datesChanged && !needsRevive) return;
+    const patch = { updated_at: new Date().toISOString() };
+    if (datesChanged) {
+      patch.checkin = ev.checkin;
+      patch.checkout = ev.checkout;
+      patch.nights = daysBetween(ev.checkin, ev.checkout);
+    }
+    if (needsRevive) patch.status = 'confirmed';
+    const updRes = await fetch(supabaseUrl + '/rest/v1/bookings?id=eq.' + encodeURIComponent(prior.id), {
+      method: 'PATCH',
+      headers: { ...sbHeaders, Prefer: 'return=minimal' },
+      body: JSON.stringify(patch),
+    });
+    if (!updRes.ok) { result.errors++; return; }
+    pushBookingToCalendar(feed.user_id, prior.local_id, 'upsert');
+    result.updated++;
+  }
+
+  const unmatched = [];
   for (const ev of events) {
     if (!ev.uid || !ev.checkin || !ev.checkout) continue;
     // Host blocks are not bookings. Airbnb exports them as "Airbnb (Not
@@ -180,63 +248,40 @@ async function syncOneFeed(supabaseUrl, sbHeaders, feed) {
       const adoption = await adoptExistingBooking(ev);
       if (adoption.failed) continue; // retry next sync rather than insert a duplicate
       prior = adoption.row;
+      if (!prior) { unmatched.push(ev); continue; }
     }
 
-    if (!prior) {
-      // Insert new stub
-      const stub = {
-        user_id: feed.user_id,
-        property_id: feed.property_id,
-        local_id: 'ical-' + feed.id + '-' + ev.uid,
-        ical_uid: ev.uid,
-        ical_feed_id: feed.id,
-        checkin: ev.checkin,
-        checkout: ev.checkout,
-        nights: daysBetween(ev.checkin, ev.checkout),
-        guest_name: 'Reserved — awaiting details',
-        guests: 1,
-        host_payout: 0,
-        cleaning_fee: 0,
-        platform: feed.platform || '',
-        confirmation_code: ev.confirmationCode || '',
-        status: 'confirmed',
-        source: 'ical',
-        enrichment_status: 'pending',
-        property_unconfirmed: false,
-        updated_at: new Date().toISOString(),
-      };
-      const insRes = await fetch(supabaseUrl + '/rest/v1/bookings', {
-        method: 'POST',
-        headers: { ...sbHeaders, Prefer: 'resolution=merge-duplicates,return=minimal' },
-        body: JSON.stringify(stub),
-      });
-      if (insRes.ok || insRes.status === 201) result.imported++;
-      else result.errors++;
-    } else {
-      // Update if dates shifted, or revive from cancelled state
-      const datesChanged = prior.checkin !== ev.checkin || prior.checkout !== ev.checkout;
-      const needsRevive = prior.status === 'cancelled';
-      if (datesChanged || needsRevive) {
-        const patch = { updated_at: new Date().toISOString() };
-        if (datesChanged) {
-          patch.checkin = ev.checkin;
-          patch.checkout = ev.checkout;
-          patch.nights = daysBetween(ev.checkin, ev.checkout);
-        }
-        if (needsRevive) patch.status = 'confirmed';
-        const updRes = await fetch(supabaseUrl + '/rest/v1/bookings?id=eq.' + encodeURIComponent(prior.id), {
-          method: 'PATCH',
-          headers: { ...sbHeaders, Prefer: 'return=minimal' },
-          body: JSON.stringify(patch),
-        });
-        if (!updRes.ok) {
-          result.errors++;
-        } else {
-          pushBookingToCalendar(feed.user_id, prior.local_id, 'upsert');
-          result.updated++;
-        }
-      }
-    }
+    await applyEventToPrior(prior, ev);
+  }
+
+  // Second pass for events that matched nothing on dates. A booking whose
+  // dates were changed on the platform after its confirmation email (both
+  // ends moved, e.g. 23–24 Dec became 24–26 Dec) has no exact match, and a
+  // stub for it would be a duplicate. Pair leftover events with leftover
+  // un-linked bookings that sit within NEAR_DAYS on both ends, closest pair
+  // first; whatever is still unpaired is genuinely new and gets a stub.
+  const NEAR_DAYS = 3;
+  const pairs = [];
+  unmatched.forEach((ev, ei) => {
+    adoptPool.forEach(bk => {
+      const dIn = absDays(bk.checkin, ev.checkin);
+      const dOut = absDays(bk.checkout, ev.checkout);
+      if (dIn <= NEAR_DAYS && dOut <= NEAR_DAYS) pairs.push({ ei, bk, dist: dIn + dOut });
+    });
+  });
+  pairs.sort((x, y) => x.dist - y.dist);
+  const pairedEvents = new Set();
+  const pairedBookings = new Set();
+  for (const pr of pairs) {
+    if (pairedEvents.has(pr.ei) || pairedBookings.has(pr.bk.id)) continue;
+    pairedEvents.add(pr.ei);
+    pairedBookings.add(pr.bk.id);
+    const linked = await linkBooking(pr.bk, unmatched[pr.ei]);
+    if (linked.failed) continue; // retry next sync, never a stub
+    await applyEventToPrior(linked.row, unmatched[pr.ei]); // re-dates to the feed
+  }
+  for (let i = 0; i < unmatched.length; i++) {
+    if (!pairedEvents.has(i)) await insertStub(unmatched[i]);
   }
 
   // Guard against empty / garbage feeds before the disappearance sweep.

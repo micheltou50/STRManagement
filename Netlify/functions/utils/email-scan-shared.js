@@ -472,6 +472,9 @@ async function notifyBookingOwnerPush(supabaseAdmin, { notifyType, propertyId, b
     } else if (notifyType === 'modification_notice') {
       title = '📝 Booking Modified — ' + propertyName;
       body = g + ' — check itinerary for updated details';
+    } else if (notifyType === 'modification_unmatched') {
+      title = '⚠️ Change not matched — ' + propertyName;
+      body = g + (ci ? ' · ' + ci + (co ? ' to ' + co : '') : '') + ' · check the platform and update the booking';
     } else {
       return;
     }
@@ -777,6 +780,26 @@ async function processEmailResult(parsed, msgId, source, ctx) {
     return;
   }
 
+  // A change email that could not be attached to any booking: tell the host
+  // so the platform can be checked. The needs_review list only drives the
+  // property picker for multi-property hosts, so a push is the one channel
+  // that reaches a single-property host.
+  async function pushUnmatchedModification() {
+    if (!supabaseAdmin) return;
+    await notifyBookingOwnerPush(supabaseAdmin, {
+      notifyType: 'modification_unmatched',
+      propertyId,
+      bookingRow: {
+        id: 'email-' + msgId,
+        guest_name: parsed.guestName || 'Guest',
+        checkin: parsed.checkin || '',
+        checkout: parsed.checkout || '',
+        platform: parsed.platform || detectPlatform(emailFrom),
+      },
+      fallbackPropertyName: propertyName,
+    });
+  }
+
   // ── Modification (with updated details) ─────────────────────────────
   if (emailType === 'modification') {
     let match = findExistingBooking(existingBookings, confCode, parsed.guestName, parsed.checkin, propertyId);
@@ -881,18 +904,12 @@ async function processEmailResult(parsed, msgId, source, ctx) {
       // we already hold under a fuller name that even the first-name tier
       // couldn't pin down. Inserting it would plant a $0 phantom beside the real
       // booking, so flag it for the host instead and leave the data alone.
+      // (Not added to needs_review: that list only drives the frontend
+      // property picker, which reassigns a booking by message id — there is
+      // no booking here, so it would just prompt and do nothing.)
       results.skipped++;
       newlySkipped.push(msgId);
-      needsReview.push({
-        guest: parsed.guestName || 'Guest',
-        checkin: parsed.checkin || '',
-        checkout: parsed.checkout || '',
-        platform: parsed.platform || detectPlatform(emailFrom),
-        gmail_message_id: msgId,
-        reason: (parsed.checkin && parsed.checkout)
-          ? 'Modification email could not be matched to an existing booking — check the platform'
-          : 'Modification email had no dates and could not be matched to an existing booking',
-      });
+      await pushUnmatchedModification();
       results.details.push({ msgId, status: 'modification_unmatched', guest: parsed.guestName, checkin: parsed.checkin });
     }
     return;
@@ -974,12 +991,9 @@ async function processEmailResult(parsed, msgId, source, ctx) {
       results.updated++;
       results.details.push({ msgId, status: appliedChanges.length ? 'updated' : 'modification_notice', guest: parsed.guestName || modMatch.guest_name, changes: appliedChanges });
     } else {
-      needsReview.push({
-        guest: parsed.guestName || 'Guest',
-        platform: parsed.platform || detectPlatform(emailFrom),
-        gmail_message_id: msgId,
-        reason: 'Modification detected but could not match to an existing booking',
-      });
+      // Same reasoning as the modification branch: no booking was inserted,
+      // so the property picker has nothing to reassign — push instead.
+      await pushUnmatchedModification();
       results.details.push({ msgId, status: 'modification_notice_unmatched', guest: parsed.guestName });
     }
     newlySkipped.push(msgId);

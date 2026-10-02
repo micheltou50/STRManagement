@@ -16,6 +16,9 @@
  *   6. The disappearance sweep only cancels stays that haven't started; a
  *      finished stay dropping off the feed keeps its revenue.
  *   7. If the adoption PATCH fails, no stub is inserted (retry next sync).
+ *   8. Both dates moved on the platform: paired by proximity (≤3 days each
+ *      end, closest pair first), re-dated, never duplicated; far shifts are
+ *      not guessed at.
  */
 
 const test = require('node:test');
@@ -187,6 +190,64 @@ test('disappearance sweep: future stay gone from feed is cancelled, finished sta
   assert.equal(cancels.length, 1);
   assert.ok(cancels[0].url.includes('id=eq.db-up'));
   assert.ok(!bookingPatches(calls).some(c => c.url.includes('id=eq.db-done')), 'finished stay never touched');
+});
+
+test('both dates moved on the platform (the Marije case): adopted by proximity and re-dated, no stub', async () => {
+  // App still holds the confirmation-email dates 23–24; Airbnb now says 24–26.
+  const stale = { id: 'db-m', local_id: 'gmail-m', ical_uid: null, checkin: FUT.in2, checkout: FUT.out2, status: 'confirmed', guest_name: 'Marije Holtland', guests: 6, property_id: 'prop-1' };
+  const { fetchMock, calls } = buildFetchMock({ icsText: ics([{ uid: 'uid-m', start: FUT.in, end: FUT.out }]), pool: [stale] });
+  installFetchMock(fetchMock);
+  const { syncOneFeed } = loadSync();
+
+  const r = await syncOneFeed(SB, HEADERS, FEED);
+
+  assert.equal(r.adopted, 1);
+  assert.equal(r.imported, 0, 'no duplicate stub');
+  assert.equal(stubInserts(calls).length, 0);
+  const link = bookingPatches(calls).find(c => c.body && c.body.ical_uid === 'uid-m');
+  assert.ok(link && link.url.includes('id=eq.db-m'));
+  const redate = bookingPatches(calls).find(c => c.body && c.body.checkin === FUT.in && c.body.checkout === FUT.out);
+  assert.ok(redate, 're-dated to the feed');
+  assert.equal(r.updated, 1);
+});
+
+test('proximity pairing picks the closest pair and leaves truly new events as stubs', async () => {
+  // Two un-linked bookings, two feed events each shifted by a day, plus one
+  // event with nothing near it at all.
+  const x = { id: 'db-x', local_id: 'gmail-x', ical_uid: null, checkin: '2099-11-10', checkout: '2099-11-12', status: 'confirmed', guest_name: 'X Guest', guests: 2, property_id: 'prop-1' };
+  const y = { id: 'db-y', local_id: 'gmail-y', ical_uid: null, checkin: '2099-11-13', checkout: '2099-11-15', status: 'confirmed', guest_name: 'Y Guest', guests: 2, property_id: 'prop-1' };
+  const { fetchMock, calls } = buildFetchMock({
+    icsText: ics([
+      { uid: 'uid-a', start: '2099-11-11', end: '2099-11-13' },
+      { uid: 'uid-b', start: '2099-11-14', end: '2099-11-16' },
+      { uid: 'uid-new', start: '2099-12-01', end: '2099-12-03' },
+    ]),
+    pool: [x, y],
+  });
+  installFetchMock(fetchMock);
+  const { syncOneFeed } = loadSync();
+
+  const r = await syncOneFeed(SB, HEADERS, FEED);
+
+  assert.equal(r.adopted, 2);
+  assert.equal(r.imported, 1, 'only the genuinely new event becomes a stub');
+  const links = bookingPatches(calls).filter(c => c.body && c.body.ical_uid);
+  assert.equal(links.find(c => c.url.includes('id=eq.db-x')).body.ical_uid, 'uid-a');
+  assert.equal(links.find(c => c.url.includes('id=eq.db-y')).body.ical_uid, 'uid-b');
+  assert.equal(stubInserts(calls)[0].body.ical_uid, 'uid-new');
+});
+
+test('a booking shifted by more than 3 days is not guessed at — the event becomes a stub', async () => {
+  const far = { id: 'db-far', local_id: 'gmail-far', ical_uid: null, checkin: '2099-11-01', checkout: '2099-11-03', status: 'confirmed', guest_name: 'Far Guest', guests: 2, property_id: 'prop-1' };
+  const { fetchMock, calls } = buildFetchMock({ icsText: ics([{ uid: 'uid-f', start: '2099-11-10', end: '2099-11-12' }]), pool: [far] });
+  installFetchMock(fetchMock);
+  const { syncOneFeed } = loadSync();
+
+  const r = await syncOneFeed(SB, HEADERS, FEED);
+
+  assert.equal(r.adopted, 0);
+  assert.equal(r.imported, 1);
+  assert.equal(bookingPatches(calls).length, 0, 'the far booking is untouched');
 });
 
 test('if the adoption PATCH fails, no stub is inserted (retry next sync)', async () => {

@@ -20,6 +20,8 @@
  *      we genuinely never saw must not be lost).
  *   4. A different real code, or dates far apart, is never a candidate.
  *   5. modification_notice emails get the same first-name tier.
+ *   6. An unmatched change email pushes the host (needs_review alone only
+ *      drives the property picker for multi-property hosts).
  */
 
 const test = require('node:test');
@@ -27,7 +29,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const Module = require('node:module');
 
-const { installFetchMock, resetAll } = require('./_mocks.js');
+const { installFetchMock, resetAll, makeFakeSupabase } = require('./_mocks.js');
 
 const SHARED = path.join(__dirname, '..', 'Netlify', 'functions', 'utils', 'email-scan-shared.js');
 
@@ -146,10 +148,30 @@ test('unmatched modification with NO real code is flagged for review, not insert
   assert.equal(inserts(calls).length, 0, 'no $0 phantom');
   assert.equal(patches(calls).length, 0, 'the real booking is untouched');
   assert.equal(ctx.results.skipped, 1);
-  assert.equal(ctx.needsReview.length, 1);
-  assert.match(ctx.needsReview[0].reason, /could not be matched/i);
+  assert.equal(ctx.needsReview.length, 0, 'no property-picker prompt for a booking that was never inserted');
   assert.equal(ctx.results.details[0].status, 'modification_unmatched');
   assert.ok(ctx.newlySkipped.includes('msg-nomatch'), 'not re-scanned forever');
+});
+
+test('unmatched modification pushes the host so the platform gets checked', async () => {
+  const { fetchMock, calls } = buildFetchMock();
+  installFetchMock(fetchMock);
+  const { processEmailResult } = loadShared();
+  const ctx = makeCtx([marijeRow()]);
+  const fake = makeFakeSupabase({ tables: {
+    properties: [{ id: 'prop-1', user_id: 'user-1', name: 'Glenhaven' }],
+    app_config: [], notification_log: [],
+  } });
+  const seen = [];
+  const origFrom = fake.from.bind(fake);
+  fake.from = (t) => { seen.push(t); return origFrom(t); };
+  ctx.supabaseAdmin = fake;
+
+  await processEmailResult(marijeChangeEmail({ guestName: 'Sofia' }), 'msg-push', 'gmail', ctx);
+
+  assert.equal(inserts(calls).length, 0);
+  assert.ok(seen.includes('notification_log'), 'push dedup check ran (the push path was entered)');
+  assert.ok(seen.includes('properties'), 'property looked up for the push title');
 });
 
 test('unmatched modification WITH a real code still inserts (never lose a real reservation)', async () => {
