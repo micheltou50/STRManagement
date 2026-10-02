@@ -132,3 +132,21 @@ export function applyCancellationPolicy(booking, opts = {}) {
   booking.cancellationBillable = opts.billable != null ? !!opts.billable : suggested;
   return booking;
 }
+
+// ── REPORTING MONTH ──────────────────────────────────────────────────────────
+// Which month a stay belongs to in Finance (monthly views, management payouts,
+// FY reports, statements, exports, dashboards). Attribution is by CHECK-OUT:
+// the stay and its clean are complete and the owner is settled for that
+// month. A 30 Sep → 1 Oct stay is October, not September. Falls back to
+// check-in only when check-out is missing. Every month filter must go through
+// here so views and exports never disagree.
+export function bookingReportingDate(booking) {
+  if (!booking) return null;
+  return _parseLocalDate(booking.checkout) || _parseLocalDate(booking.checkin);
+}
+
+// month is 0-based (JS Date convention) to match the callers' getMonth().
+export function isBookingInMonth(booking, year, month) {
+  const d = bookingReportingDate(booking);
+  return !!d && d.getFullYear() === Number(year) && d.getMonth() === Number(month);
+}
