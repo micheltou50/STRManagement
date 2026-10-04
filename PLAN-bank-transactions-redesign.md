@@ -93,17 +93,27 @@ Replace "match debits to expenses, match credits to payouts" with one rule:
 
 ### Kinds for money out
 
+The rule is simple: **every payment is an expense.** On a dedicated rental
+account that is true for all but two cases, so the app books each debit as an
+expense the moment it is imported, with its best guess at the category, and the
+host only ever flips the exceptions. A $10 account servicing fee is an expense
+under Bank fees, not a question. The only thing a payment can ever ask is
+"is this category right?", and even that never blocks the booking.
+
 | Kind | Means | Links to | Effect on reports |
 |---|---|---|---|
-| Expense | A cost of running the property | an expense (link existing or create) | Profit and loss by category, as today |
+| Expense (the default) | A cost of running the property | an expense (link an existing one if the amount and merchant match, else create) | Profit and loss by category, as today |
 | Owner funds out | Paid to the owner, or drawn by you | optional property | Owner statement "Paid to owner". Never profit and loss |
 | Transfer between my accounts | To another account you own | the other bank account | Neutral |
 | Refund to a guest | Money back to a guest on a direct booking | a booking | Reduces that booking's revenue |
 | Personal | Not business | nothing | Excluded everywhere |
 
-Loan repayments are deliberately left out of the first cut. If a mortgage is paid
-from this account, "Expense → Mortgage" is what happens today and keeps working;
+Loan repayments are deliberately left out of the first cut. The monthly payment
+to MARDINI CHADDY is already booked as "Expense → Mortgage" and stays that way;
 splitting principal from interest is a later step.
+
+"Bank fees" is added to the default expense categories, mapped to Sundry in the
+ATO export, so the servicing fees have a home instead of landing in Other.
 
 ### How sure the app is
 
@@ -128,7 +138,9 @@ is done. That sentence is the whole screen.
    says "all 95 rows are already in" and stops, instead of rendering a review
    screen of greyed rows.
 3. **The explain engine runs** over the new lines (section 7) and applies the
-   certain tier, pre-fills the suggested tier.
+   certain tier, pre-fills the suggested tier. Every debit that is not flagged
+   owner, transfer or personal becomes an expense right here, linked to the bank
+   line; a weak category guess only marks that expense "check category".
 4. **You land on the Bank screen** for that month with a one-line result:
    "52 new · 41 explained · 11 to decide".
 5. **You work the "To decide" queue.** Tap a row, pick the kind, pick the link if
@@ -277,13 +289,25 @@ import.
 
 ## 9. Phases, and what you would see after each
 
-**Phase 0, quick relief on the current screens (about half a day).**
-Add the missing verbs where they are missing: on a credit, "Refund of an expense"
-(creates the credit note and links it), "Owner funds in", "Interest"; on a debit,
-"Owner funds out". Fix the counterparty normaliser so the next import learns real
-merchants. Stop demanding property and category for deposits on import. Run the
-existing "Match 27 deposits". Expected result on the live account: Unexplained
-drops from 75 to the one-cent interest line.
+**Phase 0, bulk-mark FY 2025-26 (half a day, runs once).**
+What's done is done: last financial year is closed in one pass, not row by row.
+The explain engine (section 7) runs over the 209 lines dated before 1 July 2026
+and applies everything it finds, with no confirmation step:
+
+| Lines before 1 July 2026 | Count | Becomes |
+|---|---:|---|
+| Transfers in from MARDINI C | 37 | Owner funds in |
+| Card refunds (Temu, Bunnings, Pillow Talk and so on) | 5 | Credit notes against the matching purchase, or a standalone credit note when no purchase is recorded |
+| Bank interest adjustment | 1 | Interest or adjustment |
+| Extra Payoneer transfer with no pasted statement | 1 | Platform payout, Airbnb, no statement |
+| Debits with no expense (servicing fees, Bunnings, Kmart, pest control, water, locksmith, a cleaner) | 18 | Expenses, category by rule, Bank fees for the fees, Other where unsure |
+| Expenses dated in the year with no bank line | 93 | `paid_via = other_account`, so they stop showing as work |
+
+The 27 payouts that were "not received" when section 1 was written have since
+been matched in the app, so they need nothing. Then FY 2025-26 is locked: it
+never appears in a queue again, and the lock is reversible. Expected result:
+zero to decide for last year, and this year opens with four refunds and one
+payment to book.
 
 **Phase 1, data (one to two days).**
 Migrations in section 6, backfill from existing links, `bank_memory` seeded from
@@ -314,9 +338,10 @@ screenshot.
    original, not an edit of the original amount. The original keeps its receipt,
    the bank line links one-to-one, and the existing refund checkbox already
    produces this shape.
-3. **The 93 unlinked expenses.** Bulk-mark them "paid elsewhere", or add the
-   account they were paid from and import it too? Recommended: mark them, and
-   only add a second account if you want that account reconciled as well.
+3. **The MARDINI C transfers in.** "Owner funds in" is the proposed label. The
+   payments out to MARDINI CHADDY stay as Mortgage expenses, as you have them.
+   Decided: the 93 unlinked expenses from last year are bulk-marked as paid
+   from another account, not matched.
 4. **Retire row ticking.** Recommended: yes. Every line comes from a statement, so
    the balance check is the real control. One check I could not do from here: does
    the ANZ CSV export carry a running balance column? If it does, opening and
