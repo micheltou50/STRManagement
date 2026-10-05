@@ -22,7 +22,7 @@ import {
   getExpensePhoto2UploadSnapshot,
   isExpensePhotoConverting,
 } from './ai.js';
-import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud, loadBookingPayoutEvidence, loadOwnerFundsOut } from './supabase.js';
+import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud, loadBookingPayoutEvidence } from './supabase.js';
 import {
   bookingRevenue,
   bookingMgmtPayout,
@@ -1012,50 +1012,36 @@ function _isOwnerPaidExpense(expense) {
 }
 
 // ── OWNER PAYOUT, MONTHLY ────────────────────────────────────────────────────
-// The statement the manager gives the owner. Three questions, in order: what
-// has actually landed, what the month will come to, what is still owed.
-// Evidence of money landing comes from the Bank screen (payout statements
-// matched to deposits) and is fetched per month, cached, and re-rendered when
-// it arrives; the first paint shows every stay as awaiting/upcoming for a
-// moment rather than blocking on the network.
+// The owner statement, two numbers: Expected — what the month should come to
+// (every stay, upcoming included, less fees, cleaning and expenses) — and
+// Payout — what can be paid out so far (stays whose payout has actually
+// landed, less the costs on them and the expenses paid for the owner).
+// Evidence that money landed comes from the Bank screen and is fetched per
+// month, cached, and re-rendered when it arrives; the first paint shows every
+// stay as awaiting/upcoming for a moment rather than blocking on the network.
 let _revEvidence = new Map();        // booking cloud id → { settled, attested }
 let _revEvidencePending = new Set();
-let _revOwnerOut = new Map();        // 'YYYY-MM' → { total, rows } paid to owner
-let _revOwnerOutPending = new Set();
 
-function _revMonthKey() { return revYear + '-' + String(revMonth + 1).padStart(2, '0'); }
-
-/** The Bank screen calls this after a deposit is matched or an owner payment
- *  is explained, so the statement never shows a stale "awaiting". */
-function invalidateOwnerPayoutCache() {
-  _revEvidence.clear();
-  _revOwnerOut.clear();
-}
+/** The Bank screen calls this after a deposit is matched, so a stay never
+ *  reads "awaiting" once the money is in. */
+function invalidateOwnerPayoutCache() { _revEvidence.clear(); }
 globalThis.invalidateOwnerPayoutCache = invalidateOwnerPayoutCache;
 
 function _revEnsureEvidence(monthBookings) {
-  const key = _revMonthKey();
+  const key = revYear + '-' + revMonth;
   const ids = monthBookings.map(b => b && b._cloudId).filter(Boolean).map(String);
   const missing = ids.filter(id => !_revEvidence.has(id) && !_revEvidencePending.has(id));
-  const wantOut = !_revOwnerOut.has(key) && !_revOwnerOutPending.has(key);
-  if (!missing.length && !wantOut) return;
+  if (!missing.length) return;
   missing.forEach(id => _revEvidencePending.add(id));
-  if (wantOut) _revOwnerOutPending.add(key);
-  const lastDay = new Date(revYear, revMonth + 1, 0).getDate();
-  Promise.all([
-    missing.length ? loadBookingPayoutEvidence(missing) : Promise.resolve(new Map()),
-    wantOut ? loadOwnerFundsOut({ from: key + '-01', to: key + '-' + String(lastDay).padStart(2, '0') }) : Promise.resolve(null),
-  ]).then(([ev, out]) => {
+  loadBookingPayoutEvidence(missing).then(ev => {
     for (const id of missing) {
       _revEvidence.set(id, ev.get(id) || { settled: false, attested: false });
       _revEvidencePending.delete(id);
     }
-    if (wantOut) { _revOwnerOut.set(key, out || { total: 0, rows: [] }); _revOwnerOutPending.delete(key); }
-    if (_revMonthKey() === key && document.getElementById('finance-summary-content')) renderRevenue();
+    if (revYear + '-' + revMonth === key && document.getElementById('finance-summary-content')) renderRevenue();
   }).catch(e => {
     console.warn('[StayOps] owner payout evidence failed', e);
     missing.forEach(id => _revEvidencePending.delete(id));
-    _revOwnerOutPending.delete(key);
   });
 }
 
@@ -1081,7 +1067,6 @@ function renderRevenue() {
     return d.getMonth() === revMonth && d.getFullYear() === revYear;
   });
   const isDeduct = getExpensePayoutMode() === 'deduct';
-  const ownerOut = _revOwnerOut.get(_revMonthKey()) || { total: 0, rows: [] };
   const s = summariseOwnerMonth({
     bookings: monthBookings,
     expenses: monthExpenses,
@@ -1091,25 +1076,33 @@ function renderRevenue() {
     identity: _getInvoiceIdentity(),
     deduct: isDeduct,
     isOwnerPaid: _isOwnerPaidExpense,
-    paidToOwner: ownerOut.total,
   });
   const checking = monthBookings.some(b => b && b._cloudId && _revEvidencePending.has(String(b._cloudId)));
+  const plural = n => n === 1 ? '' : 's';
+  // Payout so far = net of the stays that have landed, less expenses paid for
+  // the owner. With nothing in yet it reads $0 rather than minus the expenses;
+  // those come off the first payout that lands.
+  const nothingIn = s.counts.paid === 0;
+  const payoutSoFar = nothingIn ? 0 : s.stillOwed;
+  const payColor = nothingIn ? 'var(--muted-2)' : payoutSoFar >= 0 ? '#1D9E75' : '#E24B4A';
+  const projColor = s.projectedPayout >= 0 ? 'var(--ink-1)' : '#E24B4A';
 
-  // ── Header cards: what the month comes to, and what is still owed ──
-  const projEl = document.getElementById('total-revenue');
-  const projLabel = document.getElementById('total-revenue-label');
-  const owedEl = document.getElementById('total-net');
-  const owedLabel = document.getElementById('total-net-label');
-  if (projEl) { projEl.textContent = _fmtPayout(s.projectedPayout); projEl.style.color = s.projectedPayout >= 0 ? 'var(--ink-1)' : '#E24B4A'; }
-  if (projLabel) projLabel.textContent = 'Owner payout · projected';
-  if (owedEl) {
-    owedEl.textContent = _fmtPayout(s.stillOwed);
-    owedEl.style.color = s.stillOwed > 0.004 ? '#1D9E75' : s.stillOwed < -0.004 ? '#E24B4A' : 'var(--ink-1)';
-  }
-  if (owedLabel) owedLabel.textContent = s.counts.paid ? 'Still owed to owner' : 'Still owed · nothing received yet';
+  // ── Header cards ──
+  const expEl = document.getElementById('total-revenue');
+  const expLabel = document.getElementById('total-revenue-label');
+  const payEl = document.getElementById('total-net');
+  const payLabel = document.getElementById('total-net-label');
+  if (expEl) { expEl.textContent = _fmtPayout(s.projectedPayout); expEl.style.color = projColor; }
+  if (expLabel) expLabel.textContent = 'Expected';
+  if (payEl) { payEl.textContent = _fmtPayout(payoutSoFar); payEl.style.color = payColor; }
+  if (payLabel) payLabel.textContent = `Payout · ${s.counts.paid} of ${s.counts.total} paid`;
   const subEl = document.getElementById('revenue-sub');
   if (subEl) {
-    subEl.textContent = `${s.counts.total} stay${s.counts.total === 1 ? '' : 's'} · ${s.counts.paid} paid · ${s.counts.awaiting} awaiting payout · ${s.counts.upcoming} upcoming${checking ? ' · checking the bank…' : ''}`;
+    const parts = [`${s.counts.total} stay${plural(s.counts.total)}`];
+    if (s.counts.awaiting) parts.push(`${s.counts.awaiting} awaiting payout`);
+    if (s.counts.upcoming) parts.push(`${s.counts.upcoming} upcoming`);
+    if (checking) parts.push('checking the bank…');
+    subEl.textContent = parts.join(' · ');
   }
 
   // ── Row builders ──
@@ -1133,50 +1126,28 @@ function renderRevenue() {
       <span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(amount)}</span>
     </div>
     <div id="${id}" style="display:none;padding:10px 14px;margin:2px 0 6px;background:var(--surface2);border-radius:10px">${inner}</div>`;
-  const _section = t => `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted-2);margin:0 0 6px">${t}</div>`;
 
-  // ── Expected for the month ──
+  // ── Summary: gross, less fees, cleaning, expenses = Expected; then Payout so far ──
   const cleanStays = s.stays.filter(x => x.clean !== 0);
-  const ownInvoiceNote = s.ownInvoices.length
-    ? `<div style="font-size:11px;color:var(--muted-2);padding:0 0 8px;line-height:1.4">Your own invoice${s.ownInvoices.length > 1 ? 's' : ''} (${s.ownInvoices.map(e => '$' + _fmtAud(Math.abs(Number(e.amount) || 0)) + (e.date ? ' · ' + fmt(e.date) : '')).join(', ')}) ${s.ownInvoices.length > 1 ? 'are' : 'is'} not deducted — that fee is already in Management fees for the month it was earned.</div>`
-    : '';
   let summaryHtml = `<div class="finance-summary">
-    ${_section('Expected for ' + monthName)}
     <div class="finance-row"><span class="finance-label">Gross revenue</span><span class="finance-val" style="color:var(--ink-1);font-weight:500">$${_fmtAud(s.expectedGross)}</span></div>
-    <div class="finance-row"><span class="finance-label">Management fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(s.expectedMgmt)}</span></div>
-    ${ownInvoiceNote}`;
+    <div class="finance-row"><span class="finance-label">Management fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(s.expectedMgmt)}</span></div>`;
   if (s.expectedClean !== 0) {
-    summaryHtml += _drawer('rev-clean-cost-detail', 'cc-chevron', 'Cleaning costs', cleanStays.length, s.expectedClean,
+    summaryHtml += _drawer('rev-clean-cost-detail', 'cc-chevron', 'Cleaning', cleanStays.length, s.expectedClean,
       [...cleanStays].sort((a, b) => new Date(a.booking.checkin) - new Date(b.booking.checkin)).map(_cleanRow).join(''));
   }
   if (isDeduct && s.deductibleExpenses.length) {
     summaryHtml += _drawer('rev-expense-detail', 'exp-chevron', 'Expenses', s.deductibleExpenses.length, s.deductible,
       [...s.deductibleExpenses].sort((a, b) => new Date(a.expense.date) - new Date(b.expense.date)).map(x => _expRow(x.expense, x.amount)).join(''));
   }
-  const projColor = s.projectedPayout >= 0 ? '#1D9E75' : '#E24B4A';
   summaryHtml += `
-    <div class="finance-row finance-total" style="border-top:1.5px solid var(--hairline-1);padding-top:12px;margin-top:4px"><span class="finance-label" style="font-size:14px">Owner payout · projected</span><span class="finance-val" style="color:${projColor};font-size:14px">${_fmtPayout(s.projectedPayout)}</span></div>
-  </div>`;
-
-  // ── So far: what landed, what was passed on, what is still owed ──
-  const ownerRows = ownerOut.rows.length
-    ? ownerOut.rows.map(r => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:0.5px solid rgba(0,0,0,0.05)"><div style="min-width:0"><div style="color:var(--text);font-weight:500">${escHtml(r.counterparty ? r.counterparty.replace(/\b\w/g, c => c) : 'Owner')}</div><div style="color:var(--muted-2);font-size:11px;margin-top:1px">${escHtml(r.description)}${r.date ? ' · ' + fmt(r.date) : ''}</div></div><div style="flex-shrink:0;color:#E24B4A;font-weight:500;margin-left:12px">$${_fmtAud(r.amount)}</div></div>`).join('')
-    : '';
-  const owedColor = s.stillOwed > 0.004 ? '#1D9E75' : s.stillOwed < -0.004 ? '#E24B4A' : 'var(--ink-1)';
-  summaryHtml += `
-  <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--hairline-2)">
-    <div class="finance-summary">
-      ${_section('So far')}
-      <div class="finance-row"><span class="finance-label">Received (${s.counts.paid} of ${s.counts.total} stay${s.counts.total === 1 ? '' : 's'})</span><span class="finance-val" style="color:var(--ink-1);font-weight:500">$${_fmtAud(s.receivedGross)}</span></div>
-      ${s.counts.paid ? `<div class="finance-row"><span class="finance-label">Fees and cleaning on those stays</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(s.receivedGross - s.receivedNet)}</span></div>` : ''}
-      ${isDeduct && s.deductible ? `<div class="finance-row"><span class="finance-label">Expenses paid for the owner</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(s.deductible)}</span></div>` : ''}
-      ${ownerRows
-        ? _drawer('rev-owner-out-detail', 'oo-chevron', 'Paid to owner', ownerOut.rows.length, s.paidToOwner, ownerRows)
-        : `<div class="finance-row"><span class="finance-label">Paid to owner</span><span class="finance-val" style="color:var(--muted-2);font-weight:500">$0.00</span></div>`}
-      <div class="finance-row finance-total" style="border-top:1.5px solid var(--hairline-1);padding-top:12px;margin-top:4px"><span class="finance-label" style="font-size:14px">Still owed to owner</span><span class="finance-val" style="color:${owedColor};font-size:14px">${_fmtPayout(s.stillOwed)}</span></div>
-      ${!s.counts.paid ? `<div style="font-size:11px;color:var(--muted-2);padding:8px 0 0;line-height:1.4">No payout for ${monthName} has landed in the bank yet. Match deposits on the Bank screen and this updates.</div>` : ''}
-    </div>
-  </div>`;
+    <div class="finance-row finance-total" style="border-top:1.5px solid var(--hairline-1);padding-top:12px;margin-top:4px"><span class="finance-label" style="font-size:14px">Expected</span><span class="finance-val" style="color:${projColor};font-size:14px">${_fmtPayout(s.projectedPayout)}</span></div>
+    <div class="finance-row"><span class="finance-label">Payout so far · ${s.counts.paid} of ${s.counts.total} stay${plural(s.counts.total)} paid</span><span class="finance-val" style="color:${payColor};font-weight:500">${_fmtPayout(payoutSoFar)}</span></div>`;
+  if (s.ownInvoices.length) {
+    const list = s.ownInvoices.map(e => '$' + _fmtAud(Math.abs(Number(e.amount) || 0)) + (e.date ? ' · ' + fmt(e.date) : '')).join(', ');
+    summaryHtml += `<div style="font-size:11px;color:var(--muted-2);padding:8px 0 0;line-height:1.4">Your invoice${plural(s.ownInvoices.length)} (${list}) ${s.ownInvoices.length > 1 ? 'are' : 'is'} not deducted — that fee is already in Management fees.</div>`;
+  }
+  summaryHtml += `</div>`;
 
   // Owner-paid costs section (shown in both modes when they exist)
   if (s.ownerPaidExpenses.length > 0) {
