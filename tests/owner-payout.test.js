@@ -101,14 +101,14 @@ test('repeated expense removal only marks deleted and never physically deletes',
 const stay = (id, checkout, hostPayout, mgmt, extra = {}) =>
   ({ id, _cloudId: 'c-' + id, status: 'confirmed', checkin: checkout, checkout, hostPayout, mgmtPayout: mgmt, cleaningFee: 0, ...extra });
 
-test('bookingPayoutState(): bank evidence wins; otherwise the calendar decides', async () => {
+test('bookingPayoutState(): the calendar decides — paid once check-in has passed', async () => {
   const { bookingPayoutState } = await load();
-  const b = stay('a', '2026-10-05', 100, 10);
-  assert.equal(bookingPayoutState(b, { settled: true }, '2026-10-05'), 'paid');
-  assert.equal(bookingPayoutState(b, { attested: true }, '2026-10-05'), 'paid');
-  assert.equal(bookingPayoutState(b, null, '2026-10-05'), 'awaiting', 'checked out today, not paid');
-  assert.equal(bookingPayoutState(b, null, '2026-10-04'), 'upcoming');
-  assert.equal(bookingPayoutState(stay('z', '2026-10-25', 100, 10), { settled: false }, '2026-10-05'), 'upcoming');
+  const b = { ...stay('a', '2026-10-05', 100, 10), checkin: '2026-10-02' };
+  assert.equal(bookingPayoutState(b, '2026-10-03'), 'paid', 'the day after check-in');
+  assert.equal(bookingPayoutState(b, '2026-10-02'), 'upcoming', 'check-in day itself is not yet released');
+  assert.equal(bookingPayoutState(b, '2026-10-01'), 'upcoming');
+  assert.equal(bookingPayoutState(stay('z', '2026-10-25', 100, 10), '2026-10-05'), 'upcoming');
+  assert.equal(bookingPayoutState({ checkout: '2026-10-05' }, '2026-10-06'), 'paid', 'falls back to check-out when check-in is missing');
 });
 
 test('isOwnInvoiceExpense(): the manager\'s own invoice, by company name, loosely', async () => {
@@ -120,11 +120,11 @@ test('isOwnInvoiceExpense(): the manager\'s own invoice, by company name, loosel
   assert.equal(isOwnInvoiceExpense({ merchant: 'MT Management PTY LTD' }, { company: '' }), false);
 });
 
-test('summariseOwnerMonth(): the October shape — nothing paid, invoice excluded, cleaning once', async () => {
+test('summariseOwnerMonth(): the October shape — one stay released, invoice excluded, cleaning once', async () => {
   const { summariseOwnerMonth } = await load();
   const bookings = [
     stay('1', '2026-10-01', 671.89, 42.19),
-    stay('2', '2026-10-05', 1750.27, 155.03),
+    { ...stay('2', '2026-10-05', 1750.27, 155.03), checkin: '2026-10-02' },
     stay('3', '2026-10-09', 1759.94, 155.99),
   ];
   const cleans = [{ bookingId: '1', cost: 250 }, { bookingId: '2', cost: 200 }, { bookingId: '3', cost: 200 }];
@@ -141,8 +141,7 @@ test('summariseOwnerMonth(): the October shape — nothing paid, invoice exclude
     identity: { company: 'MT Management PTY LTD' }, deduct: true, paidToOwner: 0,
   });
   assert.equal(s.counts.total, 3);
-  assert.equal(s.counts.paid, 0);
-  assert.equal(s.counts.awaiting, 2, '1 Oct and 5 Oct are over');
+  assert.equal(s.counts.paid, 2, 'checked in 1 Oct and 2 Oct: released');
   assert.equal(s.counts.upcoming, 1);
   assert.equal(s.expectedGross, 4182.10);
   assert.equal(s.expectedClean, 950, '250 + 500 (invoice beats the 200 estimate) + 200');
@@ -150,18 +149,18 @@ test('summariseOwnerMonth(): the October shape — nothing paid, invoice exclude
   assert.equal(s.deductibleExpenses.length, 1);
   assert.equal(s.ownInvoices.length, 1);
   assert.equal(s.projectedPayout, 2818.89, '4182.10 − 353.21 − 950 − 60, exact in cents');
-  assert.equal(s.receivedGross, 0);
-  assert.equal(s.stillOwed, -60, 'nothing received yet, one expense already paid on the owner\'s behalf');
+  assert.equal(s.receivedGross, 2422.16, '671.89 + 1750.27');
+  assert.equal(s.receivedNet, 1474.94, '379.70 + (1750.27 − 155.03 − 500)');
+  assert.equal(s.stillOwed, 1414.94, 'released net less the $60 paid on the owner\'s behalf');
   assert.equal(s.stays[1].cleanSource, 'invoice');
   assert.equal(s.stays[0].cleanSource, 'estimate');
 });
 
-test('summariseOwnerMonth(): once stays are paid, still owed is their net less what was transferred', async () => {
+test('summariseOwnerMonth(): once stays are released, still owed is their net less what was transferred', async () => {
   const { summariseOwnerMonth } = await load();
   const bookings = [stay('1', '2026-10-01', 1000, 100), stay('2', '2026-10-20', 2000, 200)];
   const cleans = [{ bookingId: '1', cost: 250 }, { bookingId: '2', cost: 250 }];
-  const evidence = new Map([['c-1', { settled: true }]]);
-  const s = summariseOwnerMonth({ bookings, expenses: [], cleans, evidence, today: '2026-10-05', deduct: true, paidToOwner: 400 });
+  const s = summariseOwnerMonth({ bookings, expenses: [], cleans, today: '2026-10-05', deduct: true, paidToOwner: 400 });
   assert.equal(s.counts.paid, 1);
   assert.equal(s.receivedGross, 1000);
   assert.equal(s.receivedNet, 650);

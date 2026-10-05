@@ -67,7 +67,6 @@ getExpenseCats
 getHostProfile
 getRecurringTemplates
 getTotalDepreciationForFY
-invalidateOwnerPayoutCache
 mgmtCheckboxChange
 mgmtToggleSelectAll
 openExpenseEdit

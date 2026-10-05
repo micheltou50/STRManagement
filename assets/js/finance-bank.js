@@ -170,9 +170,6 @@ async function _refreshExpensesInMemory() {
     const rows = await loadExpensesFromCloud();
     if (Array.isArray(rows)) replaceArrayInPlace(expenses, rows);
   } catch (e) { console.warn('[StayOps] Bank: expense refresh failed', e); }
-  // A deposit matched or an owner payment explained changes the owner
-  // statement's "received" and "paid to owner" figures.
-  if (typeof globalThis.invalidateOwnerPayoutCache === 'function') globalThis.invalidateOwnerPayoutCache();
 }
 
 // ── Loading ───────────────────────────────────────────────────────────────────
