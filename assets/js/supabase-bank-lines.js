@@ -584,3 +584,23 @@ export async function lockBankPeriod({ accountId, periodStart, periodEnd, openin
 export async function unlockBankPeriod(lockId) {
   return undoReconciliation(lockId);
 }
+
+/** Money paid out to the owner in a date range: bank lines explained as
+ *  Owner funds, money out. Feeds "Paid to owner" on the monthly statement. */
+export async function loadOwnerFundsOut({ from = null, to = null } = {}) {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user) return { total: 0, rows: [] };
+    let q = _sb().from('bank_transactions')
+      .select('id, date, amount, description, counterparty')
+      .eq('user_id', user.id).eq('kind', 'owner_funds').eq('direction', 'debit');
+    if (from) q = q.gte('date', from);
+    if (to) q = q.lte('date', to);
+    const { data, error } = await q.order('date');
+    if (error) { console.warn('[StayOps] loadOwnerFundsOut error', error); return { total: 0, rows: [] }; }
+    const rows = (data || []).map(r => ({ id: r.id, date: r.date, amount: Math.abs(Number(r.amount) || 0), description: r.description || '', counterparty: r.counterparty || '' }));
+    const total = Math.round(rows.reduce((s, r) => s + r.amount * 100, 0)) / 100;
+    return { total, rows };
+  } catch (e) { console.warn('[StayOps] loadOwnerFundsOut failed', e); return { total: 0, rows: [] }; }
+}
+
