@@ -208,6 +208,23 @@ export function fyMonths(fy) {
   return [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5].map(m => ({ year: m >= 6 ? fy : fy + 1, month: m }));
 }
 
+/** Australian financial year an ISO date falls in, named by its starting year:
+ *  2026-06-30 → 2025 (FY 2025–26), 2026-07-01 → 2026 (FY 2026–27). Pure string
+ *  arithmetic on purpose — a Date round-trip here would shift by the UTC
+ *  offset and land 1 July in the wrong year before 10am. */
+export function fyOfDate(iso) {
+  const s = String(iso || '').slice(0, 10);
+  const y = Number(s.slice(0, 4));
+  const m = Number(s.slice(5, 7));
+  if (!y || !m) return null;
+  return m >= 7 ? y : y - 1;
+}
+
+/** ISO bounds of a financial year: { start: 'YYYY-07-01', end: 'YYYY+1-06-30' }. */
+export function fyBounds(fy) {
+  return { start: `${fy}-07-01`, end: `${fy + 1}-06-30` };
+}
+
 /** Toast UI only — main.js wraps with showBanner() to also call refreshConnectionSummarySoon(). */
 export function showBannerToast(msg, type) {
   const banner = document.getElementById('sync-banner');

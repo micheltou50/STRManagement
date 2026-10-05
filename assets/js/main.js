@@ -42,7 +42,6 @@ import {
   toggleExpenseList, clearExpenseFilters, renderExpenses, addExpense, saveExpenseToDriveAndSheet, deleteExpense, attachEditExpensePhoto, clearEditExpensePhoto, openExpenseView, openExpenseEdit, closeExpenseEdit,
   saveExpenseEdit, getExpenseCats, populateMgmtFeePanel, saveMgmtFeeRate, ownerAutoSendToggle, saveOwnerReportSettings, sendOwnerReport, exportReportPDF, exportReportCSV,
   getAtoField, getAtoFieldLabel, checkReceiptNudge,
-  showReconciliationView, renderReconciliationView, filterReconciliation,
   showDepreciationView,
   exportTaxPDF, exportTaxCSV, taxExportFYPrev, taxExportFYNext,
   showStatementView
@@ -286,9 +285,6 @@ window.sendOwnerReport          = sendOwnerReport;
 window.sendSMS                  = sendSMS;
 window.setInvView               = setInvView;
 window.showFinanceSub           = showFinanceSub;
-window.showReconciliationView   = showReconciliationView;
-window.renderReconciliationView = renderReconciliationView;
-window.filterReconciliation     = filterReconciliation;
 window.showPropertySub          = showPropertySub;
 window.showSection              = showSection;
 window.switchActiveProperty     = switchActiveProperty;

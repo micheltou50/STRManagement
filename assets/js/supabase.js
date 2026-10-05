@@ -531,6 +531,8 @@ export { normalizeDriveLinks, retryQueuedExpenses, saveExpenseToCloud, deleteExp
 export * from './supabase-payouts.js';
 // Bank accounts + period reconciliations (the out-of-balance close).
 export * from './supabase-bank-accounts.js';
+// Bank lines: kinds, memory, import batches, locks (the Bank screen's data).
+export * from './supabase-bank-lines.js';
 
 
 // ── INVENTORY ─────────────────────────────────────────────────────────────────
