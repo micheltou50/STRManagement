@@ -117,13 +117,17 @@ function _titleCase(s) {
   return String(s || '').toLowerCase().replace(/(^|[\s.-])([a-z])/g, (m, pre, ch) => pre + ch.toUpperCase());
 }
 
+/** The visible period as { from, to }. The year branch MUST translate
+ *  fyBounds' { start, end } — passing it through unchanged left every line
+ *  failing `date >= undefined`, so "Year" showed an empty list over 209 rows. */
 function _range() {
   if (_month) {
     const [y, m] = _month.split('-').map(Number);
     const last = new Date(y, m, 0).getDate();
     return { from: `${y}-${String(m).padStart(2, '0')}-01`, to: `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}` };
   }
-  return fyBounds(_fy);
+  const b = fyBounds(_fy);
+  return { from: b.start, to: b.end };
 }
 
 function _rangeLabel() {
@@ -196,12 +200,18 @@ export async function initBankView(opts = {}) {
   _acct = _acct && _accounts.find(a => a._cloudId === _acct._cloudId) ? _acct : (_accounts.find(a => a.isDefault) || _accounts[0]);
   if (opts.fy != null) { _fy = Number(opts.fy); _month = opts.month === undefined ? null : opts.month; }
   else if (opts.month !== undefined) _month = opts.month;
-  if (_fy == null) {
+  const firstOpen = _fy == null;
+  if (firstOpen) {
     _fy = fyOfDate(localDateStr());
-    const today = localDateStr();
-    _month = today.slice(0, 7);
+    _month = localDateStr().slice(0, 7);
   }
   await _loadYear();
+  // On first open, land on the latest month that has lines rather than an
+  // empty current month: the statement is usually a few weeks behind today.
+  if (firstOpen && _month && !_lines.some(l => l.date.slice(0, 7) === _month)) {
+    const latest = _lines.map(l => l.date.slice(0, 7)).sort().pop();
+    _month = latest || _month;
+  }
   _render();
 }
 
@@ -1140,7 +1150,8 @@ async function bankConfirmSuggested() {
  *  decisions, mark unpaid expenses as paid elsewhere, lock. Reversible. */
 async function bankBulkMarkYear() {
   if (_busy) return;
-  const r = fyBounds(_fy);
+  const b = fyBounds(_fy);
+  const r = { from: b.start, to: b.end };
   const all = _lines.filter(l => _inRange(l.date, r));
   const open = all.filter(_toDecide).length;
   const ok = await globalThis.showAppModal({
@@ -1152,8 +1163,8 @@ async function bankBulkMarkYear() {
   _busy = true;
   _render();
   const stats = await explainAndApplyLines(all, { force: true, onProgress: (i, n) => _banner(`Marking ${i} of ${n}…`, 'info') });
-  const marked = await markExpensesPaidVia({ from: r.start, to: r.end, paidVia: 'other_account' });
-  const lock = await lockBankPeriod({ accountId: _acct._cloudId, periodStart: r.start, periodEnd: r.end, notes: 'bulk-marked' });
+  const marked = await markExpensesPaidVia({ from: r.from, to: r.to, paidVia: 'other_account' });
+  const lock = await lockBankPeriod({ accountId: _acct._cloudId, periodStart: r.from, periodEnd: r.to, notes: 'bulk-marked' });
   _locks = await loadBankLocks(_acct._cloudId);
   _lastSummary = `${stats.explained} explained · ${stats.undecided} could not be decided · ${marked} expenses marked paid elsewhere${lock ? ' · year locked' : ' · lock failed'}`;
   _busy = false;
