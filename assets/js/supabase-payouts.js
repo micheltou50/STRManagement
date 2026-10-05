@@ -344,3 +344,45 @@ export async function markPayoutReceived(payoutCloudId, dateStr) {
     return false;
   }
 }
+
+/**
+ * Has each booking's payout actually landed? One round-trip for a whole
+ * month: platform payout lines joined to their payout (bank_transaction_id =
+ * settled, received_at = the host said so), plus bank lines explained as a
+ * direct booking payment. Returns Map(booking cloud id → { settled, attested }).
+ */
+export async function loadBookingPayoutEvidence(bookingCloudIds = []) {
+  const out = new Map();
+  const ids = [...new Set((bookingCloudIds || []).filter(Boolean).map(String))];
+  if (!ids.length || !window._sb) return out;
+  const mark = (id, patch) => {
+    const e = out.get(String(id)) || { settled: false, attested: false };
+    Object.assign(e, patch);
+    out.set(String(id), e);
+  };
+  try {
+    for (let i = 0; i < ids.length; i += 150) {
+      const chunk = ids.slice(i, i + 150);
+      const { data, error } = await window._sb
+        .from('platform_payout_lines')
+        .select('booking_id, platform_payouts!inner(bank_transaction_id, received_at, status)')
+        .in('booking_id', chunk);
+      if (error) { console.warn('[StayOps] loadBookingPayoutEvidence lines', error); }
+      for (const row of data || []) {
+        const p = row.platform_payouts || {};
+        if ((p.status || 'active') === 'deleted') continue;
+        if (p.bank_transaction_id) mark(row.booking_id, { settled: true });
+        if (p.received_at) mark(row.booking_id, { attested: true });
+      }
+      const { data: direct, error: dErr } = await window._sb
+        .from('bank_transactions')
+        .select('booking_id')
+        .eq('kind', 'direct_booking')
+        .in('booking_id', chunk);
+      if (dErr) { console.warn('[StayOps] loadBookingPayoutEvidence direct', dErr); }
+      for (const row of direct || []) if (row.booking_id) mark(row.booking_id, { settled: true });
+    }
+  } catch (e) { console.warn('[StayOps] loadBookingPayoutEvidence failed', e); }
+  return out;
+}
+

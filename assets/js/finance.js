@@ -1,4 +1,4 @@
-import { ownerCleaningCost, ownerBookingPayout } from './owner-payout.js';
+import { ownerCleaningCost, ownerBookingPayout, summariseOwnerMonth } from './owner-payout.js';
 /**
  * StayOps — finance, expenses, reports, invoices (Pass 7).
  */
@@ -22,10 +22,9 @@ import {
   getExpensePhoto2UploadSnapshot,
   isExpensePhotoConverting,
 } from './ai.js';
-import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud } from './supabase.js';
+import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud, loadBookingPayoutEvidence, loadOwnerFundsOut } from './supabase.js';
 import {
   bookingRevenue,
-  bookingCleaningFee,
   bookingMgmtPayout,
   isRevenueBearingBooking,
   isPayoutPending,
@@ -1012,144 +1011,221 @@ function _isOwnerPaidExpense(expense) {
   return ownerPaid.includes(key);
 }
 
+// ── OWNER PAYOUT, MONTHLY ────────────────────────────────────────────────────
+// The statement the manager gives the owner. Three questions, in order: what
+// has actually landed, what the month will come to, what is still owed.
+// Evidence of money landing comes from the Bank screen (payout statements
+// matched to deposits) and is fetched per month, cached, and re-rendered when
+// it arrives; the first paint shows every stay as awaiting/upcoming for a
+// moment rather than blocking on the network.
+let _revEvidence = new Map();        // booking cloud id → { settled, attested }
+let _revEvidencePending = new Set();
+let _revOwnerOut = new Map();        // 'YYYY-MM' → { total, rows } paid to owner
+let _revOwnerOutPending = new Set();
+
+function _revMonthKey() { return revYear + '-' + String(revMonth + 1).padStart(2, '0'); }
+
+/** The Bank screen calls this after a deposit is matched or an owner payment
+ *  is explained, so the statement never shows a stale "awaiting". */
+function invalidateOwnerPayoutCache() {
+  _revEvidence.clear();
+  _revOwnerOut.clear();
+}
+globalThis.invalidateOwnerPayoutCache = invalidateOwnerPayoutCache;
+
+function _revEnsureEvidence(monthBookings) {
+  const key = _revMonthKey();
+  const ids = monthBookings.map(b => b && b._cloudId).filter(Boolean).map(String);
+  const missing = ids.filter(id => !_revEvidence.has(id) && !_revEvidencePending.has(id));
+  const wantOut = !_revOwnerOut.has(key) && !_revOwnerOutPending.has(key);
+  if (!missing.length && !wantOut) return;
+  missing.forEach(id => _revEvidencePending.add(id));
+  if (wantOut) _revOwnerOutPending.add(key);
+  const lastDay = new Date(revYear, revMonth + 1, 0).getDate();
+  Promise.all([
+    missing.length ? loadBookingPayoutEvidence(missing) : Promise.resolve(new Map()),
+    wantOut ? loadOwnerFundsOut({ from: key + '-01', to: key + '-' + String(lastDay).padStart(2, '0') }) : Promise.resolve(null),
+  ]).then(([ev, out]) => {
+    for (const id of missing) {
+      _revEvidence.set(id, ev.get(id) || { settled: false, attested: false });
+      _revEvidencePending.delete(id);
+    }
+    if (wantOut) { _revOwnerOut.set(key, out || { total: 0, rows: [] }); _revOwnerOutPending.delete(key); }
+    if (_revMonthKey() === key && document.getElementById('finance-summary-content')) renderRevenue();
+  }).catch(e => {
+    console.warn('[StayOps] owner payout evidence failed', e);
+    missing.forEach(id => _revEvidencePending.delete(id));
+    _revOwnerOutPending.delete(key);
+  });
+}
+
+const _REV_STATE = {
+  paid:     { label: 'Paid',            bg: '#E8F5E9', color: '#2E7D32' },
+  awaiting: { label: 'Awaiting payout', bg: '#FFF3E0', color: '#E65100' },
+  upcoming: { label: 'Upcoming',        bg: '#F5F3EF', color: '#6B766F' },
+};
+function _revStateChip(st, unknown) {
+  const d = _REV_STATE[st] || _REV_STATE.upcoming;
+  const text = unknown && st !== 'paid' ? 'Payout unknown' : d.label;
+  return `<span style="display:inline-block;font-size:10px;font-weight:600;padding:2px 7px;border-radius:999px;background:${d.bg};color:${d.color};white-space:nowrap">${text}</span>`;
+}
+
 function renderRevenue() {
   const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  document.getElementById('rev-month-title').textContent = months[revMonth] + ' ' + revYear;
-  const propertyBookings = _financeScopedBookings();
-  const monthBookings = propertyBookings.filter(b => isRevenueBearingBooking(b) && isBookingInMonth(b, revYear, revMonth));
-  const totalHost = monthBookings.reduce((s,b)=>s+bookingRevenue(b),0);
-  const totalMgmt = monthBookings.reduce((s,b)=>s+bookingMgmtPayout(b),0);
-
-  // ── Expenses for this month — split into operational vs owner-paid ──
+  const monthName = months[revMonth];
+  document.getElementById('rev-month-title').textContent = monthName + ' ' + revYear;
+  const monthBookings = _financeScopedBookings().filter(b => isRevenueBearingBooking(b) && isBookingInMonth(b, revYear, revMonth));
+  _revEnsureEvidence(monthBookings);
   const monthExpenses = _financeScopedExpenses().filter(e => {
     const d = new Date(e.date);
     return d.getMonth() === revMonth && d.getFullYear() === revYear;
   });
-  const operationalExpenses = monthExpenses.filter(e => !_isOwnerPaidExpense(e));
-  const ownerPaidExpenses = monthExpenses.filter(e => _isOwnerPaidExpense(e));
-  // Only the portion NOT tied to a stay is an operational expense here. The
-  // allocated portion is already subtracted below via totalCleanCost (the clean's
-  // cost is mirrored from this very expense), so counting the gross amount cut
-  // the displayed payout by double the bill.
-  const totalOperational = operationalExpenses.reduce((s,e) => s + unallocatedExpenseAmount(e), 0);
-  const totalOwnerPaid = ownerPaidExpenses.reduce((s,e) => s + Math.abs(Number(e.amount || 0)), 0);
-  // ── Cleaning costs from clean records (linked to bookings) ──
-  const monthCleanCosts = monthBookings.map(b => {
-    const clean = cleans.find(c => [String(b.id), String(b._cloudId)].includes(String(c.bookingId))) || {};
-    return { ...clean, guestName: b.name, cost: ownerCleaningCost(b, expenses, cleans) };
-  }).filter(c => c.cost !== 0);
-  const totalCleanCost = monthCleanCosts.reduce((sum, c) => sum + c.cost, 0);
+  const isDeduct = getExpensePayoutMode() === 'deduct';
+  const ownerOut = _revOwnerOut.get(_revMonthKey()) || { total: 0, rows: [] };
+  const s = summariseOwnerMonth({
+    bookings: monthBookings,
+    expenses: monthExpenses,
+    cleans,
+    evidence: _revEvidence,
+    today: localDateStr(),
+    identity: _getInvoiceIdentity(),
+    deduct: isDeduct,
+    isOwnerPaid: _isOwnerPaidExpense,
+    paidToOwner: ownerOut.total,
+  });
+  const checking = monthBookings.some(b => b && b._cloudId && _revEvidencePending.has(String(b._cloudId)));
 
-  const expenseMode = getExpensePayoutMode();
-  const isDeduct = expenseMode === 'deduct';
-  const totalNetBeforeExpenses = totalHost - totalMgmt - totalCleanCost;
-  const finalPayout = isDeduct ? totalNetBeforeExpenses - totalOperational : totalNetBeforeExpenses;
+  // ── Header cards: what the month comes to, and what is still owed ──
+  const projEl = document.getElementById('total-revenue');
+  const projLabel = document.getElementById('total-revenue-label');
+  const owedEl = document.getElementById('total-net');
+  const owedLabel = document.getElementById('total-net-label');
+  if (projEl) { projEl.textContent = _fmtPayout(s.projectedPayout); projEl.style.color = s.projectedPayout >= 0 ? 'var(--ink-1)' : '#E24B4A'; }
+  if (projLabel) projLabel.textContent = 'Owner payout · projected';
+  if (owedEl) {
+    owedEl.textContent = _fmtPayout(s.stillOwed);
+    owedEl.style.color = s.stillOwed > 0.004 ? '#1D9E75' : s.stillOwed < -0.004 ? '#E24B4A' : 'var(--ink-1)';
+  }
+  if (owedLabel) owedLabel.textContent = s.counts.paid ? 'Still owed to owner' : 'Still owed · nothing received yet';
+  const subEl = document.getElementById('revenue-sub');
+  if (subEl) {
+    subEl.textContent = `${s.counts.total} stay${s.counts.total === 1 ? '' : 's'} · ${s.counts.paid} paid · ${s.counts.awaiting} awaiting payout · ${s.counts.upcoming} upcoming${checking ? ' · checking the bank…' : ''}`;
+  }
 
-  // ── Header cards ──
-  document.getElementById('total-revenue').textContent = '$' + _fmtAud(totalHost);
-  const netEl = document.getElementById('total-net');
-  if (netEl) { netEl.textContent = _fmtPayout(finalPayout); netEl.style.color = finalPayout >= 0 ? '#1D9E75' : '#E24B4A'; }
-  document.getElementById('revenue-sub').textContent = monthBookings.length + ' booking' + (monthBookings.length!==1?'s':'');
-
-  // ── Expense detail row builder ──
-  const _expRow = (e) => {
+  // ── Row builders ──
+  const _expRow = (e, amount) => {
     const verified = !!(e.reconciled || e.bank_transaction_id);
     const badge = verified ? '<span style="font-size:10px;color:#1D9E75;margin-left:4px">✓ Bank</span>' : '';
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:0.5px solid rgba(0,0,0,0.05)"><div style="min-width:0"><div style="color:var(--text);font-weight:500">${escHtml(e.category||'Uncategorised')}${badge}</div><div style="color:var(--muted-2);font-size:11px;margin-top:1px">${escHtml(e.description||'')}${e.date ? ' · ' + fmt(e.date) : ''}</div></div><div style="flex-shrink:0;color:#E24B4A;font-weight:500;margin-left:12px">$${_fmtAud(Math.abs(Number(e.amount||0)))}</div></div>`;
+    const shown = amount == null ? Math.abs(Number(e.amount || 0)) : Math.abs(Number(amount));
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:0.5px solid rgba(0,0,0,0.05)"><div style="min-width:0"><div style="color:var(--text);font-weight:500">${escHtml(e.merchant || e.category || 'Expense')}${badge}</div><div style="color:var(--muted-2);font-size:11px;margin-top:1px">${escHtml(e.category || '')}${e.description ? ' · ' + escHtml(e.description) : ''}${e.date ? ' · ' + fmt(e.date) : ''}</div></div><div style="flex-shrink:0;color:#E24B4A;font-weight:500;margin-left:12px">$${_fmtAud(shown)}</div></div>`;
   };
-  const opDetailHtml = operationalExpenses.length ? [...operationalExpenses].sort((a,b) => new Date(a.date) - new Date(b.date)).map(_expRow).join('') : '<div style="color:var(--muted-2);font-size:12px;padding:8px 0">No operational expenses this month.</div>';
-  const ownerDetailHtml = ownerPaidExpenses.length ? [...ownerPaidExpenses].sort((a,b) => new Date(a.date) - new Date(b.date)).map(_expRow).join('') : '';
-
-  // ── Summary section ──
-  // ── Clean cost detail row builder ──
-  const _cleanCostRow = (c) => {
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:0.5px solid rgba(0,0,0,0.05)"><div style="min-width:0"><div style="color:var(--text);font-weight:500">${escHtml(c.cleaner || 'Cleaner')}</div><div style="color:var(--muted-2);font-size:11px;margin-top:1px">${escHtml(c.guestName || '')}${c.date ? ' · ' + fmt(c.date) : ''}</div></div><div style="flex-shrink:0;color:#E24B4A;font-weight:500;margin-left:12px">$${_fmtAud(Number(c.cost||0))}</div></div>`;
+  const _cleanRow = (st) => {
+    const b = st.booking;
+    const clean = cleans.find(c => [String(b.id), String(b._cloudId)].includes(String(c.bookingId))) || {};
+    const tag = st.cleanSource === 'invoice'
+      ? '<span style="font-size:10px;color:#1D9E75;margin-left:4px">invoice</span>'
+      : '<span style="font-size:10px;color:var(--muted-2);margin-left:4px">estimate</span>';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:0.5px solid rgba(0,0,0,0.05)"><div style="min-width:0"><div style="color:var(--text);font-weight:500">${escHtml(clean.cleaner || 'Cleaner')}${tag}</div><div style="color:var(--muted-2);font-size:11px;margin-top:1px">${escHtml(b.name || '')}${clean.date ? ' · ' + fmt(clean.date) : ''}</div></div><div style="flex-shrink:0;color:#E24B4A;font-weight:500;margin-left:12px">$${_fmtAud(st.clean)}</div></div>`;
   };
-  const cleanCostDetailHtml = monthCleanCosts.length ? [...monthCleanCosts].sort((a,b) => new Date(a.date) - new Date(b.date)).map(_cleanCostRow).join('') : '';
+  const _drawer = (id, chevron, label, count, amount, inner) => `
+    <div class="finance-row" style="cursor:pointer;border-radius:6px;margin:0 -4px;padding:10px 4px;transition:background 0.15s" onclick="var d=document.getElementById('${id}');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.${chevron}').textContent=open?'▾':'▴'" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <span class="finance-label" style="display:flex;align-items:center;gap:4px">${label} (${count}) <span class="${chevron}" style="font-size:9px;color:var(--muted-2)">▾</span></span>
+      <span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(amount)}</span>
+    </div>
+    <div id="${id}" style="display:none;padding:10px 14px;margin:2px 0 6px;background:var(--surface2);border-radius:10px">${inner}</div>`;
+  const _section = t => `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted-2);margin:0 0 6px">${t}</div>`;
 
+  // ── Expected for the month ──
+  const cleanStays = s.stays.filter(x => x.clean !== 0);
+  const ownInvoiceNote = s.ownInvoices.length
+    ? `<div style="font-size:11px;color:var(--muted-2);padding:0 0 8px;line-height:1.4">Your own invoice${s.ownInvoices.length > 1 ? 's' : ''} (${s.ownInvoices.map(e => '$' + _fmtAud(Math.abs(Number(e.amount) || 0)) + (e.date ? ' · ' + fmt(e.date) : '')).join(', ')}) ${s.ownInvoices.length > 1 ? 'are' : 'is'} not deducted — that fee is already in Management fees for the month it was earned.</div>`
+    : '';
   let summaryHtml = `<div class="finance-summary">
-    <div class="finance-row"><span class="finance-label">Gross revenue</span><span class="finance-val" style="color:var(--ink-1);font-weight:500">$${_fmtAud(totalHost)}</span></div>
-    <div class="finance-row"><span class="finance-label">Management fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalMgmt)}</span></div>`;
-
-  if (totalCleanCost !== 0) {
-    summaryHtml += `
-    <div class="finance-row" style="cursor:pointer;border-radius:6px;margin:0 -4px;padding:10px 4px;transition:background 0.15s" onclick="var d=document.getElementById('rev-clean-cost-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.cc-chevron').textContent=open?'▾':'▴'" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
-      <span class="finance-label" style="display:flex;align-items:center;gap:4px">Cleaning costs (${monthCleanCosts.length}) <span class="cc-chevron" style="font-size:9px;color:var(--muted-2);transition:transform 0.2s">▾</span></span>
-      <span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalCleanCost)}</span>
-    </div>
-    <div id="rev-clean-cost-detail" style="display:none;padding:10px 14px;margin:2px 0 6px;background:var(--surface2);border-radius:10px">${cleanCostDetailHtml}</div>`;
+    ${_section('Expected for ' + monthName)}
+    <div class="finance-row"><span class="finance-label">Gross revenue</span><span class="finance-val" style="color:var(--ink-1);font-weight:500">$${_fmtAud(s.expectedGross)}</span></div>
+    <div class="finance-row"><span class="finance-label">Management fees</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(s.expectedMgmt)}</span></div>
+    ${ownInvoiceNote}`;
+  if (s.expectedClean !== 0) {
+    summaryHtml += _drawer('rev-clean-cost-detail', 'cc-chevron', 'Cleaning costs', cleanStays.length, s.expectedClean,
+      [...cleanStays].sort((a, b) => new Date(a.booking.checkin) - new Date(b.booking.checkin)).map(_cleanRow).join(''));
   }
-
-  if (isDeduct && totalOperational !== 0) {
-    // The drawer lists GROSS amounts but the total above is the unallocated part
-    // (the rest is already in "Cleaning costs"), so say so rather than leave the
-    // rows silently not adding up.
-    const _opGross = operationalExpenses.reduce((s,e) => s + Math.abs(Number(e.amount || 0)), 0);
-    const _opInCleans = Math.round((_opGross - totalOperational) * 100) / 100;
-    const opNoteHtml = _opInCleans >= 0.01
-      ? `<div style="font-size:11px;color:var(--muted-2);padding:8px 0 0;line-height:1.4">$${_fmtAud(_opInCleans)} of these is allocated to stays and already counted under Cleaning costs.</div>`
-      : '';
-    // Model A: operational expenses deducted before payout
-    summaryHtml += `
-    <div class="finance-row" style="cursor:pointer;border-radius:6px;margin:0 -4px;padding:10px 4px;transition:background 0.15s" onclick="var d=document.getElementById('rev-expense-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.exp-chevron').textContent=open?'▾':'▴'" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
-      <span class="finance-label" style="display:flex;align-items:center;gap:4px">Expenses (${operationalExpenses.length}) <span class="exp-chevron" style="font-size:9px;color:var(--muted-2);transition:transform 0.2s">▾</span></span>
-      <span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(totalOperational)}</span>
-    </div>
-    <div id="rev-expense-detail" style="display:none;padding:10px 14px;margin:2px 0 6px;background:var(--surface2);border-radius:10px">${opDetailHtml}${opNoteHtml}</div>`;
+  if (isDeduct && s.deductibleExpenses.length) {
+    summaryHtml += _drawer('rev-expense-detail', 'exp-chevron', 'Expenses', s.deductibleExpenses.length, s.deductible,
+      [...s.deductibleExpenses].sort((a, b) => new Date(a.expense.date) - new Date(b.expense.date)).map(x => _expRow(x.expense, x.amount)).join(''));
   }
-
-  const payoutColor = finalPayout >= 0 ? '#1D9E75' : '#E24B4A';
+  const projColor = s.projectedPayout >= 0 ? '#1D9E75' : '#E24B4A';
   summaryHtml += `
-    <div class="finance-row finance-total" style="border-top:1.5px solid var(--hairline-1);padding-top:12px;margin-top:4px"><span class="finance-label" style="font-size:14px">Owner payout</span><span class="finance-val" style="color:${payoutColor};font-size:14px">${_fmtPayout(finalPayout)}</span></div>
+    <div class="finance-row finance-total" style="border-top:1.5px solid var(--hairline-1);padding-top:12px;margin-top:4px"><span class="finance-label" style="font-size:14px">Owner payout · projected</span><span class="finance-val" style="color:${projColor};font-size:14px">${_fmtPayout(s.projectedPayout)}</span></div>
+  </div>`;
+
+  // ── So far: what landed, what was passed on, what is still owed ──
+  const ownerRows = ownerOut.rows.length
+    ? ownerOut.rows.map(r => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:0.5px solid rgba(0,0,0,0.05)"><div style="min-width:0"><div style="color:var(--text);font-weight:500">${escHtml(r.counterparty ? r.counterparty.replace(/\b\w/g, c => c) : 'Owner')}</div><div style="color:var(--muted-2);font-size:11px;margin-top:1px">${escHtml(r.description)}${r.date ? ' · ' + fmt(r.date) : ''}</div></div><div style="flex-shrink:0;color:#E24B4A;font-weight:500;margin-left:12px">$${_fmtAud(r.amount)}</div></div>`).join('')
+    : '';
+  const owedColor = s.stillOwed > 0.004 ? '#1D9E75' : s.stillOwed < -0.004 ? '#E24B4A' : 'var(--ink-1)';
+  summaryHtml += `
+  <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--hairline-2)">
+    <div class="finance-summary">
+      ${_section('So far')}
+      <div class="finance-row"><span class="finance-label">Received (${s.counts.paid} of ${s.counts.total} stay${s.counts.total === 1 ? '' : 's'})</span><span class="finance-val" style="color:var(--ink-1);font-weight:500">$${_fmtAud(s.receivedGross)}</span></div>
+      ${s.counts.paid ? `<div class="finance-row"><span class="finance-label">Fees and cleaning on those stays</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(s.receivedGross - s.receivedNet)}</span></div>` : ''}
+      ${isDeduct && s.deductible ? `<div class="finance-row"><span class="finance-label">Expenses paid for the owner</span><span class="finance-val" style="color:#E24B4A;font-weight:500">− $${_fmtAud(s.deductible)}</span></div>` : ''}
+      ${ownerRows
+        ? _drawer('rev-owner-out-detail', 'oo-chevron', 'Paid to owner', ownerOut.rows.length, s.paidToOwner, ownerRows)
+        : `<div class="finance-row"><span class="finance-label">Paid to owner</span><span class="finance-val" style="color:var(--muted-2);font-weight:500">$0.00</span></div>`}
+      <div class="finance-row finance-total" style="border-top:1.5px solid var(--hairline-1);padding-top:12px;margin-top:4px"><span class="finance-label" style="font-size:14px">Still owed to owner</span><span class="finance-val" style="color:${owedColor};font-size:14px">${_fmtPayout(s.stillOwed)}</span></div>
+      ${!s.counts.paid ? `<div style="font-size:11px;color:var(--muted-2);padding:8px 0 0;line-height:1.4">No payout for ${monthName} has landed in the bank yet. Match deposits on the Bank screen and this updates.</div>` : ''}
+    </div>
   </div>`;
 
   // Owner-paid costs section (shown in both modes when they exist)
-  if (ownerPaidExpenses.length > 0) {
+  if (s.ownerPaidExpenses.length > 0) {
+    const ownerDetailHtml = [...s.ownerPaidExpenses].sort((a, b) => new Date(a.date) - new Date(b.date)).map(e => _expRow(e)).join('');
     summaryHtml += `
     <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--hairline-2)">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted-2);margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="var d=document.getElementById('rev-owner-cost-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.oc-chevron').textContent=open?'▾':'▴'">
-        <span>OWNER COSTS (${ownerPaidExpenses.length}) <span class="oc-chevron" style="font-size:9px;transition:transform 0.2s">▾</span></span>
-        <span style="font-size:13px;font-weight:600;color:var(--muted-2);letter-spacing:0;text-transform:none">$${_fmtAud(totalOwnerPaid)}</span>
+        <span>OWNER COSTS (${s.ownerPaidExpenses.length}) <span class="oc-chevron" style="font-size:9px">▾</span></span>
+        <span style="font-size:13px;font-weight:600;color:var(--muted-2);letter-spacing:0;text-transform:none">$${_fmtAud(s.ownerPaidTotal)}</span>
       </div>
       <div style="font-size:11px;color:var(--muted-2);margin-bottom:8px;line-height:1.4">Not deducted from payout — paid by owner directly</div>
       <div id="rev-owner-cost-detail" style="display:none;padding:10px 14px;background:var(--surface2);border-radius:10px">${ownerDetailHtml}</div>
     </div>`;
   }
 
-  if (!isDeduct && monthExpenses.length > 0) {
+  if (!isDeduct && (s.operationalExpenses.length + s.ownerPaidExpenses.length) > 0) {
     // Model B: ALL expenses shown separately below (not just owner-paid)
-    const allDetailHtml = [...monthExpenses].sort((a,b) => new Date(a.date) - new Date(b.date)).map(_expRow).join('');
+    const all = [...s.operationalExpenses, ...s.ownerPaidExpenses].sort((a, b) => new Date(a.date) - new Date(b.date));
     summaryHtml += `
     <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--hairline-2)">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted-2);margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="var d=document.getElementById('rev-all-expense-detail');var open=d.style.display!=='none';d.style.display=open?'none':'block';this.querySelector('.exp-chevron').textContent=open?'▾':'▴'">
-        <span>ALL EXPENSES (${monthExpenses.length}) <span class="exp-chevron" style="font-size:9px;transition:transform 0.2s">▾</span></span>
-        <span style="font-size:13px;font-weight:600;color:#E24B4A;letter-spacing:0;text-transform:none">$${_fmtAud(totalOperational + totalOwnerPaid)}</span>
+        <span>ALL EXPENSES (${all.length}) <span class="exp-chevron" style="font-size:9px">▾</span></span>
+        <span style="font-size:13px;font-weight:600;color:#E24B4A;letter-spacing:0;text-transform:none">$${_fmtAud(all.reduce((t, e) => t + Math.abs(Number(e.amount) || 0), 0))}</span>
       </div>
-      <div id="rev-all-expense-detail" style="display:none;padding:10px 14px;background:var(--surface2);border-radius:10px">${allDetailHtml}</div>
+      <div id="rev-all-expense-detail" style="display:none;padding:10px 14px;background:var(--surface2);border-radius:10px">${all.map(e => _expRow(e)).join('')}</div>
     </div>`;
   }
 
   document.getElementById('finance-summary-content').innerHTML = summaryHtml;
 
   // ── Per-booking breakdown ──
-  const _revSorted = monthBookings.length ? [...monthBookings].sort((a,b)=>new Date(a.checkin)-new Date(b.checkin)) : [];
+  const _revSorted = [...s.stays].sort((a, b) => new Date(a.booking.checkin) - new Date(b.booking.checkin));
   const _revBreakdownEl = document.getElementById('revenue-breakdown');
   if (_revBreakdownEl) {
     if (!_revSorted.length) {
       _revBreakdownEl.innerHTML = '<div style="color:var(--muted-2);font-size:13px;padding:14px 0">No bookings this month.</div>';
     } else if (window.innerWidth >= 1024) {
       const _fmtSh = d => { if (!d) return ''; return new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day:'numeric', month:'short' }); };
-      const _revRows = _revSorted.map(b => `<tr><td><strong>${escHtml(b.name||'')}</strong></td><td>${_fmtSh(b.checkin)}</td><td>${_fmtSh(b.checkout)}</td><td>${b.nights||''}</td><td>$${_fmtAud(bookingRevenue(b))}</td><td style="color:#E24B4A">$${_fmtAud(bookingCleaningFee(b))}</td><td style="color:#E24B4A">$${_fmtAud(bookingMgmtPayout(b))}</td><td style="color:#1D9E75;font-weight:600">$${_fmtAud(ownerBookingPayout(b, expenses, cleans))}</td></tr>`).join('');
-      _revBreakdownEl.innerHTML = '<div class="card" style="padding:0;overflow:hidden;overflow-x:auto"><table class="desktop-table"><thead><tr><th>Guest</th><th>Check-in</th><th>Check-out</th><th>Nights</th><th>Gross</th><th>Clean</th><th>Mgmt Fee</th><th>Net Payout</th></tr></thead><tbody>' + _revRows + '</tbody></table></div>';
+      const _revRows = _revSorted.map(st => { const b = st.booking; return `<tr><td><strong>${escHtml(b.name||'')}</strong></td><td>${_revStateChip(st.state, st.payoutUnknown)}</td><td>${_fmtSh(b.checkin)}</td><td>${_fmtSh(b.checkout)}</td><td>${b.nights||''}</td><td>$${_fmtAud(st.gross)}</td><td style="color:#E24B4A">$${_fmtAud(st.clean)}</td><td style="color:#E24B4A">$${_fmtAud(st.mgmt)}</td><td style="color:#1D9E75;font-weight:600">$${_fmtAud(st.net)}</td></tr>`; }).join('');
+      _revBreakdownEl.innerHTML = '<div class="card" style="padding:0;overflow:hidden;overflow-x:auto"><table class="desktop-table"><thead><tr><th>Guest</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Nights</th><th>Gross</th><th>Clean</th><th>Mgmt Fee</th><th>Net Payout</th></tr></thead><tbody>' + _revRows + '</tbody></table></div>';
     } else {
-      _revBreakdownEl.innerHTML = _revSorted.map(b=>`
+      _revBreakdownEl.innerHTML = _revSorted.map(st => { const b = st.booking; return `
         <div class="fin-rev-row">
-          <div style="min-width:0"><div style="font-weight:500;font-size:14px;color:var(--ink-1)">${escHtml(b.name||'')}</div><div style="font-size:11px;color:var(--muted-2);margin-top:2px">${fmt(b.checkin)} · ${b.nights}n</div></div>
+          <div style="min-width:0"><div style="font-weight:500;font-size:14px;color:var(--ink-1)">${escHtml(b.name||'')}</div><div style="font-size:11px;color:var(--muted-2);margin-top:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">${_revStateChip(st.state, st.payoutUnknown)}<span>${fmt(b.checkin)} · ${b.nights}n</span></div></div>
           <div style="text-align:right;flex-shrink:0">
-            <div style="font-size:14px;font-weight:500;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif">$${bookingRevenue(b).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-            <div style="font-size:11px;color:#1D9E75;margin-top:2px;font-family:'Plus Jakarta Sans',sans-serif">$${ownerBookingPayout(b, expenses, cleans).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+            <div style="font-size:14px;font-weight:500;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif">$${_fmtAud(st.gross)}</div>
+            <div style="font-size:11px;color:#1D9E75;margin-top:2px;font-family:'Plus Jakarta Sans',sans-serif">$${_fmtAud(st.net)}</div>
           </div>
-        </div>`).join('');
+        </div>`; }).join('');
     }
   }
 }
