@@ -15,7 +15,7 @@
  * behind the inline-onclick API. It imports no finance module, so finance.js
  * can import it without a cycle (see finance-shared.js for the split rules).
  */
-import { escHtml, fyLabel, fyMonths, fyOfDate, fyBounds, localDateStr, escapeJsSingleQuotedHtmlAttr, fadeTransition } from './utils.js';
+import { escHtml, fmtShort, fyLabel, fyMonths, fyOfDate, fyBounds, localDateStr, escapeJsSingleQuotedHtmlAttr, fadeTransition } from './utils.js';
 import {
   explainLines, kindsForDirection, kindLabel, counterpartyKey, memoryKey, summariseLines,
   BANK_FEES_CATEGORY, NEUTRAL_KINDS,
@@ -289,8 +289,7 @@ function _render() {
   host.innerHTML = `
     <div style="padding:0 16px 24px;${FONT}">
       ${_headerHtml()}
-      ${_balanceCardHtml(scoped, lock)}
-      ${_tilesHtml(s)}
+      ${_statusCardHtml(scoped, s, lock)}
       ${_actionsHtml(scoped, s, lock)}
       ${_filtersHtml(scoped)}
       <div id="bank-list">${_listHtml(scoped)}</div>
@@ -298,38 +297,81 @@ function _render() {
     ${_sheet ? _sheetHtml() : ''}`;
   const hubCount = document.getElementById('finance-hub-count-bank');
   if (hubCount) hubCount.textContent = s.toDecide ? `${s.toDecide} to decide` : 'All lines explained';
+  // Keep the selected month on screen: the strip holds thirteen chips and a
+  // phone shows six, so August sat off the right edge on first open.
+  const strip = document.getElementById('bank-month-strip');
+  const active = strip && strip.querySelector('[data-active="1"]');
+  if (strip && active) {
+    const left = active.offsetLeft - (strip.clientWidth - active.offsetWidth) / 2;
+    strip.scrollLeft = Math.max(0, left);
+  }
 }
 
 function _headerHtml() {
   const acctPicker = _accounts.length > 1
     ? `<select onchange="bankSetAccount(this.value)" style="font-size:12px;margin-bottom:8px">${_accounts.map(a => `<option value="${escHtml(a._cloudId)}" ${a._cloudId === _acct._cloudId ? 'selected' : ''}>${escHtml(a.name)}</option>`).join('')}</select>`
     : '';
+  const chip = (key, label, on, has, n) =>
+    `<button data-active="${on ? 1 : 0}" onclick="bankSetMonth('${key}')" style="flex:0 0 auto;font-size:12px;line-height:1;padding:7px 10px;border-radius:999px;cursor:pointer;${FONT};border:1px solid ${on ? 'var(--primary)' : 'var(--hairline-1)'};background:${on ? 'var(--primary)' : '#fff'};color:${on ? '#fff' : has ? 'var(--ink-1)' : 'var(--muted-2)'};display:inline-flex;align-items:center;gap:5px">${label}${n ? `<span style="display:inline-block;min-width:16px;padding:1px 4px;border-radius:999px;font-size:10px;font-weight:700;text-align:center;background:${on ? 'rgba(255,255,255,.25)' : '#FFF3E0'};color:${on ? '#fff' : '#E65100'}">${n}</span>` : ''}</button>`;
+  const yearN = _lines.filter(_toDecide).length;
   const months = fyMonths(_fy).map(({ year, month }) => {
     const key = `${year}-${String(month + 1).padStart(2, '0')}`;
-    const on = _month === key;
-    const n = _lines.filter(l => l.date.slice(0, 7) === key && _toDecide(l)).length;
     const has = _lines.some(l => l.date.slice(0, 7) === key);
-    return `<button onclick="bankSetMonth('${key}')" style="flex:0 0 auto;font-size:12px;padding:5px 10px;border-radius:999px;cursor:pointer;${FONT};border:1px solid ${on ? 'var(--primary)' : 'var(--hairline-1)'};background:${on ? 'var(--primary)' : '#fff'};color:${on ? '#fff' : has ? 'var(--ink-1)' : 'var(--muted-2)'};position:relative">${MONTH_SHORT[month]}${n ? `<span style="margin-left:4px;font-size:10px;font-weight:700;color:${on ? '#fff' : '#E65100'}">${n}</span>` : ''}</button>`;
+    const n = _lines.filter(l => l.date.slice(0, 7) === key && _toDecide(l)).length;
+    return chip(key, MONTH_SHORT[month], _month === key, has, n);
   }).join('');
-  const allOn = !_month;
+  const navBtn = (onclick, glyph) =>
+    `<button onclick="${onclick}" style="width:28px;height:28px;border:none;background:none;cursor:pointer;font-size:18px;line-height:1;color:var(--ink-2);padding:0">${glyph}</button>`;
   return `
     ${acctPicker}
-    <div style="display:flex;align-items:center;justify-content:space-between;margin:6px 0 10px">
-      <button onclick="bankSetFY(${_fy - 1})" style="background:none;border:none;cursor:pointer;padding:4px;font-size:16px;color:var(--ink-2)">‹</button>
-      <div style="font-family:'Newsreader',serif;font-size:22px;font-weight:600;color:var(--ink-1)">${escHtml(fyLabel(_fy))}</div>
-      <button onclick="bankSetFY(${_fy + 1})" style="background:none;border:none;cursor:pointer;padding:4px;font-size:16px;color:var(--ink-2)">›</button>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px">
+      <div style="font-family:'Newsreader',serif;font-size:24px;font-weight:600;letter-spacing:-0.3px;color:var(--ink-1)">Bank</div>
+      <div style="display:inline-flex;align-items:center;border:1px solid var(--hairline-1);border-radius:999px;background:#fff;padding:0 2px">
+        ${navBtn(`bankSetFY(${_fy - 1})`, '‹')}
+        <span style="font-size:12.5px;font-weight:700;color:var(--ink-1);padding:0 2px;white-space:nowrap">${escHtml(fyLabel(_fy))}</span>
+        ${navBtn(`bankSetFY(${_fy + 1})`, '›')}
+      </div>
     </div>
-    <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;margin-bottom:8px;-webkit-overflow-scrolling:touch">
-      <button onclick="bankSetMonth('')" style="flex:0 0 auto;font-size:12px;padding:5px 10px;border-radius:999px;cursor:pointer;${FONT};border:1px solid ${allOn ? 'var(--primary)' : 'var(--hairline-1)'};background:${allOn ? 'var(--primary)' : '#fff'};color:${allOn ? '#fff' : 'var(--ink-1)'}">Year</button>
-      ${months}
+    <div id="bank-month-strip" style="display:flex;gap:6px;overflow-x:auto;padding:2px 0 6px;margin:0 -16px 8px;padding-left:16px;padding-right:16px;-webkit-overflow-scrolling:touch;scrollbar-width:none">
+      ${chip('', 'Year', !_month, _lines.length > 0, yearN)}${months}
     </div>`;
 }
 
-function _balanceCardHtml(scoped, lock) {
+/** One card instead of three tiles plus a balance card: the queue, the money
+ *  that moved, and whether the statement agrees. */
+function _statusCardHtml(scoped, s, lock) {
+  const queue = s.toDecide
+    ? `<div onclick="bankSetFilter('decide')" style="display:flex;align-items:baseline;gap:8px;cursor:pointer">
+         <span style="font-size:26px;font-weight:800;line-height:1;color:#E65100">${s.toDecide}</span>
+         <span style="font-size:14px;font-weight:700;color:#E65100">to decide</span>
+         <span style="font-size:12.5px;color:var(--muted-2)">$${money(centsToAmount(s.toDecideCents))}</span>
+       </div>`
+    : `<div style="display:flex;align-items:center;gap:8px">
+         <span style="width:22px;height:22px;border-radius:50%;background:#E8F5E9;color:#2E7D32;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:800">✓</span>
+         <span style="font-size:14px;font-weight:700;color:#2E7D32">${scoped.length ? 'Every line explained' : 'Nothing loaded for ' + escHtml(_rangeLabel())}</span>
+       </div>`;
+  const flow = scoped.length
+    ? `<div style="display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--muted-2);margin-top:8px">
+         <span onclick="bankSetFilter('in')" style="cursor:pointer"><b style="color:#2E7D32">+$${money(centsToAmount(s.inCents))}</b> in</span>
+         <span onclick="bankSetFilter('out')" style="cursor:pointer"><b style="color:var(--ink-1)">−$${money(centsToAmount(s.outCents))}</b> out</span>
+         <span>${scoped.length} line${scoped.length === 1 ? '' : 's'}</span>
+       </div>`
+    : '';
+  return `<div style="background:#fff;border:1px solid var(--hairline-1);border-radius:14px;padding:12px 14px;margin-bottom:10px">
+    ${queue}${flow}${_balanceLineHtml(scoped, lock)}
+  </div>`;
+}
+
+let _balancesOpen = false;
+
+/** The statement check, as one line under the status. Year view only shows
+ *  the lock. Month view: agrees / out by / enter balances. */
+function _balanceLineHtml(scoped, lock) {
+  const line = (html, color, bg) =>
+    `<div style="margin-top:10px;padding:8px 10px;border-radius:9px;background:${bg};font-size:12.5px;color:${color};line-height:1.35">${html}</div>`;
+  const unlockLink = lock ? ` · <a onclick="bankUnlock('${escHtml(lock.id)}')" style="color:inherit;text-decoration:underline;cursor:pointer">Unlock</a>` : '';
   if (!_month) {
-    return lock
-      ? `<div style="background:#E8F5E9;border:1px solid #C8E6C9;border-radius:12px;padding:10px 12px;margin-bottom:10px;font-size:12.5px;color:#2E7D32">🔒 ${escHtml(fyLabel(_fy))} is closed${lock.notes ? ' · ' + escHtml(lock.notes) : ''}. <a onclick="bankUnlock('${escHtml(lock.id)}')" style="color:#2E7D32;text-decoration:underline;cursor:pointer">Unlock</a></div>`
-      : '';
+    return lock ? line(`🔒 ${escHtml(fyLabel(_fy))} is closed${lock.notes === 'bulk-marked' ? ' (marked as done)' : ''}${unlockLink}`, '#2E7D32', '#E8F5E9') : '';
   }
   const r = _range();
   const batches = _batches.filter(b => b.periodStart <= r.to && b.periodEnd >= r.from);
@@ -337,26 +379,17 @@ function _balanceCardHtml(scoped, lock) {
   const last = batches[batches.length - 1] || null;
   const opening = first && first.openingBalance != null ? first.openingBalance : null;
   const closing = last && last.closingBalance != null ? last.closingBalance : null;
-  const credits = scoped.filter(l => l.direction === 'credit').reduce((s, l) => s + toCents(l.amount), 0);
-  const debits = scoped.filter(l => l.direction === 'debit').reduce((s, l) => s + toCents(l.amount), 0);
-  const lockLine = lock
-    ? `<div style="font-size:12px;color:#2E7D32;margin-top:8px">🔒 Locked${lock.closedAt ? ' on ' + escHtml(String(lock.closedAt).slice(0, 10)) : ''} · <a onclick="bankUnlock('${escHtml(lock.id)}')" style="color:#2E7D32;text-decoration:underline;cursor:pointer">Unlock</a></div>`
-    : '';
-  const movement = `<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted-2);margin-top:4px"><span>In +$${money(centsToAmount(credits))}</span><span>Out −$${money(centsToAmount(debits))}</span><span>${scoped.length} line${scoped.length === 1 ? '' : 's'}</span></div>`;
+  const lockHtml = lock ? line(`🔒 Locked${lock.closedAt ? ' on ' + escHtml(String(lock.closedAt).slice(0, 10)) : ''}${unlockLink}`, '#2E7D32', '#E8F5E9') : '';
+  if (!scoped.length) return lockHtml;
   if (opening == null || closing == null) {
-    const target = last ? last.id : null;
-    return `<div style="background:#fff;border:1px solid var(--hairline-1);border-radius:12px;padding:12px 14px;margin-bottom:10px">
-      <div style="font-size:11px;font-weight:700;color:var(--muted-2);text-transform:uppercase;letter-spacing:.4px">Balance check</div>
-      ${movement}
-      ${target
-        ? `<div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
-             <span style="font-size:12px;color:var(--muted-2)">Statement balances for this month</span>
-             <input id="bank-opening-input" type="number" step="0.01" placeholder="Opening" value="${opening == null ? '' : opening.toFixed(2)}" style="width:110px;font-size:12px">
-             <input id="bank-closing-input" type="number" step="0.01" placeholder="Closing" value="${closing == null ? '' : closing.toFixed(2)}" style="width:110px;font-size:12px">
-             <button onclick="bankSaveBalances('${escHtml(target)}')" style="font-size:12px;padding:5px 10px;border-radius:8px;border:1px solid var(--primary);background:#fff;color:var(--primary);cursor:pointer;${FONT}">Save</button>
-           </div>`
-        : `<div style="font-size:12px;color:var(--muted-2);margin-top:6px">Load this month's statement to check the balance.</div>`}
-      ${lockLine}
+    if (!last) return lockHtml;
+    if (!_balancesOpen) {
+      return lockHtml + `<div style="margin-top:8px;font-size:12px;color:var(--muted-2)">Statement balances not recorded · <a onclick="bankToggleBalances()" style="color:var(--primary);text-decoration:underline;cursor:pointer">add them</a> to check the month adds up</div>`;
+    }
+    return lockHtml + `<div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <input id="bank-opening-input" type="number" step="0.01" inputmode="decimal" placeholder="Opening $" value="${opening == null ? '' : opening.toFixed(2)}" style="flex:1;min-width:100px;font-size:13px">
+      <input id="bank-closing-input" type="number" step="0.01" inputmode="decimal" placeholder="Closing $" value="${closing == null ? '' : closing.toFixed(2)}" style="flex:1;min-width:100px;font-size:13px">
+      <button onclick="bankSaveBalances('${escHtml(last.id)}')" style="font-size:12.5px;font-weight:600;padding:8px 12px;border-radius:9px;border:none;background:var(--primary);color:#fff;cursor:pointer;${FONT}">Save</button>
     </div>`;
   }
   const res = computePeriodReconcile({
@@ -364,52 +397,46 @@ function _balanceCardHtml(scoped, lock) {
     statementClosingCents: toCents(closing),
     transactions: scoped.map(l => ({ id: l.id, amount: l.amount, direction: l.direction, cleared: true })),
   });
-  const ok = res.balanced;
-  const hints = ok ? [] : explainOutOfBalance(res.outOfBalanceCents, scoped.map(l => ({ ...l, importBatchId: l.importBatchId })), _payouts.filter(p => !p.bankTransactionId));
-  return `<div style="background:${ok ? '#E8F5E9' : '#FFF8E1'};border:1px solid ${ok ? '#C8E6C9' : '#FFE082'};border-radius:12px;padding:12px 14px;margin-bottom:10px">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-      <div>
-        <div style="font-size:11px;font-weight:700;color:${ok ? '#2E7D32' : '#E65100'};text-transform:uppercase;letter-spacing:.4px">${ok ? 'Balance agrees' : 'Out of balance'}</div>
-        <div style="font-size:12.5px;color:var(--ink-1);margin-top:3px">Statement closing $${money(closing)} · from your lines $${money(centsToAmount(res.calculatedClosingCents))}</div>
-      </div>
-      <div style="font-size:20px;font-weight:800;color:${ok ? '#2E7D32' : '#C62828'}">${ok ? '✓' : '$' + money(centsToAmount(Math.abs(res.outOfBalanceCents)))}</div>
-    </div>
-    ${movement}
-    ${hints.length ? `<div style="font-size:12px;color:#5D4037;margin-top:6px">${escHtml(hints[0].message)}</div>` : ''}
-    ${lockLine}
-  </div>`;
+  if (res.balanced) return lockHtml + line(`✓ Balance agrees with the statement · closing $${money(closing)}`, '#2E7D32', '#E8F5E9');
+  const hints = explainOutOfBalance(res.outOfBalanceCents, scoped.map(l => ({ ...l, importBatchId: l.importBatchId })), _payouts.filter(p => !p.bankTransactionId));
+  return lockHtml + line(`<b>Out by $${money(centsToAmount(Math.abs(res.outOfBalanceCents)))}</b> · statement $${money(closing)}, your lines $${money(centsToAmount(res.calculatedClosingCents))}${hints.length ? '<br><span style="opacity:.85">' + escHtml(hints[0].message) + '</span>' : ''}`, '#8D4A00', '#FFF8E1');
 }
 
-function _tilesHtml(s) {
-  const tile = (val, label, bg, color, sub, onclick) =>
-    `<div onclick="${onclick}" style="flex:1;min-width:96px;background:${bg};border-radius:10px;padding:8px 10px;text-align:center;cursor:pointer">
-       <div style="font-size:17px;font-weight:700;color:${color}">${val}</div>
-       <div style="font-size:11px;color:${color};opacity:.85">${label}${sub ? ' · ' + sub : ''}</div>
-     </div>`;
-  return `<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-    ${tile(s.toDecide, 'To decide', s.toDecide ? '#FFF3E0' : '#E8F5E9', s.toDecide ? '#E65100' : '#2E7D32', s.toDecide ? '$' + money(centsToAmount(s.toDecideCents)) : 'none', "bankSetFilter('decide')")}
-    ${tile('$' + money(centsToAmount(s.inCents)), 'Money in', '#E3F2FD', '#1565C0', s.explainedIn + ' explained', "bankSetFilter('in')")}
-    ${tile('$' + money(centsToAmount(s.outCents)), 'Money out', '#F5F3EF', 'var(--ink-1)', s.explainedOut + ' explained', "bankSetFilter('out')")}
-  </div>`;
-}
-
+/** One primary button for the next thing to do; everything else small. */
 function _actionsHtml(scoped, s, lock) {
-  const btn = (onclick, label, primary) =>
-    `<button onclick="${onclick}" ${_busy ? 'disabled' : ''} style="font-size:12px;font-weight:600;padding:7px 12px;border-radius:999px;cursor:pointer;${FONT};border:1px solid var(--primary);background:${primary ? 'var(--primary)' : '#fff'};color:${primary ? '#fff' : 'var(--primary)'};white-space:nowrap">${label}</button>`;
   const suggested = scoped.filter(l => l.kind && l.needsReview).length;
   const undecided = scoped.filter(l => !l.kind).length;
   const pastYear = !_month && _fy < fyOfDate(localDateStr());
-  const out = [];
-  out.push(btn('bankLoadStatement()', 'Load statement'));
-  out.push(btn('bankPasteStatement()', 'Paste payout statement'));
-  if (!lock) {
-    if (undecided || suggested) out.push(btn('bankExplainAll()', `Explain ${undecided + suggested} line${undecided + suggested === 1 ? '' : 's'}`));
-    if (suggested) out.push(btn('bankConfirmSuggested()', `Confirm ${suggested} suggested`, true));
-    if (pastYear) out.push(btn('bankBulkMarkYear()', `Mark ${fyLabel(_fy)} as done`, !s.toDecide));
-    else if (_month && !s.toDecide && scoped.length) out.push(btn('bankLockPeriod()', 'Lock ' + _rangeLabel().split(' ')[0], true));
+  let primary = null;
+  const secondary = [];
+  if (!scoped.length) {
+    primary = ['bankLoadStatement()', 'Load a statement'];
+  } else if (!lock) {
+    if (undecided) primary = ['bankExplainAll()', `Explain ${undecided + suggested} line${undecided + suggested === 1 ? '' : 's'}`];
+    if (suggested) {
+      if (primary) secondary.push(['bankConfirmSuggested()', `Confirm ${suggested} suggested`]);
+      else primary = ['bankConfirmSuggested()', `Confirm ${suggested} suggested`];
+    }
+    if (!primary) {
+      if (pastYear) primary = ['bankBulkMarkYear()', `Mark ${fyLabel(_fy)} as done`];
+      else if (_month && !s.toDecide) primary = ['bankLockPeriod()', 'Lock ' + _rangeLabel().split(' ')[0]];
+    } else if (pastYear) {
+      secondary.push(['bankBulkMarkYear()', `Mark ${fyLabel(_fy)} as done`]);
+    }
   }
-  const summary = _lastSummary ? `<div style="font-size:12.5px;color:#2E7D32;background:#E8F5E9;border-radius:8px;padding:6px 10px;margin-bottom:8px">${escHtml(_lastSummary)}</div>` : '';
-  return summary + `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${out.join('')}</div>`;
+  if (scoped.length) {
+    secondary.push(['bankLoadStatement()', 'Load statement']);
+  }
+  secondary.push(['bankPasteStatement()', 'Paste payout']);
+  const primaryHtml = primary
+    ? `<button onclick="${primary[0]}" ${_busy ? 'disabled' : ''} style="width:100%;padding:12px;border-radius:12px;border:none;background:var(--primary);color:#fff;font-size:14px;font-weight:700;cursor:pointer;${FONT};opacity:${_busy ? .6 : 1}">${primary[1]}</button>`
+    : '';
+  const secondaryHtml = secondary.length
+    ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:${primary ? 8 : 0}px">${secondary.map(([onclick, label]) =>
+        `<button onclick="${onclick}" ${_busy ? 'disabled' : ''} style="font-size:12px;font-weight:600;padding:7px 12px;border-radius:999px;cursor:pointer;${FONT};border:1px solid var(--hairline-1);background:#fff;color:var(--primary);white-space:nowrap">${label}</button>`).join('')}</div>`
+    : '';
+  const summary = _lastSummary ? `<div style="font-size:12.5px;color:#2E7D32;background:#E8F5E9;border-radius:9px;padding:7px 10px;margin-bottom:8px">${escHtml(_lastSummary)}</div>` : '';
+  return summary + `<div style="margin-bottom:12px">${primaryHtml}${secondaryHtml}</div>`;
 }
 
 function _filtersHtml(scoped) {
@@ -423,10 +450,12 @@ function _filtersHtml(scoped) {
     personal: scoped.filter(l => l.kind === 'personal').length,
     all: scoped.length,
   };
-  return `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;margin-bottom:6px;-webkit-overflow-scrolling:touch">` +
+  return `<div style="display:flex;gap:6px;overflow-x:auto;padding:0 16px 6px;margin:0 -16px 6px;-webkit-overflow-scrolling:touch;scrollbar-width:none">` +
     FILTERS.map(([key, label]) => {
       const on = _filter === key;
-      return `<button onclick="bankSetFilter('${key}')" style="flex:0 0 auto;font-size:12px;padding:5px 11px;border-radius:999px;cursor:pointer;${FONT};border:1px solid ${on ? 'var(--primary)' : 'var(--hairline-1)'};background:${on ? 'var(--primary)' : '#fff'};color:${on ? '#fff' : 'var(--muted-2)'}">${label}${counts[key] ? ` <span style="opacity:.8">${counts[key]}</span>` : ''}</button>`;
+      const n = counts[key];
+      if (!n && !on && key !== 'all' && key !== 'decide') return '';
+      return `<button onclick="bankSetFilter('${key}')" style="flex:0 0 auto;font-size:11.5px;line-height:1;padding:7px 10px;border-radius:999px;cursor:pointer;${FONT};border:1px solid ${on ? 'var(--primary)' : 'var(--hairline-1)'};background:${on ? 'var(--primary)' : '#fff'};color:${on ? '#fff' : 'var(--muted-2)'}">${label}${n ? ` <span style="opacity:.75">${n}</span>` : ''}</button>`;
     }).join('') + `</div>`;
 }
 
@@ -484,14 +513,14 @@ function _rowHtml(l) {
   return `<div onclick="bankOpenSheet('${id}')" style="background:#fff;border:1px solid var(--hairline-1);border-left:3px solid ${chipColor};border-radius:12px;padding:10px 12px;margin-bottom:8px;cursor:pointer;${FONT}">
     <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
       <div style="min-width:0;flex:1">
-        <div style="font-size:11px;color:var(--muted-2)">${escHtml(l.date)}${locked}</div>
+        <div style="font-size:11px;color:var(--muted-2)">${escHtml(fmtShort(l.date))}${locked}</div>
         <div style="font-size:13.5px;font-weight:600;color:var(--ink-1);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="event.stopPropagation();bankToggleRaw('${id}')" title="Tap for the bank's wording">${escHtml(title)}</div>
         ${raw}
       </div>
       <div style="font-size:15px;font-weight:700;color:${credit ? '#2E7D32' : 'var(--ink-1)'};flex-shrink:0">${credit ? '+' : '−'}$${money(l.amount)}</div>
     </div>
     <div style="margin-top:6px;display:flex;align-items:center;flex-wrap:wrap;gap:4px">
-      <span style="display:inline-block;font-size:11px;background:${chipBg};color:${chipColor};border-radius:6px;padding:2px 8px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(chipText)}</span>${source}
+      <span style="display:inline-block;font-size:11.5px;line-height:1.35;background:${chipBg};color:${chipColor};border-radius:7px;padding:3px 8px;max-width:100%;word-break:break-word">${escHtml(chipText)}</span>${source}
     </div>
   </div>`;
 }
@@ -506,7 +535,7 @@ function _ghostPayoutsHtml() {
     ghosts.map(p => `<div style="background:#fff;border:1px dashed #FFB74D;border-radius:12px;padding:10px 12px;margin-bottom:8px;${FONT};opacity:.9">
       <div style="display:flex;justify-content:space-between;gap:10px">
         <div style="min-width:0;flex:1">
-          <div style="font-size:11px;color:var(--muted-2)">${escHtml(p.expectedArrivalDate || p.payoutDate || '')}</div>
+          <div style="font-size:11px;color:var(--muted-2)">${escHtml(fmtShort(p.expectedArrivalDate || p.payoutDate || ''))}</div>
           <div style="font-size:13.5px;font-weight:600;color:var(--ink-1)">${escHtml((p.platform || 'platform').replace('_', '.'))} statement${p.payoutReference ? ' · ' + escHtml(p.payoutReference) : ''}</div>
         </div>
         <div style="font-size:15px;font-weight:700;color:#E65100">$${money(p.net)}</div>
@@ -545,7 +574,7 @@ function _sheetHtml() {
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
         <div style="min-width:0">
           <div style="font-size:15px;font-weight:700;color:var(--primary)">What is this?</div>
-          <div style="font-size:13px;color:var(--ink-1);margin-top:4px;word-break:break-word"><strong>${credit ? '+' : '−'}$${money(l.amount)}</strong> · ${escHtml(l.date)}</div>
+          <div style="font-size:13px;color:var(--ink-1);margin-top:4px;word-break:break-word"><strong>${credit ? '+' : '−'}$${money(l.amount)}</strong> · ${escHtml(fmtShort(l.date))} ${escHtml(String(l.date).slice(0, 4))}</div>
           <div style="font-size:11.5px;color:var(--muted-2);margin-top:2px;word-break:break-word">${escHtml(l.description)}</div>
           ${current}
         </div>
@@ -554,8 +583,10 @@ function _sheetHtml() {
       ${locked ? `<div style="font-size:12px;color:#2E7D32;background:#E8F5E9;border-radius:8px;padding:6px 10px;margin-top:10px">🔒 This period is locked. Unlock it from the balance card to change this line.</div>` : ''}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:12px">${kinds.map(kindBtn).join('')}</div>
       <div id="bank-sheet-context" style="margin-top:12px">${_sheetContextHtml()}</div>
-      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-1);margin-top:12px;cursor:pointer">
-        <input type="checkbox" ${s.remember ? 'checked' : ''} onchange="bankSheetToggleRemember(this.checked)"> Remember this for <strong>${escHtml(_titleCase(l.counterparty || counterpartyKey(l.description)) || 'this payee')}</strong>
+      <label for="bank-sheet-remember" class="refund-toggle" style="margin-top:12px">
+        <input type="checkbox" id="bank-sheet-remember" ${s.remember ? 'checked' : ''} onchange="bankSheetToggleRemember(this.checked)">
+        <span class="refund-box"></span>
+        <span>Remember this for <strong>${escHtml(_titleCase(l.counterparty || counterpartyKey(l.description)) || 'this payee')}</strong></span>
       </label>
       <div style="display:flex;gap:8px;margin-top:12px">
         <button onclick="bankSheetApply()" ${(!s.kind || locked || _busy) ? 'disabled' : ''} style="flex:1;padding:12px;border-radius:10px;border:none;background:${(!s.kind || locked) ? 'var(--hairline-1)' : 'var(--primary)'};color:${(!s.kind || locked) ? 'var(--muted-2)' : '#fff'};font-size:13.5px;font-weight:700;cursor:pointer;${FONT}">${s.kind ? 'Save as ' + escHtml(kindLabel(s.kind, l.direction)) : 'Pick a kind'}</button>
@@ -1213,6 +1244,12 @@ async function bankSaveBalances(batchId) {
   const ok = await updateBankImportBatch(batchId, { openingBalance: opening, closingBalance: closing });
   if (!ok) { _banner('⚠ Could not save', 'warn'); return; }
   _batches = await loadBankImportBatches({ accountId: _acct._cloudId, from: fyBounds(_fy).start, to: fyBounds(_fy).end });
+  _balancesOpen = false;
+  _render();
+}
+
+function bankToggleBalances() {
+  _balancesOpen = !_balancesOpen;
   _render();
 }
 
@@ -1271,5 +1308,6 @@ globalThis.bankBulkMarkYear = bankBulkMarkYear;
 globalThis.bankLockPeriod = bankLockPeriod;
 globalThis.bankUnlock = bankUnlock;
 globalThis.bankSaveBalances = bankSaveBalances;
+globalThis.bankToggleBalances = bankToggleBalances;
 globalThis.bankLoadStatement = bankLoadStatement;
 globalThis.bankPasteStatement = bankPasteStatement;

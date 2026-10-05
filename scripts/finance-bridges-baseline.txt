@@ -37,6 +37,7 @@ bankSheetSetMerchant
 bankSheetSetPlatform
 bankSheetSetProperty
 bankSheetToggleRemember
+bankToggleBalances
 bankToggleRaw
 bankUndoLine
 bankUnlock
