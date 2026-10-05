@@ -22,7 +22,7 @@ import {
   getExpensePhoto2UploadSnapshot,
   isExpensePhotoConverting,
 } from './ai.js';
-import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud, loadBookingPayoutEvidence } from './supabase.js';
+import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud } from './supabase.js';
 import {
   bookingRevenue,
   bookingMgmtPayout,
@@ -1014,41 +1014,12 @@ function _isOwnerPaidExpense(expense) {
 // ── OWNER PAYOUT, MONTHLY ────────────────────────────────────────────────────
 // The owner statement, two numbers: Expected — what the month should come to
 // (every stay, upcoming included, less fees, cleaning and expenses) — and
-// Payout — what can be paid out so far (stays whose payout has actually
-// landed, less the costs on them and the expenses paid for the owner).
-// Evidence that money landed comes from the Bank screen and is fetched per
-// month, cached, and re-rendered when it arrives; the first paint shows every
-// stay as awaiting/upcoming for a moment rather than blocking on the network.
-let _revEvidence = new Map();        // booking cloud id → { settled, attested }
-let _revEvidencePending = new Set();
-
-/** The Bank screen calls this after a deposit is matched, so a stay never
- *  reads "awaiting" once the money is in. */
-function invalidateOwnerPayoutCache() { _revEvidence.clear(); }
-globalThis.invalidateOwnerPayoutCache = invalidateOwnerPayoutCache;
-
-function _revEnsureEvidence(monthBookings) {
-  const key = revYear + '-' + revMonth;
-  const ids = monthBookings.map(b => b && b._cloudId).filter(Boolean).map(String);
-  const missing = ids.filter(id => !_revEvidence.has(id) && !_revEvidencePending.has(id));
-  if (!missing.length) return;
-  missing.forEach(id => _revEvidencePending.add(id));
-  loadBookingPayoutEvidence(missing).then(ev => {
-    for (const id of missing) {
-      _revEvidence.set(id, ev.get(id) || { settled: false, attested: false });
-      _revEvidencePending.delete(id);
-    }
-    if (revYear + '-' + revMonth === key && document.getElementById('finance-summary-content')) renderRevenue();
-  }).catch(e => {
-    console.warn('[StayOps] owner payout evidence failed', e);
-    missing.forEach(id => _revEvidencePending.delete(id));
-  });
-}
-
+// Payout — what can be paid out so far: the stays whose payout is released
+// (check-in has passed), less the costs on them and the expenses paid for the
+// owner. Nothing here waits on the bank; the calendar decides.
 const _REV_STATE = {
-  paid:     { label: 'Paid',            bg: '#E8F5E9', color: '#2E7D32' },
-  awaiting: { label: 'Awaiting payout', bg: '#FFF3E0', color: '#E65100' },
-  upcoming: { label: 'Upcoming',        bg: '#F5F3EF', color: '#6B766F' },
+  paid:     { label: 'Paid',     bg: '#E8F5E9', color: '#2E7D32' },
+  upcoming: { label: 'Upcoming', bg: '#F5F3EF', color: '#6B766F' },
 };
 function _revStateChip(st, unknown) {
   const d = _REV_STATE[st] || _REV_STATE.upcoming;
@@ -1061,7 +1032,6 @@ function renderRevenue() {
   const monthName = months[revMonth];
   document.getElementById('rev-month-title').textContent = monthName + ' ' + revYear;
   const monthBookings = _financeScopedBookings().filter(b => isRevenueBearingBooking(b) && isBookingInMonth(b, revYear, revMonth));
-  _revEnsureEvidence(monthBookings);
   const monthExpenses = _financeScopedExpenses().filter(e => {
     const d = new Date(e.date);
     return d.getMonth() === revMonth && d.getFullYear() === revYear;
@@ -1071,17 +1041,15 @@ function renderRevenue() {
     bookings: monthBookings,
     expenses: monthExpenses,
     cleans,
-    evidence: _revEvidence,
     today: localDateStr(),
     identity: _getInvoiceIdentity(),
     deduct: isDeduct,
     isOwnerPaid: _isOwnerPaidExpense,
   });
-  const checking = monthBookings.some(b => b && b._cloudId && _revEvidencePending.has(String(b._cloudId)));
   const plural = n => n === 1 ? '' : 's';
-  // Payout so far = net of the stays that have landed, less expenses paid for
-  // the owner. With nothing in yet it reads $0 rather than minus the expenses;
-  // those come off the first payout that lands.
+  // Payout so far = net of the stays whose payout is released, less expenses
+  // paid for the owner. With nothing released yet it reads $0 rather than
+  // minus the expenses; those come off the first payout.
   const nothingIn = s.counts.paid === 0;
   const payoutSoFar = nothingIn ? 0 : s.stillOwed;
   const payColor = nothingIn ? 'var(--muted-2)' : payoutSoFar >= 0 ? '#1D9E75' : '#E24B4A';
@@ -1099,9 +1067,8 @@ function renderRevenue() {
   const subEl = document.getElementById('revenue-sub');
   if (subEl) {
     const parts = [`${s.counts.total} stay${plural(s.counts.total)}`];
-    if (s.counts.awaiting) parts.push(`${s.counts.awaiting} awaiting payout`);
+    if (s.counts.paid) parts.push(`${s.counts.paid} paid`);
     if (s.counts.upcoming) parts.push(`${s.counts.upcoming} upcoming`);
-    if (checking) parts.push('checking the bank…');
     subEl.textContent = parts.join(' · ');
   }
 

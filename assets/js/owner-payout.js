@@ -64,18 +64,17 @@ export function isOwnInvoiceExpense(expense, identity = {}) {
 }
 
 /**
- * Where a stay's money is, for the manager who holds it for the owner.
- *   paid      the platform payout is matched to a bank deposit (or marked received)
- *   awaiting  the stay is over, the platform has not paid yet
- *   upcoming  check-out is still ahead
- * evidence: { settled, attested } from loadBookingPayoutEvidence(); today: 'YYYY-MM-DD'.
+ * Where a stay's money is, by the calendar. The platforms release the payout
+ * the day after check-in, so a stay counts as paid once its check-in date is
+ * behind us; nothing here waits on the bank. today: 'YYYY-MM-DD'.
+ *   paid      check-in has passed, the payout is released
+ *   upcoming  check-in is today or later
  */
-export function bookingPayoutState(booking, evidence, today) {
+export function bookingPayoutState(booking, today) {
   if (!booking) return 'upcoming';
-  if (evidence && (evidence.settled || evidence.attested)) return 'paid';
-  const checkout = String(booking.checkout || booking.checkin || '').slice(0, 10);
-  if (today && checkout > String(today).slice(0, 10)) return 'upcoming';
-  return 'awaiting';
+  const checkin = String(booking.checkin || booking.checkout || '').slice(0, 10);
+  const day = String(today || '').slice(0, 10);
+  return checkin && day && checkin < day ? 'paid' : 'upcoming';
 }
 
 const _sumCents = (list, pick) => list.reduce((s, x) => s + cents(pick(x)), 0);
@@ -84,23 +83,22 @@ const _sumCents = (list, pick) => list.reduce((s, x) => s + cents(pick(x)), 0);
  * The monthly owner statement, as numbers. Everything in cents internally.
  *
  * Expected  = every stay attributed to the month, whatever its state.
- * Received  = stays whose payout has landed.
+ * Received  = stays whose payout is released (check-in has passed).
  * Still owed = received, less the fees and cleaning on those stays, less the
  *              month's deductible expenses, less what was already paid to the
- *              owner. You can only owe what has actually arrived.
+ *              owner.
  */
 export function summariseOwnerMonth({
-  bookings = [], expenses = [], cleans = [], evidence = new Map(), today = '',
+  bookings = [], expenses = [], cleans = [], today = '',
   identity = {}, deduct = true, isOwnerPaid = () => false, paidToOwner = 0,
 } = {}) {
   const stays = bookings.filter(Boolean).map(b => {
-    const ev = evidence.get(String(b._cloudId)) || evidence.get(String(b.id)) || null;
     const gross = bookingRevenue(b);
     const mgmt = bookingMgmtPayout(b);
     const clean = ownerCleaningCost(b, expenses, cleans);
     return {
       booking: b,
-      state: bookingPayoutState(b, ev, today),
+      state: bookingPayoutState(b, today),
       gross, mgmt, clean,
       cleanSource: ownerCleaningCostSource(b, expenses, cleans),
       net: (cents(gross) - cents(mgmt) - cents(clean)) / 100,
@@ -135,7 +133,6 @@ export function summariseOwnerMonth({
     counts: {
       total: stays.length,
       paid: paid.length,
-      awaiting: stays.filter(s => s.state === 'awaiting').length,
       upcoming: stays.filter(s => s.state === 'upcoming').length,
     },
     expectedGross: expectedGross / 100,
