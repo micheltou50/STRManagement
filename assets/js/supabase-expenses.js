@@ -59,6 +59,10 @@ export async function loadExpensesFromCloud() {
       reconciled:             e.reconciled === true,
       bank_transaction_id:    e.bank_transaction_id || null,
       paymentStatus:          e.payment_status || 'unknown',
+      // How it was paid (this account / another account / owner / cash /
+      // unknown) and, on a credit note, the expense it refunds.
+      paidVia:                e.paid_via || 'unknown',
+      refundOfExpenseId:      e.refund_of_expense_id || null,
     }));
   } catch (e) {
     console.warn('[StayOps] loadExpensesFromCloud failed', e);
@@ -178,6 +182,8 @@ export async function saveExpenseToCloud(expense) {
       tax_note:                 expense.taxNote || null,
       paid_by:                  expense.paidBy || 'host',
       recoverable_from_owner:   expense.recoverableFromOwner === true,
+      paid_via:                 expense.paidVia || 'unknown',
+      refund_of_expense_id:     expense.refundOfExpenseId || null,
       updated_at:   new Date().toISOString()
     };
     if (expense._cloudId) {

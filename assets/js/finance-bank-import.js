@@ -1,61 +1,24 @@
 /**
- * StayOps — Bank CSV import review UI. Split out of finance.js (2026-07-08, see
- * the architecture plan): same function + window.* names; finance.js stays the
- * barrel and imports this slice. The circular import with finance.js
- * (renderExpenses, showReconciliationView) is call-time only — safe for hoisted
- * function declarations. `_bankImportReviewActive` is exported (read by the
- * barrel's renderExpenses to suppress a re-render while a review is open).
- */
-import { parseCSV, parseBankFileWithAI, categoriseTransactions, checkDuplicates, confirmTransaction, skipTransaction, logImportSession, getBankImportError, resetBankImportError } from './bank-import.js';
-import { findMatchesForTransaction, getReconciliationSummary } from './reconciliation.js';
-import { getOrCreateDefaultBankAccount } from './supabase.js';
-import { expenses } from './state.js';
-import { escHtml, fmt } from './utils.js';
-import { isPortfolioMode } from './property.js';
-import { getAllProperties, getActivePropertyConfig } from './config.js';
-import { renderExpenses, showReconciliationView } from './finance.js';
-
-// ── BANK CSV IMPORT (review UI) ───────────────────────────────────────────────
-export let _bankImportReviewActive = false;
-let _bankImportBackupHtml = null;
-/** 'single' = finance-expenses-view, 'portfolio' = portfolio-finance */
-let _bankImportViewMode = 'single';
-let _bankImportRows = [];
-let _bankImportFilename = '';
-let _bankImportCreatedExpenseIds = [];
-let _bankImportJustImported = false;
-
-// Pinned for the lifetime of one import. It must not be re-resolved between
-// showing and restoring, or the backup HTML would be written back into a
-// different element than it was taken from.
-let _bankImportContainerEl = null;
-
-/** Where the import UI renders.
+ * StayOps — bank statement import: load a file, save every new line, explain
+ * it, land on the Bank screen.
  *
- *  This used to always return #finance-expenses-view. But "Import Statement"
- *  also exists on the Transaction Map (finance.js), and showFinanceSub sets
- *  display:none on every sub-view except the active one — so importing from
- *  there rendered the progress checklist AND the whole review screen into a
- *  hidden element. The import ran correctly and looked like it did nothing. */
-function bankImportGetContainer() {
-  if (_bankImportContainerEl && _bankImportContainerEl.isConnected) return _bankImportContainerEl;
-  if (_bankImportViewMode === 'portfolio') {
-    return document.getElementById('portfolio-finance');
-  }
-  return document.getElementById('finance-expenses-view');
-}
+ * There is no review wall. The old screen would not import a row — a deposit
+ * included — until it had a property and an expense category, so early
+ * imports show 59 of 73 rows skipped and the same file re-imported five times.
+ * Now: parse (CSV in-browser, PDF/photo via Claude vision), drop what is
+ * already in, save the rest as bank lines, hand them to the explain engine,
+ * and open Bank on that month with "N new · M explained · K to decide".
+ *
+ * Same module name and `bankImportPickFile` bridge as before, so the Expenses
+ * screen's button and the portfolio toolbar keep working.
+ */
+import { parseCSV, parseBankFileWithAI, checkDuplicates, getBankImportError, resetBankImportError } from './bank-import.js';
+import { getOrCreateDefaultBankAccount, createBankImportBatch, updateBankImportBatch, insertBankLines } from './supabase.js';
+import { counterpartyKey } from './bank-explain.js';
+import { explainAndApplyLines, bankAfterImport } from './finance-bank.js';
 
-/** Choose and pin the container for this import: whichever finance sub-view the
- *  host is actually looking at, falling back to the expenses list. */
-function bankImportPinContainer() {
-  if (_bankImportViewMode === 'portfolio') {
-    _bankImportContainerEl = document.getElementById('portfolio-finance');
-    return;
-  }
-  const visible = ['finance-reconciliation-view', 'finance-expenses-view']
-    .map(id => document.getElementById(id))
-    .find(el => el && el.offsetParent !== null);
-  _bankImportContainerEl = visible || document.getElementById('finance-expenses-view');
+function _say(msg, kind) {
+  if (typeof globalThis.showBanner === 'function') globalThis.showBanner(msg, kind || 'info');
 }
 
 function getOrCreateBankCsvFileInput() {
@@ -64,626 +27,19 @@ function getOrCreateBankCsvFileInput() {
   input = document.createElement('input');
   input.type = 'file';
   input.id = 'bank-csv-file-input';
-  // Phase 2c+: also accept PDFs and images. The handler branches on type
-  // and routes PDF/image files through Claude vision (parseBankFileWithAI)
-  // instead of the synchronous CSV parser.
   input.accept = '.csv,text/csv,application/pdf,image/*';
   input.style.display = 'none';
   input.onchange = (ev) => bankImportOnFileSelected(ev);
   document.body.appendChild(input);
-  console.log('[StayOps] Bank import: created shared file input (CSV + PDF + image)');
   return input;
 }
 
-const BANK_IMPORT_EXPENSE_CATS = [
-  'cleaning',
-  'maintenance',
-  'supplies',
-  'utilities',
-  'insurance',
-  'council_rates',
-  'strata',
-  'mortgage',
-  'advertising',
-  'furniture',
-  'linen',
-  'gardening',
-  'pest_control',
-  'accounting',
-  'other',
-];
-
-function bankImportFormatCategoryLabel(cat) {
-  return String(cat || '')
-    .split('_')
-    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : ''))
-    .join(' ');
-}
-
-function bankImportFmtDayMon(dateStr) {
-  const d = new Date(String(dateStr || '').slice(0, 10) + 'T12:00:00');
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
-}
-
-function bankImportTruncate(s, n) {
-  const t = String(s || '');
-  return t.length <= n ? t : t.slice(0, n - 1) + '…';
-}
-
-/** After categorisation, resolve invoice match hints for review UI. */
-async function bankImportApplyMatchPreviews(rows, userId) {
-  if (!userId) return;
-  for (let i = 0; i < rows.length; i++) {
-    globalThis._bankImportProgress('matches', (i + 1) + ' of ' + rows.length);
-    const r = rows[i];
-    if (r.isDuplicate) continue;
-    if (r.skip && r.reason === 'personal') continue;
-    try {
-      const matches = await findMatchesForTransaction(r, userId);
-      const top = matches[0];
-      if (top && top.score >= 80) {
-        r._bankMatchPreview = { level: 'high', expense: top.expense };
-        r._bankMatchLocked = true;
-        const ex = top.expense;
-        if (ex.property_id) r.propertyId = String(ex.property_id);
-        if (ex.category != null && String(ex.category).trim()) {
-          // Normalize display-name categories to snake_case dropdown values
-          const catMap = { 'cleaning & garden': 'cleaning', 'maintenance & repairs': 'maintenance', 'supplies & consumables': 'supplies', 'utilities & rates': 'utilities', 'furnishings & equipment': 'furniture', 'professional services': 'accounting', 'renovation': 'maintenance', 'council rates': 'council_rates', 'pest control': 'pest_control' };
-          const lower = String(ex.category).trim().toLowerCase();
-          r.category = catMap[lower] || BANK_IMPORT_EXPENSE_CATS.find(c => c === lower) || String(ex.category);
-        }
-        r.uiConfirmed = true;
-      } else if (top && top.score >= 50 && top.score < 80) {
-        r._bankMatchPreview = { level: 'medium', expense: top.expense };
-        r._bankMatchLocked = false;
-      }
-    } catch (err) {
-      console.log('[StayOps] Bank import match preview failed:', err && err.message ? err.message : err);
-    }
-  }
-}
-
-function bankImportMatchStripHtml(row) {
-  const pr = row && row._bankMatchPreview;
-  if (!pr || !pr.expense) return '';
-  const ex = pr.expense;
-  const label = escHtml(
-    bankImportTruncate((ex.vendor && String(ex.vendor).trim()) || ex.description || 'Expense', 40)
-  );
-  const d = bankImportFmtDayMon(ex.date);
-  const amt = '$' + Number(ex.amount || 0).toFixed(2);
-  const idx = _bankImportRows.indexOf(row);
-  const dismissBtn = idx >= 0 ? `<button onclick="event.stopPropagation();globalThis.bankImportDismissMatch(${idx})" style="flex-shrink:0;border:none;background:none;font-size:14px;cursor:pointer;color:inherit;opacity:0.6;padding:0 2px" title="Dismiss match">✕</button>` : '';
-  if (pr.level === 'high') {
-    return `<div style="font-size:12px;font-weight:600;color:#14532d;background:#dcfce7;padding:8px 10px;border-radius:8px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center"><span>Matches: ${label} on ${escHtml(d)} · ${escHtml(amt)}</span>${dismissBtn}</div>`;
-  }
-  if (pr.level === 'medium') {
-    return `<div style="font-size:12px;font-weight:600;color:#92400e;background:#fef3c7;padding:8px 10px;border-radius:8px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center"><span>Possible match: ${label} · ${escHtml(amt)}</span>${dismissBtn}</div>`;
-  }
-  return '';
-}
-
-function ensureFinanceReconciliationSummaryEl() {
-  let el = document.getElementById('finance-reconciliation-summary');
-  if (el) return el;
-  const parent = document.getElementById('finance-expenses-view');
-  if (!parent) return null;
-  const anchor = document.getElementById('expenses-main-block') || document.getElementById('expenses-list');
-  el = document.createElement('div');
-  el.id = 'finance-reconciliation-summary';
-  el.style.cssText =
-    'margin:10px 0 0;padding:0 16px 8px;font-size:13px;color:var(--muted-2);line-height:1.45;display:none;font-family:\'Plus Jakarta Sans\',sans-serif';
-  if (anchor && anchor.parentNode === parent) {
-    anchor.insertAdjacentElement('afterend', el);
-  } else {
-    parent.appendChild(el);
-  }
-  return el;
-}
-
-async function refreshFinanceReconciliationSummary() {
-  const el = ensureFinanceReconciliationSummaryEl();
-  if (!el) return;
-  const userId = window._supabaseUser && window._supabaseUser.id;
-  const sb = window._sb;
-  if (!userId || !sb) {
-    el.style.display = 'none';
-    return;
-  }
-  try {
-    const { count: bankCnt, error: cErr } = await sb
-      .from('bank_transactions')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId);
-    if (cErr) {
-      console.log('[StayOps] refreshFinanceReconciliationSummary bank count error:', cErr.message || cErr);
-      el.style.display = 'none';
-      return;
-    }
-    if (!bankCnt) {
-      el.style.display = 'none';
-      return;
-    }
-    const sum = await getReconciliationSummary(userId);
-    el.textContent =
-      sum.reconciled +
-      ' reconciled · ' +
-      sum.unpaid +
-      ' awaiting payment · ' +
-      sum.unmatchedTransactions +
-      ' unmatched transactions';
-    el.style.display = 'block';
-  } catch (e) {
-    console.log('[StayOps] refreshFinanceReconciliationSummary:', e && e.message ? e.message : e);
-    el.style.display = 'none';
-  }
-}
-
-function ensureBankImportToolbar() {
-  if (document.getElementById('exp-bank-import-link')) {
-    getOrCreateBankCsvFileInput();
-    return;
-  }
-  const listEl = document.getElementById('expenses-list');
-  if (!listEl || _bankImportReviewActive) return;
-  const card = listEl.closest('.card');
-  const header = card && card.querySelector(':scope > div:first-child');
-  if (!header) return;
-  if (document.getElementById('bank-import-trigger-btn')) return;
-  const titleRow = header.querySelector('div[style*="justify-content:space-between"]');
-  if (!titleRow) return;
-  titleRow.style.flexWrap = 'wrap';
-  titleRow.style.gap = '8px';
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.id = 'bank-import-trigger-btn';
-  btn.textContent = 'Import Bank Statement';
-  btn.style.cssText =
-    "font-size:12px;color:var(--primary);background:transparent;border:1px solid var(--primary);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;white-space:nowrap";
-  btn.onclick = () => getOrCreateBankCsvFileInput().click();
-  titleRow.appendChild(btn);
-  getOrCreateBankCsvFileInput();
-}
-
-function ensureBankImportToolbarPortfolio() {
-  const root = document.getElementById('portfolio-finance');
-  if (!root || _bankImportReviewActive) return;
-  if (document.getElementById('bank-import-trigger-btn-portfolio')) return;
-  const wrap = document.createElement('div');
-  wrap.id = 'bank-import-portfolio-toolbar';
-  wrap.style.cssText =
-    'margin-bottom:12px;display:flex;justify-content:flex-end;align-items:center;padding:0 2px';
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.id = 'bank-import-trigger-btn-portfolio';
-  btn.textContent = 'Import Bank Statement';
-  btn.style.cssText =
-    "font-size:12px;color:var(--primary);background:transparent;border:1px solid var(--primary);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;white-space:nowrap";
-  btn.onclick = () => getOrCreateBankCsvFileInput().click();
-  wrap.appendChild(btn);
-  root.insertBefore(wrap, root.firstChild);
-  getOrCreateBankCsvFileInput();
-}
-
-function exitBankImportReview() {
-  const container = bankImportGetContainer();
-  if (container && _bankImportBackupHtml != null) {
-    container.innerHTML = _bankImportBackupHtml;
-    _bankImportBackupHtml = null;
-  }
-  _bankImportReviewActive = false;
-  _bankImportRows = [];
-  _bankImportFilename = '';
-  const wasPortfolio = _bankImportViewMode === 'portfolio';
-  _bankImportViewMode = 'single';
-  _bankImportContainerEl = null; // release the pin; next import re-picks
-  if (wasPortfolio) {
-    ensureBankImportToolbarPortfolio();
-  } else {
-    renderExpenses();
-  }
-}
-
-/**
- * Bulk action: mark every reviewable row in _bankImportRows as user-skipped.
- * Rows that are locked to an existing expense match (_bankMatchLocked) are
- * left alone — they're already known good and don't need skipping. Re-renders
- * the review list with everything greyed out, so the user can then either
- * Cancel Import or selectively Undo a few rows to keep.
- */
-function bankImportSkipAll() {
-  if (!Array.isArray(_bankImportRows) || !_bankImportRows.length) return;
-  const skippable = _bankImportRows.filter(r => !r._bankMatchLocked);
-  if (!skippable.length) {
-    if (typeof globalThis.showBanner === 'function') {
-      globalThis.showBanner('Nothing to skip — all rows are locked matches', 'warn');
-    }
-    return;
-  }
-  for (const r of skippable) {
-    r.userMarkedSkip = true;
-    r.uiConfirmed = true;
-  }
-  renderBankImportReview();
-  if (typeof globalThis.showBanner === 'function') {
-    globalThis.showBanner('✓ Marked ' + skippable.length + ' rows to skip — click Cancel Import to discard, or Undo on individual rows to keep', 'ok');
-  }
-}
-globalThis.bankImportSkipAll = bankImportSkipAll;
-
-/**
- * Bulk action: abandon the entire import session and return to Expenses
- * without writing anything to the DB. Wraps exitBankImportReview with a
- * confirm prompt so the user doesn't lose state by accident.
- */
-async function bankImportCancel() {
-  const n = (_bankImportRows || []).length;
-  const msg = 'Cancel this import? ' + n + ' row' + (n === 1 ? '' : 's') + ' will be discarded — nothing saved to your books.';
-  let ok = false;
-  if (typeof globalThis.showAppModal === 'function') {
-    ok = await globalThis.showAppModal({
-      title: 'Cancel Import',
-      msg,
-      confirmText: 'Cancel Import',
-      confirmColor: 'var(--red)',
-    });
-  } else {
-    ok = window.confirm(msg);
-  }
-  if (!ok) return;
-  exitBankImportReview();
-  if (typeof globalThis.showBanner === 'function') {
-    globalThis.showBanner('Import cancelled — no transactions saved', 'ok');
-  }
-}
-globalThis.bankImportCancel = bankImportCancel;
-
-function bankImportRestoreBackup() {
-  const container = bankImportGetContainer();
-  if (container && _bankImportBackupHtml != null) {
-    container.innerHTML = _bankImportBackupHtml;
-    _bankImportBackupHtml = null;
-  }
-  _bankImportReviewActive = false;
-  _bankImportRows = [];
-  const wasPortfolio = _bankImportViewMode === 'portfolio';
-  _bankImportViewMode = 'single';
-  _bankImportContainerEl = null; // release the pin; next import re-picks
-  if (wasPortfolio) {
-    ensureBankImportToolbarPortfolio();
-  } else {
-    renderExpenses();
-  }
-}
-
-// The analysing phase runs four distinct passes, each O(rows) and each a
-// different length, so a single bar would stall visibly on the slowest and read
-// as frozen. Ticking named steps makes the wait legible instead of hiding it.
-// Order MUST mirror processParsed's actual sequence — checkDuplicates runs
-// before categoriseTransactions — because reporting a step marks every earlier
-// one done, so a list out of order would tick backwards.
-const BANK_IMPORT_STEPS = [
-  { key: 'read',       label: 'Reading file' },
-  { key: 'duplicates', label: 'Checking for duplicates' },
-  { key: 'vendors',    label: 'Matching known vendors' },
-  { key: 'matches',    label: 'Finding matching expenses' },
-];
-
-function bankImportShowLoading(rowCount) {
-  const container = bankImportGetContainer();
-  if (!container) return;
-  if (_bankImportBackupHtml == null) {
-    _bankImportBackupHtml = container.innerHTML;
-  }
-  const title = _bankImportFilename ? 'Importing ' + escHtml(_bankImportFilename) : 'Importing statement';
-  const sub = Number.isFinite(rowCount)
-    ? rowCount + ' transaction' + (rowCount === 1 ? '' : 's') + ' found'
-    : 'Reading your statement';
-  const rows = BANK_IMPORT_STEPS.map(s => `
-      <div id="bis-${s.key}" style="display:flex;align-items:center;gap:10px;padding:7px 0">
-        <span id="bis-${s.key}-icon" style="font-size:15px;line-height:1;width:16px;text-align:center;color:var(--muted-2)">○</span>
-        <span id="bis-${s.key}-label" style="font-size:14px;color:var(--muted-2)">${s.label}</span>
-        <span id="bis-${s.key}-detail" style="margin-left:auto;font-size:13px;color:var(--muted-2)"></span>
-      </div>`).join('');
-  container.innerHTML = `
-    <div class="settings-back" onclick="globalThis.bankImportCancelLoad()">‹ Finance</div>
-    <div class="card" style="margin:20px 16px;padding:20px">
-      <div style="font-size:15px;font-weight:600;color:var(--ink-1)">${title}</div>
-      <div id="bank-import-progress" style="font-size:13px;color:var(--muted-2);margin:4px 0 14px">${sub}</div>
-      ${rows}
-    </div>`;
-}
-
-/** Mark a step active (with optional detail) and everything before it done.
- *  Reported from bank-import.js via globalThis so the parser keeps no UI imports. */
-globalThis._bankImportProgress = (stepKey, detail) => {
-  const idx = BANK_IMPORT_STEPS.findIndex(s => s.key === stepKey);
-  if (idx === -1) return;
-  BANK_IMPORT_STEPS.forEach((s, i) => {
-    const icon = document.getElementById('bis-' + s.key + '-icon');
-    const label = document.getElementById('bis-' + s.key + '-label');
-    const det = document.getElementById('bis-' + s.key + '-detail');
-    if (!icon || !label || !det) return;
-    if (i < idx) {
-      icon.textContent = '✓'; icon.style.color = 'var(--primary)';
-      label.style.color = 'var(--muted-2)'; label.style.fontWeight = '400';
-      if (!det.dataset.kept) { det.textContent = 'done'; det.style.color = 'var(--muted-2)'; }
-    } else if (i === idx) {
-      icon.textContent = '◍'; icon.style.color = 'var(--primary)';
-      label.style.color = 'var(--ink-1)'; label.style.fontWeight = '600';
-      det.textContent = detail || ''; det.style.color = 'var(--primary)';
-    } else {
-      icon.textContent = '○'; icon.style.color = 'var(--muted-2)';
-      label.style.color = 'var(--muted-2)'; label.style.fontWeight = '400';
-      det.textContent = '';
-    }
-  });
-};
-
-/** Pin a permanent detail on a step (e.g. the row count on "Reading file")
- *  so it survives being marked done. */
-globalThis._bankImportStepResult = (stepKey, text) => {
-  const det = document.getElementById('bis-' + stepKey + '-detail');
-  if (!det) return;
-  det.textContent = text;
-  det.dataset.kept = '1';
-};
-
-/** Live progress for the analysing phase.
- *
- *  That phase is O(rows) sequential network calls — vendor mappings and
- *  duplicate lookups are per row — so a 95-row statement makes a few hundred
- *  round trips and can run for minutes. With a static "Analysing transactions…"
- *  and no counter it reads as a hang, which is exactly how a working import got
- *  reported as "nothing happens". bank-import.js calls this through globalThis
- *  so the parser stays free of UI imports. */
-function canBankImportRow(r) {
-  if (r.skip && r.reason === 'personal') return false;
-  if (r.userMarkedSkip) return false;
-  if (r.userMarkedPersonal) return false;
-  if (r.isDuplicate) return false;
-  // A near-miss is a question, and an unanswered question must not import:
-  // defaulting to "create" is how a 25c mistype silently double-counted a
-  // clean, and defaulting to "link" would attach the wrong amount unasked.
-  if (r.nearMissExpense && !r.nearMissDecision) return false;
-  const pid = String(r.propertyId || '').trim();
-  const cat = String(r.category || '').trim();
-  if (!pid || !cat) return false;
-  return true;
-}
-
-/** True if user confirmed (e.g. changed a dropdown) but property is still empty — blocks bulk import. */
-function bankImportHasConfirmedWithoutProperty() {
-  return _bankImportRows.some((r) => {
-    if (r.skip && r.reason === 'personal') return false;
-    if (r.userMarkedSkip) return false;
-    if (!r.uiConfirmed) return false;
-    const pid = String(r.propertyId || '').trim();
-    return !pid;
-  });
-}
-
-function bankImportSummaryCounts() {
-  let ready = 0;
-  let skipped = 0;
-  let dups = 0;
-  let autoPersonal = 0;
-  _bankImportRows.forEach((r) => {
-    if (r.isDuplicate) dups++;
-    if (r.skip && r.reason === 'personal') {
-      autoPersonal++;
-      skipped++;
-    } else if (r.userMarkedSkip || r.userMarkedPersonal) {
-      skipped++;
-    }
-    if (canBankImportRow(r)) ready++;
-  });
-  return { ready, skipped, dups, autoPersonal, total: _bankImportRows.length };
-}
-
-function renderBankImportReview() {
-  const container = bankImportGetContainer();
-  if (!container) return;
-  const { ready, skipped, dups, autoPersonal, total } = bankImportSummaryCounts();
-  const _importBlocked = ready < 1 || bankImportHasConfirmedWithoutProperty();
-  const props = getAllProperties() || [];
-  const propOptions =
-    '<option value="">— Select property —</option>' +
-    '<option value="__skip__">Skip</option>' +
-    props
-      .map((p) => {
-        const uuid = p.supabaseId || '';
-        if (!uuid) return '';
-        const nm = escHtml(p.name || 'Property');
-        return `<option value="${uuid}">${nm}</option>`;
-      })
-      .join('');
-  const catOptions = BANK_IMPORT_EXPENSE_CATS.map(
-    (c) => `<option value="${c}">${escHtml(bankImportFormatCategoryLabel(c))}</option>`
-  ).join('');
-
-  const allDupOrPersonal =
-    _bankImportRows.length &&
-    _bankImportRows.every((t) => t.isDuplicate || (t.skip && t.reason === 'personal'));
-
-  if (allDupOrPersonal) {
-    container.innerHTML = `
-      <div class="settings-back" onclick="globalThis.exitBankImportReview()">‹ Finance</div>
-      <div class="card" style="margin:16px;padding:24px;text-align:center">
-        <div style="font-size:15px;font-weight:600;margin-bottom:10px">All transactions already imported or marked as personal.</div>
-        <button type="button" onclick="globalThis.exitBankImportReview()" class="btn-primary" style="margin-top:8px">Back to Finance</button>
-      </div>`;
-    return;
-  }
-
-  const headerHtml = `
-    <div class="settings-back" onclick="globalThis.exitBankImportReview()">‹ Finance</div>
-    <div style="padding:4px 16px 8px">
-      <div style="font-family:inherit;font-size:16px;font-weight:500;color:var(--ink-1)">Review Transactions</div>
-      <div style="font-size:13px;font-weight:400;color:#999;margin-top:4px">${total} transactions · ${autoPersonal} auto-skipped (personal)</div>
-    </div>
-    <div id="bank-import-sticky-summary" style="position:sticky;top:0;z-index:5;background:var(--color-background-primary,var(--surface2));padding:12px 16px;border-bottom:0.5px solid var(--border-tertiary,var(--hairline-1));margin-bottom:8px">
-      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between">
-        <div style="font-size:13px;color:var(--text)">
-          <strong>${ready}</strong> ready to import · <strong>${skipped}</strong> skipped · <strong>${dups}</strong> duplicates
-        </div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px">
-          <button type="button" onclick="globalThis.bankImportSkipAll()" style="font-size:12px;padding:8px 14px;border-radius:8px;border:1px solid var(--hairline-1);background:#fff;color:var(--muted-2);font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Skip All</button>
-          <button type="button" onclick="globalThis.bankImportCancel()" style="font-size:12px;padding:8px 14px;border-radius:8px;border:1px solid #FCA5A5;background:#fff;color:#991B1B;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Cancel Import</button>
-          <button type="button" id="bank-import-run-btn" onclick="globalThis.bankImportRunImport()" style="font-size:12px;padding:8px 14px;border-radius:8px;border:none;background:var(--primary);color:white;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Import All</button>
-        </div>
-      </div>
-    </div>`;
-
-  const renderReviewCard = (row, i) => {
-      const isPersonal = !!(row.skip && row.reason === 'personal');
-      const dup = !!row.isDuplicate;
-      const matchLocked = !!(row._bankMatchLocked && !dup && !isPersonal);
-      const greyed = isPersonal || row.userMarkedSkip;
-      const hasValidProp =
-        String(row.propertyId || '').trim() && String(row.propertyId || '').trim() !== '__skip__';
-      const hasValidCat = String(row.category || '').trim();
-      const confirmed =
-        !!row.uiConfirmed &&
-        hasValidProp &&
-        hasValidCat &&
-        !row.userMarkedSkip &&
-        !isPersonal &&
-        !row.userMarkedPersonal;
-      let borderLeft = '0.5px solid var(--border-tertiary,var(--hairline-1))';
-      if (confirmed && !dup) borderLeft = '3px solid var(--moss, #2d6a4f)';
-      else if (dup) borderLeft = '3px solid #e67e22';
-
-      let confDot = '#999';
-      let confLabel = 'Unmatched';
-      if (row.confidence === 'learned') {
-        confDot = 'var(--moss, #2d6a4f)';
-        confLabel = 'Remembered';
-      } else if (row.confidence === 'ai') {
-        confDot = '#2563eb';
-        confLabel = 'AI suggested';
-      }
-
-      const amountStr = '$' + Number(row.amount || 0).toFixed(2);
-
-      return `
-        <div class="bank-import-card" data-idx="${i}" style="background:white;border:0.5px solid var(--border-tertiary,var(--hairline-1));border-radius:12px;padding:14px 16px;margin:0 16px 8px;opacity:${greyed ? 0.5 : 1};border-left:${borderLeft}">
-          ${bankImportMatchStripHtml(row)}
-          ${dup ? `<div style="font-size:12px;color:#b45309;background:#fff7ed;padding:8px 10px;border-radius:8px;margin-bottom:10px">Possible duplicate</div>` : ''}
-          ${isPersonal ? `<div style="font-size:12px;font-weight:600;color:var(--muted-2);margin-bottom:8px">Personal — skipped</div>` : ''}
-          <div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:flex-start">
-            <div style="flex:1;min-width:140px">
-              <div style="font-size:13px;font-weight:600;color:var(--text)">${bankImportFmtDayMon(row.date)}</div>
-              <div style="font-size:13px;color:var(--text);margin-top:4px;word-break:break-word;line-height:1.4">${escHtml(row.description || '')}</div>
-              <div style="font-size:16px;font-weight:700;margin-top:8px;font-family:'Newsreader',serif">${amountStr}</div>
-            </div>
-            <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:8px">
-              <select id="bank-import-prop-${i}" onchange="globalThis.bankImportOnPropChange(${i})" ${isPersonal || matchLocked ? 'disabled' : ''}
-                style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--hairline-1);border-radius:8px;background:${matchLocked ? 'var(--hairline-2)' : 'var(--surface2)'};font-family:'Plus Jakarta Sans',sans-serif;color:${matchLocked ? 'var(--muted-2)' : 'inherit'}">
-                ${propOptions}
-              </select>
-              <select id="bank-import-cat-${i}" onchange="globalThis.bankImportOnCatChange(${i})" ${isPersonal || matchLocked ? 'disabled' : ''}
-                style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--hairline-1);border-radius:8px;background:${matchLocked ? 'var(--hairline-2)' : 'var(--surface2)'};font-family:'Plus Jakarta Sans',sans-serif;color:${matchLocked ? 'var(--muted-2)' : 'inherit'}">
-                <option value="">— Category —</option>
-                ${catOptions}
-              </select>
-              <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted-2)">
-                <span style="width:8px;height:8px;border-radius:50%;background:${confDot};flex-shrink:0"></span>
-                <span>${confLabel}</span>
-              </div>
-              ${row.nearMissExpense ? bankImportNearMissBoxHtml(row, i) : ''}
-              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
-                ${isPersonal || row.userMarkedSkip ? `<button type="button" onclick="globalThis.bankImportUndoSkip(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--moss);color:var(--moss);background:#f0faf4;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Undo</button>` : `<button type="button" onclick="globalThis.bankImportSkipRow(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--hairline-1);background:white;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Skip</button>
-                <button type="button" onclick="globalThis.bankImportPersonalRow(${i})" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--red);color:var(--red);background:#fff5f5;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Personal</button>`}
-              </div>
-            </div>
-          </div>
-        </div>`;
-  };
-
-  const renderAlreadyLoggedCard = (row, i) => {
-    const m = row.dupMatch || {};
-    const priorImport = row.reason === 'already imported' || m.kind === 'import';
-    const badgeText = priorImport ? 'Imported before' : 'Already logged';
-    const badgeBg = priorImport ? '#F1EFE8' : '#EAF3DE';
-    const badgeColor = priorImport ? '#5F5E5A' : '#3B6D11';
-    const amt = '$' + Number(row.amount || 0).toFixed(2);
-    const matchLine = priorImport
-      ? (m.date ? `Already imported · ${escHtml(bankImportFmtDayMon(m.date))}` : 'Already on a previous import')
-      : (m.label
-          ? `Matches your expense · ${escHtml(m.label)} · $${Number(m.amount || 0).toFixed(2)}${m.date ? ' · ' + escHtml(bankImportFmtDayMon(m.date)) : ''}`
-          : 'Matches an existing expense');
-    return `
-      <div class="bank-import-card" style="background:white;border:0.5px solid var(--border-tertiary,var(--hairline-1));border-radius:12px;padding:12px 14px;margin:0 16px 8px">
-        <div style="display:flex;align-items:flex-start;gap:10px">
-          <div style="flex:1;min-width:0">
-            <div style="font-size:13px;color:var(--muted-2);text-decoration:line-through;word-break:break-word;line-height:1.4">${escHtml(row.description || '')}</div>
-            <div style="font-size:11px;color:var(--muted-2);margin-top:3px">${escHtml(bankImportFmtDayMon(row.date))} · ${amt}</div>
-          </div>
-          <span style="font-size:11px;font-weight:600;background:${badgeBg};color:${badgeColor};padding:3px 9px;border-radius:8px;white-space:nowrap">${badgeText}</span>
-        </div>
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;padding-top:8px;border-top:0.5px solid var(--hairline-1)">
-          <span style="font-size:11.5px;color:var(--muted-2);min-width:0;word-break:break-word">${matchLine}</span>
-          <button type="button" onclick="globalThis.bankImportImportAnyway(${i})" style="font-size:11.5px;padding:5px 10px;border-radius:8px;border:1px solid var(--hairline-1);background:white;color:var(--ink-2);cursor:pointer;white-space:nowrap;font-family:'Plus Jakarta Sans',sans-serif">Import anyway</button>
-        </div>
-      </div>`;
-  };
-
-  const dupItems = [];
-  const newItems = [];
-  _bankImportRows.forEach((row, i) => {
-    // Personal rows always render through the normal card (keeping their
-    // Personal/Undo treatment) even if also flagged as a duplicate.
-    const isPersonalRow = !!(row.skip && row.reason === 'personal');
-    (row.isDuplicate && !isPersonalRow ? dupItems : newItems).push({ row, i });
-  });
-
-  const dupSection = dupItems.length
-    ? `<div style="font-size:12px;font-weight:600;color:var(--muted-2);margin:2px 16px 6px">Already logged — skipped (${dupItems.length})</div>` +
-      dupItems.map(({ row, i }) => renderAlreadyLoggedCard(row, i)).join('')
-    : '';
-
-  const newImportable = newItems.filter(({ row }) => canBankImportRow(row)).length;
-  const newHeader = dupItems.length
-    ? `<div style="font-size:12px;font-weight:600;color:var(--muted-2);margin:16px 16px 6px">New — to import (${newImportable})</div>`
-    : '';
-  const newSection = newHeader + newItems.map(({ row, i }) => renderReviewCard(row, i)).join('');
-
-  // The summary bar at the top uses position:sticky, which silently stops
-  // sticking once the review is rendered inside a scrolling container — with 100+
-  // rows "Import All" then scrolls away and the only way to finish the import is
-  // to scroll back to the top and find it. A fixed bar keeps the primary action
-  // reachable from anywhere in the list, and states plainly how many rows it will
-  // actually import.
-  const readyNow = _bankImportRows.filter(canBankImportRow).length;
-  // Undecided near-misses are why "ready" is lower than the row count — say so,
-  // or the gap reads as the importer silently dropping rows.
-  const needDecision = _bankImportRows.filter((r) =>
-    r.nearMissExpense && !r.nearMissDecision && !r.isDuplicate &&
-    !(r.skip && r.reason === 'personal') && !r.userMarkedSkip && !r.userMarkedPersonal).length;
-  const footerHtml = `
-    <div style="height:76px"></div>
-    <div style="position:fixed;left:0;right:0;bottom:0;z-index:60;background:#fff;border-top:0.5px solid var(--hairline-1);padding:10px 16px;display:flex;align-items:center;gap:10px;justify-content:space-between;font-family:'Plus Jakarta Sans',sans-serif">
-      <span style="font-size:12.5px;color:var(--muted-2)"><strong style="color:var(--ink-1)">${readyNow}</strong> ready to import${needDecision ? ` · <strong style="color:#E65100">${needDecision}</strong> need${needDecision === 1 ? 's' : ''} a decision` : ''}</span>
-      <div style="display:flex;gap:8px">
-        <button type="button" onclick="globalThis.exitBankImportReview()" style="font-size:12.5px;padding:9px 14px;border-radius:8px;border:1px solid var(--hairline-1);background:#fff;color:var(--muted-2);font-weight:600;cursor:pointer;font-family:inherit">Cancel</button>
-        <button type="button" onclick="globalThis.bankImportRunImport()" ${readyNow ? '' : 'disabled'}
-          style="font-size:12.5px;padding:9px 18px;border-radius:8px;border:none;font-weight:700;cursor:${readyNow ? 'pointer' : 'not-allowed'};font-family:inherit;background:${readyNow ? 'var(--primary)' : 'var(--hairline-1)'};color:${readyNow ? '#fff' : 'var(--muted-2)'}">
-          ${readyNow ? 'Import ' + readyNow : 'Nothing to import'}
-        </button>
-      </div>
-    </div>`;
-  container.innerHTML = headerHtml + `<div id="bank-import-list">${dupSection}${newSection}</div>` + footerHtml;
-
-  _bankImportRows.forEach((row, i) => {
-    const ps = document.getElementById('bank-import-prop-' + i);
-    const cs = document.getElementById('bank-import-cat-' + i);
-    if (ps) {
-      const v = row.userMarkedSkip ? '__skip__' : String(row.propertyId || '');
-      ps.value = v || '';
-    }
-    if (cs && row.category) cs.value = row.category;
+function _readFile(file, as) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ''));
+    r.onerror = () => reject(new Error('Could not read file'));
+    if (as === 'dataUrl') r.readAsDataURL(file); else r.readAsText(file);
   });
 }
 
@@ -692,526 +48,148 @@ async function bankImportOnFileSelected(ev) {
   if (ev.target) ev.target.value = '';
   if (!file) return;
   const userId = window._supabaseUser && window._supabaseUser.id;
-  if (!userId) {
-    globalThis.showBanner('Sign in to import bank transactions', 'warn');
-    return;
-  }
-
-  _bankImportViewMode =
-    typeof isPortfolioMode === 'function' && isPortfolioMode() ? 'portfolio' : 'single';
-  // Decide NOW, while the host's current view is still on screen, where this
-  // import will draw — otherwise it renders into whichever sub-view happens to
-  // be hidden and the whole thing is invisible.
-  bankImportPinContainer();
-  console.log(
-    '[StayOps] Bank import:',
-    file.name,
-    '—',
-    _bankImportViewMode === 'portfolio' ? 'portfolio (all properties)' : 'single-property',
-    '— rendering into', _bankImportContainerEl ? _bankImportContainerEl.id : '(none)'
-  );
-
-  // Branch on file type: text CSV uses the synchronous parser, PDF/image
-  // goes through Claude vision via parseBankFileWithAI (returns the same row
-  // shape so the downstream pipeline is unchanged).
-  const lowerName = (file.name || '').toLowerCase();
-  const mime = file.type || '';
-  const isPdf   = mime === 'application/pdf' || lowerName.endsWith('.pdf');
-  const isImage = mime.startsWith('image/');
-  const useAI   = isPdf || isImage;
-
-  const processParsed = async (parsed, sourceLabel) => {
-    console.log('[StayOps] Bank import parsed:', parsed.length, 'rows from', sourceLabel);
-    if (!parsed.length) {
-      // Prefer the specific reason the parser recorded over the generic advice,
-      // so a failed import says WHAT broke instead of leaving the host guessing.
-      const why = typeof getBankImportError === 'function' ? getBankImportError() : '';
-      globalThis.showBanner(
-        why
-          ? 'Import failed: ' + why
-          : (useAI
-            ? 'AI did not find transactions in that file — try a clearer PDF/screenshot, or use a CSV export'
-            : 'No expense transactions found — check the file format (CSV or tab-delimited)'),
-        'warn'
-      );
-      _bankImportViewMode =
-        typeof isPortfolioMode === 'function' && isPortfolioMode() ? 'portfolio' : 'single';
-      return;
-    }
-
-    bankImportShowLoading(parsed.length);
-    // The file is already parsed by the time this screen appears, so step 1 is
-    // complete on arrival — show its result rather than a spinner that never ran.
-    globalThis._bankImportStepResult('read', parsed.length + ' rows');
-    globalThis._bankImportProgress('duplicates', '');
-
-    // Stamp provenance on every row of THIS file before anything is written.
-    // bank_account_id decides which account's balance a row counts toward;
-    // without it the reconcile silently computes over a subset.
-    //
-    // import_batch_id is deliberately NOT set here. It is a FOREIGN KEY to
-    // bank_import_log, so a generated uuid points at no row and Postgres
-    // rejects EVERY insert with
-    //   violates foreign key constraint "bank_transactions_import_batch_id_fkey"
-    // — which is exactly what it did: a whole import failing with nothing
-    // written. Populating it properly means creating the bank_import_log row
-    // BEFORE the transactions and threading its id through, which is a separate
-    // change; leaving it null matches the behaviour of every existing row.
-    let _acctId = null;
-    try {
-      const acct = typeof getOrCreateDefaultBankAccount === 'function'
-        ? await getOrCreateDefaultBankAccount() : null;
-      _acctId = acct ? acct._cloudId : null;
-    } catch (e) { console.warn('[StayOps] Bank import: no default account', e); }
-    const _bankLabel = _bankImportFilename ? _bankImportFilename.replace(/\.[^.]+$/, '') : null;
-    for (const p of parsed) {
-      if (!p) continue;
-      p.bankAccountId = _acctId;
-      if (!p.bankName) p.bankName = _bankLabel;
-    }
-    try {
-      console.log('[StayOps] Bank import: analysing', parsed.length, 'parsed rows');
-      let rows = await checkDuplicates(parsed, userId);
-      rows = await categoriseTransactions(rows, userId);
-      rows = await checkDuplicates(rows, userId);
-
-      const activePid = (() => {
-        try {
-          const cfg = getActivePropertyConfig && getActivePropertyConfig();
-          return cfg && cfg.supabaseId ? String(cfg.supabaseId) : '';
-        } catch (_) {
-          return '';
-        }
-      })();
-
-      const fromPortfolio = _bankImportViewMode === 'portfolio';
-      _bankImportRows = rows.map((r) => ({
-        ...r,
-        propertyId: fromPortfolio ? (r.propertyId || '') : (activePid || r.propertyId || ''),
-        category: r.category || '',
-        uiConfirmed: false,
-        userMarkedSkip: false,
-        userMarkedPersonal: false,
-      }));
-      await bankImportApplyMatchPreviews(_bankImportRows, userId);
-      _bankImportFilename = file.name || 'statement';
-      _bankImportReviewActive = true;
-
-      renderBankImportReview();
-    } catch (err) {
-      const msg = err && err.message ? err.message : String(err);
-      console.error('[StayOps] Bank import failed:', msg, err);
-      globalThis.showBanner('Import error: ' + msg.slice(0, 80), 'warn');
-      bankImportRestoreBackup();
-    }
-  };
-
-  const reader = new FileReader();
-  reader.onerror = () => {
-    globalThis.showBanner('Could not read file', 'warn');
-    bankImportRestoreBackup();
-  };
-
-  // Drop any reason recorded by a previous attempt so a fresh failure can't be
-  // reported with a stale explanation.
+  if (!userId) { _say('Sign in to load a bank statement', 'warn'); return; }
   if (typeof resetBankImportError === 'function') resetBankImportError();
 
-  if (useAI) {
-    globalThis.showBanner('⏳ Reading bank statement with AI — this can take 10-30 sec', 'info');
-    reader.onload = async (e) => {
-      const dataUrl = (e.target && e.target.result) ? String(e.target.result) : '';
-      const commaIdx = dataUrl.indexOf(',');
-      const base64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
-      const mediaType = isPdf ? 'application/pdf' : (mime || 'image/jpeg');
-      let parsed = [];
-      try {
-        parsed = await parseBankFileWithAI(base64, mediaType);
-      } catch (err) {
-        console.error('[StayOps] parseBankFileWithAI threw:', err);
-        globalThis.showBanner('AI extraction failed — see console', 'warn');
-        return;
-      }
-      await processParsed(parsed, (isPdf ? 'PDF' : 'image') + ' via AI');
-    };
-    reader.readAsDataURL(file);
-  } else {
-    reader.onload = async (e) => {
-      const fileText = e.target && e.target.result ? String(e.target.result) : '';
-      const parsed = await parseCSV(fileText);
-      await processParsed(parsed, fileText.length + ' chars of CSV');
-    };
-    reader.readAsText(file);
-  }
-}
+  const lowerName = (file.name || '').toLowerCase();
+  const mime = file.type || '';
+  const isPdf = mime === 'application/pdf' || lowerName.endsWith('.pdf');
+  const isImage = mime.startsWith('image/');
+  const useAI = isPdf || isImage;
 
-function bankImportOnPropChange(i) {
-  const row = _bankImportRows[i];
-  if (!row) return;
-  if (row._bankMatchLocked) return;
-  const ps = document.getElementById('bank-import-prop-' + i);
-  if (!ps) return;
-  const v = ps.value;
-  if (v === '__skip__') {
-    row.userMarkedSkip = true;
-    row.propertyId = '';
-  } else {
-    row.userMarkedSkip = false;
-    row.propertyId = v;
-  }
-  row.uiConfirmed = true;
-  renderBankImportReview();
-}
-
-function bankImportOnCatChange(i) {
-  const row = _bankImportRows[i];
-  if (!row) return;
-  if (row._bankMatchLocked) return;
-  const cs = document.getElementById('bank-import-cat-' + i);
-  if (!cs) return;
-  row.category = cs.value;
-  row.uiConfirmed = true;
-  renderBankImportReview();
-}
-
-/** The "close, but not certain" card section: an expense of a similar amount
- *  sits within the match window, and the import will neither link it silently
- *  (the amount may be genuinely different) nor create a new expense silently
- *  (a 25c payment typo double-counted a clean that way). The host decides;
- *  the row is excluded from "ready" until they do. */
-function bankImportNearMissBoxHtml(row, i) {
-  const m = row.nearMissExpense;
-  if (!m) return '';
-  const diff = Math.abs(Number(m.diff) || 0);
-  const gapText = diff >= 0.005
-    ? `$${diff.toFixed(2)} difference`
-    : 'same amount, different wording';
-  const line = `${escHtml(m.label)} · $${Number(m.amount || 0).toFixed(2)}${m.date ? ' · ' + escHtml(bankImportFmtDayMon(m.date)) : ''}`;
-  if (row.nearMissDecision === 'link') {
-    return `<div style="background:#EAF3DE;border:1px solid #C5DDA8;border-radius:8px;padding:8px 10px;font-size:12px;color:#3B6D11;font-family:'Plus Jakarta Sans',sans-serif;display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <span style="min-width:0">✓ Will link to ${line}</span>
-        <button type="button" onclick="globalThis.bankImportNearMissDecide(${i}, null)" style="font-size:11px;padding:3px 8px;border-radius:6px;border:1px solid #C5DDA8;background:white;cursor:pointer;font-family:inherit;flex-shrink:0">Undo</button>
-      </div>`;
-  }
-  if (row.nearMissDecision === 'create') {
-    return `<div style="background:var(--surface2);border:1px solid var(--hairline-1);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--muted-2);font-family:'Plus Jakarta Sans',sans-serif;display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <span style="min-width:0">Will import as a new expense (not ${line})</span>
-        <button type="button" onclick="globalThis.bankImportNearMissDecide(${i}, null)" style="font-size:11px;padding:3px 8px;border-radius:6px;border:1px solid var(--hairline-1);background:white;cursor:pointer;font-family:inherit;flex-shrink:0">Undo</button>
-      </div>`;
-  }
-  return `<div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;padding:9px 11px;font-family:'Plus Jakarta Sans',sans-serif">
-      <div style="font-size:12px;color:#5D4037;margin-bottom:6px">Possible match: <strong>${line}</strong> — ${gapText}. Same purchase?</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button type="button" onclick="globalThis.bankImportNearMissDecide(${i}, 'link')" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--moss);color:var(--moss);background:#f0faf4;cursor:pointer;font-family:inherit;font-weight:600">Yes — link it</button>
-        <button type="button" onclick="globalThis.bankImportNearMissDecide(${i}, 'create')" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--hairline-1);background:white;cursor:pointer;font-family:inherit">No — new expense</button>
-      </div>
-    </div>`;
-}
-
-function bankImportNearMissDecide(i, decision) {
-  const row = _bankImportRows[i];
-  if (!row || !row.nearMissExpense) return;
-  row.nearMissDecision = decision || null;
-  if (decision === 'link') {
-    // Linking adopts the matched expense's home: property and category come
-    // from the record the host already made, exactly as the certain-match path
-    // does via bankImportApplyMatchPreviews. Without this the row still fails
-    // canBankImportRow's property/category gate and "ready" never moves.
-    // Remember what was adopted, so Undo → "No" doesn't quietly file the NEW
-    // expense under the property of the record the host just declined.
-    if (!String(row.propertyId || '').trim() && row.nearMissExpense.propertyId) {
-      row.propertyId = row.nearMissExpense.propertyId;
-      row._nearMissAdoptedProperty = true;
-    }
-    if (!String(row.category || '').trim() && row.nearMissExpense.category) {
-      row.category = row.nearMissExpense.category;
-      row._nearMissAdoptedCategory = true;
-    }
-  } else {
-    if (row._nearMissAdoptedProperty) { row.propertyId = ''; row._nearMissAdoptedProperty = false; }
-    if (row._nearMissAdoptedCategory) { row.category = ''; row._nearMissAdoptedCategory = false; }
-  }
-  renderBankImportReview();
-}
-
-function bankImportSkipRow(i) {
-  const row = _bankImportRows[i];
-  if (!row) return;
-  row.userMarkedSkip = true;
-  row.propertyId = '';
-  renderBankImportReview();
-}
-
-// Override an "already logged" flag — treat the row as a fresh line to categorise.
-function bankImportImportAnyway(i) {
-  const row = _bankImportRows[i];
-  if (!row) return;
-  row.isDuplicate = false;
-  if (row.reason === 'already imported') row.reason = null;
-  row.dupMatch = null;
-  renderBankImportReview();
-}
-globalThis.bankImportImportAnyway = bankImportImportAnyway;
-
-async function bankImportPersonalRow(i) {
-  const row = _bankImportRows[i];
-  if (!row) return;
-  const userId = window._supabaseUser && window._supabaseUser.id;
-  row.userMarkedPersonal = true;
-  row.userMarkedSkip = true;
-  if (userId) {
-    try {
-      await skipTransaction(row, userId, true);
-    } catch (err) {
-      console.log('[StayOps] skipTransaction (personal) failed:', err && err.message ? err.message : err);
-    }
-  }
-  renderBankImportReview();
-}
-
-async function bankImportUndoSkip(i) {
-  const row = _bankImportRows[i];
-  if (!row) return;
-  row.userMarkedPersonal = false;
-  row.userMarkedSkip = false;
-  row.skip = false;
-  row.reason = null;
-  // Remove the is_personal flag from vendor_mappings so it won't auto-skip next time
-  const userId = window._supabaseUser && window._supabaseUser.id;
-  if (userId && window._sb) {
-    const pattern = row.vendorPattern || row.vendor || '';
-    if (pattern) {
-      window._sb.from('vendor_mappings').update({ is_personal: false }).eq('user_id', userId).eq('vendor_pattern', pattern).then(() => {
-        console.log('[StayOps] vendor_mapping is_personal cleared for', pattern);
-      }).catch(e => console.warn("[StayOps] silent error:", e));
-    }
-  }
-  renderBankImportReview();
-  globalThis.showBanner('Row restored — ready to import', 'ok');
-}
-globalThis.bankImportUndoSkip = bankImportUndoSkip;
-
-function bankImportDismissMatch(i) {
-  const row = _bankImportRows[i];
-  if (!row) return;
-  row._bankMatchPreview = null;
-  row._bankMatchLocked = false;
-  row.uiConfirmed = false;
-  renderBankImportReview();
-  globalThis.showBanner('Match dismissed — assign property and category manually', 'ok');
-}
-globalThis.bankImportDismissMatch = bankImportDismissMatch;
-
-function bankImportConfirmAllSuggested() {
-  _bankImportRows.forEach((row) => {
-    if (row.skip && row.reason === 'personal') return;
-    if (row.isDuplicate) return;
-    const hasProp = !!String(row.propertyId || '').trim();
-    const hasCat = !!String(row.category || '').trim();
-    const okLearned = row.confidence === 'learned';
-    const okAiHigh = row.confidence === 'ai' && String(row.aiConfidence || '').toLowerCase() === 'high';
-    if (row._bankMatchLocked && hasProp && hasCat) row.uiConfirmed = true;
-    else if (hasProp && hasCat && (okLearned || okAiHigh)) row.uiConfirmed = true;
-  });
-  renderBankImportReview();
-}
-
-async function bankImportRunImport() {
-  const userId = window._supabaseUser && window._supabaseUser.id;
-  if (!userId) {
-    globalThis.showBanner('Sign in to import', 'warn');
-    return;
-  }
-  const toImport = _bankImportRows.map((r, i) => ({ r, i })).filter(({ r }) => canBankImportRow(r));
-  if (!toImport.length) {
-    // Say WHY nothing is importable. "Confirm property and category" is wrong
-    // advice when the real reason is that every row is a re-import or was
-    // skipped, and it left the host pressing a button that appeared to do
-    // nothing.
-    const n = _bankImportRows.length;
-    const dup = _bankImportRows.filter(r => r.isDuplicate).length;
-    const skip = _bankImportRows.filter(r => r.userMarkedSkip || (r.skip && r.reason === 'personal') || r.userMarkedPersonal).length;
-    const needsCat = _bankImportRows.filter(r =>
-      !r.isDuplicate && !r.userMarkedSkip && !r.userMarkedPersonal && !(r.skip && r.reason === 'personal')
-      && (!String(r.propertyId || '').trim() || !String(r.category || '').trim())).length;
-    const undecided = _bankImportRows.filter(r =>
-      r.nearMissExpense && !r.nearMissDecision && !r.isDuplicate &&
-      !(r.skip && r.reason === 'personal') && !r.userMarkedSkip && !r.userMarkedPersonal).length;
-    const why = undecided
-      ? `${undecided} row${undecided === 1 ? ' has' : 's have'} a possible match waiting on your decision`
-      : needsCat
-        ? `${needsCat} of ${n} still need a property and category`
-        : dup === n
-          ? `all ${n} rows are already imported`
-          : `${dup} already imported · ${skip} skipped`;
-    globalThis.showBanner('Nothing to import — ' + why, 'warn');
-    return;
-  }
-
-  let imported = 0;
-  let matchedCount = 0;
-  let createdCount = 0;
-  let failedCount = 0;
-  let firstError = '';
-  _bankImportCreatedExpenseIds = [];
-  const duplicates = _bankImportRows.filter((r) => r.isDuplicate).length;
-
+  let parsed;
   try {
-    for (let n = 0; n < toImport.length; n++) {
-      const { r } = toImport[n];
-      globalThis.showBanner('Importing ' + (n + 1) + ' of ' + toImport.length + '…', 'ok');
-      try {
-        const row = await confirmTransaction(r, userId, r.propertyId, r.category);
-        if (row && row.action === 'matched') matchedCount++;
-        else if (row && row.action === 'created') {
-          createdCount++;
-          if (row.expense && row.expense.id) _bankImportCreatedExpenseIds.push({ id: row.expense.id, description: r.description, amount: r.amount, date: r.date });
-        }
-        imported++;
-        // Only mirror a NEWLY-CREATED debit expense into the in-memory array.
-        // - action 'matched': the expense already lives in `expenses` (it was
-        //   matched to it); pushing again double-counts totals/tax until reload.
-        // - credit rows (Airbnb payouts / deposits → action 'matched_payout' or
-        //   'credit_unmatched') carry no expense id/amount and must never be
-        //   booked as an expense — they'd fall back to r.amount and persist a
-        //   payout as a cost.
-        if (row && row.action === 'created') {
-          const local = {
-            id: Date.now() + n,
-            _cloudId: row.id,
-            _propertyId: row.property_id,
-            merchant: row.vendor || r.vendor || '',
-            description: row.description || r.description || '',
-            amount: Number(row.amount != null ? row.amount : r.amount),
-            date: row.date || r.date,
-            category: row.category || r.category,
-            receiptType: 'missing',
-            receiptNum: '',
-            driveLink: '',
-            photo: null,
-          };
-          expenses.push(local);
-        }
-      } catch (err) {
-        // Keep the FIRST real error so the summary can state it. "Check console"
-        // is useless on a phone, and it left an import that silently wrote
-        // nothing looking like an import that simply had nothing to do.
-        const msg = (err && (err.message || err.details || err.hint)) || String(err);
-        console.log('[StayOps] confirmTransaction failed:', msg, err);
-        if (!firstError) firstError = msg;
-        failedCount++;
-      }
-    }
-
-    const skippedZ = bankImportSummaryCounts().skipped;
-
-    try {
-      globalThis.savePropertyData();
-    } catch (_) { /* ignore if savePropertyData is not available */ }
-
-    await logImportSession(userId, _bankImportFilename, {
-      total: _bankImportRows.length,
-      imported,
-      skipped: Math.max(0, _bankImportRows.length - imported),
-      duplicates,
-    });
-
-    // An import that wrote nothing must say so, and say why. Reporting
-    // "0 matched · 0 created · 0 skipped" in a success-coloured banner made a
-    // total failure look like a no-op with nothing to do.
-    if (failedCount && !imported) {
-      globalThis.showBanner(
-        `Import failed — ${failedCount} row${failedCount === 1 ? '' : 's'} could not be saved. ${firstError || 'No error reported.'}`,
-        'warn'
-      );
+    if (useAI) {
+      _say('⏳ Reading the statement with AI — 10 to 30 seconds…', 'info');
+      const dataUrl = await _readFile(file, 'dataUrl');
+      const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+      parsed = await parseBankFileWithAI(base64, isPdf ? 'application/pdf' : (mime || 'image/jpeg'));
     } else {
-      globalThis.showBanner(
-        matchedCount +
-          ' matched to existing invoices · ' +
-          createdCount +
-          ' new expenses created · ' +
-          skippedZ +
-          ' skipped' +
-          (failedCount ? ` · ${failedCount} failed (${firstError})` : ''),
-        failedCount ? 'warn' : 'ok'
-      );
+      _say('⏳ Reading ' + (file.name || 'statement') + '…', 'info');
+      parsed = await parseCSV(await _readFile(file, 'text'));
     }
-
-    // Refresh the Transaction Map UNCONDITIONALLY, then overlay the receipt
-    // prompt on top if there is one. The prompt path used to skip the refresh,
-    // so exitBankImportReview()'s restored pre-import snapshot stayed on
-    // screen: the imported rows were in the database but the host was looking
-    // at a photograph of the old list, and only the prompt's own "View
-    // Transaction Map" button (not × or Add Receipt) ever re-rendered it.
-    _bankImportJustImported = true;
-    setTimeout(() => {
-      showReconciliationView();
-      if (_bankImportCreatedExpenseIds.length) _showBankImportReceiptPrompt();
-    }, 600);
-  } finally {
-    exitBankImportReview();
+  } catch (err) {
+    console.error('[StayOps] Bank import: parse failed', err);
+    _say('Could not read that file — ' + ((err && err.message) || 'unknown error'), 'warn');
+    return;
   }
-}
-function _showBankImportReceiptPrompt() {
-  const items = _bankImportCreatedExpenseIds;
-  if (!items.length) return;
-  const fmtAmt = (n) => '$' + Math.abs(Number(n || 0)).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const list = items.map((e, i) => `
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;${i < items.length - 1 ? 'border-bottom:0.5px solid rgba(0,0,0,0.06)' : ''}">
-      <div style="min-width:0;flex:1">
-        <div style="font-size:13px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml((e.description || '').slice(0, 40))}</div>
-        <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${e.date ? fmt(e.date) : ''} · ${fmtAmt(e.amount)}</div>
-      </div>
-      <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow='';openExpenseEdit('${e.id}')" style="flex-shrink:0;margin-left:10px;padding:6px 12px;border-radius:8px;border:1.5px solid var(--primary);background:white;color:var(--primary);font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Add Receipt</button>
-    </div>`).join('');
-
-  let overlay = document.getElementById('bank-receipt-prompt-overlay');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.id = 'bank-receipt-prompt-overlay';
-    document.body.appendChild(overlay);
+  if (!parsed.length) {
+    const why = typeof getBankImportError === 'function' ? getBankImportError() : '';
+    _say(why ? 'Import failed: ' + why : (useAI ? 'AI found no transactions in that file — try a clearer PDF or the CSV export' : 'No transactions found — check the file is a bank CSV export'), 'warn');
+    return;
   }
-  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.4);display:flex;align-items:flex-end;justify-content:center';
-  overlay.innerHTML = `
-    <div style="background:white;border-radius:16px 16px 0 0;width:100%;max-width:500px;max-height:70vh;overflow-y:auto;padding:20px 16px env(safe-area-inset-bottom,0);animation:settingsPanelIn 0.28s cubic-bezier(0.32,0.72,0,1)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-        <div>
-          <div style="font-size:15px;font-weight:700;color:var(--primary)">Add Receipts</div>
-          <div style="font-size:12px;color:var(--muted-2);margin-top:2px">${items.length} expense${items.length !== 1 ? 's' : ''} created — attach receipts now or later</div>
-        </div>
-        <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow=''" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--surface2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted-2)">×</button>
-      </div>
-      ${list}
-      <button onclick="document.getElementById('bank-receipt-prompt-overlay').style.display='none';document.body.style.overflow='';if(typeof showReconciliationView==='function')showReconciliationView()" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--primary);color:white;font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">View Transaction Map →</button>
-    </div>`;
-  document.body.style.overflow = 'hidden';
+  await bankImportSaveRows(parsed, { filename: file.name || 'statement', sourceType: isPdf ? 'pdf' : isImage ? 'image' : 'csv', userId });
 }
 
-// ── Consumed directly (not via window) by finance.js, the barrel ─────────────
-export {
-  ensureBankImportToolbar,
-  ensureBankImportToolbarPortfolio,
-  refreshFinanceReconciliationSummary,
-  bankImportFormatCategoryLabel,   // barrel's expense-category owner/deduct config
-  BANK_IMPORT_EXPENSE_CATS,        // ditto
-};
-// (_bankImportReviewActive is exported at its declaration via `export let`.)
+/**
+ * Save parsed rows as bank lines and explain them. Rows: { date, description,
+ * amount (absolute), type: 'debit'|'credit' } from the parsers.
+ */
+export async function bankImportSaveRows(parsed, { filename = 'statement', sourceType = 'csv', userId } = {}) {
+  const acct = await getOrCreateDefaultBankAccount();
+  if (!acct) { _say('⚠ No bank account to import into — sign in and try again', 'warn'); return null; }
 
-// ── Global bridges relocated here from finance.js's bridge block (names stable).
-//    The chapter's own 5 bridges remain inline above. ─────────────────────────
-globalThis.exitBankImportReview = exitBankImportReview;
-globalThis.bankImportCancelLoad = bankImportRestoreBackup;
-globalThis.bankImportOnPropChange = bankImportOnPropChange;
-globalThis.bankImportOnCatChange = bankImportOnCatChange;
-globalThis.bankImportSkipRow = bankImportSkipRow;
-globalThis.bankImportNearMissDecide = bankImportNearMissDecide;
-globalThis.bankImportPersonalRow = bankImportPersonalRow;
-globalThis.bankImportConfirmAllSuggested = bankImportConfirmAllSuggested;
-globalThis.bankImportRunImport = bankImportRunImport;
+  _say(`Checking ${parsed.length} rows against what is already in…`, 'info');
+  const checked = await checkDuplicates(parsed, userId);
+  const fresh = checked.filter(r => r && !r.isDuplicate && r.date && Number(r.amount) > 0);
+  const dups = checked.length - fresh.length;
+  if (!fresh.length) {
+    _say(`Nothing new — all ${checked.length} rows of ${filename} are already in.`, 'warn');
+    return { inserted: [], duplicates: dups };
+  }
+
+  const dates = fresh.map(r => r.date).sort();
+  const batch = await createBankImportBatch({
+    accountId: acct._cloudId,
+    filename,
+    totalRows: checked.length,
+    sourceType,
+    periodStart: dates[0],
+    periodEnd: dates[dates.length - 1],
+  });
+  const bankLabel = filename ? filename.replace(/\.[^.]+$/, '') : null;
+
+  let inserted;
+  try {
+    inserted = await insertBankLines(fresh.map(r => ({
+      date: r.date,
+      amount: r.amount,
+      description: r.description,
+      direction: r.type === 'credit' ? 'credit' : 'debit',
+      counterparty: counterpartyKey(r.description),
+      bankAccountId: acct._cloudId,
+      importBatchId: batch ? batch.id : null,
+      bankName: bankLabel,
+    })));
+  } catch (err) {
+    const msg = (err && (err.message || err.details || err.hint)) || String(err);
+    _say('Import failed — nothing was saved. ' + msg, 'warn');
+    return null;
+  }
+
+  // The duplicate check already found the recorded expense some payments pay
+  // for; hand that to the engine as evidence instead of making it guess again.
+  const keyOf = r => `${r.date}|${Number(r.amount).toFixed(2)}|${r.description}`;
+  const byKey = new Map(fresh.map(r => [keyOf(r), r]));
+  for (const l of inserted) {
+    const r = byKey.get(keyOf(l));
+    if (r && r.matchesExistingExpense && r.existingExpenseId) l.existingExpenseId = r.existingExpenseId;
+  }
+
+  _say(`Saved ${inserted.length} new line${inserted.length === 1 ? '' : 's'} — explaining…`, 'info');
+  const stats = await explainAndApplyLines(inserted, {
+    force: false,
+    onProgress: (i, n) => _say(`Explaining ${i} of ${n}…`, 'info'),
+  });
+  if (batch) await updateBankImportBatch(batch.id, { imported: inserted.length, skipped: 0, duplicates: dups });
+
+  const toDecide = stats.suggested + stats.undecided;
+  const summary = `${inserted.length} new · ${stats.explained} explained · ${toDecide} to decide${dups ? ` · ${dups} already in` : ''}`;
+  await bankAfterImport({ lines: inserted, summary });
+  _say('✓ ' + summary, 'ok');
+  return { inserted, duplicates: dups, stats };
+}
+
+/** "Import Bank Statement" button on the Expenses list header. */
+function ensureBankImportToolbar() {
+  if (document.getElementById('exp-bank-import-link')) { getOrCreateBankCsvFileInput(); return; }
+  const listEl = document.getElementById('expenses-list');
+  if (!listEl) return;
+  const card = listEl.closest('.card');
+  const header = card && card.querySelector(':scope > div:first-child');
+  if (!header || document.getElementById('bank-import-trigger-btn')) return;
+  const titleRow = header.querySelector('div[style*="justify-content:space-between"]');
+  if (!titleRow) return;
+  titleRow.style.flexWrap = 'wrap';
+  titleRow.style.gap = '8px';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.id = 'bank-import-trigger-btn';
+  btn.textContent = 'Load bank statement';
+  btn.style.cssText = "font-size:12px;color:var(--primary);background:transparent;border:1px solid var(--primary);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;white-space:nowrap";
+  btn.onclick = () => getOrCreateBankCsvFileInput().click();
+  titleRow.appendChild(btn);
+  getOrCreateBankCsvFileInput();
+}
+
+/** Same button on the portfolio (all properties) finance page. */
+function ensureBankImportToolbarPortfolio() {
+  const root = document.getElementById('portfolio-finance');
+  if (!root || document.getElementById('bank-import-trigger-btn-portfolio')) return;
+  const wrap = document.createElement('div');
+  wrap.id = 'bank-import-portfolio-toolbar';
+  wrap.style.cssText = 'margin-bottom:12px;display:flex;justify-content:flex-end;align-items:center;padding:0 2px';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.id = 'bank-import-trigger-btn-portfolio';
+  btn.textContent = 'Load bank statement';
+  btn.style.cssText = "font-size:12px;color:var(--primary);background:transparent;border:1px solid var(--primary);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;white-space:nowrap";
+  btn.onclick = () => getOrCreateBankCsvFileInput().click();
+  wrap.appendChild(btn);
+  root.insertBefore(wrap, root.firstChild);
+  getOrCreateBankCsvFileInput();
+}
+
+export { ensureBankImportToolbar, ensureBankImportToolbarPortfolio };
+
 globalThis.bankImportPickFile = () => getOrCreateBankCsvFileInput().click();
-// finance-payout-paste.js guards its post-save refresh on this name existing as
-// a global, and nothing ever assigned it — so saving a pasted statement never
-// refreshed the reconciliation summary. It slipped past check-finance-split.sh
-// because that script's bridge regex ends in `[[:space:]]*=`, which also matches
-// the first `=` of a `typeof ... === 'function'` guard, so the name was already
-// sitting in the baseline as if it had been bridged.
-globalThis.refreshFinanceReconciliationSummary = refreshFinanceReconciliationSummary;

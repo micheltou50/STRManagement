@@ -9,7 +9,6 @@ import {
   savePropertyConfig,
   getAllProperties,
 } from './config.js';
-import { getAllTransactionsWithStatus, findPayoutMatchesForBankTransaction, linkTransactionToPayout, unlinkPayoutFromTransaction, setTransactionClassification, findMatchesForExpense, linkTransactionToExpense } from './reconciliation.js';
 import { bookings, cleans, expenses, replaceArrayInPlace } from './state.js';
 import {
   escHtml, fmt, fmtShort, fmt2, fyLabel, fyMonths, escapeJsSingleQuotedHtmlAttr, fadeTransition, localDateStr,
@@ -23,9 +22,7 @@ import {
   getExpensePhoto2UploadSnapshot,
   isExpensePhotoConverting,
 } from './ai.js';
-import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud, getCurrentSupabaseUser, loadPlatformPayouts } from './supabase.js';
-import { renderMoneyInList, moneyInFiltersHtml } from './finance-money-in.js';
-import { planPayoutAutoMatch } from './money-in-model.js';
+import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud } from './supabase.js';
 import {
   bookingRevenue,
   bookingCleaningFee,
@@ -42,10 +39,6 @@ import './finance-payout-paste.js';
 import {
   ensureBankImportToolbar,
   ensureBankImportToolbarPortfolio,
-  refreshFinanceReconciliationSummary,
-  _bankImportReviewActive,
-  bankImportFormatCategoryLabel,
-  BANK_IMPORT_EXPENSE_CATS,
 } from './finance-bank-import.js';
 import './finance-invoices.js';
 import {
@@ -55,9 +48,9 @@ import {
   _getInvoiceIdentity,
 } from './finance-invoices.js';
 import './finance-tax-export.js';
-// Period reconcile (out-of-balance close). Side-effect import: registers its own
+// The Bank screen (every line explained). Side-effect import: registers its own
 // globalThis bridges for the inline-onclick API, same as the other slices.
-import './finance-reconcile.js';
+import { initBankView } from './finance-bank.js';
 import {
   showTaxExportView,
   exportTaxPDF,
@@ -112,6 +105,7 @@ const FINANCE_CATEGORY_COLOR_MAP = {
   Linen: '#00897B',
   Gardening: '#2E7D32',
   'Pest Control': '#E65100',
+  'Bank Fees': '#5D6D7E',
   Other: '#888780',
 };
 const FINANCE_CATEGORY_COLOR_FALLBACK = [
@@ -140,6 +134,7 @@ const ATO_CATEGORY_MAP = {
   'Furnishings & Linen':     'depreciation',
   'Professional Services':   'accounting_legal',
   'Advertising':             'advertising',
+  'Bank Fees':               'sundry',
   'Other':                   'sundry',
   // Legacy category names kept for back-compat with older saved expenses.
   'Utilities & Rates':       'water_rates',
@@ -244,7 +239,7 @@ function backToFinanceHub() {
   if (finc) finc.style.display = '';
   const hub = document.getElementById('finance-hub');
   if (hub) fadeTransition(hub, true);
-  ['finance-expenses-view', 'finance-reports-view', 'finance-reconciliation-view', 'finance-recurring-view', 'finance-depreciation-view', 'finance-tax-export-view'].forEach(id => {
+  ['finance-expenses-view', 'finance-reports-view', 'finance-bank-view', 'finance-recurring-view', 'finance-depreciation-view', 'finance-tax-export-view', 'finance-statement-view'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
@@ -392,21 +387,20 @@ function closeExpenseAddForm() {
   _resetExpenseAllocUI('exp');
 }
 
-/** Navigate into a Finance sub-view (expenses, reports, reconciliation, or recurring). */
+/** Navigate into a Finance sub-view (expenses, reports, bank, recurring, …). */
 function showFinanceSub(sub) {
   if (sub === 'expenses') financeSubView = 'expenses';
   else if (sub === 'reports') financeSubView = 'reports';
-  else if (sub === 'reconciliation') financeSubView = 'reconciliation';
+  else if (sub === 'bank') financeSubView = 'bank';
   else if (sub === 'recurring') financeSubView = 'recurring';
   else if (sub === 'depreciation') financeSubView = 'depreciation';
   else if (sub === 'tax-export') financeSubView = 'tax-export';
   else if (sub === 'statement') financeSubView = 'statement';
-  else if (sub === 'reconcile') financeSubView = 'reconcile';
   _financeTab = sub;
   _syncFinanceNav(sub);
   const hub = document.getElementById('finance-hub');
   if (hub) hub.style.display = 'none';
-  ['finance-expenses-view', 'finance-reports-view', 'finance-reconciliation-view', 'finance-recurring-view', 'finance-depreciation-view', 'finance-tax-export-view', 'finance-statement-view', 'finance-reconcile-view'].forEach(id => {
+  ['finance-expenses-view', 'finance-reports-view', 'finance-bank-view', 'finance-recurring-view', 'finance-depreciation-view', 'finance-tax-export-view', 'finance-statement-view'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
@@ -415,8 +409,10 @@ function showFinanceSub(sub) {
     if (el) fadeTransition(el, true);
     renderExpenses();
     populateExpenseCatSelect();
-  } else if (sub === 'reconciliation') {
-    showReconciliationView();
+  } else if (sub === 'bank') {
+    const bEl = document.getElementById('finance-bank-view');
+    if (bEl) fadeTransition(bEl, true);
+    initBankView();
   } else if (sub === 'recurring') {
     showRecurringView();
   } else if (sub === 'depreciation') {
@@ -427,9 +423,6 @@ function showFinanceSub(sub) {
     const sEl = document.getElementById('finance-statement-view');
     if (sEl) fadeTransition(sEl, true);
     _renderStatement();
-  } else if (sub === 'reconcile') {
-    const rEl = document.getElementById('finance-reconcile-view');
-    if (rEl) fadeTransition(rEl, true);
   } else if (sub === 'reports') {
     const el = document.getElementById('finance-reports-view');
     if (el) fadeTransition(el, true);
@@ -768,8 +761,8 @@ function renderFinance() {
     _restoreFinanceExpensesView();
   } else if (financeSubView === 'reports') {
     _restoreFinanceReportsView();
-  } else if (financeSubView === 'reconciliation') {
-    showFinanceSub('reconciliation');
+  } else if (financeSubView === 'bank') {
+    showFinanceSub('bank');
   } else if (financeSubView === 'tax-export') {
     showFinanceSub('tax-export');
   } else {
@@ -1851,10 +1844,8 @@ function clearExpenseFilters() {
 }
 
 function renderExpenses() {
-  if (_bankImportReviewActive) return;
   bindExpenseFilterUi();
   ensureBankImportToolbar();
-  const refreshReconciliationFooter = () => void refreshFinanceReconciliationSummary();
   const expDateEl = document.getElementById('exp-date');
   if (expDateEl && !expDateEl.value) expDateEl.value = localDateStr();
 
@@ -1899,7 +1890,6 @@ function renderExpenses() {
 
   const listEl = document.getElementById('expenses-list');
   if (!listEl) {
-    refreshReconciliationFooter();
     return;
   }
 
@@ -1910,7 +1900,6 @@ function renderExpenses() {
     listEl.innerHTML =
       '<div style="text-align:center;padding:28px 16px;font-family:\'Plus Jakarta Sans\',sans-serif"><div style="font-weight:500;font-size:14px;margin-bottom:4px;color:var(--ink-1)">No expenses yet</div><div style="font-size:12px;color:var(--muted-2)">Add your first expense above</div></div>';
     syncExpensePillStyles();
-    refreshReconciliationFooter();
     return;
   }
 
@@ -1966,7 +1955,6 @@ function renderExpenses() {
     const sm = document.getElementById('expenses-show-more');
     if (sm) sm.style.display = 'none';
     syncExpensePillStyles();
-    refreshReconciliationFooter();
     return;
   }
 
@@ -2098,7 +2086,6 @@ function renderExpenses() {
   }
 
   syncExpensePillStyles();
-  refreshReconciliationFooter();
   checkReceiptNudge();
 }
 
@@ -2174,10 +2161,7 @@ function addExpense(opts = {}) {
   }
   // Sync to Supabase (non-blocking), then auto-link to bank transaction if pending
   if (typeof saveExpenseToCloud === 'function') {
-    saveExpenseToCloud(exp).then(saved => {
-      const cloudId = saved && (saved.id || saved._cloudId);
-      if (cloudId && typeof _autoLinkPendingReconTxn === 'function') _autoLinkPendingReconTxn(cloudId);
-    }).catch(e => console.warn("[StayOps] silent error:", e));
+    saveExpenseToCloud(exp).catch(e => console.warn("[StayOps] silent error:", e));
   }
 
   // Push this expense into every linked stay's clean.cost and trigger the mgmt
@@ -2542,6 +2526,14 @@ function openExpenseView(id) {
         <span class="detail-label">Category</span>
         <span class="detail-val">${escHtml(e.category||'—')}</span>
       </div>
+      <div class="detail-row">
+        <span class="detail-label">Paid</span>
+        <span class="detail-val">${(e.reconciled || e.bank_transaction_id) ? 'From the bank account · verified' : ({ other_account: 'From another account', owner_direct: 'By the owner directly', cash: 'Cash' }[e.paidVia] || 'Not matched to a bank line yet')}</span>
+      </div>
+      ${e.refundOfExpenseId ? (() => {
+        const orig = expenses.find(x => String(x._cloudId) === String(e.refundOfExpenseId));
+        return `<div class="detail-row"><span class="detail-label">Refund of</span><span class="detail-val">${orig ? escHtml((orig.merchant || 'purchase') + ' · $' + Math.abs(Number(orig.amount) || 0).toFixed(2) + ' · ' + fmt(orig.date)) : 'an earlier purchase'}</span></div>`;
+      })() : ''}
       <div class="detail-row" style="${!e.receiptNum ? 'border-bottom:none' : ''}">
         <span class="detail-label">Receipt type</span>
         <span class="detail-val">${e.receiptType ? (e.receiptType === 'e-receipt' ? 'e-Receipt' : e.receiptType.charAt(0).toUpperCase() + e.receiptType.slice(1)) : '—'}</span>
@@ -2675,15 +2667,8 @@ function closeExpenseEdit() {
   if (eeSuggest) eeSuggest.style.display = 'none';
   editingExpenseId = null;
   editingExpensePhotoBase64 = null;
-  // Restores the modal to "edit" shape and, on the cancel path, drops the
-  // pending bank link so it can't attach itself to some later expense.
-  _exitReconCreateMode();
 }
 async function saveExpenseEdit() {
-  // The same modal doubles as the recon "Create New" form; that path builds a
-  // NEW row instead of mutating an existing one, so it never reaches the
-  // editingExpenseId lookup below (which would bail on a null id).
-  if (_reconCreateMode) return _saveReconNewExpense();
   const e = expenses.find(x => String(x.id) === String(editingExpenseId) || String(x._cloudId) === String(editingExpenseId));
   if (!e) return;
   // Capture the OLD stay links, and validate the split, BEFORE anything is
@@ -2793,6 +2778,7 @@ const DEFAULT_EXPENSE_CATS = [
   'Furnishings & Linen',
   'Professional Services',
   'Advertising',
+  'Bank Fees',
   'Other'
 ];
 /** Populate the booking-link <select> beneath the cleaning category. Lists
@@ -3363,10 +3349,10 @@ function _renderExpenseCatToggles() {
   const container = document.getElementById('expense-cat-toggles');
   if (!container) return;
   const ownerPaid = _getOwnerPaidCategories();
-  const cats = BANK_IMPORT_EXPENSE_CATS.filter(c => c !== 'other');
-  container.innerHTML = cats.map(cat => {
+  const cats = getExpenseCats().filter(c => c !== 'Other');
+  container.innerHTML = cats.map(label => {
+    const cat = _normCategoryKey(label);
     const isOwner = ownerPaid.includes(cat);
-    const label = bankImportFormatCategoryLabel(cat);
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)">
       <span style="font-size:13px;font-weight:500;color:var(--text)">${escHtml(label)}</span>
       <div style="display:flex;gap:0;border-radius:6px;overflow:hidden;border:1px solid var(--hairline-1)">
@@ -3388,7 +3374,7 @@ function toggleExpenseCatMode(cat, mode) {
   }
   savePropertyConfig({ settings: { ...(cfg.settings || {}), owner_paid_categories: updated } });
   _renderExpenseCatToggles();
-  const label = bankImportFormatCategoryLabel(cat);
+  const label = getExpenseCats().find(c => _normCategoryKey(c) === cat) || cat;
   globalThis.showBanner(mode === 'owner' ? label + ' → owner pays directly' : label + ' → deducted from payout', 'ok');
 }
 globalThis.toggleExpenseCatMode = toggleExpenseCatMode;
@@ -3757,1019 +3743,6 @@ function exportReportCSV() {
 }
 
 
-/* ────────────────────────────────────────────────────────────────────────────
- *  RECONCILIATION / TRANSACTION MAP VIEW
- * ──────────────────────────────────────────────────────────────────────────── */
-
-let _reconTxns = [];         // cached list from last fetch
-let _reconFilter = 'all';    // current pill filter
-let _reconTab = 'bank';      // 'bank' (debits → expenses) | 'payout' (credits → payouts)
-// Platform statements for the Money In ledger. Loaded alongside the bank rows so
-// the join can show a payout that never arrived — the thing a credit-only list
-// structurally cannot display.
-let _moneyInPayouts = [];
-
-function showReconciliationView() {
-  _reconTab = 'bank';
-  const el = document.getElementById('finance-reconciliation-view');
-  if (el) fadeTransition(el, true);
-  renderReconciliationView();
-}
-
-async function renderReconciliationView() {
-  const listEl = document.getElementById('reconciliation-list');
-  if (!listEl) return;
-
-  listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">Loading transactions...</div>';
-
-  const user = await getCurrentSupabaseUser();
-  if (!user) {
-    listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px">Sign in to view transactions.</div>';
-    const sb = document.getElementById('reconciliation-summary-bar'); if (sb) sb.innerHTML = '';
-    const fe = document.getElementById('reconciliation-filters'); if (fe) fe.innerHTML = '';
-    return;
-  }
-
-  _reconTxns = await getAllTransactionsWithStatus(user.id);
-  // loadPlatformPayouts has existed since the payout feature shipped and had no
-  // caller at all — the Money In ledger is its first consumer. Non-fatal: a
-  // failure just means the ledger shows deposits without their statements.
-  try {
-    _moneyInPayouts = typeof loadPlatformPayouts === 'function' ? await loadPlatformPayouts() : [];
-  } catch (e) {
-    console.warn('[StayOps] Money In: could not load platform payouts', e);
-    _moneyInPayouts = [];
-  }
-  _reconFilter = 'all';
-  _renderReconFromCache();
-}
-
-// The Transaction Map is one bank_transactions feed split by direction: debits
-// (money out) belong to the Bank Reconciliation tab, credits (money in) to the
-// Payout Match tab. One fetch feeds both; the active tab scopes what's shown.
-function _reconScopedTxns() {
-  return (_reconTxns || []).filter(t =>
-    _reconTab === 'payout' ? t.direction === 'credit' : t.direction !== 'credit'
-  );
-}
-
-function _renderReconFromCache() {
-  const tabsEl     = document.getElementById('reconciliation-tabs');
-  const summaryBar = document.getElementById('reconciliation-summary-bar');
-  const filtersEl  = document.getElementById('reconciliation-filters');
-  const listEl     = document.getElementById('reconciliation-list');
-  if (tabsEl) renderReconciliationTabs(tabsEl);
-  if (!summaryBar || !filtersEl || !listEl) return;
-
-  // Money In is a different shape of question from Money Out: it joins bank
-  // credits to platform statements so a payout that never arrived is visible
-  // too. A credit-only list structurally cannot show that.
-  if (_reconTab === 'payout') {
-    const credits = (_reconTxns || []).filter(t => t && t.direction === 'credit');
-    const { summaryHtml } = renderMoneyInList(listEl, {
-      payouts: _moneyInPayouts,
-      credits,
-      filter: _moneyInFilter,
-    });
-    summaryBar.innerHTML = summaryHtml;
-    // The button states its own count, so the host knows exactly what will
-    // happen before clicking, and it only appears when there is something to
-    // do. Every link it makes is individually reversible via Unlink.
-    const plan = planPayoutAutoMatch({ payouts: _moneyInPayouts, creditTxns: credits });
-    const matchAllHtml = plan.links.length
-      ? `<button onclick="moneyInMatchAll()" style="margin-left:8px;font-size:12px;font-weight:600;padding:6px 12px;border-radius:999px;border:1px solid var(--primary);background:var(--primary);color:#fff;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Match ${plan.links.length} deposit${plan.links.length === 1 ? '' : 's'}</button>`
-      : '';
-    filtersEl.innerHTML = moneyInFiltersHtml(_moneyInFilter) + matchAllHtml;
-    return;
-  }
-
-  const scoped = _reconScopedTxns();
-  const totals = { matched: 0, matched_payout: 0, unaccounted: 0, personal: 0, skipped: 0 };
-  for (const t of scoped) {
-    totals[t.status] = (totals[t.status] || 0) + Math.abs(t.amount);
-  }
-  summaryBar.innerHTML = _reconSummaryHtml(totals);
-  renderReconciliationFilters(filtersEl);
-  renderReconciliationList(listEl);
-}
-
-function _reconSummaryHtml(totals) {
-  const isBank = _reconTab !== 'payout';
-  const tile = (val, label, bg, valColor, labelColor) =>
-    `<div style="flex:1;min-width:100px;background:${bg};border-radius:8px;padding:8px 12px;text-align:center">
-       <div style="font-size:18px;font-weight:600;color:${valColor}">$${_fmtAud(val)}</div>
-       <div style="font-size:11px;color:${labelColor}">${label}</div>
-     </div>`;
-  // Unaccounted must mean "money still needing a decision", from BOTH sides:
-  // bank payments with no expense, and expenses with no payment. Counting only
-  // the bank side read as $0.00 — "nothing to do" — while unpaid expenses sat
-  // in the list right below it.
-  const unpaidTotal = isBank
-    ? _unpaidExpenses().actionable.reduce((s, e) => s + Math.abs(Number(e.amount) || 0), 0)
-    : 0;
-  const tiles = isBank
-    ? tile(totals.matched, 'Matched', '#E8F5E9', '#2E7D32', '#388E3C') +
-      tile(totals.unaccounted + unpaidTotal, 'Unaccounted', '#FFF3E0', '#E65100', '#F57C00') +
-      tile(totals.personal, 'Personal', '#F3E5F5', '#7B1FA2', '#9C27B0')
-    : tile(totals.matched_payout, 'Matched', '#E3F2FD', '#1565C0', '#1976D2') +
-      tile(totals.unaccounted, 'Unmatched', '#FFF3E0', '#E65100', '#F57C00') +
-      tile(totals.personal, 'Personal', '#F3E5F5', '#7B1FA2', '#9C27B0');
-  return `<div style="display:flex;gap:8px;padding:0 16px;margin:0 auto 12px;max-width:560px;flex-wrap:wrap">${tiles}</div>`;
-}
-
-function renderReconciliationTabs(container) {
-  if (!container) return;
-  const isBank = _reconTab !== 'payout';
-  const tabBtn = (key, label, active) =>
-    `<button onclick="switchReconTab('${key}')" style="flex:1;padding:9px 6px;border-radius:10px;font-size:12.5px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer;border:1px solid ${active ? 'var(--primary)' : 'var(--hairline-1)'};background:${active ? 'var(--primary)' : '#fff'};color:${active ? '#fff' : 'var(--muted-2)'}">${label}</button>`;
-  const actionBtn = (onclick, label) =>
-    `<button type="button" onclick="${onclick}" style="font-size:12px;color:var(--primary);background:transparent;border:1px solid var(--primary);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;white-space:nowrap">${label}</button>`;
-  container.innerHTML = `
-    <div style="display:flex;gap:6px;margin:10px 0 8px">
-      ${tabBtn('bank', 'Money Out', isBank)}
-      ${tabBtn('payout', 'Money In', !isBank)}
-    </div>
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
-      <p style="margin:0;font-size:12.5px;color:var(--muted-2);font-family:'Plus Jakarta Sans',sans-serif">${isBank ? 'Match each payment to an expense.' : 'Every platform payout and the deposit that settles it.'}</p>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        ${isBank ? '' : actionBtn('openPayoutPasteModal()', 'Paste Payout')}
-        ${actionBtn('bankImportPickFile()', 'Import Statement')}
-      </div>
-    </div>`;
-}
-
-function switchReconTab(tab) {
-  _reconTab = tab === 'payout' ? 'payout' : 'bank';
-  _reconFilter = 'all';
-  _renderReconFromCache();
-}
-
-/** Filter for the Money In ledger. Separate from _reconFilter because the row
- *  kinds are different (received / not received / unexplained, not the debit
- *  statuses), so sharing one variable would leave an unreachable filter selected
- *  when switching tabs. */
-let _moneyInFilter = 'all';
-function moneyInSetFilter(kind) {
-  _moneyInFilter = kind || 'all';
-  _renderReconFromCache();
-}
-globalThis.moneyInSetFilter = moneyInSetFilter;
-
-/** Jump from a not-received payout to the deposits that might settle it. There
- *  is no reverse matcher, so this narrows the list to unexplained deposits and
- *  tells the host what to look for. */
-function moneyInFindDeposit(payoutId) {
-  const p = (_moneyInPayouts || []).find(x => String(x._cloudId) === String(payoutId));
-  _moneyInFilter = 'credit_only';
-  _renderReconFromCache();
-  if (p) {
-    globalThis.showBanner(
-      `Looking for $${_fmtAud(Math.abs(Number(p.net) || 0))} around ${p.expectedArrivalDate || p.payoutDate || '?'} — tap Match payout on the deposit that matches.`,
-      'info'
-    );
-  }
-}
-globalThis.moneyInFindDeposit = moneyInFindDeposit;
-globalThis.switchReconTab = switchReconTab;
-
-function renderReconciliationFilters(container) {
-  const isBank = _reconTab !== 'payout';
-  const pills = isBank
-    ? [
-        { key: 'all', label: 'All' },
-        { key: 'matched', label: 'Matched' },
-        { key: 'unaccounted', label: 'Unaccounted' },
-        { key: 'personal', label: 'Personal' },
-        { key: 'skipped', label: 'Skipped' },
-      ]
-    : [
-        { key: 'all', label: 'All' },
-        { key: 'matched_payout', label: 'Matched' },
-        { key: 'unaccounted', label: 'Unmatched' },
-        { key: 'personal', label: 'Personal' },
-        { key: 'skipped', label: 'Skipped' },
-      ];
-
-  container.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap">${pills.map(p => {
-    const isActive = _reconFilter === p.key;
-    const bg    = isActive ? '#2f5d4e' : '#F5F3EF';
-    const color = isActive ? '#fff'    : '#555';
-    const bdr   = isActive ? '#2f5d4e' : '#E0DCD5';
-    return `<button onclick="filterReconciliation('${p.key}')" style="background:${bg};border:1px solid ${bdr};border-radius:20px;padding:6px 14px;font-size:12px;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer;color:${color}">${p.label}</button>`;
-  }).join('')}</div>`;
-}
-
-function filterReconciliation(status) {
-  _reconFilter = status;
-  const filtersEl = document.getElementById('reconciliation-filters');
-  const listEl    = document.getElementById('reconciliation-list');
-  if (filtersEl) renderReconciliationFilters(filtersEl);
-  if (listEl)    renderReconciliationList(listEl);
-}
-
-function renderReconciliationList(container) {
-  const scoped = _reconScopedTxns();
-  const isBank = _reconTab !== 'payout';
-
-  // Computed up front and appended to EVERY path below. Both early returns used
-  // to bail before it, which hid these rows exactly when they matter most: with
-  // zero unaccounted bank debits, the Unaccounted filter took the early return
-  // and showed "no transactions" while unpaid expenses were sitting there.
-  const unpaidHtml = _unpaidExpenseRowsHtml();
-
-  if (scoped.length === 0) {
-    container.innerHTML = `<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px;font-family:'Plus Jakarta Sans',sans-serif">${isBank ? 'No bank debits imported yet. Tap Import Statement to add a bank statement.' : 'No deposits to match yet. Import a bank statement, or tap Paste Payout to add a platform statement.'}</div>` + unpaidHtml;
-    return;
-  }
-
-  const filtered = _reconFilter === 'all'
-    ? scoped
-    : scoped.filter(t => t.status === _reconFilter);
-
-  if (filtered.length === 0) {
-    container.innerHTML = (unpaidHtml
-      ? ''
-      : '<div style="text-align:center;padding:24px;color:var(--muted-2);font-size:13px;font-family:\'Plus Jakarta Sans\',sans-serif">No transactions in this filter.</div>') + unpaidHtml;
-    return;
-  }
-
-  container.innerHTML = filtered.map(t => {
-    const dateStr = t.date ? fmt(t.date) : '';
-    const desc    = escHtml(t.description || 'No description');
-    const amt     = _fmtAud(Math.abs(t.amount));
-
-    let badge;
-    let rightInfo;
-
-    if (t.status === 'matched') {
-      const merchant = escHtml(t.expenseMerchant || 'Linked expense');
-      badge = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#2E7D32"><span style="width:6px;height:6px;border-radius:50%;background:#4CAF50;display:inline-block"></span> ${merchant}</span>`;
-      rightInfo = badge;
-    } else if (t.status === 'matched_payout') {
-      // Phase 2c: credit reconciled to a Phase 1 platform_payouts row.
-      const p = t.payout || {};
-      const platformLabel = escHtml((p.platform || 'platform').replace('_', '.'));
-      const refLabel = escHtml(p.payoutReference || 'no ref');
-      badge = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#1565C0"><span style="width:6px;height:6px;border-radius:50%;background:#2196F3;display:inline-block"></span> ${platformLabel} · ${refLabel}</span>`;
-      // Unlink is the only way back from a wrong match; without it the link was
-      // permanent (unlinkPayoutFromTransaction shipped with no caller at all).
-      const unlinkBtn = p.id
-        ? `<button onclick="reconUnlinkPayout('${escapeJsSingleQuotedHtmlAttr(String(p.id))}','${t.id}')" style="font-size:10px;color:#78909C;background:none;border:1px solid #B0BEC5;border-radius:6px;padding:2px 8px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Unlink</button>`
-        : '';
-      rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
-        ${badge}
-        ${p.payoutDate ? `<span style="font-size:10px;color:var(--muted-2)">Payout ${escHtml(p.payoutDate)}</span>` : ''}
-        ${unlinkBtn}
-      </div>`;
-    } else if (t.status === 'personal') {
-      badge = `<span style="display:inline-block;font-size:11px;background:#F3E5F5;color:#9C27B0;border-radius:4px;padding:2px 8px">Personal</span>`;
-      rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badge}
-        <button onclick="reconRestoreTxn('${t.id}')" style="font-size:11px;color:#78909C;background:none;border:1px solid #B0BEC5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">↩ Move back</button></div>`;
-    } else if (t.status === 'skipped') {
-      badge = `<span style="display:inline-block;font-size:11px;background:#ECEFF1;color:#546E7A;border-radius:4px;padding:2px 8px">Skipped</span>`;
-      rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badge}
-        <button onclick="reconRestoreTxn('${t.id}')" style="font-size:11px;color:#78909C;background:none;border:1px solid #B0BEC5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">↩ Move back</button></div>`;
-    } else {
-      // Unaccounted — but credits and debits get different match buttons.
-      // A credit is a deposit (Airbnb payout etc.); matching to an expense
-      // makes no sense, so we route to platform_payouts instead.
-      const isCredit = t.direction === 'credit';
-      badge = `<span style="display:inline-block;font-size:11px;background:#FFF3E0;color:#E65100;border-radius:4px;padding:2px 8px;margin-bottom:4px">${isCredit ? 'Unmatched deposit' : 'Unaccounted'}</span>`;
-      const safeDesc = escapeJsSingleQuotedHtmlAttr(t.description || '');
-      const rawAmt = Math.abs(t.amount).toFixed(2);
-      const rawDate = t.date || '';
-      if (isCredit) {
-        rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badge}
-          <button onclick="reconMatchPayout('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}','${safeDesc}')" style="font-size:11px;color:#1565C0;background:none;border:1px solid #1565C0;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Match Payout</button>
-          <div style="display:flex;gap:4px">
-            <button onclick="reconMarkPersonal('${t.id}')" style="font-size:11px;color:#9C27B0;background:none;border:1px solid #9C27B0;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Personal</button>
-            <button onclick="reconMarkSkipped('${t.id}')" style="font-size:11px;color:#78909C;background:none;border:1px solid #B0BEC5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Skip</button>
-          </div></div>`;
-      } else {
-        rightInfo = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badge}
-          <button onclick="reconMatchExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}')" style="font-size:11px;color:#1D9E75;background:none;border:1px solid #1D9E75;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Match Expense</button>
-          <button onclick="reconCreateExpense('${t.id}','${escapeJsSingleQuotedHtmlAttr(rawDate)}','${rawAmt}','${safeDesc}')" style="font-size:11px;color:#185FA5;background:none;border:1px solid #185FA5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Create New</button>
-          <div style="display:flex;gap:4px">
-            <button onclick="reconMarkPersonal('${t.id}')" style="font-size:11px;color:#9C27B0;background:none;border:1px solid #9C27B0;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Personal</button>
-            <button onclick="reconMarkSkipped('${t.id}')" style="font-size:11px;color:#78909C;background:none;border:1px solid #B0BEC5;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Skip</button>
-          </div></div>`;
-      }
-    }
-
-    return `<div style="background:#fff;border-radius:10px;padding:12px 14px;margin-bottom:8px;border:0.5px solid rgba(0,0,0,0.06);display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-      <div style="flex:1;min-width:0">
-        <div style="font-size:11px;color:var(--muted-2);margin-bottom:2px">${dateStr}</div>
-        <div style="font-size:14px;font-weight:500;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${desc}</div>
-        <div style="font-size:15px;font-weight:600;color:var(--ink-1);margin-top:2px">$${amt}</div>
-      </div>
-      <div style="flex-shrink:0;text-align:right">${rightInfo}</div>
-    </div>`;
-  }).join('') + unpaidHtml;
-}
-
-/** Expenses with no bank payment against them.
- *
- *  The list above renders BANK ROWS only, so an expense the host recorded but
- *  that has no matching payment was invisible — you could see a payment with no
- *  expense, never an expense with no payment. Half of reconciliation was simply
- *  not on screen, which is why "I imported the statement, now let me match my
- *  expenses" had nowhere to happen.
- *
- *  Reads the already-hydrated in-memory `expenses` array, so this costs no
- *  queries. Only shown on Money Out, and only under the All/Unaccounted filters
- *  — these are unmatched by definition, so they do not belong under Matched. */
-/** Expenses with no bank payment, split into what can be actioned now and what
- *  cannot. Single source of truth for BOTH the Unaccounted tile and the rows
- *  below it — computing them separately is how a summary starts disagreeing
- *  with the list it summarises. */
-function _unpaidExpenses() {
-  // loadExpensesFromCloud maps this column as snake_case `bank_transaction_id`
-  // (supabase-expenses.js:60), NOT bankTransactionId — checking the camelCase
-  // name matched nothing, so "has this been paid?" silently answered "no" for
-  // every expense. Both spellings are accepted so an optimistically-updated row
-  // is treated as paid before the next hydrate.
-  const isPaid = e => !!(e.bank_transaction_id || e.bankTransactionId);
-  const list = (Array.isArray(expenses) ? expenses : []).filter(e =>
-    e && !isPaid(e)
-    && String(e.status || 'active') !== 'deleted'
-    && Number(e.amount) > 0);
-
-  // Only the imported date range can actually be matched. Outside it there is
-  // no bank data to match against, so flagging those as work would be crying
-  // wolf — they are counted, not listed as a to-do.
-  const dates = (_reconTxns || []).map(t => t && t.date).filter(Boolean).sort();
-  const covFrom = dates[0] || null;
-  const covTo = dates[dates.length - 1] || null;
-  const inRange = e => !covFrom || !covTo || (e.date >= covFrom && e.date <= covTo);
-  const actionable = list.filter(inRange).sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  // Split the remainder by WHICH side of the imported window it falls on. "75
-  // more fall outside the dates your statement covers" is true but unusable —
-  // it does not say which statement to go and fetch.
-  const out = list.filter(e => !inRange(e));
-  const before = out.filter(e => covFrom && e.date < covFrom);
-  const after = out.filter(e => covTo && e.date > covTo);
-  return {
-    actionable,
-    outside: out.length,
-    outsideBefore: before.length,
-    outsideAfter: after.length,
-    covFrom,
-    covTo,
-  };
-}
-
-function _unpaidExpenseRowsHtml() {
-  if (_reconTab === 'payout') return '';
-  if (_reconFilter !== 'all' && _reconFilter !== 'unaccounted') return '';
-  const { actionable, outside, outsideBefore, outsideAfter, covFrom, covTo } = _unpaidExpenses();
-  if (!actionable.length && !outside) return '';
-
-  const rows = actionable.map(e => {
-    const id = escapeJsSingleQuotedHtmlAttr(String(e._cloudId || e.id || ''));
-    const label = escHtml(e.merchant || e.description || 'Expense');
-    return `<div style="background:#fff;border-radius:10px;padding:12px 14px;margin-bottom:8px;border:0.5px solid rgba(0,0,0,0.06);display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-      <div style="flex:1;min-width:0">
-        <div style="font-size:11px;color:var(--muted-2);margin-bottom:2px">${escHtml(e.date || '')}</div>
-        <div style="font-size:14px;font-weight:500;color:var(--ink-1);font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</div>
-        <div style="font-size:15px;font-weight:600;color:var(--ink-1);margin-top:2px">$${_fmtAud(Math.abs(Number(e.amount) || 0))}</div>
-      </div>
-      <div style="flex-shrink:0;text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-        <span style="display:inline-block;font-size:11px;background:#FFF3E0;color:#E65100;border-radius:4px;padding:2px 8px">No payment</span>
-        <button onclick="reconFindPaymentForExpense('${id}')" style="font-size:11px;color:#E65100;background:none;border:1px solid #FFB74D;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">Find payment</button>
-      </div>
-    </div>`;
-  }).join('');
-
-  const header = `<div style="font-size:11px;font-weight:700;color:var(--muted-2);text-transform:uppercase;letter-spacing:.4px;margin:16px 0 6px">Expenses with no payment · ${actionable.length}</div>`;
-  // Name the actual gap. These cannot be matched because there is no bank data
-  // for their dates, not because anything is wrong with them — and the host
-  // needs to know WHICH statement to go and import.
-  const gaps = [];
-  if (outsideBefore) gaps.push(`${outsideBefore} dated before ${escHtml(covFrom || '?')}`);
-  if (outsideAfter) gaps.push(`${outsideAfter} dated after ${escHtml(covTo || '?')}`);
-  const note = outside
-    ? `<div style="font-size:12px;color:var(--muted-2);padding:4px 2px 10px">${outside} more can't be checked — ${gaps.join(' and ')}, and your imported bank data only covers ${escHtml(covFrom || '?')} to ${escHtml(covTo || '?')}. Import a statement for those dates to match them.</div>`
-    : '';
-  return header + (rows || `<div style="font-size:12.5px;color:var(--muted-2);padding:4px 2px 10px">All expenses in the imported period have a payment.</div>`) + note;
-}
-
-/** Show nearby expenses to match an unaccounted transaction to */
-async function reconMatchExpense(txnId, date, amount) {
-  const amt = Number(amount);
-  const txnDate = new Date(date + 'T00:00:00');
-  if (Number.isNaN(txnDate.getTime())) { globalThis.showBanner('Invalid date', 'warn'); return; }
-
-  // A CANDIDATE is within $0.50 — the same tolerance findMatchesForExpense and
-  // the importer's near-miss tier use. This was ±50%, which offered a $341
-  // landscaping bill as a "similar expense" for a $620 payment to a different
-  // person: the window admitted anything from $310 to $930 and there is no
-  // vendor check here at all. Measured against 156 real expense-to-payment
-  // links in this account, 155 agree to the cent and the remaining one to two
-  // cents — nothing has EVER legitimately matched outside a dollar, so the wide
-  // window contributed only noise, dressed up by the header as similarity.
-  //
-  // Everything else inside ±7 days is still listed, but BELOW a divider and
-  // labelled with how far off it is, because the honest use for it is manual
-  // browsing (a part-payment, a deposit), never a suggestion.
-  const MATCH_TOL = 0.50;
-  const inWindow = (Array.isArray(expenses) ? expenses : []).filter(e => {
-    const eDate = new Date((e.date || '') + 'T00:00:00');
-    if (Number.isNaN(eDate.getTime())) return false;
-    const dayDiff = Math.abs((eDate - txnDate) / 86400000);
-    if (dayDiff > 7) return false;
-    const eAmt = Math.abs(Number(e.amount || 0));
-    if (eAmt === 0) return false;
-    return true;
-  });
-  const isCandidate = e => Math.abs(Math.abs(Number(e.amount || 0)) - amt) <= MATCH_TOL;
-  // Already-linked expenses are KEPT in the list (rendered as "Linked", not
-  // tappable) instead of hidden, so a matching payment that's already accounted
-  // for is visible rather than silently vanishing — avoids "where did that
-  // expense go?" and double-linking.
-  const nearby = inWindow.filter(isCandidate).sort((a, b) => {
-    // Unlinked (actionable) first, so linked rows can't push a linkable match
-    // out of the top-8 slice below.
-    const aLinked = !!(a.reconciled || a.bank_transaction_id);
-    const bLinked = !!(b.reconciled || b.bank_transaction_id);
-    if (aLinked !== bLinked) return aLinked ? 1 : -1;
-    // Then exact amount first, then by date proximity
-    const aDiff = Math.abs(Math.abs(Number(a.amount)) - amt);
-    const bDiff = Math.abs(Math.abs(Number(b.amount)) - amt);
-    if (aDiff < 1 && bDiff >= 1) return -1;
-    if (bDiff < 1 && aDiff >= 1) return 1;
-    const aDate = Math.abs(new Date((a.date || '') + 'T00:00:00') - txnDate);
-    const bDate = Math.abs(new Date((b.date || '') + 'T00:00:00') - txnDate);
-    return aDate - bDate;
-  }).slice(0, 8);
-
-  const others = inWindow.filter(e => !isCandidate(e)).sort((a, b) => {
-    const aLinked = !!(a.reconciled || a.bank_transaction_id);
-    const bLinked = !!(b.reconciled || b.bank_transaction_id);
-    if (aLinked !== bLinked) return aLinked ? 1 : -1;
-    // Closest amount first — if the host is browsing, nearest is most useful.
-    return Math.abs(Math.abs(Number(a.amount)) - amt) - Math.abs(Math.abs(Number(b.amount)) - amt);
-  }).slice(0, 6);
-
-  if (!nearby.length && !others.length) {
-    globalThis.showBanner('No expenses within 7 days of this payment — try Create New instead', 'warn');
-    return;
-  }
-
-  const linkableCount = nearby.filter(e => !(e.reconciled || e.bank_transaction_id)).length;
-  const renderRow = (e) => {
-    const eAmt = Math.abs(Number(e.amount || 0));
-    const gap = eAmt - amt;
-    const exactAmt = Math.abs(gap) < 0.02;
-    // Never let a different number pass as a match: say which way it is off and
-    // by how much, right next to the amount.
-    const amtBadge = exactAmt
-      ? '<span style="color:#1D9E75;font-weight:600;font-size:10px;margin-left:4px">exact match</span>'
-      : `<span style="color:#A32D2D;font-weight:600;font-size:10px;margin-left:4px">$${_fmtAud(Math.abs(gap))} ${gap > 0 ? 'more' : 'less'}</span>`;
-    const isLinked = !!(e.reconciled || e.bank_transaction_id);
-    const eid = escapeJsSingleQuotedHtmlAttr(String(e._cloudId || e.id));
-    // Linked rows are informational only: dimmed, no tap handler, "Linked" badge.
-    const clickAttr = isLinked ? '' : ` onclick="reconLinkToExpense('${escapeJsSingleQuotedHtmlAttr(txnId)}','${eid}')"`;
-    const action = isLinked
-      ? '<div style="flex-shrink:0;margin-left:8px;color:var(--muted-2);font-size:12px;font-weight:600;display:flex;align-items:center;gap:3px;white-space:nowrap">✓ Linked</div>'
-      : '<div style="flex-shrink:0;margin-left:8px;color:var(--moss);font-size:12px;font-weight:600">Link →</div>';
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:0.5px solid rgba(0,0,0,0.06);cursor:${isLinked ? 'default' : 'pointer'}${isLinked ? ';opacity:0.6' : ''}"${clickAttr}>
-      <div style="min-width:0;flex:1">
-        <div style="font-size:13px;font-weight:500;color:var(--text)">${escHtml(e.merchant || e.description || 'Expense')}${amtBadge}</div>
-        <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${fmt(e.date)} · $${_fmtAud(eAmt)} · ${escHtml(e.category || '')}</div>
-      </div>
-      ${action}
-    </div>`;
-  };
-
-  const list = nearby.map(renderRow).join('');
-  const othersList = others.length
-    ? `<div style="font-size:11px;font-weight:700;color:var(--muted-2);text-transform:uppercase;letter-spacing:.4px;margin:16px 0 4px">Different amounts — not matches</div>
-       <div style="font-size:11.5px;color:var(--muted-2);margin-bottom:6px">Within 7 days but a different figure. Only link one of these if you know it is a part-payment.</div>
-       ${others.map(renderRow).join('')}`
-    : '';
-  const headline = nearby.length
-    ? `${nearby.length} matching expense${nearby.length !== 1 ? 's' : ''} found${linkableCount ? ' — tap to link' : ''}`
-    : 'No expense matches this amount';
-
-  let overlay = document.getElementById('recon-match-overlay');
-  if (!overlay) { overlay = document.createElement('div'); overlay.id = 'recon-match-overlay'; document.body.appendChild(overlay); }
-  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.4);display:flex;align-items:flex-end;justify-content:center';
-  overlay.innerHTML = `
-    <div style="background:white;border-radius:16px 16px 0 0;width:100%;max-width:500px;max-height:70vh;overflow-y:auto;padding:20px 16px 24px;animation:settingsPanelIn 0.28s cubic-bezier(0.32,0.72,0,1)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-        <div>
-          <div style="font-size:15px;font-weight:700;color:var(--primary)">Match to Expense</div>
-          <div style="font-size:12px;color:var(--muted-2);margin-top:2px">Transaction: $${_fmtAud(amt)} on ${fmt(date)}</div>
-        </div>
-        <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--surface2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted-2)">×</button>
-      </div>
-      <div style="font-size:12px;color:var(--muted-2);margin-bottom:10px">${headline}</div>
-      ${list}
-      ${othersList}
-      <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--surface2);color:var(--muted-2);font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Cancel</button>
-    </div>`;
-  document.body.style.overflow = 'hidden';
-}
-globalThis.reconMatchExpense = reconMatchExpense;
-
-/**
- * Phase 2c: show platform_payouts within ±5 days / ±$1 of an unaccounted
- * bank CREDIT and let the user pick one to link. Mirrors reconMatchExpense.
- */
-async function reconMatchPayout(txnId, date, amount, description) {
-  const amt = Number(amount);
-  if (!Number.isFinite(amt) || amt <= 0) { globalThis.showBanner('Invalid amount', 'warn'); return; }
-  const txnDate = new Date(date + 'T00:00:00');
-  if (Number.isNaN(txnDate.getTime())) { globalThis.showBanner('Invalid date', 'warn'); return; }
-
-  const user = await getCurrentSupabaseUser();
-  if (!user) { globalThis.showBanner('Sign in to match payouts', 'warn'); return; }
-
-  const matches = await findPayoutMatchesForBankTransaction(
-    { id: txnId, date, amount: amt, description: description || '' },
-    user.id,
-    { includeLinked: true }
-  );
-
-  if (!matches.length) {
-    globalThis.showBanner('No platform payouts within ±5 days / ±$1 — paste the statement in Finance → Transaction Map first', 'warn');
-    return;
-  }
-
-  // Actionable (unlinked) payouts first, so a linked row can't push a linkable
-  // one out of the top-8 shown; preserve score order within each group.
-  matches.sort((a, b) => {
-    const aLinked = !!(a.payout && a.payout.bank_transaction_id);
-    const bLinked = !!(b.payout && b.payout.bank_transaction_id);
-    if (aLinked !== bLinked) return aLinked ? 1 : -1;
-    return (b.score || 0) - (a.score || 0);
-  });
-  const displayMatches = matches.slice(0, 8);
-  const linkableCount = displayMatches.filter(m => !(m.payout && m.payout.bank_transaction_id)).length;
-  const list = displayMatches.map(m => {
-    const p = m.payout;
-    const platformLabel = escHtml((p.platform || 'platform').replace('_', '.'));
-    const refLabel = escHtml(p.payout_reference || '(no ref)');
-    const pAmt = Number(p.net_amount) || 0;
-    const exactBadge = Math.abs(pAmt - amt) < 0.02
-      ? '<span style="color:#1565C0;font-weight:600;font-size:10px;margin-left:4px">exact match</span>'
-      : '';
-    const isLinked = !!p.bank_transaction_id;
-    const pid = escapeJsSingleQuotedHtmlAttr(String(p.id));
-    const txnIdEsc = escapeJsSingleQuotedHtmlAttr(String(txnId));
-    // Linked payouts are informational only: dimmed, no tap handler, "Linked" badge.
-    const clickAttr = isLinked ? '' : ` onclick="reconLinkToPayout('${txnIdEsc}','${pid}')"`;
-    const action = isLinked
-      ? '<div style="flex-shrink:0;margin-left:8px;color:var(--muted-2);font-size:12px;font-weight:600;display:flex;align-items:center;gap:3px;white-space:nowrap">✓ Linked</div>'
-      : '<div style="flex-shrink:0;margin-left:8px;color:#1565C0;font-size:12px;font-weight:600">Link →</div>';
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:0.5px solid rgba(0,0,0,0.06);cursor:${isLinked ? 'default' : 'pointer'}${isLinked ? ';opacity:0.6' : ''}"${clickAttr}>
-      <div style="min-width:0;flex:1">
-        <div style="font-size:13px;font-weight:500;color:var(--text)">${platformLabel} · ${refLabel}${exactBadge}</div>
-        <div style="font-size:11px;color:var(--muted-2);margin-top:2px">${escHtml(p.payout_date || '?')} · $${_fmtAud(pAmt)} · score ${m.score}</div>
-      </div>
-      ${action}
-    </div>`;
-  }).join('');
-
-  let overlay = document.getElementById('recon-match-overlay');
-  if (!overlay) { overlay = document.createElement('div'); overlay.id = 'recon-match-overlay'; document.body.appendChild(overlay); }
-  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.4);display:flex;align-items:flex-end;justify-content:center';
-  overlay.innerHTML = `
-    <div style="background:white;border-radius:16px 16px 0 0;width:100%;max-width:500px;max-height:70vh;overflow-y:auto;padding:20px 16px 24px;animation:settingsPanelIn 0.28s cubic-bezier(0.32,0.72,0,1)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-        <div>
-          <div style="font-size:15px;font-weight:700;color:var(--primary)">Match to Platform Payout</div>
-          <div style="font-size:12px;color:var(--muted-2);margin-top:2px">Deposit: $${_fmtAud(amt)} on ${fmt(date)}</div>
-        </div>
-        <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--surface2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted-2)">×</button>
-      </div>
-      <div style="font-size:12px;color:var(--muted-2);margin-bottom:10px">${displayMatches.length} candidate${displayMatches.length !== 1 ? 's' : ''} found${linkableCount ? ' — tap to link' : ''}</div>
-      ${list}
-      <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:none;background:var(--surface2);color:var(--muted-2);font-size:13px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Cancel</button>
-    </div>`;
-  document.body.style.overflow = 'hidden';
-}
-globalThis.reconMatchPayout = reconMatchPayout;
-
-/**
- * Link every payout that has exactly one unambiguous deposit, in one pass.
- *
- * Matching was one-at-a-time only, which is not a workflow anyone finishes
- * across 30-odd payouts — so the money-in view stayed permanently unreconciled
- * even when the deposits were sitting right there. planPayoutAutoMatch does the
- * deciding (and refuses anything ambiguous); this just applies it and reports.
- */
-async function moneyInMatchAll() {
-  const credits = (_reconTxns || []).filter(t => t && t.direction === 'credit');
-  const plan = planPayoutAutoMatch({ payouts: _moneyInPayouts, creditTxns: credits });
-  if (!plan.links.length) {
-    globalThis.showBanner('Nothing to match automatically — no payout has a single unambiguous deposit', 'warn');
-    return;
-  }
-
-  const total = plan.links.length;
-  let linked = 0;
-  const failed = [];
-  for (const { payout, credit } of plan.links) {
-    globalThis.showBanner(`⏳ Matching ${linked + 1} of ${total}...`, 'ok');
-    const res = await linkTransactionToPayout(credit.id, payout._cloudId, { bankDate: credit.date });
-    if (res && res.success) {
-      linked += 1;
-    } else {
-      failed.push(`${payout.payoutDate || '?'} $${Math.abs(Number(payout.net) || 0).toFixed(2)}`);
-    }
-  }
-
-  // Refetch rather than patch: dozens of rows changed, and a stale in-memory
-  // view here is exactly how a payout ends up looking settled when it is not.
-  await renderReconciliationView();
-
-  // Name what was left behind. Reporting only the successes would present a
-  // partial match as a complete one.
-  const leftovers = [];
-  if (plan.ambiguous.length) leftovers.push(`${plan.ambiguous.length} need a choice (more than one possible deposit)`);
-  if (plan.unmatched.length) leftovers.push(`${plan.unmatched.length} have no matching deposit imported`);
-  if (failed.length) leftovers.push(`${failed.length} failed to save: ${failed.join(', ')}`);
-
-  globalThis.showBanner(
-    `✓ ${linked} of ${total} linked` + (leftovers.length ? ` · ${leftovers.join(' · ')}` : ''),
-    failed.length ? 'warn' : 'ok');
-}
-globalThis.moneyInMatchAll = moneyInMatchAll;
-
-/** Link a bank credit row to a platform_payouts row and update UI in place. */
-async function reconLinkToPayout(txnId, payoutId) {
-  // Pass the deposit's own date so the payout's attestation date gets filled
-  // from evidence rather than staying blank — keeps this view and the booking
-  // panel telling the same story.
-  const linkTxn = _reconTxns.find(t => String(t.id) === String(txnId));
-  const result = await linkTransactionToPayout(txnId, payoutId, { bankDate: linkTxn && linkTxn.date });
-  if (!result.success) {
-    globalThis.showBanner('⚠ Link failed — see console', 'warn');
-    return;
-  }
-  const overlay = document.getElementById('recon-match-overlay');
-  if (overlay) overlay.style.display = 'none';
-  document.body.style.overflow = '';
-  globalThis.showBanner('✓ Deposit linked to payout', 'ok');
-
-  // Patch the in-memory row so the list updates without a full refetch.
-  const txn = _reconTxns.find(t => String(t.id) === String(txnId));
-  if (txn) {
-    txn.status = 'matched_payout';
-    // Fetch the payout fields we display so the badge renders correctly
-    if (window._sb) {
-      const { data } = await window._sb
-        .from('platform_payouts')
-        .select('id, platform, payout_reference, payout_date, net_amount')
-        .eq('id', payoutId)
-        .maybeSingle();
-      if (data) {
-        txn.payout = {
-          id: data.id,
-          platform: data.platform || null,
-          payoutReference: data.payout_reference || null,
-          payoutDate: data.payout_date || null,
-          netAmount: Number(data.net_amount) || 0,
-        };
-      }
-    }
-  }
-  // Full re-render so summary tile + filter pills + list all reflect the change
-  await renderReconciliationView();
-}
-globalThis.reconLinkToPayout = reconLinkToPayout;
-
-/** Undo a payout↔deposit link.
- *
- *  unlinkPayoutFromTransaction has existed since the payout feature shipped but
- *  had NO caller anywhere, so a mis-matched deposit was permanent. Deliberately
- *  leaves received_at alone: unlinking removes the evidence, not the host's
- *  claim, so the payout drops from 'settled' to 'attested' rather than back to
- *  'outstanding'. */
-async function reconUnlinkPayout(payoutId, txnId) {
-  const ok = await globalThis.showAppModal({
-    title: 'Unlink this deposit?',
-    msg: 'The payout goes back to needing a match. Nothing is deleted.',
-    confirmText: 'Unlink',
-  });
-  if (!ok) return;
-  const result = await unlinkPayoutFromTransaction(payoutId);
-  if (!result.success) {
-    globalThis.showBanner('⚠ Could not unlink — see console', 'warn');
-    return;
-  }
-  const txn = _reconTxns.find(t => String(t.id) === String(txnId));
-  if (txn) { txn.status = 'unaccounted'; txn.payout = null; }
-  globalThis.showBanner('✓ Deposit unlinked', 'ok');
-  _renderReconFromCache();
-}
-globalThis.reconUnlinkPayout = reconUnlinkPayout;
-
-/** From an EXPENSE, find the bank payment that settles it — the reverse of
- *  reconMatchExpense. findMatchesForExpense has existed since the reconciliation
- *  feature shipped and had no caller anywhere, so this direction was never
- *  reachable from the UI. */
-async function reconFindPaymentForExpense(expenseId) {
-  const user = await getCurrentSupabaseUser();
-  if (!user) { globalThis.showBanner('Sign in first', 'warn'); return; }
-  const exp = (Array.isArray(expenses) ? expenses : [])
-    .find(e => String(e._cloudId || e.id) === String(expenseId));
-  if (!exp) { globalThis.showBanner('⚠ Expense not found', 'warn'); return; }
-
-  const matches = await findMatchesForExpense(exp, user.id);
-  if (!matches.length) {
-    globalThis.showBanner(
-      `No unmatched payment within ±3 days of ${exp.date} for $${_fmtAud(Math.abs(Number(exp.amount) || 0))}. It may have been paid another way, or that month is not imported yet.`,
-      'warn');
-    return;
-  }
-  const rows = matches.slice(0, 8).map(m => {
-    const t = m.transaction || m.txn || m;
-    const amt = _fmtAud(Math.abs(Number(t.amount) || 0));
-    const score = m.score != null ? ` · score ${m.score}` : '';
-    return `<div onclick="reconLinkExpenseToTxn('${escapeJsSingleQuotedHtmlAttr(String(t.id))}','${escapeJsSingleQuotedHtmlAttr(String(expenseId))}')"
-        style="padding:10px 12px;border-bottom:0.5px solid var(--hairline-1);cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">
-        <div style="font-size:13px;font-weight:600;color:var(--ink-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(t.description || 'Payment')}</div>
-        <div style="font-size:11.5px;color:var(--muted-2);margin-top:2px">${escHtml(t.date || '')} · $${amt}${escHtml(score)}</div>
-      </div>`;
-  }).join('');
-
-  let overlay = document.getElementById('recon-match-overlay');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.id = 'recon-match-overlay';
-    document.body.appendChild(overlay);
-  }
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.4);display:flex;align-items:flex-end;justify-content:center';
-  overlay.innerHTML = `
-    <div style="background:#fff;width:100%;max-width:560px;border-radius:16px 16px 0 0;max-height:70vh;overflow-y:auto;padding:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <strong style="font-family:'Plus Jakarta Sans',sans-serif;font-size:15px">Find the payment</strong>
-        <button onclick="document.getElementById('recon-match-overlay').style.display='none';document.body.style.overflow=''" style="border:none;background:none;font-size:20px;cursor:pointer;color:var(--muted-2)">×</button>
-      </div>
-      <div style="font-size:12.5px;color:var(--muted-2);margin-bottom:8px;font-family:'Plus Jakarta Sans',sans-serif">${escHtml(exp.merchant || exp.description || 'Expense')} · $${_fmtAud(Math.abs(Number(exp.amount) || 0))}</div>
-      ${rows}
-    </div>`;
-  overlay.style.display = 'flex';
-  document.body.style.overflow = 'hidden';
-}
-globalThis.reconFindPaymentForExpense = reconFindPaymentForExpense;
-
-/** Link the chosen bank payment to the expense, then refresh in place. */
-async function reconLinkExpenseToTxn(txnId, expenseId) {
-  const result = await linkTransactionToExpense(txnId, expenseId);
-  if (!result || !result.success) {
-    globalThis.showBanner('⚠ Could not link — see console', 'warn');
-    return;
-  }
-  const overlay = document.getElementById('recon-match-overlay');
-  if (overlay) overlay.style.display = 'none';
-  document.body.style.overflow = '';
-  const exp = (Array.isArray(expenses) ? expenses : [])
-    .find(e => String(e._cloudId || e.id) === String(expenseId));
-  // Write the snake_case field the cloud mapper actually produces, so the row
-  // drops out of the unpaid list immediately rather than only after a hydrate.
-  if (exp) { exp.bank_transaction_id = txnId; exp.bankTransactionId = txnId; exp.reconciled = true; exp.paymentStatus = 'paid'; }
-  const txn = _reconTxns.find(t => String(t.id) === String(txnId));
-  if (txn) { txn.status = 'matched'; txn.expense_id = expenseId; txn.expenseMerchant = (exp && (exp.merchant || exp.description)) || 'Linked'; }
-  globalThis.showBanner('✓ Payment matched to expense', 'ok');
-  _renderReconFromCache();
-}
-globalThis.reconLinkExpenseToTxn = reconLinkExpenseToTxn;
-
-/** Link a bank transaction to an existing expense */
-async function reconLinkToExpense(txnId, expenseId) {
-  const sb = window._sb;
-  if (!sb) return;
-  try {
-    // supabase-js does not throw on a failed write — check each result so we
-    // never falsely banner "linked" while the link did not persist (report 3.2).
-    const w = (typeof globalThis.sbWrite === 'function')
-      ? globalThis.sbWrite
-      : async (builder, _opts) => { const { error } = await builder; return { ok: !error, error }; };
-    const r1 = await w(sb.from('bank_transactions').update({ expense_id: expenseId }).eq('id', txnId), { label: 'reconciliation link' });
-    if (!r1.ok) return;
-    const r2 = await w(sb.from('expenses').update({ reconciled: true, bank_transaction_id: txnId, payment_status: 'paid' }).eq('id', expenseId), { label: 'reconciliation link' });
-    if (!r2.ok) return;
-    const overlay = document.getElementById('recon-match-overlay');
-    if (overlay) { overlay.style.display = 'none'; }
-    document.body.style.overflow = '';
-    globalThis.showBanner('✓ Transaction linked to expense', 'ok');
-
-    // Update in-memory and re-render list without full re-fetch (preserves scroll)
-    const txn = _reconTxns.find(t => String(t.id) === String(txnId));
-    if (txn) {
-      txn.status = 'matched';
-      txn.expense_id = expenseId;
-      const exp = (Array.isArray(expenses) ? expenses : []).find(e => (e._cloudId || e.id) === expenseId);
-      if (exp) txn.expenseMerchant = exp.merchant || exp.description || 'Linked';
-    }
-    // Re-render tab-scoped (tabs + summary + filters + list) preserving scroll, so
-    // the summary tiles stay scoped to the active tab instead of summing every row.
-    const listEl = document.getElementById('reconciliation-list');
-    const scrollY = listEl && listEl.parentElement ? listEl.parentElement.scrollTop : window.scrollY;
-    _renderReconFromCache();
-    const listEl2 = document.getElementById('reconciliation-list');
-    if (listEl2 && listEl2.parentElement) listEl2.parentElement.scrollTop = scrollY;
-    else window.scrollTo(0, scrollY);
-  } catch (err) {
-    globalThis.showBanner('Failed to link: ' + (err.message || err), 'error');
-  }
-}
-globalThis.reconLinkToExpense = reconLinkToExpense;
-
-/** Pre-fill the expense form from an unaccounted transaction. */
-let _pendingReconTxnId = null;
-// True while #expense-edit-modal is borrowed to CREATE an expense from a bank
-// transaction instead of editing an existing one.
-let _reconCreateMode = false;
-
-/** Open the shared expense modal ON TOP of the reconciliation list, prefilled
- *  from a bank transaction.
- *
- *  Deliberately does NOT navigate. The inline add-form panel lives inside
- *  #finance-expenses-view, which showFinanceSub hides to show reconciliation, so
- *  it can never float over this list — but #expense-edit-modal is a top-level
- *  .modal-overlay and can. Staying put is what keeps the host's pill filter and
- *  tab alive: nothing re-enters the view, so nothing resets them. */
-function reconCreateExpense(txnId, date, amount, description) {
-  _pendingReconTxnId = txnId; // auto-linked by _autoLinkPendingReconTxn after save
-  _reconCreateMode = true;
-
-  const numAmount = Number(amount);
-  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
-  set('ee-merchant', '');
-  set('ee-description', description || '');
-  set('ee-amount', Number.isFinite(numAmount) ? Math.abs(numAmount) : amount);
-  set('ee-date', date || localDateStr());
-  set('ee-receipt-num', '');
-  set('ee-tax-note', '');
-  const refundEl = document.getElementById('ee-is-refund');
-  if (refundEl) refundEl.checked = Number.isFinite(numAmount) && numAmount < 0;
-  const catEl = document.getElementById('ee-category');
-  if (catEl) catEl.value = '';
-  renderExpenseCatPickerFor('ee');
-  const typeSel = document.getElementById('ee-receipt-type');
-  if (typeSel) typeSel.value = 'missing';
-  if (typeof renderExpenseBookingPicker === 'function') renderExpenseBookingPicker('ee', '');
-  _resetExpenseAllocUI('ee');
-
-  // No expense row exists yet, so the EDIT receipt controls (which attach to an
-  // existing row) are useless here — swap them for the create-mode block, which
-  // stages a receipt the same way the inline Add panel does and offers
-  // "Read with AI" to fill this form.
-  // editingExpenseId must be null so a stale edit target can't be saved over.
-  editingExpenseId = null;
-  editingExpensePhotoBase64 = null;
-  const receiptSection = document.getElementById('ee-receipt-section');
-  if (receiptSection) receiptSection.style.display = 'none';
-  const createReceipt = document.getElementById('ee-create-receipt-block');
-  if (createReceipt) createReceipt.style.display = 'block';
-  const aiBtn = document.getElementById('ee-ai-read-btn');
-  if (aiBtn) aiBtn.style.display = 'block';
-  const exStatus = document.getElementById('ee-extract-status');
-  if (exStatus) { exStatus.style.display = 'none'; exStatus.textContent = ''; }
-  // Receipt staging is module-global, shared with the inline Add panel. Clear it
-  // so a receipt staged there earlier and never saved can't silently ride along
-  // on this expense — addExpense uploads whatever is staged, sight unseen.
-  if (typeof clearExpensePhoto === 'function') clearExpensePhoto();
-  if (typeof clearExpensePhoto2 === 'function') clearExpensePhoto2();
-  const titleEl = document.getElementById('ee-modal-title');
-  if (titleEl) titleEl.textContent = 'New Expense';
-  const saveBtn = document.getElementById('ee-save-btn');
-  if (saveBtn) saveBtn.textContent = '💾 Save & Match';
-  const suggest = document.getElementById('ee-ai-suggest-card');
-  if (suggest) suggest.style.display = 'none';
-
-  document.getElementById('expense-edit-modal').classList.add('open');
-  document.body.style.overflow = 'hidden';
-  setTimeout(globalThis.attachModalHandleDrag, 0);
-}
-
-/** Put the shared modal back into plain "edit" shape and drop the pending link.
- *  Clearing _pendingReconTxnId is the important half: abandoning a recon create
- *  used to leave it set, so the NEXT unrelated expense the host saved was
- *  silently matched to that bank transaction and stamped paid/reconciled. */
-function _exitReconCreateMode(clearPending = true) {
-  if (!_reconCreateMode) return;
-  _reconCreateMode = false;
-  // On a SUCCESSFUL save the pending id must survive: addExpense links it
-  // asynchronously, once saveExpenseToCloud resolves. Only cancelling clears it.
-  if (clearPending) _pendingReconTxnId = null;
-  const receiptSection = document.getElementById('ee-receipt-section');
-  if (receiptSection) receiptSection.style.display = '';
-  const createReceipt = document.getElementById('ee-create-receipt-block');
-  if (createReceipt) createReceipt.style.display = 'none';
-  const exStatus = document.getElementById('ee-extract-status');
-  if (exStatus) { exStatus.style.display = 'none'; exStatus.textContent = ''; }
-  const titleEl = document.getElementById('ee-modal-title');
-  if (titleEl) titleEl.textContent = 'Edit Expense';
-  const saveBtn = document.getElementById('ee-save-btn');
-  if (saveBtn) saveBtn.textContent = '💾 Save Changes';
-  _resetExpenseAllocUI('ee');
-}
-
-/** Save the recon-created expense. Reuses addExpense() wholesale — it already
- *  auto-links the pending bank txn once the cloud id returns — passing every
- *  field explicitly so it reads the 'ee' modal rather than the inline 'exp'
- *  form, and silent:true so it leaves that untouched form alone. */
-function _saveReconNewExpense() {
-  const val = id => (document.getElementById(id)?.value || '').trim();
-  const allocations = readExpenseAllocations('ee');
-  const created = addExpense({
-    merchant: val('ee-merchant'),
-    description: val('ee-description'),
-    amount: parseFloat(val('ee-amount')),
-    isRefund: document.getElementById('ee-is-refund')?.checked || false,
-    date: val('ee-date') || localDateStr(),
-    category: val('ee-category'),
-    receiptType: val('ee-receipt-type') || 'missing',
-    receiptNum: val('ee-receipt-num'),
-    taxNote: val('ee-tax-note'),
-    bookingId: allocations.length ? allocations[0].bookingId : (val('ee-booking-link') || null),
-    allocations,
-    silent: true,
-  });
-  // addExpense returns the row on success and undefined on every bail (missing
-  // merchant/amount, invalid split, or the async unallocated-remainder confirm).
-  // Leave the modal open on those so the host keeps their draft.
-  if (!created) return;
-  // Exit create mode FIRST, keeping _pendingReconTxnId alive for the pending
-  // async link; closeExpenseEdit's own _exitReconCreateMode() then no-ops.
-  _exitReconCreateMode(false);
-  closeExpenseEdit();
-}
-
-/** Mark an unaccounted bank transaction as a personal (non-business) charge. */
-async function reconMarkPersonal(txnId) {
-  const { success } = await setTransactionClassification(txnId, { isPersonal: true });
-  if (!success) { globalThis.showBanner('⚠ Could not update transaction', 'warn'); return; }
-  globalThis.showBanner('✓ Marked as personal', 'ok');
-  await renderReconciliationView();
-}
-globalThis.reconMarkPersonal = reconMarkPersonal;
-
-/** Skip an unaccounted bank transaction (dismiss it from reconciliation). */
-async function reconMarkSkipped(txnId) {
-  const { success } = await setTransactionClassification(txnId, { skipped: true });
-  if (!success) { globalThis.showBanner('⚠ Could not update transaction', 'warn'); return; }
-  globalThis.showBanner('✓ Skipped', 'ok');
-  await renderReconciliationView();
-}
-globalThis.reconMarkSkipped = reconMarkSkipped;
-
-/** Restore a personal/skipped transaction back to the Unaccounted list. */
-async function reconRestoreTxn(txnId) {
-  const { success } = await setTransactionClassification(txnId, { isPersonal: false, skipped: false });
-  if (!success) { globalThis.showBanner('⚠ Could not update transaction', 'warn'); return; }
-  globalThis.showBanner('✓ Moved back to Unaccounted', 'ok');
-  await renderReconciliationView();
-}
-globalThis.reconRestoreTxn = reconRestoreTxn;
-
-/** Called after addExpense() saves — auto-links to pending bank transaction if any */
-async function _autoLinkPendingReconTxn(expenseId) {
-  const txnId = _pendingReconTxnId;
-  _pendingReconTxnId = null;
-  if (!txnId || !expenseId || !window._sb) return;
-  try {
-    // supabase-js does not throw on a failed write, so check each result instead
-    // of bannering "linked" over an RLS-blocked update (mirrors reconLinkToExpense,
-    // report 3.2). A half-applied link is worse than none: the bank row would
-    // point at an expense that was never marked reconciled.
-    const w = (typeof globalThis.sbWrite === 'function')
-      ? globalThis.sbWrite
-      : async (builder, _opts) => { const { error } = await builder; return { ok: !error, error }; };
-    const r1 = await w(window._sb.from('bank_transactions').update({ expense_id: expenseId }).eq('id', txnId), { label: 'reconciliation link' });
-    if (!r1.ok) { globalThis.showBanner('⚠ Expense saved, but could not link it to the bank transaction', 'warn'); return; }
-    const r2 = await w(window._sb.from('expenses').update({ reconciled: true, bank_transaction_id: txnId, payment_status: 'paid' }).eq('id', expenseId), { label: 'reconciliation link' });
-    if (!r2.ok) { globalThis.showBanner('⚠ Matched, but the expense was not marked reconciled', 'warn'); return; }
-    globalThis.showBanner('✓ Expense created & linked to bank transaction', 'ok');
-
-    // Patch the cached row and re-render FROM CACHE rather than refetching:
-    // _renderReconFromCache leaves _reconFilter and _reconTab untouched, so the
-    // host lands back on exactly the filtered list they were working. The row
-    // is now 'matched', so it drops out of the Unaccounted filter on its own.
-    const txn = (_reconTxns || []).find(t => String(t.id) === String(txnId));
-    if (txn) {
-      txn.status = 'matched';
-      txn.expense_id = expenseId;
-      const exp = (Array.isArray(expenses) ? expenses : []).find(e => (e._cloudId || e.id) === expenseId);
-      if (exp) txn.expenseMerchant = exp.merchant || exp.description || 'Linked';
-    }
-    const listEl = document.getElementById('reconciliation-list');
-    if (listEl) {
-      const scrollY = listEl.parentElement ? listEl.parentElement.scrollTop : window.scrollY;
-      _renderReconFromCache();
-      const listEl2 = document.getElementById('reconciliation-list');
-      if (listEl2 && listEl2.parentElement) listEl2.parentElement.scrollTop = scrollY;
-    }
-  } catch (e) {
-    console.warn('[StayOps] Auto-link recon failed:', e);
-  }
-}
-globalThis._autoLinkPendingReconTxn = _autoLinkPendingReconTxn;
 
 // ── MONTHLY STATEMENT VIEW ──────────────────────────────────────────────────
 let _statementYear = new Date().getFullYear();
@@ -4975,9 +3948,6 @@ export {
   _canonicalPlatformName,
   getAtoFieldLabel,
   checkReceiptNudge,
-  showReconciliationView,
-  renderReconciliationView,
-  filterReconciliation,
   showDepreciationView,
   exportTaxPDF,
   exportTaxCSV,
@@ -4986,8 +3956,6 @@ export {
   showStatementView,
 };
 
-globalThis.reconCreateExpense = reconCreateExpense;
-globalThis.filterReconciliation = filterReconciliation;
 globalThis.resetFinanceSubViewToHub = resetFinanceSubViewToHub;
 globalThis.mgmtCheckboxChange = mgmtCheckboxChange;
 globalThis.mgmtToggleSelectAll = mgmtToggleSelectAll;

@@ -1,8 +1,10 @@
 # Bank transactions and reconciliation: redesign plan
 
-Status: proposal, nothing built yet. Written 2026-10-04 against the live `stayops`
-Supabase project and the code on `main` (Transaction Map, Reconcile, bank import,
-payout paste).
+Status: built on branch `claude/transaction-reconciliation-redesign-5s9opj`
+(2026-10-05): migration applied to the live project, FY 2025-26 bulk-marked and
+locked, Bank screen replaces Transaction Map and Reconcile. Written 2026-10-04
+against the live `stayops` Supabase project and the code on `main`. Sections 1
+and 2 describe the state before the change.
 
 ## 1. What is actually in the account
 
