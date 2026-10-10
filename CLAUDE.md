@@ -49,12 +49,14 @@ After login: config migration -> cloud seed -> host identity -> app init -> `hyd
 - Notification toggles in `app_config.notification_config`: `email_cancellation`, `notif_assignment`, `email_reminder`
 
 ### Cleaners have their own PWA
-Cleaners log in via `auth_user_id` on the `cleaners` table. They can accept/decline/mark-done cleans through `cleaner-action.js` (Netlify Function). Actions trigger push + email notifications to the host and insert message cards into the `messages` table.
+Cleaners sign in with their own Supabase user (`cleaners.auth_user_id`). The cleaner UI is `render-cleaner.js`, fed by `loadCleanerDashboard()` in `supabase.js`: their cleans and assigned properties come through RLS, and host contact plus the sibling bookings needed for turnover deadlines come from the `cleaner_dashboard_context()` SECURITY DEFINER RPC (scoped to `auth.uid()`). `annotateCleanerCleans()` in `utils.js` derives per-clean checkout time, next check-in, same-day-turnover flag and the deadline sort key. Accept / decline / start / finish / acknowledge write to `cleans` directly (RLS policy `cleaner_update_own_cleans`; `started_at` marks a clean in progress) and notify the host via `send-push`. The per-property cheat sheet (lockbox, access, Wi-Fi, cleaner notes) lives in `properties.check_in_info` and is edited from Property → Access & Rules; the lockbox code is only shown on the day of the clean. "Message Host" opens the phone's SMS app via an `sms:` link to `host_config.phone`.
+
+`cleaner-data.js` and `cleaner-action.js` (Netlify Functions) are the legacy link/PIN cleaner path and are no longer called by the frontend.
 
 ## Supabase tables (key ones)
 - `bookings` — guest bookings (status: confirmed/cancelled). Key columns: `source` (`ical`/`gmail`/`outlook`/`manual`), `enrichment_status` (`pending`/`enriched`), `ical_uid`, `ical_feed_id`, `confirmation_code`.
 - `property_ical_feeds` — per-property iCal subscriptions (one row per platform per property). Polled by `ical-sync.js`.
-- `cleans` — cleaning jobs linked to bookings via `booking_id`
+- `cleans` — cleaning jobs linked to bookings via `booking_id` (the booking's `local_id`). `cleaner_confirmed` / `cleaner_declined` / `started_at` / `done` track the cleaner's progress.
 - `cleaners` — cleaner roster with auth, contact info, permissions
 - `app_config` — per-user settings, push subs, notification config, email templates
 - `host_config` — host profile (name, company, contact)

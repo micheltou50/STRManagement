@@ -8,6 +8,7 @@ import {
   saveAllProperties,
   initPropertyUI,
 } from './config.js';
+import { annotateCleanerCleans } from './utils.js';
 /* ═══════════════════════════════════════════════════════════════════════════
    STAYOPS — Supabase Integration Layer v2
    Tables: host_config, properties, cleaners, cleaning_jobs,
@@ -141,7 +142,7 @@ export async function loadCleanerDashboard() {
   // Primary lookup: by auth_user_id
   let { data: cleanerRecord } = await window._sb
     .from('cleaners')
-    .select('id, name, email, phone')
+    .select('id, name, email, phone, user_id')
     .eq('auth_user_id', user.id)
     .single();
 
@@ -149,7 +150,7 @@ export async function loadCleanerDashboard() {
   if (!cleanerRecord && user.email) {
     const { data: byEmail } = await window._sb
       .from('cleaners')
-      .select('id, name, email, phone')
+      .select('id, name, email, phone, user_id')
       .eq('email', user.email)
       .limit(1);
     if (byEmail && byEmail.length) {
@@ -165,48 +166,41 @@ export async function loadCleanerDashboard() {
 
   const { data: myCleans } = await window._sb
     .from('cleans')
-    .select('*, properties:property_id (name, address, check_in_info)')
+    .select('*, properties:property_id (id, name, address, suburb, state, check_in_info)')
     .eq('cleaner_uuid', cleanerRecord.id)
     .order('clean_date', { ascending: true });
-
-  // Check which linked bookings are cancelled. cleans.booking_id canonically
-  // holds the booking's local_id, but legacy rows may hold the cloud UUID, so
-  // match against BOTH bookings.local_id and bookings.id. Routing each value to
-  // the right column also avoids the uuid-type error that an .in('id', [...])
-  // throws when fed numeric/text local_ids (which silently broke this before).
   const cleans = myCleans || [];
-  const bookingIds = [...new Set(cleans.map(c => c.booking_id).filter(Boolean).map(String))];
-  if (bookingIds.length) {
-    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const uuidIds  = bookingIds.filter(v => uuidRe.test(v));
-    const localIds = bookingIds.filter(v => !uuidRe.test(v));
-    const cancelledSet = new Set();
-    const collect = (rows) => (rows || []).forEach(b => {
-      if (b.id != null)       cancelledSet.add(String(b.id));
-      if (b.local_id != null) cancelledSet.add(String(b.local_id));
-    });
-    if (uuidIds.length) {
-      const { data } = await window._sb
-        .from('bookings').select('id, local_id, status')
-        .in('id', uuidIds).eq('status', 'cancelled');
-      collect(data);
+
+  // Host contact + sibling bookings come from the cleaner_dashboard_context()
+  // RPC (SECURITY DEFINER, scoped to auth.uid() — see supabase/migrations/
+  // 20261010_100000_cleaner_phase1_started_at_and_context.sql). RLS hides
+  // host_config from cleaners entirely, and only exposes bookings whose cloud
+  // UUID is stored in cleans.booking_id — but booking_id canonically holds the
+  // host's local_id, so a plain bookings query returns nothing for most cleans.
+  // The RPC returns a minimal column list (dates/times/guests/status) for every
+  // booking at a property this cleaner is assigned to: enough to work out each
+  // clean's deadline (the next guest's check-in) and whether its own booking
+  // was cancelled. A missing/failed RPC degrades to "no deadline info".
+  let hosts = [];
+  let ctxBookings = [];
+  try {
+    const { data: ctx, error: ctxErr } = await window._sb.rpc('cleaner_dashboard_context');
+    if (ctxErr) console.warn('[StayOps] cleaner_dashboard_context failed:', ctxErr.message);
+    if (ctx && typeof ctx === 'object') {
+      hosts = Array.isArray(ctx.hosts) ? ctx.hosts : [];
+      ctxBookings = Array.isArray(ctx.bookings) ? ctx.bookings : [];
     }
-    if (localIds.length) {
-      const { data } = await window._sb
-        .from('bookings').select('id, local_id, status')
-        .in('local_id', localIds).eq('status', 'cancelled');
-      collect(data);
-    }
-    if (cancelledSet.size) {
-      cleans.forEach(c => {
-        if (c.booking_id && cancelledSet.has(String(c.booking_id))) {
-          c._bookingCancelled = true;
-        }
-      });
-    }
+  } catch (e) {
+    console.warn('[StayOps] cleaner_dashboard_context threw:', e && e.message);
   }
 
-  return { cleanerRecord, myCleans: cleans };
+  annotateCleanerCleans(cleans, ctxBookings);
+
+  const hostByUserId = {};
+  hosts.forEach(h => { if (h && h.user_id) hostByUserId[String(h.user_id)] = h; });
+  const host = hostByUserId[String(cleanerRecord.user_id || '')] || hosts[0] || null;
+
+  return { cleanerRecord, myCleans: cleans, host, hosts, hostByUserId };
 }
 
 export async function getSupabaseSession() {
@@ -366,6 +360,9 @@ export function _toLocalPatch(row, existing) {
     bookingComUrl:      row.booking_com_url      || existing.bookingComUrl      || '',
     stayzUrl:           row.stayz_url            || existing.stayzUrl           || '',
     vrboUrl:            row.vrbo_url             || existing.vrboUrl            || '',
+    // Cleaner cheat sheet (lockbox / access / wifi / cleaner notes) — edited in
+    // Property → Access & Rules, shown in the cleaner PWA on the day of the clean.
+    checkInInfo: (row.check_in_info && typeof row.check_in_info === 'object') ? row.check_in_info : (existing.checkInInfo || {}),
     branding: {
       subtitle: [suburb, state].filter(Boolean).join(' · '),
       tagline: row.tagline || exBrand.tagline || [suburb, state].filter(Boolean).join(', ')

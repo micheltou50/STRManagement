@@ -11,7 +11,7 @@ import {
   authFetch,
 } from './supabase.js';
 import { updateNotifStatus } from './notifications.js';
-import { renderPropertySwitcher, populateOwnerReportPanel } from './property.js';
+import { renderPropertySwitcher, populateOwnerReportPanel, populateAccessRulesPanel } from './property.js';
 import { reopenPropertySetup } from './setup.js';
 import {
   populateCleanerSelect,
@@ -816,6 +816,9 @@ function openSettingsPanel(panelId, returnSection) {
   }
   if (panelId === 'ical-feeds') {
     populateICalFeedsPanel();
+  }
+  if (panelId === 'access-rules') {
+    populateAccessRulesPanel();
   }
   if (panelId === 'owner-report') {
     populateOwnerReportPanel();
