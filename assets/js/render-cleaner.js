@@ -348,27 +348,48 @@ function completedCard(c) {
  * cleaner's reply, green otherwise. Tapping a day scrolls to that day's section
  * (every day section carries id="cleaner-day-YYYY-MM-DD").
  */
+const HEAVY_DAY_CLEANS = 5;     // a day with this many open cleans…
+const HEAVY_DAY_TURNOVERS = 3;  // …or this many same-day turnovers is flagged "heavy"
+
+function isHeavyDay(list) {
+  return list.length >= HEAVY_DAY_CLEANS || list.filter(c => c._sameDayTurnover).length >= HEAVY_DAY_TURNOVERS;
+}
+
 function weekStrip(open, todayStr) {
   const byDay = {};
   open.forEach(c => { if (c.clean_date) (byDay[c.clean_date] = byDay[c.clean_date] || []).push(c); });
-  let html = '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:18px">';
+  let html = '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:10px">';
+  const heavyDays = [];
   for (let i = 0; i < 7; i++) {
     const d = addDays(todayStr, i);
     const list = byDay[d] || [];
     const n = list.length;
     const isToday = i === 0;
     const dt = dayStart(d);
+    const turnovers = list.filter(c => c._sameDayTurnover).length;
+    const heavy = isHeavyDay(list);
+    if (heavy) heavyDays.push({ d, n, turnovers });
     const tone = !n ? null
-      : list.some(c => c._sameDayTurnover) ? '#E24B4A'
+      : turnovers ? '#E24B4A'
       : list.some(c => !c.cleaner_confirmed) ? '#EF9F27'
       : '#1D9E75';
-    html += '<div data-day="' + d + '" role="button" style="text-align:center;padding:7px 2px 6px;border-radius:10px;background:' + (isToday ? '#2f5d4e' : n ? '#fff' : 'transparent') + ';border:0.5px solid ' + (isToday ? '#2f5d4e' : n ? '#e5e5e0' : 'transparent') + ';cursor:' + (n ? 'pointer' : 'default') + '">' +
+    html += '<div data-day="' + d + '" role="button"' + (heavy ? ' title="Heavy day"' : '') + ' style="text-align:center;padding:7px 2px 6px;border-radius:10px;background:' + (isToday ? '#2f5d4e' : n ? '#fff' : 'transparent') + ';border:0.5px solid ' + (isToday ? '#2f5d4e' : heavy ? '#E24B4A' : n ? '#e5e5e0' : 'transparent') + ';cursor:' + (n ? 'pointer' : 'default') + '">' +
       '<div style="font-size:10px;font-weight:500;letter-spacing:0.3px;text-transform:uppercase;color:' + (isToday ? 'rgba(255,255,255,0.8)' : '#999') + '">' + DAY_NAMES[dt.getDay()] + '</div>' +
       '<div style="font-size:15px;font-weight:600;margin-top:1px;color:' + (isToday ? '#fff' : n ? '#1c2620' : '#bbb') + '">' + dt.getDate() + '</div>' +
-      '<div style="margin:5px auto 0;width:20px;height:20px;border-radius:10px;font-size:11px;font-weight:600;line-height:20px;background:' + (tone || 'transparent') + ';color:' + (tone ? '#fff' : 'transparent') + '">' + (n || '') + '</div>' +
+      '<div style="margin:5px auto 0;width:20px;height:20px;border-radius:10px;font-size:11px;font-weight:600;line-height:20px;background:' + (tone || 'transparent') + ';color:' + (tone ? '#fff' : 'transparent') + (heavy ? ';box-shadow:0 0 0 2px #fff,0 0 0 3.5px #E24B4A' : '') + '">' + (n || '') + '</div>' +
     '</div>';
   }
-  return html + '</div>';
+  html += '</div>';
+  // Overload warning: a cleaner finds out about a brutal Saturday on Monday, not Saturday morning.
+  if (heavyDays.length) {
+    html += '<div style="margin-bottom:16px;padding:8px 12px;background:#FCEBEB;border-radius:8px;font-size:12px;color:#A32D2D;line-height:1.45">' +
+      heavyDays.map(h => '<span style="font-weight:600">' + fmtDay(h.d) + '</span> is heavy: ' + h.n + (h.n === 1 ? ' clean' : ' cleans') +
+        (h.turnovers ? ', ' + h.turnovers + ' same-day turnover' + (h.turnovers === 1 ? '' : 's') : '')).join(' · ') +
+      '. If that is too much, message your host early.</div>';
+  } else {
+    html += '<div style="margin-bottom:8px"></div>';
+  }
+  return html;
 }
 
 /**
@@ -419,6 +440,16 @@ function upcomingByDay(data, later) {
   return html;
 }
 
+/** When the host assigns a batch (a fortnight of bookings at once), one tap accepts the lot. */
+function acceptAllBar(awaiting) {
+  const ids = awaiting.map(c => String(c.id)).join(',');
+  const n = awaiting.length;
+  return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;padding:10px 12px;background:#FAEEDA;border-radius:8px">' +
+    '<div style="font-size:12px;color:#854F0B"><span style="font-weight:600">' + n + ' cleans</span> are waiting for your reply</div>' +
+    '<button type="button" data-action="accept_all" data-clean-ids="' + escHtml(ids) + '" style="flex-shrink:0;padding:8px 14px;background:#2f5d4e;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">Accept all ' + n + '</button>' +
+  '</div>';
+}
+
 // ── My Cleans (day plan) ───────────────────────────────────────────────────
 function renderNewCleanerView(data) {
   if (!data) return;
@@ -467,7 +498,7 @@ function renderNewCleanerView(data) {
     const n = today.length;
     const turnovers = today.filter(c => c._sameDayTurnover).length;
     let line = 'Hi ' + (cleanerRecord.name || 'there');
-    if (n) line += ' · ' + n + ' clean' + (n === 1 ? '' : 's') + ' today' + (turnovers ? ', ' + turnovers + ' same-day turnover' + (turnovers === 1 ? '' : 's') : '');
+    if (n) line += ' · ' + n + ' clean' + (n === 1 ? '' : 's') + ' today' + (turnovers ? ', ' + turnovers + ' same-day turnover' + (turnovers === 1 ? '' : 's') : '') + (isHeavyDay(today) ? ' · heavy day' : '');
     else if (all.length) line += ' · nothing on today';
     greeting.textContent = line;
   }
@@ -477,6 +508,8 @@ function renderNewCleanerView(data) {
     html = '<div style="text-align:center;padding:40px 20px;color:#999"><div style="font-size:40px;margin-bottom:12px">✨</div><div style="font-size:15px;font-weight:500">No cleans assigned yet</div><div style="font-size:13px;margin-top:6px">Your host will assign cleans to you here.</div></div>';
   } else {
     html += weekStrip(open, todayStr);
+    const awaitingAll = open.filter(c => !c.cleaner_confirmed && !c.cleaner_declined);
+    if (awaitingAll.length >= 2) html += acceptAllBar(awaitingAll);
     let first = true;
     const header = (label, count, colour, id) => { const h = sectionHeader(label, count, colour, first, id); first = false; return h; };
     if (cancelled.length) {
@@ -529,6 +562,13 @@ function renderNewCleanerView(data) {
         code.style.cssText = 'font-family:\'JetBrains Mono\',monospace;font-weight:600;font-size:16px;color:#1c2620;letter-spacing:1px';
         code.textContent = btn.getAttribute('data-code') || '';
         btn.replaceWith(code);
+        return;
+      }
+
+      if (action === 'accept_all') {
+        const ids = (btn.getAttribute('data-clean-ids') || '').split(',').filter(Boolean);
+        if (!ids.length || !window.confirm('Accept all ' + ids.length + ' cleans?')) return;
+        await globalThis.withButtonLoading(btn, () => cleanerAcceptAll(ids), 'Accepting…');
         return;
       }
 
@@ -601,6 +641,52 @@ async function cleanerAcceptClean(cleanId) {
     (c, cr) => ({ title: '✅ Clean Confirmed', body: (cr.name || 'Cleaner') + ' accepted the clean for ' + _guestOn(c), tag: 'accept-' + cleanId }));
 }
 window.cleanerAcceptClean = cleanerAcceptClean;
+
+/**
+ * "Accept all": one UPDATE across every awaiting clean (RLS still checks each
+ * row belongs to this cleaner), then one push per host instead of one per clean.
+ */
+async function cleanerAcceptAll(ids) {
+  if (!window._sb || !ids.length) return;
+  const { error } = await window._sb.from('cleans')
+    .update({ cleaner_confirmed: true, cleaner_declined: false, confirmed_at: new Date().toISOString() })
+    .in('id', ids);
+  if (error) { globalThis.showBanner('Failed to accept: ' + error.message, 'error'); return; }
+
+  const data = typeof globalThis.loadCleanerDashboard === 'function'
+    ? await globalThis.loadCleanerDashboard()
+    : null;
+  if (!data) return;
+
+  try {
+    const accepted = (data.myCleans || []).filter(c => ids.includes(String(c.id)));
+    const byHost = {};
+    accepted.forEach(c => { if (c.user_id) (byHost[c.user_id] = byHost[c.user_id] || []).push(c); });
+    const name = (data.cleanerRecord && data.cleanerRecord.name) || 'Cleaner';
+    for (const uid of Object.keys(byHost)) {
+      const list = byHost[uid];
+      const dates = list.map(c => c.clean_date).filter(Boolean).sort();
+      await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: uid,
+          title: '✅ ' + list.length + ' cleans confirmed',
+          body: name + ' accepted ' + list.length + ' cleans' + (dates.length ? ' (' + dates[0] + ' to ' + dates[dates.length - 1] + ')' : ''),
+          url: '/',
+          tag: 'accept-all-' + Date.now(),
+        }),
+      });
+    }
+  } catch (e) {
+    console.warn('[StayOps] Push notify failed:', e);
+  }
+
+  window._cleanerData = data;
+  renderNewCleanerView(data);
+  renderCleanerCalendar();
+  renderCleanerProfile();
+}
+window.cleanerAcceptAll = cleanerAcceptAll;
 
 async function cleanerDeclineClean(cleanId) {
   await _cleanerUpdate(cleanId,
@@ -943,6 +1029,8 @@ function renderCleanerProfile() {
   }
   html += '</div></div>';
 
+  html += earningsCard(cleans);
+
   // Subscribe-able .ics of this cleaner's cleans, so they live in the phone
   // calendar the cleaner already uses (Netlify/functions/cleaner-calendar-feed.js).
   const feedUrl = cr.id ? cleanerFeedUrl(cr.id) : '';
@@ -994,6 +1082,43 @@ function renderCleanerProfile() {
   }
 }
 window.renderCleanerProfile = renderCleanerProfile;
+
+/**
+ * Earnings, from the per-clean fee the host entered (cleans.cost): this month
+ * done / still to do, and last month. Counts and totals only — paid vs unpaid
+ * lives in the host's expenses, which a cleaner cannot read.
+ */
+function earningsCard(cleans) {
+  const now = new Date();
+  const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const ym = d => String(d || '').slice(0, 7);
+  const thisMonth = ym(localDateStr(now));
+  const lastMonth = ym(localDateStr(lm));
+  const live = (cleans || []).filter(c => !c._bookingCancelled && !c.cleaner_declined);
+  const sum = list => list.reduce((t, c) => t + (Number(c.cost) || 0), 0);
+  const money = n => '$' + Math.round(n).toLocaleString('en-AU');
+  const monthLabel = d => MONTH_NAMES[d.getMonth()] + ' ' + d.getFullYear();
+  const row = (label, list, note) => {
+    const total = sum(list);
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f5f5f3">' +
+      '<div><div style="font-size:13px;color:#333">' + label + '</div>' + (note ? '<div style="font-size:11px;color:#999">' + note + '</div>' : '') + '</div>' +
+      '<div style="text-align:right"><div style="font-size:15px;font-weight:700;color:var(--primary)">' + (total ? money(total) : '—') + '</div>' +
+        '<div style="font-size:11px;color:#999">' + list.length + (list.length === 1 ? ' clean' : ' cleans') + '</div></div>' +
+    '</div>';
+  };
+  const doneThis = live.filter(c => c.done && ym(c.clean_date) === thisMonth);
+  const todoThis = live.filter(c => !c.done && ym(c.clean_date) === thisMonth);
+  const doneLast = live.filter(c => c.done && ym(c.clean_date) === lastMonth);
+  const anyFee = live.some(c => Number(c.cost) > 0);
+  let html = '<div style="background:white;border-radius:16px;padding:18px 20px;margin-top:16px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">';
+  html += '<div style="font-weight:700;font-size:14px;color:var(--primary);margin-bottom:2px">💰 Earnings</div>';
+  html += '<div style="font-size:11px;color:#999;margin-bottom:4px">From the fee your host set on each clean' + (anyFee ? '.' : ' — none entered yet, so only counts show.') + ' Paid or unpaid is not tracked here.</div>';
+  html += row(monthLabel(now) + ' · done', doneThis);
+  html += row(monthLabel(now) + ' · still to do', todoThis, 'expected');
+  html += row(monthLabel(lm) + ' · done', doneLast);
+  html += '</div>';
+  return html;
+}
 
 /** Public .ics URL for this cleaner's cleans — keyed by the cleaner's row uuid. */
 function cleanerFeedUrl(cleanerId) {
