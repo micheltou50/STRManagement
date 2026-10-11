@@ -107,6 +107,7 @@ export function getBookingCleanerState(booking) {
   if (!clean) return { key: 'unassigned', label: 'Needs cleaner assignment', tone: 'warn' };
   if (clean.done) return { key: 'done', label: 'Clean completed', tone: 'ok', clean };
   if (clean.cleanerDeclined) return { key: 'declined', label: 'Cleaner declined — reassign needed', tone: 'bad', clean };
+  if (clean.startedAt) return { key: 'in_progress', label: 'Cleaner on site — clean in progress', tone: 'ok', clean };
   if (clean.cleanerConfirmed) return { key: 'confirmed', label: 'Cleaner confirmed', tone: 'ok', clean };
   return { key: 'pending', label: 'Assigned — awaiting cleaner response', tone: 'warn', clean };
 }
@@ -134,7 +135,7 @@ export function normalizeBookingCleanState() {
 
   bookings.forEach(b => {
     const st = getBookingCleanerState(b);
-    const shouldConfirmed = st.key === 'confirmed' || st.key === 'done';
+    const shouldConfirmed = st.key === 'confirmed' || st.key === 'in_progress' || st.key === 'done';
     if (!!b.cleanerConfirmed !== shouldConfirmed) {
       b.cleanerConfirmed = shouldConfirmed;
       bookingsChanged = true;
@@ -400,6 +401,7 @@ export function prepareCleaningData() {
       else if (c.cleaner && c.cleanerCancelAcknowledged) itemStatus = 'cancelled_acked';
       else itemStatus = 'cancelled';
     }
+    else if (c.startedAt) itemStatus = 'in_progress';
     else if (c.cleanerConfirmed) itemStatus = 'confirmed';
     else itemStatus = 'awaiting';
     allItems.push({
@@ -522,6 +524,8 @@ export function renderCleanRow(item, showProperty, index) {
     ? _pill('#FCEBEB', '#A32D2D', 'Unassigned')
     : item.status === 'awaiting'
       ? _pill('#FEF3E2', '#854F0B', 'Awaiting')
+    : item.status === 'in_progress'
+      ? _pill('#E6F1FB', '#185FA5', 'On site')
       : _pill('#EAF3DE', '#3B6D11', 'Confirmed');
 
   const cleanerText = item.cleaner
@@ -598,6 +602,8 @@ export function renderCleanPipeline(data, showProperty) {
       items: data.filtered.filter(i => i.status === 'unassigned') },
     { key: 'awaiting', label: 'Awaiting', bg: '#FEF3E2', colour: '#854F0B',
       items: data.filtered.filter(i => i.status === 'awaiting') },
+    { key: 'in_progress', label: 'On site', bg: '#E6F1FB', colour: '#185FA5',
+      items: data.filtered.filter(i => i.status === 'in_progress') },
     { key: 'confirmed', label: 'Confirmed', bg: '#EAF3DE', colour: '#3B6D11',
       items: data.filtered.filter(i => i.status === 'confirmed') },
   ];
@@ -997,6 +1003,8 @@ function _renderCleanDesktopPipeline(data, _showProperty) {
       items: data.filtered.filter(i => i.status === 'unassigned') },
     { key: 'awaiting', label: 'Awaiting', colour: '#854F0B', hdr: '#FEF3E2', bg: '#FFFBF5',
       items: data.filtered.filter(i => i.status === 'awaiting') },
+    { key: 'in_progress', label: 'On site', colour: '#185FA5', hdr: '#E6F1FB', bg: '#F5F9FD',
+      items: data.filtered.filter(i => i.status === 'in_progress') },
     { key: 'confirmed', label: 'Confirmed', colour: '#3B6D11', hdr: '#EAF3DE', bg: '#F9FCF5',
       items: data.filtered.filter(i => i.status === 'confirmed') },
     { key: 'cancelled', label: 'Cancelled', colour: '#A32D2D', hdr: '#FDECEA', bg: '#FCEBEB',
@@ -1048,8 +1056,8 @@ globalThis._selectDispatchClean = function(bookingId, cleanId) {
   // server response that uses snake_case.
   const cId = c && (c.cleanerId || c.cleaner_id);
   const cleanerName = cId ? ((window._cleaners || []).find(cl => String(cl.id) === String(cId))?.name || 'Unknown') : 'Unassigned';
-  const statusLabel = c ? (c.cleanerConfirmed ? 'Confirmed' : cId ? 'Awaiting' : 'Unassigned') : 'Unknown';
-  const statusColor = statusLabel === 'Confirmed' ? 'var(--moss)' : statusLabel === 'Awaiting' ? 'var(--warn)' : 'var(--red)';
+  const statusLabel = c ? (c.startedAt && !c.done ? 'On site' : c.cleanerConfirmed ? 'Confirmed' : cId ? 'Awaiting' : 'Unassigned') : 'Unknown';
+  const statusColor = statusLabel === 'Confirmed' || statusLabel === 'On site' ? 'var(--moss)' : statusLabel === 'Awaiting' ? 'var(--warn)' : 'var(--red)';
 
   panel.innerHTML = '<div class="dispatch-panel-hdr">Details</div>' +
     '<div class="dispatch-detail-content">' +
@@ -1079,6 +1087,7 @@ export function reassignClean(cleanId) {
     c.cleanerId = null;
     c.cleanerDeclined = false;
     c.cleanerConfirmed = false;
+    c.startedAt = null;
     c.notified = false;
     normalizeBookingCleanState();
     if (typeof saveCleanToCloud === 'function') {
