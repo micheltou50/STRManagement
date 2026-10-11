@@ -25,6 +25,7 @@ import {
   _sendCleanerAssignmentNotifications,
   getCleanerSub,
   sendPushToDevice,
+  sendPushToUserId,
   cleanerLinkForId,
   sendCleanerEmail,
 } from './notifications.js';
@@ -1550,10 +1551,21 @@ export async function assignCleanerToBooking(bookingIdParam) {
     globalThis.showBanner('✓ Assigned to ' + cleanerObj.name + ' — awaiting cleaner response', 'ok');
     globalThis.showDetail(detailId);
 
-    // Send push notification
-    const cleanerSub = getCleanerSub(cleanerObj.id);
+    // Send push notification — the cleaner's own devices first (subscriptions
+    // saved under their auth user from the cleaner PWA), legacy host-device sub as fallback
     let pushSent = false;
-    console.log('[StayOps] cleaner push sub', { cleanerId: cleanerObj.id, hasSub: !!cleanerSub });
+    if (cleanerObj.auth_user_id) {
+      const r = await sendPushToUserId(
+        cleanerObj.auth_user_id,
+        '🏡 New Clean Assigned',
+        `${booking.name || 'Guest'} · ${fmt(date)}`,
+        cleanerLinkForId(cleanerObj),
+        'assign-' + String(bookingIdParam)
+      );
+      pushSent = !!(r && r.ok && r.sent > 0);
+    }
+    const cleanerSub = pushSent ? null : getCleanerSub(cleanerObj.id);
+    console.log('[StayOps] cleaner push', { cleanerId: cleanerObj.id, viaUser: pushSent, hasLegacySub: !!cleanerSub });
     if (cleanerSub) {
       pushSent = true;
       sendPushToDevice(cleanerSub,

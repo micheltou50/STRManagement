@@ -60,6 +60,108 @@ async function persistAppConfigAfterStalePushEndpoints(supabaseAdmin, userId, ra
 }
 
 /**
+ * Delivery core shared by sendPushToHost and sendPushToUser: web push to every
+ * subscription on the user's app_config row (pruning 404/410 endpoints), then
+ * APNs to their native tokens. No gating, logging or email — callers add those.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabaseAdmin
+ * @param {string} uid auth user id (the app_config.user_id)
+ * @param {object|null} row the app_config row (push_subscriptions, native_push_tokens)
+ * @param {{title:string, body?:string, url?:string, type?:string, tag?:string}} msg
+ * @returns {Promise<{ sent: number, removed: number }>}
+ */
+async function deliverToUser(supabaseAdmin, uid, row, { title, body, url, type, tag }) {
+  const subs = subscriptionsFromAppConfigRow(row);
+  let sent = 0;
+  let staleCount = 0;
+
+  if (subs.length && ensureVapid()) {
+    const staleEndpoints = new Set();
+    const payload = JSON.stringify({
+      title,
+      body: body || '',
+      url: url || '/',
+      type: type || '',
+      ...(tag ? { tag } : {}),
+    });
+
+    for (const sub of subs) {
+      try {
+        console.log('[StayOps] push-helper: sending push —', title);
+        await webpush.sendNotification(sub, payload);
+        sent++;
+      } catch (e) {
+        const statusCode = e && e.statusCode != null ? Number(e.statusCode) : NaN;
+        if (statusCode === 404 || statusCode === 410) {
+          staleEndpoints.add(sub.endpoint);
+          console.log('[StayOps] push-helper: subscription stale (HTTP ' + statusCode + ')');
+        }
+        console.log('[StayOps] push-helper: send failed —', e && e.message ? e.message : String(e));
+      }
+    }
+
+    staleCount = staleEndpoints.size;
+    if (staleCount) {
+      await persistAppConfigAfterStalePushEndpoints(supabaseAdmin, uid, row, staleEndpoints);
+    }
+  } else {
+    console.log('[StayOps] push-helper: no push subscriptions — skipping push');
+  }
+
+  // ── Native iOS (APNs) push to the user's registered device tokens ──
+  try {
+    const { sendApns, isConfigured: apnsConfigured } = require('./apns');
+    const rawTokens = Array.isArray(row && row.native_push_tokens) ? row.native_push_tokens : [];
+    const tokens = rawTokens.map(t => t && t.token).filter(Boolean);
+    if (tokens.length && apnsConfigured()) {
+      const r = await sendApns(tokens, { title, body, data: { url: url || '/', type: type || '', ...(tag ? { tag } : {}) } });
+      sent += r.sent;
+      if (r.stale.length) {
+        const keep = rawTokens.filter(t => t && t.token && !r.stale.includes(t.token));
+        await supabaseAdmin.from('app_config').update({ native_push_tokens: keep, updated_at: new Date().toISOString() }).eq('user_id', uid);
+        console.log('[StayOps] push-helper: removed ' + r.stale.length + ' stale APNs tokens');
+      }
+      console.log('[StayOps] push-helper: APNs sent=' + r.sent + ' stale=' + r.stale.length);
+    }
+  } catch (apnsErr) { console.log('[StayOps] push-helper: APNs send failed —', apnsErr && apnsErr.message); }
+
+  return { sent, removed: staleCount };
+}
+
+/**
+ * Push-only delivery to ONE auth user (any role) by their app_config row —
+ * the cleaner PWA stores a cleaner's subscriptions under the cleaner's own
+ * auth user, so userId is cleaners.auth_user_id for a cleaner. No
+ * notification_config gating, no notification_log row, no email: callers that
+ * need those (e.g. the morning digest dedup) add them.
+ * @param {object} params
+ * @param {import('@supabase/supabase-js').SupabaseClient} params.supabaseAdmin
+ * @param {string} params.userId
+ * @param {string} params.title
+ * @param {string} [params.body]
+ * @param {string} [params.url]
+ * @param {string} [params.type]
+ * @param {string} [params.tag]
+ * @returns {Promise<{ sent: number, removed: number }>}
+ */
+async function sendPushToUser({ supabaseAdmin, userId, title, body, url, type, tag }) {
+  if (!supabaseAdmin || !userId || !title) {
+    console.log('[StayOps] push-helper: sendPushToUser missing supabaseAdmin, userId or title');
+    return { sent: 0, removed: 0 };
+  }
+  const { data: cfgRows, error } = await supabaseAdmin
+    .from('app_config')
+    .select('push_subscriptions, native_push_tokens')
+    .eq('user_id', userId)
+    .limit(1);
+  if (error) {
+    console.log('[StayOps] push-helper: app_config read failed', error.message);
+    return { sent: 0, removed: 0 };
+  }
+  const row = Array.isArray(cfgRows) && cfgRows.length ? cfgRows[0] : null;
+  return deliverToUser(supabaseAdmin, userId, row, { title, body, url, type, tag });
+}
+
+/**
  * @param {object} params
  * @param {import('@supabase/supabase-js').SupabaseClient} params.supabaseAdmin
  * @param {string} params.propertyId
@@ -133,59 +235,8 @@ async function sendPushToHost({
     }
   }
 
-  // ── Push notifications (only if subscriptions exist) ──
-  const subs = subscriptionsFromAppConfigRow(row);
-  let sent = 0;
-  let staleCount = 0;
-
-  if (subs.length && ensureVapid()) {
-    const staleEndpoints = new Set();
-    const payload = JSON.stringify({
-      title,
-      body: body || '',
-      url: url || '/',
-      type: type || '',
-    });
-
-    for (const sub of subs) {
-      try {
-        console.log('[StayOps] push-helper: sending push —', title);
-        await webpush.sendNotification(sub, payload);
-        sent++;
-      } catch (e) {
-        const statusCode = e && e.statusCode != null ? Number(e.statusCode) : NaN;
-        if (statusCode === 404 || statusCode === 410) {
-          staleEndpoints.add(sub.endpoint);
-          console.log('[StayOps] push-helper: subscription stale (HTTP ' + statusCode + ')');
-        }
-        console.log('[StayOps] push-helper: send failed —', e && e.message ? e.message : String(e));
-      }
-    }
-
-    staleCount = staleEndpoints.size;
-    if (staleCount) {
-      await persistAppConfigAfterStalePushEndpoints(supabaseAdmin, uid, row, staleEndpoints);
-    }
-  } else {
-    console.log('[StayOps] push-helper: no push subscriptions — skipping push, will still email');
-  }
-
-  // ── Native iOS (APNs) push to the host's registered device tokens ──
-  try {
-    const { sendApns, isConfigured: apnsConfigured } = require('./apns');
-    const rawTokens = Array.isArray(row && row.native_push_tokens) ? row.native_push_tokens : [];
-    const tokens = rawTokens.map(t => t && t.token).filter(Boolean);
-    if (tokens.length && apnsConfigured()) {
-      const r = await sendApns(tokens, { title, body, data: { url: url || '/', type: type || '' } });
-      sent += r.sent;
-      if (r.stale.length) {
-        const keep = rawTokens.filter(t => t && t.token && !r.stale.includes(t.token));
-        await supabaseAdmin.from('app_config').update({ native_push_tokens: keep, updated_at: new Date().toISOString() }).eq('user_id', uid);
-        console.log('[StayOps] push-helper: removed ' + r.stale.length + ' stale APNs tokens');
-      }
-      console.log('[StayOps] push-helper: APNs sent=' + r.sent + ' stale=' + r.stale.length);
-    }
-  } catch (apnsErr) { console.log('[StayOps] push-helper: APNs send failed —', apnsErr && apnsErr.message); }
+  // ── Web push + APNs to every device on this user's app_config row ──
+  const { sent, removed: staleCount } = await deliverToUser(supabaseAdmin, uid, row, { title, body, url, type });
 
   // ── Always log notification (regardless of push subscription state) ──
   const { error: logErr } = await supabaseAdmin.from('notification_log').insert({
@@ -269,5 +320,6 @@ async function hasRecentNotification({ supabaseAdmin, type, referenceId, withinM
 
 module.exports = {
   sendPushToHost,
+  sendPushToUser,
   hasRecentNotification,
 };

@@ -8,7 +8,7 @@ import {
   saveAllProperties,
   initPropertyUI,
 } from './config.js';
-import { annotateCleanerCleans } from './utils.js';
+import { annotateCleanerCleans, prepareCleanerCache, localDateStr } from './utils.js';
 /* ═══════════════════════════════════════════════════════════════════════════
    STAYOPS — Supabase Integration Layer v2
    Tables: host_config, properties, cleaners, cleaning_jobs,
@@ -134,6 +134,52 @@ export async function detectUserRole() {
   return 'unlinked';
 }
 
+// ── Cleaner offline cache ───────────────────────────────────────────────────
+// The last good dashboard payload per auth user, so the day plan (and today's
+// lockbox codes) still render in a basement with no signal. Keyed by auth user
+// id so one cleaner never sees another's plan on a shared phone. Writes are
+// non-fatal; reads happen only when the live load fails (showCleanerApp).
+const CLEANER_CACHE_PREFIX = 'stayops-cleaner-cache:';
+
+function writeCleanerCache(userId, data) {
+  try {
+    const prepared = prepareCleanerCache(data, localDateStr(new Date()));
+    if (prepared) localStorage.setItem(CLEANER_CACHE_PREFIX + userId, JSON.stringify(prepared));
+  } catch (e) {
+    console.warn('[StayOps] cleaner cache write failed:', e && e.message);
+  }
+}
+
+function readCleanerCache(userId) {
+  try {
+    const raw = localStorage.getItem(CLEANER_CACHE_PREFIX + userId);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && parsed.data ? parsed : null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+export function clearCleanerCache() {
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith(CLEANER_CACHE_PREFIX))
+      .forEach(k => localStorage.removeItem(k));
+  } catch (_e) { /* ignore */ }
+}
+globalThis.clearCleanerCache = clearCleanerCache;
+
+/** The signed-in user's id without a network round-trip (getSession reads local storage). */
+async function offlineUserId() {
+  if (window._supabaseUser && window._supabaseUser.id) return window._supabaseUser.id;
+  try {
+    const { data } = await window._sb.auth.getSession();
+    return data && data.session && data.session.user ? data.session.user.id : null;
+  } catch (_e) {
+    return null;
+  }
+}
+
 export async function loadCleanerDashboard() {
   if (!window._sb) return null;
   const user = await getCurrentSupabaseUser();
@@ -213,7 +259,9 @@ export async function loadCleanerDashboard() {
   hosts.forEach(h => { if (h && h.user_id) hostByUserId[String(h.user_id)] = h; });
   const host = hostByUserId[String(cleanerRecord.user_id || '')] || hosts[0] || null;
 
-  return { cleanerRecord, myCleans: cleans, host, hosts, hostByUserId, daysOff };
+  const result = { cleanerRecord, myCleans: cleans, host, hosts, hostByUserId, daysOff };
+  writeCleanerCache(user.id, result);
+  return result;
 }
 
 export async function getSupabaseSession() {
@@ -1110,13 +1158,34 @@ export function showCleanerApp() {
 
   hideLoadingScreen();
 
-  // Load cleaner data
-  loadCleanerDashboard().then((data) => {
+  // Load cleaner data — falling back to the last cached plan when the live load
+  // fails (no signal), and reloading the moment the connection comes back.
+  const renderFromCache = async () => {
+    const uid = await offlineUserId();
+    const cached = uid ? readCleanerCache(uid) : null;
+    if (!cached) return false;
+    window._cleanerOffline = { at: cached.at };
+    window._cleanerData = cached.data;
+    if (typeof renderNewCleanerView === 'function') renderNewCleanerView(cached.data);
+    return true;
+  };
+  const load = () => loadCleanerDashboard().then(async (data) => {
     if (data) {
+      window._cleanerOffline = null;
       window._cleanerData = data;
       if (typeof renderNewCleanerView === 'function') renderNewCleanerView(data);
+    } else if (!window._cleanerData) {
+      await renderFromCache();
     }
+  }).catch(async (e) => {
+    console.warn('[StayOps] loadCleanerDashboard failed:', e && e.message);
+    if (!window._cleanerData) await renderFromCache();
   });
+  load();
+  if (!window._cleanerOnlineHooked) {
+    window._cleanerOnlineHooked = true;
+    window.addEventListener('online', () => { if (window._cleanerOffline) load(); });
+  }
 }
 
 export function toggleSignUp() {

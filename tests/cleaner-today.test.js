@@ -80,3 +80,29 @@ test('annotateCleanerCleans: flags a cancelled own booking and matches legacy uu
   // an orphan clean still gets a deadline from the property's bookings (none after the 5th here)
   assert.strictEqual(by.orphan._nextCheckinDate, '');
 });
+
+test('prepareCleanerCache: keeps lockbox codes only for cleans on or before today, never mutates the source', async () => {
+  const { prepareCleanerCache } = await importUtils();
+  const data = {
+    cleanerRecord: { id: 'cl1', name: 'Megan' },
+    host: { name: 'Michel', phone: '0412' },
+    myCleans: [
+      { id: 'past',  clean_date: '2026-10-10', properties: { name: 'A', check_in_info: { lockbox_code: '1111', wifi: 'w' } } },
+      { id: 'today', clean_date: '2026-10-12', properties: { name: 'B', check_in_info: { lockbox_code: '2222' } } },
+      { id: 'later', clean_date: '2026-10-13', properties: { name: 'C', check_in_info: { lockbox_code: '3333', instructions: 'gate' } } },
+      { id: 'noinfo', clean_date: '2026-10-14', properties: { name: 'D' } },
+    ],
+  };
+  const cached = prepareCleanerCache(data, '2026-10-12');
+  assert.ok(cached && typeof cached.at === 'number');
+  const by = Object.fromEntries(cached.data.myCleans.map(c => [c.id, c]));
+  assert.equal(by.past.properties.check_in_info.lockbox_code, '1111');
+  assert.equal(by.today.properties.check_in_info.lockbox_code, '2222');
+  assert.equal('lockbox_code' in by.later.properties.check_in_info, false);
+  assert.equal(by.later.properties.check_in_info.instructions, 'gate', 'other cheat-sheet fields survive');
+  assert.equal(by.noinfo.properties.name, 'D');
+  assert.equal(cached.data.host.phone, '0412', 'host contact kept so Message host works offline');
+  // source untouched
+  assert.equal(data.myCleans[2].properties.check_in_info.lockbox_code, '3333');
+  assert.equal(prepareCleanerCache(null, '2026-10-12'), null);
+});

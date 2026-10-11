@@ -212,6 +212,30 @@ export function annotateCleanerCleans(cleans, ctxBookings) {
   return cleans;
 }
 
+/**
+ * Cleaner PWA offline cache — what loadCleanerDashboard() writes to localStorage
+ * after a successful load so the plan still renders with no signal. Lockbox
+ * codes are kept ONLY for cleans on or before `todayStr` (the doors the cleaner
+ * may be standing at right now); later cleans lose them, the same rule the live
+ * view applies ("code shows on the day"). Deep-copies; never mutates `data`.
+ * @param {object} data the loadCleanerDashboard() result
+ * @param {string} todayStr "YYYY-MM-DD" (local)
+ * @returns {{at:number, data:object}|null}
+ */
+export function prepareCleanerCache(data, todayStr) {
+  if (!data || typeof data !== 'object') return null;
+  const copy = JSON.parse(JSON.stringify(data));
+  const today = String(todayStr || '').slice(0, 10);
+  (Array.isArray(copy.myCleans) ? copy.myCleans : []).forEach(c => {
+    const day = String((c && c.clean_date) || '').slice(0, 10);
+    const info = c && c.properties && c.properties.check_in_info;
+    if (info && typeof info === 'object' && 'lockbox_code' in info && (!day || !today || day > today)) {
+      delete info.lockbox_code;
+    }
+  });
+  return { at: Date.now(), data: copy };
+}
+
 export function fmtShort(dateStr) {
   if (!dateStr) return '';
   const d = parseLocalDayStart(dateStr);

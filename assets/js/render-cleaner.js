@@ -27,6 +27,8 @@ export function cleanerSignOut() {
   const signOutPromise = window._sb ? window._sb.auth.signOut() : Promise.resolve();
   signOutPromise.finally(() => {
     window._cleanerData = null;
+    window._cleanerOffline = null;
+    if (typeof globalThis.clearCleanerCache === 'function') globalThis.clearCleanerCache();
     document.body.classList.remove('cleaner-mode');
     const cleanerNav = document.getElementById('cleaner-nav');
     const cleanerContent = document.getElementById('cleaner-content');
@@ -549,7 +551,13 @@ function renderNewCleanerView(data) {
     }
   }
 
-  container.innerHTML = html;
+  // Rendered from the offline cache (supabase.js showCleanerApp) — say so, and
+  // say what will not stick until the connection is back.
+  const offline = window._cleanerOffline;
+  const offlineBar = offline
+    ? '<div style="margin-bottom:12px;padding:9px 12px;background:#FAEEDA;border-radius:8px;font-size:12px;color:#854F0B;line-height:1.45"><span style="font-weight:600">Offline.</span> Showing your plan from ' + fmtStamp(new Date(offline.at || Date.now()).toISOString()) + '. Ticks, photos and status changes will not save until you are back online.</div>'
+    : '';
+  container.innerHTML = offlineBar + html;
 
   if (!container._cleanerDelegated) {
     container.addEventListener('click', async function (e) {

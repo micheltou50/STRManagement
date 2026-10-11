@@ -16,7 +16,8 @@
                or 10:00)
      DTEND   = the next guest's check-in when they arrive the same day (override
                or 15:00), else checkout + 3h
-   This mirrors annotateCleanerCleans() in assets/js/utils.js — keep in step.
+   Turnover maths live in ./utils/cleaner-turnover.js (shared with the morning
+   digest) and mirror annotateCleanerCleans() in assets/js/utils.js.
 
    Deliberately NOT in the feed: the lockbox code (feeds sync through third-
    party calendar servers; the code stays in the app, revealed on the day) and
@@ -26,10 +27,9 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const { captureError, flush } = require('./utils/sentry');
+const { resolveTurnover, mins, clock, isoDate, addDays, addDaysStr } = require('./utils/cleaner-turnover');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const DEFAULT_CHECKOUT = '10:00';
-const DEFAULT_CHECKIN = '15:00';
 const FALLBACK_HOURS = 3;   // event length when nobody arrives the same day
 const PAST_DAYS = 30;       // keep a month of completed cleans in the feed
 const FUTURE_DAYS = 180;    // bookings window for next-arrival lookups
@@ -67,7 +67,7 @@ exports.handler = async (event) => {
       'cleans?cleaner_uuid=eq.' + enc(cleaner.id) +
       '&clean_date=gte.' + enc(since) +
       '&cleaner_declined=eq.false' +
-      '&select=id,local_id,booking_id,property_id,guest_name,clean_date,done,cleaner_confirmed,started_at,notes' +
+      '&select=id,local_id,booking_id,property_id,user_id,guest_name,clean_date,done,cleaner_confirmed,started_at,notes' +
       '&order=clean_date.asc'
     );
     if (!cleans.length) return ics([], cleaner);
@@ -81,18 +81,20 @@ exports.handler = async (event) => {
     properties.forEach(p => { propById[p.id] = p; });
 
     // 4. Bookings at those properties: the clean's own (checkout time, cancelled?)
-    //    and the next arrival (the deadline)
+    //    and the next arrival (the deadline). Same-host rows only (local_id is per host).
     const until = isoDate(addDays(new Date(), FUTURE_DAYS));
+    const hostIds = [...new Set(cleans.map(c => c.user_id).filter(Boolean))];
     const bookings = propIds.length
       ? await get(
           'bookings?property_id=in.(' + propIds.map(enc).join(',') + ')' +
+          (hostIds.length ? '&user_id=in.(' + hostIds.map(enc).join(',') + ')' : '') +
           '&checkout=gte.' + enc(since) + '&checkin=lte.' + enc(until) +
-          '&select=id,local_id,property_id,checkin,checkout,checkin_time,checkout_time,guests,status'
+          '&select=id,local_id,property_id,user_id,checkin,checkout,checkin_time,checkout_time,guests,status'
         )
       : [];
 
     const events = cleans
-      .map(c => buildEvent(c, propById[c.property_id] || {}, bookings))
+      .map(c => buildEvent(c, propById[c.property_id] || {}, bookings.filter(b => !c.user_id || String(b.user_id) === String(c.user_id))))
       .filter(Boolean);
     return ics(events, cleaner);
   } catch (err) {
@@ -105,37 +107,21 @@ exports.handler = async (event) => {
 
 /** One clean → event descriptor, or null when its own booking was cancelled. */
 function buildEvent(c, prop, bookings) {
-  const key = c.booking_id != null && c.booking_id !== '' ? String(c.booking_id) : '';
-  const own = key ? (bookings.find(b => String(b.local_id) === key || String(b.id) === key) || null) : null;
-  if (own && own.status === 'cancelled') return null;
-
   const day = String(c.clean_date || '').slice(0, 10);
   if (!day) return null;
-  const checkout = hhmm(own && own.checkout_time, DEFAULT_CHECKOUT);
+  const t = resolveTurnover(c, bookings);
+  if (t.cancelled) return null;
 
-  // Earliest non-cancelled arrival at the same property on/after the clean date
-  let next = null;
-  bookings.forEach(b => {
-    if (b === own || b.status === 'cancelled' || String(b.property_id) !== String(c.property_id)) return;
-    const ci = String(b.checkin || '').slice(0, 10);
-    if (!ci || ci < day) return;
-    if (!next) { next = b; return; }
-    const nci = String(next.checkin).slice(0, 10);
-    if (ci < nci || (ci === nci && mins(hhmm(b.checkin_time, DEFAULT_CHECKIN)) < mins(hhmm(next.checkin_time, DEFAULT_CHECKIN)))) next = b;
-  });
-  const nextDay = next ? String(next.checkin).slice(0, 10) : '';
-  const nextTime = next ? hhmm(next.checkin_time, DEFAULT_CHECKIN) : '';
-  const sameDay = !!next && nextDay === day;
-
-  const startMin = mins(checkout);
-  const endMin = sameDay && mins(nextTime) > startMin ? mins(nextTime) : startMin + FALLBACK_HOURS * 60;
+  const startMin = mins(t.checkout);
+  const endMin = t.sameDay && mins(t.nextTime) > startMin ? mins(t.nextTime) : startMin + FALLBACK_HOURS * 60;
   const info = (prop.check_in_info && typeof prop.check_in_info === 'object') ? prop.check_in_info : {};
+  const own = t.own;
 
   const description = [
-    'Guest out: ' + (c.guest_name || 'Guest') + (own && own.guests ? ' (' + own.guests + ' guests)' : '') + ' · ' + clock(checkout),
-    sameDay
-      ? 'Next guest: ' + clock(nextTime) + ' today' + (next.guests ? ' (' + next.guests + ' guests)' : '')
-      : nextDay ? 'Next guest: ' + nextDay + ' ' + clock(nextTime) : 'Next guest: none booked yet',
+    'Guest out: ' + (c.guest_name || 'Guest') + (own && own.guests ? ' (' + own.guests + ' guests)' : '') + ' · ' + clock(t.checkout),
+    t.sameDay
+      ? 'Next guest: ' + clock(t.nextTime) + ' today' + (t.next.guests ? ' (' + t.next.guests + ' guests)' : '')
+      : t.nextDay ? 'Next guest: ' + t.nextDay + ' ' + clock(t.nextTime) : 'Next guest: none booked yet',
     c.done ? 'Status: done'
       : c.started_at ? 'Status: in progress'
       : c.cleaner_confirmed ? 'Status: confirmed'
@@ -151,7 +137,7 @@ function buildEvent(c, prop, bookings) {
     uid: 'clean-' + c.id + '@stayops',
     start: stamp(day, startMin),
     end: stamp(addDaysStr(day, Math.floor(endMin / 1440)), endMin % 1440),
-    summary: 'Clean · ' + (prop.name || 'Property') + (sameDay ? ' (next guest ' + clock(nextTime) + ')' : ''),
+    summary: 'Clean · ' + (prop.name || 'Property') + (t.sameDay ? ' (next guest ' + clock(t.nextTime) + ')' : ''),
     location: [prop.address, prop.suburb, prop.state].filter(Boolean).join(', '),
     description,
     status: c.done || c.cleaner_confirmed ? 'CONFIRMED' : 'TENTATIVE',
@@ -218,32 +204,10 @@ function fold(line) {
   return out.join('\r\n');
 }
 
-// ── time helpers (property-local wall clock, no timezone maths) ─────────────
-
-function hhmm(value, dflt) {
-  const m = /^(\d{1,2}):(\d{2})/.exec(String(value || ''));
-  if (!m) return dflt;
-  const h = Number(m[1]), mi = Number(m[2]);
-  if (h > 23 || mi > 59) return dflt;
-  return String(h).padStart(2, '0') + ':' + String(mi).padStart(2, '0');
-}
-function mins(label) { const [h, m] = String(label).split(':').map(Number); return (h || 0) * 60 + (m || 0); }
-function clock(label) {
-  const h = Math.floor(mins(label) / 60), m = mins(label) % 60;
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return h12 + (m ? ':' + String(m).padStart(2, '0') : '') + (h >= 12 ? 'pm' : 'am');
-}
+/** "YYYY-MM-DD" + minutes from midnight → "YYYYMMDDTHHMMSS" (floating local time). */
 function stamp(day, minutes) {
   const h = Math.floor(minutes / 60), m = minutes % 60;
   return day.replace(/-/g, '') + 'T' + String(h).padStart(2, '0') + String(m).padStart(2, '0') + '00';
-}
-function isoDate(d) { return d.toISOString().slice(0, 10); }
-function addDays(d, n) { const x = new Date(d.getTime()); x.setUTCDate(x.getUTCDate() + n); return x; }
-function addDaysStr(day, n) {
-  if (!n) return day;
-  const d = new Date(day + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() + n);
-  return isoDate(d);
 }
 
 function enc(s) { return encodeURIComponent(s); }
