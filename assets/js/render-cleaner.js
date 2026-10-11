@@ -85,8 +85,8 @@ function tonePill(label, tone) {
   return '<span style="display:inline-block;font-size:11px;font-weight:500;background:' + t.bg + ';color:' + t.fg + ';padding:3px 10px;border-radius:12px;white-space:nowrap">' + label + '</span>';
 }
 
-function sectionHeader(label, count, colour, first) {
-  return '<div style="display:flex;align-items:center;gap:6px;margin:' + (first ? '0' : '22px') + ' 0 12px">' +
+function sectionHeader(label, count, colour, first, id) {
+  return '<div' + (id ? ' id="' + escHtml(id) + '"' : '') + ' style="display:flex;align-items:center;gap:6px;margin:' + (first ? '0' : '22px') + ' 0 12px;scroll-margin-top:72px">' +
     '<div style="width:8px;height:8px;border-radius:50%;background:' + colour + '"></div>' +
     '<span style="font-size:12px;font-weight:500;color:' + colour + ';text-transform:uppercase;letter-spacing:0.4px">' + escHtml(label) + '</span>' +
     (count != null ? '<span style="font-size:11px;color:#999;margin-left:2px">' + count + '</span>' : '') +
@@ -234,7 +234,7 @@ function cleanCard(data, c, mode) {
   let html = '<div style="background:white;border:0.5px solid #eee;border-left:3px solid ' + border + ';border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px">';
   html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
   html += '<div style="min-width:0">';
-  if (!isDay) html += '<div style="font-size:11px;font-weight:500;color:#888;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px">' + fmtDay(c.clean_date) + '</div>';
+  if (mode === 'overdue') html += '<div style="font-size:11px;font-weight:500;color:#888;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px">' + fmtDay(c.clean_date) + '</div>';
   html += '<div style="font-size:17px;font-weight:500;color:var(--ink-1);line-height:1.25">' + escHtml(prop.name || 'Property') + '</div>';
   html += '<div style="font-size:13px;color:#888;margin-top:3px">' + guestLine + '</div>';
   if (prop.address) html += '<div style="font-size:12px;color:#aaa;margin-top:2px">' + escHtml(prop.address) + '</div>';
@@ -297,6 +297,84 @@ function completedCard(c) {
     '</div></div>';
 }
 
+// ── week strip + load summary ─────────────────────────────────────────────
+/**
+ * Seven-day strip (today + 6) above the plan: per-day count of open cleans, red
+ * when the day has a same-day turnover, amber when a clean still awaits the
+ * cleaner's reply, green otherwise. Tapping a day scrolls to that day's section
+ * (every day section carries id="cleaner-day-YYYY-MM-DD").
+ */
+function weekStrip(open, todayStr) {
+  const byDay = {};
+  open.forEach(c => { if (c.clean_date) (byDay[c.clean_date] = byDay[c.clean_date] || []).push(c); });
+  let html = '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:18px">';
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(todayStr, i);
+    const list = byDay[d] || [];
+    const n = list.length;
+    const isToday = i === 0;
+    const dt = dayStart(d);
+    const tone = !n ? null
+      : list.some(c => c._sameDayTurnover) ? '#E24B4A'
+      : list.some(c => !c.cleaner_confirmed) ? '#EF9F27'
+      : '#1D9E75';
+    html += '<div data-day="' + d + '" role="button" style="text-align:center;padding:7px 2px 6px;border-radius:10px;background:' + (isToday ? '#2f5d4e' : n ? '#fff' : 'transparent') + ';border:0.5px solid ' + (isToday ? '#2f5d4e' : n ? '#e5e5e0' : 'transparent') + ';cursor:' + (n ? 'pointer' : 'default') + '">' +
+      '<div style="font-size:10px;font-weight:500;letter-spacing:0.3px;text-transform:uppercase;color:' + (isToday ? 'rgba(255,255,255,0.8)' : '#999') + '">' + DAY_NAMES[dt.getDay()] + '</div>' +
+      '<div style="font-size:15px;font-weight:600;margin-top:1px;color:' + (isToday ? '#fff' : n ? '#1c2620' : '#bbb') + '">' + dt.getDate() + '</div>' +
+      '<div style="margin:5px auto 0;width:20px;height:20px;border-radius:10px;font-size:11px;font-weight:600;line-height:20px;background:' + (tone || 'transparent') + ';color:' + (tone ? '#fff' : 'transparent') + '">' + (n || '') + '</div>' +
+    '</div>';
+  }
+  return html + '</div>';
+}
+
+/**
+ * "Today's load": what goes in the van before the first stop — properties,
+ * bedrooms and bathrooms across today's cleans (from the properties row) and
+ * how many guests arrive next (towels). Properties with no bedroom count are
+ * called out so the host knows to fill in Property Details.
+ */
+function loadSummary(todayList) {
+  const seen = new Set();
+  let beds = 0, baths = 0, arriving = 0, noBeds = 0;
+  todayList.forEach(c => {
+    const p = c.properties || {};
+    seen.add(String(p.id || c.property_id || p.name || c.id));
+    const b = Number(p.bedrooms) || 0;
+    if (b > 0) beds += b; else noBeds++;
+    baths += Number(p.bathrooms) || 0;
+    if (c._nextGuests) arriving += c._nextGuests;
+  });
+  const parts = [seen.size + (seen.size === 1 ? ' property' : ' properties')];
+  if (beds) parts.push(beds + (beds === 1 ? ' bedroom' : ' bedrooms'));
+  if (baths) parts.push((Number.isInteger(baths) ? baths : baths.toFixed(1)) + (baths === 1 ? ' bathroom' : ' bathrooms'));
+  if (arriving) parts.push(arriving + (arriving === 1 ? ' guest' : ' guests') + ' arriving next');
+  return '<div style="margin:-4px 0 12px;padding:9px 12px;background:#F4F6F5;border-radius:8px;font-size:12px;color:#4a5a52">' +
+    '<span style="font-weight:600;color:#2f5d4e">Today\'s load</span> · ' + parts.join(' · ') +
+    (noBeds ? '<div style="font-size:11px;color:#999;margin-top:2px">' + noBeds + (noBeds === 1 ? ' property has' : ' properties have') + ' no bedroom count set</div>' : '') +
+  '</div>';
+}
+
+/**
+ * Upcoming cleans grouped under a small per-day header (id="cleaner-day-…" so
+ * the week strip can scroll to it). `later` arrives sorted by date then deadline.
+ */
+function upcomingByDay(data, later) {
+  let html = '';
+  let current = null;
+  later.forEach(c => {
+    if (c.clean_date !== current) {
+      current = c.clean_date;
+      const n = later.filter(x => x.clean_date === current).length;
+      html += '<div id="cleaner-day-' + escHtml(String(current)) + '" style="display:flex;align-items:baseline;gap:6px;margin:14px 0 8px;scroll-margin-top:72px">' +
+        '<span style="font-size:13px;font-weight:600;color:#333">' + fmtDay(current) + '</span>' +
+        '<span style="font-size:11px;color:#999">' + n + (n === 1 ? ' clean' : ' cleans') + '</span>' +
+      '</div>';
+    }
+    html += cleanCard(data, c, 'later');
+  });
+  return html;
+}
+
 // ── My Cleans (day plan) ───────────────────────────────────────────────────
 function renderNewCleanerView(data) {
   if (!data) return;
@@ -354,28 +432,34 @@ function renderNewCleanerView(data) {
   if (!all.length) {
     html = '<div style="text-align:center;padding:40px 20px;color:#999"><div style="font-size:40px;margin-bottom:12px">✨</div><div style="font-size:15px;font-weight:500">No cleans assigned yet</div><div style="font-size:13px;margin-top:6px">Your host will assign cleans to you here.</div></div>';
   } else {
+    html += weekStrip(open, todayStr);
+    let first = true;
+    const header = (label, count, colour, id) => { const h = sectionHeader(label, count, colour, first, id); first = false; return h; };
     if (cancelled.length) {
-      html += sectionHeader('Cancelled', cancelled.length, '#C0392B', !html);
+      html += header('Cancelled', cancelled.length, '#C0392B');
       html += cancelled.map(cancelledCard).join('');
     }
     if (overdue.length) {
-      html += sectionHeader('Overdue', overdue.length, '#A32D2D', !html);
+      html += header('Overdue', overdue.length, '#A32D2D');
       html += overdue.map(c => cleanCard(data, c, 'overdue')).join('');
     }
-    html += sectionHeader('Today · ' + fmtDay(todayStr), today.length, today.length ? '#2f5d4e' : '#999', !html);
-    html += today.length
-      ? today.map(c => cleanCard(data, c, 'today')).join('')
-      : '<div style="padding:16px;background:#f7f7f5;border-radius:8px;color:#888;font-size:13px;text-align:center">Nothing on today</div>';
+    html += header('Today · ' + fmtDay(todayStr), today.length, today.length ? '#2f5d4e' : '#999', 'cleaner-day-' + todayStr);
+    if (today.length) {
+      html += loadSummary(today);
+      html += today.map(c => cleanCard(data, c, 'today')).join('');
+    } else {
+      html += '<div style="padding:16px;background:#f7f7f5;border-radius:8px;color:#888;font-size:13px;text-align:center">Nothing on today</div>';
+    }
     if (tomorrow.length) {
-      html += sectionHeader('Tomorrow · ' + fmtDay(tomorrowStr), tomorrow.length, '#854F0B', false);
+      html += header('Tomorrow · ' + fmtDay(tomorrowStr), tomorrow.length, '#854F0B', 'cleaner-day-' + tomorrowStr);
       html += tomorrow.map(c => cleanCard(data, c, 'tomorrow')).join('');
     }
     if (later.length) {
-      html += sectionHeader('Upcoming', later.length, '#5F5E5A', false);
-      html += later.map(c => cleanCard(data, c, 'later')).join('');
+      html += header('Upcoming', later.length, '#5F5E5A');
+      html += upcomingByDay(data, later);
     }
     if (completed.length) {
-      html += sectionHeader('Completed', completed.length, '#999', false);
+      html += header('Completed', completed.length, '#999');
       html += completed.slice(0, 10).map(completedCard).join('');
     }
   }
@@ -384,6 +468,12 @@ function renderNewCleanerView(data) {
 
   if (!container._cleanerDelegated) {
     container.addEventListener('click', async function (e) {
+      const dayEl = e.target.closest('[data-day]');
+      if (dayEl && !e.target.closest('[data-action]')) {
+        const target = document.getElementById('cleaner-day-' + dayEl.getAttribute('data-day'));
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
       const btn = e.target.closest('[data-action]');
       if (!btn) return;
       e.stopPropagation();
@@ -549,12 +639,22 @@ function renderCleanerCalendar() {
     html += '<div onclick="showCleanerDayDetail(\'' + dateStr + '\')" style="text-align:center;padding:8px 2px;border-radius:10px;cursor:' + (hasCleans ? 'pointer' : 'default') + ';' + (isToday ? 'background:var(--primary);color:white;font-weight:700;' : '') + '">';
     html += '<div style="font-size:14px">' + d + '</div>';
     if (hasCleans) {
-      const dotColor = hasCleans.some((c) => !c.cleaner_confirmed && !c.done) ? '#C0392B' : '#3B6D11';
-      html += '<div style="width:6px;height:6px;border-radius:50%;background:' + dotColor + ';margin:3px auto 0"></div>';
+      const live = hasCleans.filter((c) => !c.done && !c._bookingCancelled && !c.cleaner_declined);
+      if (live.length) {
+        const col = live.some((c) => c._sameDayTurnover) ? '#E24B4A'
+          : live.some((c) => !c.cleaner_confirmed) ? '#EF9F27'
+          : '#3B6D11';
+        html += '<div style="display:inline-block;min-width:16px;height:16px;border-radius:8px;padding:0 4px;margin-top:3px;background:' + col + ';color:#fff;font-size:10px;font-weight:600;line-height:16px">' + live.length + '</div>';
+      } else {
+        html += '<div style="width:6px;height:6px;border-radius:50%;background:#bbb;margin:3px auto 0"></div>';
+      }
     }
     html += '</div>';
   }
   html += '</div>';
+  const legend = (col, label) => '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:' + col + ';display:inline-block"></span>' + label + '</span>';
+  html += '<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:#777;margin-bottom:4px">' +
+    legend('#E24B4A', 'same-day turnover') + legend('#EF9F27', 'awaiting your reply') + legend('#3B6D11', 'confirmed') + legend('#bbb', 'done') + '</div>';
   html += '<div id="cleaner-day-detail"></div>';
   container.innerHTML = html;
 }
@@ -659,6 +759,23 @@ function renderCleanerProfile() {
   }
   html += '</div></div>';
 
+  // Subscribe-able .ics of this cleaner's cleans, so they live in the phone
+  // calendar the cleaner already uses (Netlify/functions/cleaner-calendar-feed.js).
+  const feedUrl = cr.id ? cleanerFeedUrl(cr.id) : '';
+  if (feedUrl) {
+    const webcal = feedUrl.replace(/^https?:\/\//, 'webcal://');
+    html += '<div style="background:white;border-radius:16px;padding:18px 20px;margin-top:16px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">';
+    html += '<div style="font-weight:700;font-size:14px;color:var(--primary);margin-bottom:4px">📅 Your cleans in your phone calendar</div>';
+    html += '<div style="font-size:12px;color:#888;line-height:1.45;margin-bottom:12px">Subscribe once and every clean appears in Apple, Google or Outlook Calendar with the property, the guest\'s checkout time and the next guest\'s arrival. It updates itself. The lockbox code stays in this app.</div>';
+    html += '<div style="display:flex;gap:8px">';
+    html += '<a href="' + escHtml(webcal) + '" style="flex:1;display:flex;align-items:center;justify-content:center;padding:11px;background:var(--primary);color:white;border-radius:10px;font-weight:600;font-size:13px;text-decoration:none">Add to calendar</a>';
+    html += '<button type="button" onclick="window._copyCleanerFeedUrl()" id="cleaner-feed-copy-btn" style="flex:1;padding:11px;background:white;color:var(--primary);border:1px solid var(--primary);border-radius:10px;font-weight:600;font-size:13px;cursor:pointer">Copy link</button>';
+    html += '</div>';
+    html += '<input id="cleaner-feed-url" type="text" readonly value="' + escHtml(feedUrl) + '" style="width:100%;box-sizing:border-box;margin-top:10px;padding:8px 10px;border:1px solid #e5e5e0;border-radius:8px;font-size:11px;color:#777;background:#fafaf8">';
+    html += '<div style="font-size:11px;color:#999;margin-top:6px">Google Calendar on Android: copy the link, then in Google Calendar on the web choose Other calendars → From URL.</div>';
+    html += '</div>';
+  }
+
   // "Also a Host?" section — only show if user doesn't already have a host role
   html += '<div id="cleaner-become-host-section" style="margin-top:20px;display:none">';
   html += '<div style="background:white;border-radius:12px;padding:16px;border:1.5px solid #EAF3DE">';
@@ -693,6 +810,22 @@ function renderCleanerProfile() {
   }
 }
 window.renderCleanerProfile = renderCleanerProfile;
+
+/** Public .ics URL for this cleaner's cleans — keyed by the cleaner's row uuid. */
+function cleanerFeedUrl(cleanerId) {
+  const base = String(globalThis.API_BASE || window.location.origin || '').replace(/\/$/, '');
+  return base + '/.netlify/functions/cleaner-calendar-feed?key=' + encodeURIComponent(cleanerId);
+}
+
+window._copyCleanerFeedUrl = function () {
+  const input = document.getElementById('cleaner-feed-url');
+  const btn = document.getElementById('cleaner-feed-copy-btn');
+  if (!input) return;
+  const done = () => { if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy link'; }, 2000); } };
+  const fallback = () => { input.select(); try { document.execCommand('copy'); } catch (_e) { /* deprecated API, ignore */ } done(); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(input.value).then(done).catch(fallback);
+  else fallback();
+};
 
 window._enableCleanerNotifs = async function () {
   const el = document.getElementById('cleaner-profile-notif-status');

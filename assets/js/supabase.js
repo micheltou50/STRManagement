@@ -166,7 +166,7 @@ export async function loadCleanerDashboard() {
 
   const { data: myCleans } = await window._sb
     .from('cleans')
-    .select('*, properties:property_id (id, name, address, suburb, state, check_in_info)')
+    .select('*, properties:property_id (id, name, address, suburb, state, bedrooms, bathrooms, max_guests, check_in_info)')
     .eq('cleaner_uuid', cleanerRecord.id)
     .order('clean_date', { ascending: true });
   const cleans = myCleans || [];
