@@ -190,6 +190,46 @@ function cheatSheet(info, isDay) {
   '</div>';
 }
 
+/** The checklist items the host defined for this property (check_in_info.checklist). */
+function checklistItems(info) {
+  return Array.isArray(info && info.checklist) ? info.checklist.map(s => String(s || '').trim()).filter(Boolean) : [];
+}
+
+/**
+ * Host-defined checklist, ticked per clean into cleans.checklist_done (the item
+ * strings). Taps toggle in place without a re-render (cleanerToggleCheck).
+ */
+function checklistBlock(c, info) {
+  const items = checklistItems(info);
+  if (!items.length) return '';
+  const done = new Set(Array.isArray(c.checklist_done) ? c.checklist_done.map(String) : []);
+  const ticked = items.filter(i => done.has(i)).length;
+  let html = '<div data-checklist style="margin-top:10px;padding:8px 12px 2px;background:#f7f7f5;border-radius:6px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:500;color:#333;margin-bottom:2px"><span>Checklist</span>' +
+    '<span data-checklist-count style="color:' + (ticked === items.length ? '#0F6E56' : '#888') + '">' + ticked + ' / ' + items.length + '</span></div>';
+  items.forEach(item => {
+    const on = done.has(item);
+    html += '<button type="button" data-action="toggle_check" data-clean-id="' + escHtml(String(c.id)) + '" data-item="' + escHtml(item) + '" aria-pressed="' + (on ? 'true' : 'false') + '" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 0;background:none;border:none;border-top:1px solid #ebebe7;font-size:13px;cursor:pointer;color:' + (on ? '#999' : '#1c2620') + ';text-decoration:' + (on ? 'line-through' : 'none') + '">' +
+      '<span data-box style="flex:0 0 20px;width:20px;height:20px;border-radius:6px;border:1.5px solid ' + (on ? '#2f5d4e' : '#bbb') + ';background:' + (on ? '#2f5d4e' : '#fff') + ';color:#fff;font-size:13px;line-height:18px;text-align:center">' + (on ? '✓' : '') + '</span>' +
+      '<span>' + escHtml(item) + '</span></button>';
+  });
+  return html + '</div>';
+}
+
+/** Photo proof thumbnails + "Add photo" (cleans.photos: [{url, path, at}]). */
+function photosBlock(c) {
+  const photos = Array.isArray(c.photos) ? c.photos : [];
+  let html = '<div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+  photos.slice(-8).forEach(p => {
+    const url = p && (p.url || p);
+    if (!url) return;
+    html += '<a href="' + escHtml(String(url)) + '" target="_blank" rel="noopener" style="display:block;width:48px;height:48px;border-radius:6px;overflow:hidden;border:1px solid #e5e5e0;flex:0 0 auto"><img src="' + escHtml(String(url)) + '" alt="Clean photo" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block"></a>';
+  });
+  html += '<button type="button" data-action="add_photo" data-clean-id="' + escHtml(String(c.id)) + '" style="height:48px;padding:0 12px;background:#fff;border:1px dashed #b7c3bd;border-radius:6px;color:#2f5d4e;font-size:12px;font-weight:500;cursor:pointer">📷 ' + (photos.length ? 'Add photo' : 'Add photo proof') + '</button>';
+  if (photos.length) html += '<span style="font-size:11px;color:#999">' + photos.length + (photos.length === 1 ? ' photo' : ' photos') + '</span>';
+  return html + '</div>';
+}
+
 /**
  * One clean. mode: 'overdue' | 'today' | 'tomorrow' | 'later'.
  *  - header: property name + "Guest out 10am · Guest · 4 guests"
@@ -247,6 +287,10 @@ function cleanCard(data, c, mode) {
   }
 
   html += cheatSheet(info, isDay);
+  if (isDay && !awaiting) {
+    html += checklistBlock(c, info);
+    html += photosBlock(c);
+  }
 
   if (awaiting) {
     html += '<div style="display:flex;gap:8px;margin-top:12px">' + actionBtn('accept', c.id, 'Accept', BTN_PRIMARY) + actionBtn('decline', c.id, 'Decline', BTN_DANGER) + '</div>';
@@ -490,6 +534,12 @@ function renderNewCleanerView(data) {
 
       const cleanId = btn.getAttribute('data-clean-id');
       if (!cleanId) return;
+      if (action === 'toggle_check') { await cleanerToggleCheck(cleanId, btn.getAttribute('data-item') || '', btn); return; }
+      if (action === 'add_photo') { cleanerPickPhoto(cleanId); return; }
+      if (action === 'done') {
+        const left = checklistRemaining(cleanId);
+        if (left > 0 && !window.confirm(left + (left === 1 ? ' checklist item is' : ' checklist items are') + ' not ticked. Finish anyway?')) return;
+      }
       const labels = { accept: 'Accepting…', decline: 'Declining…', start: 'Starting…', done: 'Finishing…', acknowledge_cancel: 'Acknowledging…' };
       await globalThis.withButtonLoading(btn, async () => {
         if (action === 'accept') await cleanerAcceptClean(cleanId);
@@ -573,7 +623,7 @@ async function cleanerMarkDone(cleanId) {
   await _cleanerUpdate(cleanId,
     { done: true, cleaner_confirmed: true, cleaner_declined: false, completed_at: new Date().toISOString() },
     'Failed to mark done',
-    (c, cr) => ({ title: '🏡 Clean Complete!', body: (cr.name || 'Cleaner') + ' has finished the clean for ' + _guestOn(c) + ' — review cleaning cost', tag: 'done-' + cleanId }));
+    (c, cr) => ({ title: '🏡 Clean Complete!', body: (cr.name || 'Cleaner') + ' has finished the clean for ' + _guestOn(c) + (Array.isArray(c.photos) && c.photos.length ? ' · ' + c.photos.length + (c.photos.length === 1 ? ' photo' : ' photos') : '') + ' — review cleaning cost', tag: 'done-' + cleanId }));
 }
 window.cleanerMarkDone = cleanerMarkDone;
 
@@ -584,6 +634,140 @@ async function cleanerAcknowledgeCancel(cleanId) {
     (c, cr) => ({ title: '✓ Cancellation acknowledged', body: (cr.name || 'Cleaner') + ' acknowledged the booking cancellation', tag: 'ack-cancel-' + cleanId }));
 }
 window.cleanerAcknowledgeCancel = cleanerAcknowledgeCancel;
+
+// ── checklist ──────────────────────────────────────────────────────────────
+function _findClean(cleanId) {
+  const data = window._cleanerData;
+  return data && (data.myCleans || []).find(x => String(x.id) === String(cleanId)) || null;
+}
+
+/** How many of the property's checklist items are still unticked on this clean. */
+function checklistRemaining(cleanId) {
+  const c = _findClean(cleanId);
+  if (!c) return 0;
+  const items = checklistItems(c.properties && c.properties.check_in_info);
+  const done = new Set(Array.isArray(c.checklist_done) ? c.checklist_done.map(String) : []);
+  return items.filter(i => !done.has(i)).length;
+}
+
+function paintCheck(btn, on) {
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btn.style.color = on ? '#999' : '#1c2620';
+  btn.style.textDecoration = on ? 'line-through' : 'none';
+  const box = btn.querySelector('[data-box]');
+  if (box) { box.style.borderColor = on ? '#2f5d4e' : '#bbb'; box.style.background = on ? '#2f5d4e' : '#fff'; box.textContent = on ? '✓' : ''; }
+}
+
+/** Toggle one checklist item: optimistic in place, persisted to cleans.checklist_done, rolled back on error. */
+async function cleanerToggleCheck(cleanId, item, btn) {
+  const c = _findClean(cleanId);
+  if (!c || !item || !window._sb) return;
+  const current = Array.isArray(c.checklist_done) ? c.checklist_done.map(String) : [];
+  const on = !current.includes(item);
+  const next = on ? current.concat([item]) : current.filter(i => i !== item);
+  c.checklist_done = next;
+  paintCheck(btn, on);
+  const wrap = btn.closest('[data-checklist]');
+  const counter = wrap && wrap.querySelector('[data-checklist-count]');
+  if (counter) {
+    const items = checklistItems(c.properties && c.properties.check_in_info);
+    const t = items.filter(i => next.includes(i)).length;
+    counter.textContent = t + ' / ' + items.length;
+    counter.style.color = t === items.length ? '#0F6E56' : '#888';
+  }
+  const { error } = await window._sb.from('cleans').update({ checklist_done: next }).eq('id', cleanId);
+  if (error) {
+    c.checklist_done = current;
+    paintCheck(btn, !on);
+    globalThis.showBanner('Could not save checklist: ' + error.message, 'error');
+  }
+}
+
+// ── photo proof ────────────────────────────────────────────────────────────
+/** One hidden file input for the whole view; remembers which clean asked for a photo. */
+function cleanerPickPhoto(cleanId) {
+  let input = document.getElementById('cleaner-photo-input');
+  if (!input) {
+    input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.id = 'cleaner-photo-input';
+    input.style.display = 'none';
+    input.setAttribute('capture', 'environment');
+    document.body.appendChild(input);
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      const target = input.dataset.cleanId;
+      input.value = '';
+      if (file && target) await cleanerAddPhoto(target, file);
+    });
+  }
+  input.dataset.cleanId = String(cleanId);
+  input.click();
+}
+
+/**
+ * Downscale + upload straight to the public `photos` bucket under
+ * cleans/<cleaner uuid>/<clean id>/… (storage policy "Cleaners upload clean
+ * photos"), then append {url, path, at} to cleans.photos.
+ */
+async function cleanerAddPhoto(cleanId, file) {
+  const data = window._cleanerData;
+  const c = _findClean(cleanId);
+  const cleanerUuid = data && data.cleanerRecord && data.cleanerRecord.id;
+  if (!c || !cleanerUuid || !window._sb) return;
+  globalThis.showBanner('Uploading photo…', 'info');
+  try {
+    const jpeg = await downscaleToJpeg(file, 1600, 0.82);
+    const path = 'cleans/' + cleanerUuid + '/' + cleanId + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.jpg';
+    // ArrayBuffer body + explicit content type: iOS WKWebView drops Blob bodies (see supabase-receipts.js).
+    const { error: upErr } = await window._sb.storage.from('photos').upload(path, jpeg, { contentType: 'image/jpeg', upsert: false });
+    if (upErr) throw new Error(upErr.message || upErr.error || 'upload failed');
+    const { data: pub } = window._sb.storage.from('photos').getPublicUrl(path);
+    const url = pub && pub.publicUrl;
+    if (!url) throw new Error('no public URL returned');
+    const photos = (Array.isArray(c.photos) ? c.photos : []).concat([{ url, path, at: new Date().toISOString() }]);
+    const { error } = await window._sb.from('cleans').update({ photos }).eq('id', cleanId);
+    if (error) throw new Error(error.message);
+    c.photos = photos;
+    renderNewCleanerView(data);
+    globalThis.showBanner('Photo added', 'ok');
+  } catch (e) {
+    console.warn('[StayOps] cleanerAddPhoto failed:', e);
+    globalThis.showBanner('Photo upload failed: ' + ((e && e.message) || e), 'error');
+  }
+}
+
+/** Shrink a camera shot to a JPEG ArrayBuffer (≤ maxDim on the long side): 5MB phone photos become ~300KB. */
+async function downscaleToJpeg(file, maxDim, quality) {
+  let bitmap = null;
+  if (typeof globalThis.createImageBitmap === 'function') {
+    try { bitmap = await globalThis.createImageBitmap(file, { imageOrientation: 'from-image' }); } catch (_e) { bitmap = null; }
+  }
+  let source = bitmap, w, h, objectUrl = null;
+  if (bitmap) {
+    w = bitmap.width; h = bitmap.height;
+  } else {
+    objectUrl = URL.createObjectURL(file);
+    source = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Could not read image'));
+      img.src = objectUrl;
+    });
+    w = source.naturalWidth; h = source.naturalHeight;
+  }
+  const scale = Math.min(1, maxDim / Math.max(w || 1, h || 1));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round((w || 1) * scale));
+  canvas.height = Math.max(1, Math.round((h || 1) * scale));
+  canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+  if (bitmap && typeof bitmap.close === 'function') bitmap.close();
+  if (objectUrl) URL.revokeObjectURL(objectUrl);
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+  if (!blob) throw new Error('Could not encode image');
+  return blob.arrayBuffer();
+}
 
 // ── Calendar ───────────────────────────────────────────────────────────────
 function renderCleanerCalendar() {

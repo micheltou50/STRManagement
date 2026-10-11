@@ -1068,10 +1068,18 @@ globalThis._selectDispatchClean = function(bookingId, cleanId) {
         '<div class="dispatch-detail-row"><span>Clean date</span><strong>' + fmtD(c?.date) + '</strong></div>' +
         '<div class="dispatch-detail-row"><span>Cleaner</span><strong style="color:' + (cleanerName === 'Unassigned' ? 'var(--red)' : 'var(--moss)') + '">' + escHtml(cleanerName) + '</strong></div>' +
         '<div class="dispatch-detail-row"><span>Status</span><strong style="color:' + statusColor + '">' + escHtml(statusLabel) + '</strong></div>' +
+        (c && Array.isArray(c.checklistDone) && c.checklistDone.length ? '<div class="dispatch-detail-row"><span>Checklist</span><strong>' + c.checklistDone.length + ' ticked</strong></div>' : '') +
         '<div class="dispatch-detail-row"><span>Payout</span><strong>$' + Number(b.hostPayout || 0).toLocaleString() + '</strong></div>' +
         (c?.cost ? '<div class="dispatch-detail-row"><span>Clean cost</span><strong>$' + Number(c.cost).toLocaleString() + '</strong></div>' : '') +
         (b.platform ? '<div class="dispatch-detail-row"><span>Platform</span><strong>' + escHtml(b.platform) + '</strong></div>' : '') +
       '</div>' +
+      (c && Array.isArray(c.photos) && c.photos.length
+        ? '<div style="margin-top:14px"><div style="font-size:11px;font-weight:600;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Photos from cleaner</div>' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap">' + c.photos.map(p => {
+            const u = p && (p.url || p);
+            return u ? '<a href="' + escHtml(String(u)) + '" target="_blank" rel="noopener"><img src="' + escHtml(String(u)) + '" alt="" loading="lazy" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--hairline-1)"></a>' : '';
+          }).join('') + '</div></div>'
+        : '') +
       '<div style="margin-top:20px">' +
         '<button onclick="showDetail(\'' + escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id)) + '\')" class="btn-primary" style="width:100%;padding:10px;border-radius:12px;font-size:13px">Open Full Booking</button>' +
       '</div>' +

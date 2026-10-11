@@ -801,6 +801,8 @@ function populateAccessRulesPanel() {
     const el = document.getElementById(elId);
     if (el) el.value = info[key] ? String(info[key]) : '';
   });
+  const listEl = document.getElementById('access-rules-checklist');
+  if (listEl) listEl.value = Array.isArray(info.checklist) ? info.checklist.join('\n') : '';
   const nameEl = document.getElementById('access-rules-property-name');
   if (nameEl) nameEl.textContent = cfg.name || getCurrentPropertyName() || 'this property';
 }
@@ -814,6 +816,9 @@ function saveAccessRulesSettings() {
     // cleared field is written as `false`; savePropertyToCloud normalises it to ''.
     checkInInfo[key] = v || false;
   });
+  // Arrays replace wholesale in _deepMerge (even when empty), so no `false` dance here.
+  const listEl = document.getElementById('access-rules-checklist');
+  checkInInfo.checklist = listEl ? String(listEl.value || '').split('\n').map(s => s.trim()).filter(Boolean) : [];
   savePropertyConfig({ checkInInfo });
   globalThis.showBanner?.('✓ Saved — your cleaner sees this on the clean card', 'ok');
 }
