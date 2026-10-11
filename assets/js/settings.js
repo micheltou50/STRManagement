@@ -1252,6 +1252,19 @@ function deleteCleaner(id) {
   populateCleanerSelect();
   populateContractorSelect();
 }
+/** "Off: 12 Oct, 13 Oct" — the next few days this cleaner has marked unavailable (cleaner_unavailable). */
+function _daysOffLine(c) {
+  const rows = window._cleanerDaysOff;
+  if (!Array.isArray(rows) || !c || !c._cloudId) return '';
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const pad = n => String(n).padStart(2, '0');
+  const todayStr = today.getFullYear() + '-' + pad(today.getMonth() + 1) + '-' + pad(today.getDate());
+  const off = rows.filter(r => String(r.cleanerUuid) === String(c._cloudId) && r.day >= todayStr).slice(0, 4);
+  if (!off.length) return '';
+  const fmt = d => new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+  return '<div style="font-size:11px;color:#854F0B;margin-top:2px">Off: ' + off.map(r => fmt(r.day)).join(', ') + '</div>';
+}
+
 function renderTeamList() {
   const el = document.getElementById('team-list-container');
   if (!el) return;
@@ -1269,6 +1282,7 @@ function renderTeamList() {
         <div>
           <div style="font-weight:500;font-size:14px">${escHtml(c.name)}</div>
           <div style="font-size:12px;color:var(--muted-2)">${escHtml(c.role||'Cleaner')}${c.email?' · '+escHtml(c.email):c.phone?' · '+escHtml(c.phone):''}</div>
+          ${_daysOffLine(c)}
           <div style="margin-top:6px" onclick="event.stopPropagation()">${typeof window.getInviteButtonHtml === 'function' ? window.getInviteButtonHtml(c) : ''}</div>
         </div>
       </div>

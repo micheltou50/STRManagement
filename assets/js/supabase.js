@@ -196,11 +196,24 @@ export async function loadCleanerDashboard() {
 
   annotateCleanerCleans(cleans, ctxBookings);
 
+  // Days off (cleaner_unavailable; RLS: own rows) as { 'YYYY-MM-DD': note }.
+  const daysOff = {};
+  try {
+    const { data: offRows, error: offErr } = await window._sb
+      .from('cleaner_unavailable')
+      .select('day, note')
+      .eq('cleaner_uuid', cleanerRecord.id);
+    if (offErr) console.warn('[StayOps] cleaner_unavailable load failed:', offErr.message);
+    (offRows || []).forEach(r => { if (r && r.day) daysOff[String(r.day).slice(0, 10)] = r.note || ''; });
+  } catch (e) {
+    console.warn('[StayOps] cleaner_unavailable threw:', e && e.message);
+  }
+
   const hostByUserId = {};
   hosts.forEach(h => { if (h && h.user_id) hostByUserId[String(h.user_id)] = h; });
   const host = hostByUserId[String(cleanerRecord.user_id || '')] || hosts[0] || null;
 
-  return { cleanerRecord, myCleans: cleans, host, hosts, hostByUserId };
+  return { cleanerRecord, myCleans: cleans, host, hosts, hostByUserId, daysOff };
 }
 
 export async function getSupabaseSession() {
@@ -496,7 +509,7 @@ export async function saveHostConfigToCloud(configData) {
 // ── CLEANERS ──────────────────────────────────────────────────────────────────
 // Moved verbatim to supabase-cleaners.js. Re-exported here (saveCleanersToCloud);
 // loadCleanersFromCloud imported back for hydration.
-import { loadCleanersFromCloud } from './supabase-cleaners.js';
+import { loadCleanersFromCloud, loadCleanerDaysOffFromCloud } from './supabase-cleaners.js';
 export { saveCleanersToCloud } from './supabase-cleaners.js';
 
 
@@ -663,6 +676,9 @@ export async function hydrateFromCloud() {
     // 1. Cleaners
     const cloudCleaners = await loadCleanersFromCloud();
     if (Array.isArray(cloudCleaners)) { window._cleaners = cloudCleaners; console.log('[StayOps] Hydrated', cloudCleaners.length, 'cleaners from cloud'); }
+
+    // 1b. Cleaner days off (cleaner_unavailable) — assignment warnings + auto-assign skip (cleaning.js cleanerDayOff)
+    window._cleanerDaysOff = await loadCleanerDaysOffFromCloud();
 
     // 2. Bookings
     const cloudBookings = await loadBookingsFromCloud();

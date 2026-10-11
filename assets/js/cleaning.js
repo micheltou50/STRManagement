@@ -252,6 +252,37 @@ export function getSuggestedCleanerForBooking(booking) {
   return getPreferredCleaner();
 }
 
+/**
+ * The note (or '') when `cleaner` has marked `dateStr` as a day off in the
+ * cleaner PWA (cleaner_unavailable, hydrated into window._cleanerDaysOff by
+ * loadCleanerDaysOffFromCloud), else null.
+ */
+export function cleanerDayOff(cleaner, dateStr) {
+  const rows = window._cleanerDaysOff;
+  if (!cleaner || !dateStr || !Array.isArray(rows)) return null;
+  const uuid = cleaner._cloudId || cleaner.cloud_id;
+  if (!uuid) return null;
+  const day = String(dateStr).slice(0, 10);
+  const hit = rows.find(r => String(r.cleanerUuid) === String(uuid) && r.day === day);
+  return hit ? (hit.note || '') : null;
+}
+globalThis.cleanerDayOff = cleanerDayOff;
+
+/** Re-label the booking-detail cleaner select ("Megan · day off") after the host changes the clean date. */
+globalThis._refreshAssignCleanerOptions = function () {
+  const sel = document.getElementById('detail-assign-cleaner');
+  const dateInput = document.getElementById('detail-assign-date');
+  if (!sel || !dateInput) return;
+  const date = dateInput.value;
+  const all = loadCleaners();
+  Array.from(sel.options).forEach(opt => {
+    if (!opt.value) return;
+    const c = all.find(x => String(x.id) === String(opt.value));
+    const label = opt.getAttribute('data-label') || (c && c.name) || opt.textContent;
+    opt.textContent = label + (c && cleanerDayOff(c, date) != null ? ' · day off' : '');
+  });
+};
+
 export function maybeAutoAssignPreferredCleaner(booking, reason) {
   if (!booking || booking.status === 'cancelled') return false;
   if (!booking.checkout || new Date(booking.checkout) < new Date()) return false;
@@ -261,6 +292,9 @@ export function maybeAutoAssignPreferredCleaner(booking, reason) {
   if (state.key !== 'unassigned') return false;
   const preferred = getPreferredCleaner();
   if (!preferred) return false;
+  // Never auto-assign onto a day the preferred cleaner has marked off — leave the
+  // booking in "Needs assignment" so the host picks someone else.
+  if (cleanerDayOff(preferred, booking.checkout) != null) return false;
   const newClean = {
     id: Date.now() + Math.floor(Math.random() * 1000),
     bookingId: booking.id,
@@ -1338,6 +1372,9 @@ export function addClean() {
   // Find cleaner ID from the saved cleaners list
   const cleanerObj = loadCleaners().find(c => c.name === cleaner);
   const cleanerId = cleanerObj ? cleanerObj.id : null;
+  if (cleanerObj && cleanerDayOff(cleanerObj, date) != null) {
+    globalThis.showBanner('⚠ ' + cleanerObj.name + ' has marked ' + date + ' as a day off — assigned anyway, check with them', 'warn');
+  }
   if (cleanerObj) updateCleanerLearning(cleanerObj, 'manual');
   // Upsert: reuse existing clean record for this booking if one exists
   const existingIdx = cleans.findIndex(c => String(c.bookingId) === String(booking.id) || (booking._cloudId && String(c.bookingId) === String(booking._cloudId)));
@@ -1428,6 +1465,14 @@ export async function assignCleanerToBooking(bookingIdParam) {
   if (!cleanerId || !date) { globalThis.showBanner('⚠ Select a cleaner and date', 'warn'); releaseCleaningLock(lockKey); return; }
   const cleanerObj = loadCleaners().find(c => String(c.id) === cleanerId);
   if (!cleanerObj) { globalThis.showBanner('⚠ Cleaner not found', 'warn'); releaseCleaningLock(lockKey); return; }
+  if (cleanerDayOff(cleanerObj, date) != null) {
+    const go = await globalThis.showAppModal({
+      title: 'Day off',
+      msg: cleanerObj.name + ' has marked ' + date + ' as a day off. Assign anyway?',
+      confirmText: 'Assign anyway',
+    });
+    if (!go) { releaseCleaningLock(lockKey); return; }
+  }
   const booking = bookings.find(b => String(b.id) === String(bookingIdParam) || (b._cloudId && String(b._cloudId) === String(bookingIdParam)));
   if (!booking) {
     console.warn('[StayOps] assignCleanerToBooking: booking not found', { bookingIdParam });

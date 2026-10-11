@@ -355,7 +355,8 @@ function isHeavyDay(list) {
   return list.length >= HEAVY_DAY_CLEANS || list.filter(c => c._sameDayTurnover).length >= HEAVY_DAY_TURNOVERS;
 }
 
-function weekStrip(open, todayStr) {
+function weekStrip(open, todayStr, daysOff) {
+  daysOff = daysOff || {};
   const byDay = {};
   open.forEach(c => { if (c.clean_date) (byDay[c.clean_date] = byDay[c.clean_date] || []).push(c); });
   let html = '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:10px">';
@@ -369,14 +370,21 @@ function weekStrip(open, todayStr) {
     const turnovers = list.filter(c => c._sameDayTurnover).length;
     const heavy = isHeavyDay(list);
     if (heavy) heavyDays.push({ d, n, turnovers });
+    const off = daysOff[d] != null;            // the cleaner marked this day off
+    const clash = off && n > 0;                // …but cleans are still assigned
     const tone = !n ? null
       : turnovers ? '#E24B4A'
       : list.some(c => !c.cleaner_confirmed) ? '#EF9F27'
       : '#1D9E75';
-    html += '<div data-day="' + d + '" role="button"' + (heavy ? ' title="Heavy day"' : '') + ' style="text-align:center;padding:7px 2px 6px;border-radius:10px;background:' + (isToday ? '#2f5d4e' : n ? '#fff' : 'transparent') + ';border:0.5px solid ' + (isToday ? '#2f5d4e' : heavy ? '#E24B4A' : n ? '#e5e5e0' : 'transparent') + ';cursor:' + (n ? 'pointer' : 'default') + '">' +
+    const title = clash ? ' title="Day off with cleans booked"' : heavy ? ' title="Heavy day"' : off ? ' title="Day off"' : '';
+    html += '<div data-day="' + d + '" role="button"' + title + ' style="text-align:center;padding:7px 2px 6px;border-radius:10px;background:' + (isToday ? '#2f5d4e' : off ? '#F1EFE8' : n ? '#fff' : 'transparent') + ';border:0.5px solid ' + (isToday ? '#2f5d4e' : (clash || heavy) ? '#E24B4A' : n ? '#e5e5e0' : 'transparent') + ';cursor:' + (n ? 'pointer' : 'default') + '">' +
       '<div style="font-size:10px;font-weight:500;letter-spacing:0.3px;text-transform:uppercase;color:' + (isToday ? 'rgba(255,255,255,0.8)' : '#999') + '">' + DAY_NAMES[dt.getDay()] + '</div>' +
       '<div style="font-size:15px;font-weight:600;margin-top:1px;color:' + (isToday ? '#fff' : n ? '#1c2620' : '#bbb') + '">' + dt.getDate() + '</div>' +
-      '<div style="margin:5px auto 0;width:20px;height:20px;border-radius:10px;font-size:11px;font-weight:600;line-height:20px;background:' + (tone || 'transparent') + ';color:' + (tone ? '#fff' : 'transparent') + (heavy ? ';box-shadow:0 0 0 2px #fff,0 0 0 3.5px #E24B4A' : '') + '">' + (n || '') + '</div>' +
+      (n
+        ? '<div style="margin:5px auto 0;width:20px;height:20px;border-radius:10px;font-size:11px;font-weight:600;line-height:20px;background:' + tone + ';color:#fff' + (heavy || clash ? ';box-shadow:0 0 0 2px #fff,0 0 0 3.5px #E24B4A' : '') + '">' + n + '</div>'
+        : off
+          ? '<div style="margin:5px auto 0;height:20px;line-height:20px;font-size:9px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:' + (isToday ? 'rgba(255,255,255,0.8)' : '#999') + '">off</div>'
+          : '<div style="margin:5px auto 0;height:20px"></div>') +
     '</div>';
   }
   html += '</div>';
@@ -507,7 +515,7 @@ function renderNewCleanerView(data) {
   if (!all.length) {
     html = '<div style="text-align:center;padding:40px 20px;color:#999"><div style="font-size:40px;margin-bottom:12px">✨</div><div style="font-size:15px;font-weight:500">No cleans assigned yet</div><div style="font-size:13px;margin-top:6px">Your host will assign cleans to you here.</div></div>';
   } else {
-    html += weekStrip(open, todayStr);
+    html += weekStrip(open, todayStr, data.daysOff);
     const awaitingAll = open.filter(c => !c.cleaner_confirmed && !c.cleaner_declined);
     if (awaitingAll.length >= 2) html += acceptAllBar(awaitingAll);
     let first = true;
@@ -861,6 +869,7 @@ function renderCleanerCalendar() {
   if (!container || !window._cleanerData) return;
 
   const cleans = window._cleanerData.myCleans || [];
+  const daysOff = window._cleanerData.daysOff || {};
   const today = new Date();
   let viewMonth = window._cleanerCalMonth || today.getMonth();
   let viewYear = window._cleanerCalYear || today.getFullYear();
@@ -905,8 +914,10 @@ function renderCleanerCalendar() {
     const dateStr = viewYear + '-' + String(viewMonth + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
     const hasCleans = cleanDates[dateStr];
     const isToday = dateStr === todayStr;
+    const off = daysOff[dateStr] != null;
 
-    html += '<div onclick="showCleanerDayDetail(\'' + dateStr + '\')" style="text-align:center;padding:8px 2px;border-radius:10px;cursor:' + (hasCleans ? 'pointer' : 'default') + ';' + (isToday ? 'background:var(--primary);color:white;font-weight:700;' : '') + '">';
+    // Every day from today on is tappable: the detail panel carries the day-off toggle.
+    html += '<div onclick="showCleanerDayDetail(\'' + dateStr + '\')" style="text-align:center;padding:8px 2px;border-radius:10px;cursor:' + (hasCleans || dateStr >= todayStr ? 'pointer' : 'default') + ';' + (isToday ? 'background:var(--primary);color:white;font-weight:700;' : off ? 'background:#F1EFE8;' : '') + '">';
     html += '<div style="font-size:14px">' + d + '</div>';
     if (hasCleans) {
       const live = hasCleans.filter((c) => !c.done && !c._bookingCancelled && !c.cleaner_declined);
@@ -919,12 +930,14 @@ function renderCleanerCalendar() {
         html += '<div style="width:6px;height:6px;border-radius:50%;background:#bbb;margin:3px auto 0"></div>';
       }
     }
+    if (off) html += '<div style="font-size:9px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:' + (isToday ? 'rgba(255,255,255,0.8)' : '#999') + ';margin-top:2px">off</div>';
     html += '</div>';
   }
   html += '</div>';
-  const legend = (col, label) => '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:' + col + ';display:inline-block"></span>' + label + '</span>';
+  const legend = (col, label) => '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:' + col + ';display:inline-block;border:1px solid rgba(0,0,0,0.08)"></span>' + label + '</span>';
   html += '<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:#777;margin-bottom:4px">' +
-    legend('#E24B4A', 'same-day turnover') + legend('#EF9F27', 'awaiting your reply') + legend('#3B6D11', 'confirmed') + legend('#bbb', 'done') + '</div>';
+    legend('#E24B4A', 'same-day turnover') + legend('#EF9F27', 'awaiting your reply') + legend('#3B6D11', 'confirmed') + legend('#bbb', 'done') + legend('#F1EFE8', 'day off') + '</div>';
+  html += '<div style="font-size:11px;color:#999;margin-bottom:4px">Tap a day to see its cleans or mark it as a day off.</div>';
   html += '<div id="cleaner-day-detail"></div>';
   container.innerHTML = html;
 }
@@ -943,8 +956,12 @@ function showCleanerDayDetail(dateStr) {
   const container = document.getElementById('cleaner-day-detail');
   if (!container || !window._cleanerData) return;
 
-  const cleans = (window._cleanerData.myCleans || []).filter((c) => c.clean_date === dateStr);
-  if (!cleans.length) { container.innerHTML = ''; return; }
+  const cleans = (window._cleanerData.myCleans || []).filter((c) => c.clean_date === dateStr && !c._bookingCancelled && !c.cleaner_declined);
+  const todayStr = localDateStr(new Date());
+  const daysOff = window._cleanerData.daysOff || {};
+  const off = daysOff[dateStr] != null;
+  // A past day with nothing on it has nothing to say; a future day always has the day-off toggle.
+  if (!cleans.length && dateStr < todayStr) { container.innerHTML = ''; return; }
   cleans.sort((a, b) => (Number.isFinite(a._deadlineMinutes) ? a._deadlineMinutes : 1e9) - (Number.isFinite(b._deadlineMinutes) ? b._deadlineMinutes : 1e9));
 
   let html = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid #eee">';
@@ -966,10 +983,67 @@ function showCleanerDayDetail(dateStr) {
     html += '</div>';
   });
 
+  if (!cleans.length) html += '<div style="font-size:12px;color:#999;padding:4px 0 8px">No cleans this day</div>';
+
+  if (dateStr >= todayStr) {
+    if (off && cleans.length) {
+      html += '<div style="margin:8px 0;padding:8px 12px;background:#FCEBEB;border-radius:8px;font-size:12px;color:#A32D2D">This is a day off, but ' + cleans.length + (cleans.length === 1 ? ' clean is' : ' cleans are') + ' still assigned to you. Your host can see the clash — message them to reassign.</div>';
+    }
+    html += '<button type="button" onclick="cleanerToggleDayOff(\'' + dateStr + '\')" style="width:100%;margin-top:6px;padding:11px;background:' + (off ? '#2f5d4e' : 'transparent') + ';color:' + (off ? '#fff' : '#2f5d4e') + ';border:1px solid ' + (off ? '#2f5d4e' : '#ccc') + ';border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">' +
+      (off ? 'Available again on ' + fmtDay(dateStr) : 'Mark ' + fmtDay(dateStr) + ' as a day off') + '</button>';
+    html += '<div style="font-size:11px;color:#999;margin-top:6px;text-align:center">Your host sees days off when assigning cleans.</div>';
+  }
+
   html += '</div>';
   container.innerHTML = html;
 }
 window.showCleanerDayDetail = showCleanerDayDetail;
+
+/**
+ * Toggle a day off (cleaner_unavailable; RLS: own rows). When cleans are already
+ * assigned that day the host gets a push, so the clash is not a surprise.
+ */
+async function cleanerToggleDayOff(day) {
+  const data = window._cleanerData;
+  const cr = data && data.cleanerRecord;
+  if (!cr || !cr.id || !window._sb || !day) return;
+  const daysOff = data.daysOff || {};
+  const isOff = daysOff[day] != null;
+  const { error } = isOff
+    ? await window._sb.from('cleaner_unavailable').delete().eq('cleaner_uuid', cr.id).eq('day', day)
+    : await window._sb.from('cleaner_unavailable').insert({ cleaner_uuid: cr.id, day });
+  if (error) { globalThis.showBanner('Could not update day off: ' + error.message, 'error'); return; }
+  if (isOff) delete daysOff[day]; else daysOff[day] = '';
+  data.daysOff = daysOff;
+
+  if (!isOff) {
+    const dayCleans = (data.myCleans || []).filter(c => c.clean_date === day && !c.done && !c._bookingCancelled && !c.cleaner_declined);
+    const byHost = {};
+    dayCleans.forEach(c => { if (c.user_id) (byHost[c.user_id] = byHost[c.user_id] || []).push(c); });
+    try {
+      for (const uid of Object.keys(byHost)) {
+        const n = byHost[uid].length;
+        await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
+          method: 'POST',
+          body: JSON.stringify({
+            user_id: uid,
+            title: '📅 ' + (cr.name || 'Cleaner') + ' is off on ' + fmtDay(day),
+            body: n + (n === 1 ? ' clean' : ' cleans') + ' that day ' + (n === 1 ? 'needs' : 'need') + ' reassigning',
+            url: '/',
+            tag: 'dayoff-' + day,
+          }),
+        });
+      }
+    } catch (e) {
+      console.warn('[StayOps] Push notify failed:', e);
+    }
+  }
+
+  renderNewCleanerView(data);
+  renderCleanerCalendar();
+  showCleanerDayDetail(day);
+}
+window.cleanerToggleDayOff = cleanerToggleDayOff;
 
 // ── Profile ────────────────────────────────────────────────────────────────
 function renderCleanerProfile() {

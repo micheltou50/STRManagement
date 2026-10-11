@@ -830,18 +830,24 @@ function showDetail(id) {
     if (!cls.length) {
       return '<div style="padding:0 14px 14px;font-size:12px;color:#999">No cleaners set up yet — add in Settings → Property &amp; People</div>';
     }
+    // "· day off" when the cleaner has marked the clean date unavailable
+    // (cleaning.js cleanerDayOff). data-label keeps the bare name so the suffix
+    // can be recomputed when the host changes the date (_refreshAssignCleanerOptions).
+    const dateForOff = assigned ? assigned.date : b.checkout;
+    const dayOffFn = typeof globalThis.cleanerDayOff === 'function' ? globalThis.cleanerDayOff : () => null;
     const opts = cls
       .map(
         c =>
           '<option value="' +
           c.id +
-          '" ' +
+          '" data-label="' + escHtml(c.name) + '" ' +
           (((assigned && String(assigned.cleanerId) === String(c.id)) ||
             (!assigned && suggested && String(suggested.id) === String(c.id)))
             ? 'selected'
             : '') +
           '>' +
           escHtml(c.name) +
+          (dayOffFn(c, dateForOff) != null ? ' · day off' : '') +
           '</option>'
       )
       .join('');
@@ -865,7 +871,7 @@ function showDetail(id) {
       suggestHint +
       '<input type="date" id="detail-assign-date" value="' +
       String(dateVal || '') +
-      '" style="' +
+      '" onchange="window._refreshAssignCleanerOptions && window._refreshAssignCleanerOptions()" style="' +
       dateStyle +
       '">' +
       '<button type="button" onclick="assignCleanerToBooking(\'' +
