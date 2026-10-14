@@ -232,14 +232,19 @@ export async function loadCleanerDashboard() {
   // booking at a property this cleaner is assigned to: enough to work out each
   // clean's deadline (the next guest's check-in) and whether its own booking
   // was cancelled. A missing/failed RPC degrades to "no deadline info".
+  // It also lists `teammates` — the other active cleaners of every host this
+  // cleaner works for ({ id, name, user_id } only) — for "Can't make it? →
+  // Hand off" (the reassignment itself runs in cleaner-handoff.js).
   let hosts = [];
   let ctxBookings = [];
+  let teammates = [];
   try {
     const { data: ctx, error: ctxErr } = await window._sb.rpc('cleaner_dashboard_context');
     if (ctxErr) console.warn('[StayOps] cleaner_dashboard_context failed:', ctxErr.message);
     if (ctx && typeof ctx === 'object') {
       hosts = Array.isArray(ctx.hosts) ? ctx.hosts : [];
       ctxBookings = Array.isArray(ctx.bookings) ? ctx.bookings : [];
+      teammates = Array.isArray(ctx.teammates) ? ctx.teammates.filter(t => t && t.id) : [];
     }
   } catch (e) {
     console.warn('[StayOps] cleaner_dashboard_context threw:', e && e.message);
@@ -264,7 +269,7 @@ export async function loadCleanerDashboard() {
   hosts.forEach(h => { if (h && h.user_id) hostByUserId[String(h.user_id)] = h; });
   const host = hostByUserId[String(cleanerRecord.user_id || '')] || hosts[0] || null;
 
-  const result = { cleanerRecord, cleanerRecords, myCleans: cleans, host, hosts, hostByUserId, daysOff };
+  const result = { cleanerRecord, cleanerRecords, myCleans: cleans, host, hosts, hostByUserId, daysOff, teammates };
   writeCleanerCache(user.id, result);
   return result;
 }

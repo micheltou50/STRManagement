@@ -6,7 +6,7 @@
  * button. The legacy link/PIN login path was removed 2026-07-10 (cleaners log in by email).
  *
  * Data comes from loadCleanerDashboard() (supabase.js):
- *   { cleanerRecord, myCleans, host, hosts, hostByUserId }
+ *   { cleanerRecord, cleanerRecords, myCleans, host, hosts, hostByUserId, daysOff, teammates }
  * Each clean is a raw `cleans` row (+ `properties` join incl. check_in_info) annotated by
  * annotateCleanerCleans() (utils.js) with _checkoutTime / _nextCheckinDate /
  * _nextCheckinTime / _nextGuests / _sameDayTurnover / _deadlineMinutes / _bookingCancelled.
@@ -218,6 +218,41 @@ function checklistBlock(c, info) {
   return html + '</div>';
 }
 
+/**
+ * The teammates this clean could be handed to: other active cleaners of the
+ * clean's host (cleaner_dashboard_context().teammates), never one of the
+ * cleaner's own rows.
+ */
+function teammatesFor(data, c) {
+  const all = Array.isArray(data && data.teammates) ? data.teammates : [];
+  const mine = new Set((Array.isArray(data && data.cleanerRecords) ? data.cleanerRecords : []).map(r => String(r && r.id)));
+  return all.filter(t => t && t.id && !mine.has(String(t.id)) &&
+    (!c.user_id || !t.user_id || String(t.user_id) === String(c.user_id)));
+}
+
+/**
+ * "Can't make it?" → pick a teammate → Hand off. Collapsed by default so it
+ * never competes with Accept / Start. The hand-off runs server-side
+ * (cleaner-handoff.js): the clean leaves this list, the teammate has to accept
+ * it, and the host is told.
+ */
+function handoffBlock(data, c) {
+  const mates = teammatesFor(data, c);
+  if (!mates.length) return '';
+  const id = escHtml(String(c.id));
+  return '<details data-handoff style="margin-top:10px;font-size:12px">' +
+    '<summary style="cursor:pointer;color:#888;list-style:none;display:inline-flex;align-items:center;gap:4px;padding:2px 0"><span>Can\'t make it?</span><span style="color:#bbb">▾</span></summary>' +
+    '<div style="display:flex;gap:8px;margin-top:8px;align-items:center">' +
+      '<select data-handoff-select aria-label="Hand off to" style="flex:1;min-width:0;padding:9px 10px;border:1px solid #d5ded9;border-radius:8px;font-size:13px;background:#fff;color:#1c2620">' +
+        '<option value="">Hand off to…</option>' +
+        mates.map(t => '<option value="' + escHtml(String(t.id)) + '">' + escHtml(t.name || 'Cleaner') + '</option>').join('') +
+      '</select>' +
+      '<button type="button" data-action="handoff" data-clean-id="' + id + '" style="flex:0 0 auto;padding:9px 14px;background:transparent;color:#2f5d4e;border:1px solid #ccc;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Hand off</button>' +
+    '</div>' +
+    '<div style="color:#999;margin-top:6px;line-height:1.4">The clean moves to them to accept, and your host is told.</div>' +
+  '</details>';
+}
+
 /** Photo proof thumbnails + "Add photo" (cleans.photos: [{url, path, at}]). */
 function photosBlock(c) {
   const photos = Array.isArray(c.photos) ? c.photos : [];
@@ -311,6 +346,9 @@ function cleanCard(data, c, mode) {
   const compact = !isDay && !awaiting;
   const msg = messageHostLink(data, c, compact);
   if (msg) html += '<div style="margin-top:8px' + (compact ? ';text-align:right' : '') + '">' + msg + '</div>';
+
+  // Hand-off makes no sense once the clean is under way.
+  if (!started) html += handoffBlock(data, c);
 
   html += '</div>';
   return html;
@@ -597,6 +635,16 @@ function renderNewCleanerView(data) {
       if (!cleanId) return;
       if (action === 'toggle_check') { await cleanerToggleCheck(cleanId, btn.getAttribute('data-item') || '', btn); return; }
       if (action === 'add_photo') { cleanerPickPhoto(cleanId); return; }
+      if (action === 'handoff') {
+        const wrap = btn.closest('[data-handoff]');
+        const sel = wrap && wrap.querySelector('[data-handoff-select]');
+        const to = sel ? sel.value : '';
+        if (!to) { globalThis.showBanner('Pick who to hand it to first', 'warn'); return; }
+        const toName = (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].textContent) || 'your teammate';
+        if (!window.confirm('Hand this clean to ' + toName + '? It leaves your list and they will need to accept it.')) return;
+        await globalThis.withButtonLoading(btn, () => cleanerHandOff(cleanId, to), 'Handing off…');
+        return;
+      }
       if (action === 'done') {
         const left = checklistRemaining(cleanId);
         if (left > 0 && !window.confirm(left + (left === 1 ? ' checklist item is' : ' checklist items are') + ' not ticked. Finish anyway?')) return;
@@ -708,6 +756,47 @@ async function cleanerAcceptAll(ids) {
   renderCleanerProfile();
 }
 window.cleanerAcceptAll = cleanerAcceptAll;
+
+/**
+ * Hand a clean to a teammate. RLS only lets a cleaner update their OWN cleans
+ * and the row stops being theirs the moment cleaner_uuid changes, so the
+ * reassignment runs in the cleaner-handoff Netlify function (service key, after
+ * checking the clean is ours and the teammate works for the same host). It
+ * also pushes the host and the teammate; we just reload the plan.
+ */
+async function cleanerHandOff(cleanId, toCleanerId) {
+  const af = typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch;
+  let res;
+  let out;
+  try {
+    res = await af('/.netlify/functions/cleaner-handoff', {
+      method: 'POST',
+      body: JSON.stringify({ cleanId, toCleanerId }),
+    });
+    out = await res.json().catch(() => ({}));
+  } catch (e) {
+    globalThis.showBanner('Hand-off failed: ' + ((e && e.message) || 'no connection'), 'error');
+    return;
+  }
+  if (!res.ok || !out.ok) {
+    globalThis.showBanner('Hand-off failed: ' + (out.error || ('HTTP ' + res.status)), 'error');
+    return;
+  }
+  const toName = (out.to && out.to.name) || 'your teammate';
+  globalThis.showBanner(
+    'Handed to ' + toName + (out.teammateNotified ? ' — they have been notified' : ' — give them a heads-up, they have no push notifications set up'),
+    out.teammateNotified ? 'ok' : 'warn');
+
+  const data = typeof globalThis.loadCleanerDashboard === 'function'
+    ? await globalThis.loadCleanerDashboard()
+    : null;
+  if (!data) return;
+  window._cleanerData = data;
+  renderNewCleanerView(data);
+  renderCleanerCalendar();
+  renderCleanerProfile();
+}
+window.cleanerHandOff = cleanerHandOff;
 
 async function cleanerDeclineClean(cleanId) {
   await _cleanerUpdate(cleanId,
