@@ -185,35 +185,40 @@ export async function loadCleanerDashboard() {
   const user = await getCurrentSupabaseUser();
   if (!user) return null;
 
-  // Primary lookup: by auth_user_id
-  let { data: cleanerRecord } = await window._sb
+  // Every cleaner row linked to this login. A cleaner who works for two hosts
+  // has one row per host (same auth_user_id): the first row is the "primary"
+  // record for name/contact, while cleans, days off and hosts span all rows.
+  // (The old .single() here threw on the second host's row.)
+  const { data: cleanerRows } = await window._sb
     .from('cleaners')
     .select('id, name, email, phone, user_id')
     .eq('auth_user_id', user.id)
-    .single();
+    .order('created_at', { ascending: true });
+  let cleanerRecords = Array.isArray(cleanerRows) ? cleanerRows : [];
 
   // Fallback: match by email (for hosts who are also cleaners but haven't linked auth_user_id)
-  if (!cleanerRecord && user.email) {
+  if (!cleanerRecords.length && user.email) {
     const { data: byEmail } = await window._sb
       .from('cleaners')
       .select('id, name, email, phone, user_id')
-      .eq('email', user.email)
-      .limit(1);
+      .eq('email', user.email);
     if (byEmail && byEmail.length) {
-      cleanerRecord = byEmail[0];
+      cleanerRecords = byEmail;
       // Backfill auth_user_id so future lookups work natively
-      window._sb.from('cleaners').update({ auth_user_id: user.id, updated_at: new Date().toISOString() }).eq('id', cleanerRecord.id).then(() => {
-        console.log('[StayOps] Linked cleaner record to auth user via email match');
+      window._sb.from('cleaners').update({ auth_user_id: user.id, updated_at: new Date().toISOString() }).in('id', byEmail.map(r => r.id)).then(() => {
+        console.log('[StayOps] Linked', byEmail.length, 'cleaner record(s) to auth user via email match');
       }).catch(() => {});
     }
   }
 
-  if (!cleanerRecord) return null;
+  if (!cleanerRecords.length) return null;
+  const cleanerRecord = cleanerRecords[0];
+  const cleanerIds = cleanerRecords.map(r => r.id);
 
   const { data: myCleans } = await window._sb
     .from('cleans')
     .select('*, properties:property_id (id, name, address, suburb, state, bedrooms, bathrooms, max_guests, check_in_info)')
-    .eq('cleaner_uuid', cleanerRecord.id)
+    .in('cleaner_uuid', cleanerIds)
     .order('clean_date', { ascending: true });
   const cleans = myCleans || [];
 
@@ -242,13 +247,13 @@ export async function loadCleanerDashboard() {
 
   annotateCleanerCleans(cleans, ctxBookings);
 
-  // Days off (cleaner_unavailable; RLS: own rows) as { 'YYYY-MM-DD': note }.
+  // Days off (cleaner_unavailable; RLS: own rows, across every cleaner row) as { 'YYYY-MM-DD': note }.
   const daysOff = {};
   try {
     const { data: offRows, error: offErr } = await window._sb
       .from('cleaner_unavailable')
       .select('day, note')
-      .eq('cleaner_uuid', cleanerRecord.id);
+      .in('cleaner_uuid', cleanerIds);
     if (offErr) console.warn('[StayOps] cleaner_unavailable load failed:', offErr.message);
     (offRows || []).forEach(r => { if (r && r.day) daysOff[String(r.day).slice(0, 10)] = r.note || ''; });
   } catch (e) {
@@ -259,7 +264,7 @@ export async function loadCleanerDashboard() {
   hosts.forEach(h => { if (h && h.user_id) hostByUserId[String(h.user_id)] = h; });
   const host = hostByUserId[String(cleanerRecord.user_id || '')] || hosts[0] || null;
 
-  const result = { cleanerRecord, myCleans: cleans, host, hosts, hostByUserId, daysOff };
+  const result = { cleanerRecord, cleanerRecords, myCleans: cleans, host, hosts, hostByUserId, daysOff };
   writeCleanerCache(user.id, result);
   return result;
 }

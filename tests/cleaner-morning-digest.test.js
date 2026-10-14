@@ -112,11 +112,11 @@ test('scheduled run: one digest per cleaner with login, deadline-first body, log
   const log = sb._store.notification_log;
   assert.equal(log.length, 1);
   assert.equal(log[0].type, 'cleaner_digest');
-  assert.equal(log[0].reference_id, MEGAN + ':' + TODAY);
+  assert.equal(log[0].reference_id, 'auth-megan:' + TODAY, 'keyed by login, not by cleaner row');
 });
 
 test('a second run the same day sends nothing (notification_log dedup)', async () => {
-  const prior = [{ id: 'n1', type: 'cleaner_digest', reference_id: MEGAN + ':' + TODAY, sent_at: new Date().toISOString() }];
+  const prior = [{ id: 'n1', type: 'cleaner_digest', reference_id: 'auth-megan:' + TODAY, sent_at: new Date().toISOString() }];
   const sb = makeFakeSupabase({ tables: seed({ priorLog: prior }) });
   const wp = makeFakeWebPush();
   installModuleMocks({ supabase: sb, webpush: wp });
@@ -144,4 +144,24 @@ test('composeDigest: single clean, no turnover, confirmed', () => {
   const d = _composeDigest([{ propertyName: 'Seaview', awaiting: false, turnover: { checkout: '10:00', sameDay: false, nextTime: '', nextDay: '' } }]);
   assert.equal(d.title, '🧹 Today: 1 clean');
   assert.equal(d.body, 'First out 10am at Seaview');
+});
+
+test('a cleaner with rows under two hosts gets ONE digest spanning both', async () => {
+  const t = seed();
+  const MEGAN_B = '22222222-3333-4444-8555-666666666666';   // Megan's row under a second host
+  t.cleaners.push({ id: MEGAN_B, name: 'Megan', auth_user_id: 'auth-megan', active: true });
+  t.properties.push({ id: 'p9', name: 'Lakehouse', user_id: 'host-2' });
+  t.cleans.push({ id: 'c9', user_id: 'host-2', property_id: 'p9', booking_id: '901', cleaner_uuid: MEGAN_B, guest_name: 'Zed', clean_date: TODAY, done: false, cleaner_declined: false, cleaner_cancel_notified: false, cleaner_confirmed: true });
+  t.bookings.push({ id: 'b901', local_id: '901', property_id: 'p9', user_id: 'host-2', checkin: '2026-01-01', checkout: TODAY, checkout_time: '09:00:00', status: 'confirmed', guests: 2 });
+  const sb = makeFakeSupabase({ tables: t });
+  const wp = makeFakeWebPush();
+  installModuleMocks({ supabase: sb, webpush: wp });
+
+  const res = await loadFn().handler({ headers: {}, body: JSON.stringify({ next_run: 'x' }) });
+  const out = JSON.parse(res.body);
+  assert.equal(out.cleaners, 1, 'one login, one digest');
+  assert.equal(wp._sent.length, 1);
+  const payload = JSON.parse(wp._sent[0].payload);
+  assert.equal(payload.title, '🧹 Today: 3 cleans');
+  assert.ok(payload.body.startsWith('First out 9am at Lakehouse'), payload.body);
 });

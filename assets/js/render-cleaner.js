@@ -280,6 +280,11 @@ function cleanCard(data, c, mode) {
   html += '<div style="font-size:17px;font-weight:500;color:var(--ink-1);line-height:1.25">' + escHtml(prop.name || 'Property') + '</div>';
   html += '<div style="font-size:13px;color:#888;margin-top:3px">' + guestLine + '</div>';
   if (prop.address) html += '<div style="font-size:12px;color:#aaa;margin-top:2px">' + escHtml(prop.address) + '</div>';
+  if (Array.isArray(data.hosts) && data.hosts.length > 1) {
+    // Working for more than one host: say whose property this is.
+    const h = hostForClean(data, c);
+    if (h) html += '<div style="font-size:11px;color:#999;margin-top:2px">for ' + escHtml(h.name || h.company || 'host') + '</div>';
+  }
   html += '</div>';
   html += '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">' + deadline + status + '</div>';
   html += '</div>';
@@ -816,7 +821,8 @@ function cleanerPickPhoto(cleanId) {
 async function cleanerAddPhoto(cleanId, file) {
   const data = window._cleanerData;
   const c = _findClean(cleanId);
-  const cleanerUuid = data && data.cleanerRecord && data.cleanerRecord.id;
+  // Folder = the cleaner row that owns this clean (a multi-host cleaner has one row per host).
+  const cleanerUuid = (c && c.cleaner_uuid) || (data && data.cleanerRecord && data.cleanerRecord.id);
   if (!c || !cleanerUuid || !window._sb) return;
   globalThis.showBanner('Uploading photo…', 'info');
   try {
@@ -1017,9 +1023,12 @@ async function cleanerToggleDayOff(day) {
   if (!cr || !cr.id || !window._sb || !day) return;
   const daysOff = data.daysOff || {};
   const isOff = daysOff[day] != null;
+  // A day off applies to every host the cleaner works for: one row per cleaner record.
+  const records = Array.isArray(data.cleanerRecords) && data.cleanerRecords.length ? data.cleanerRecords : [cr];
+  const ids = records.map(r => r && r.id).filter(Boolean);
   const { error } = isOff
-    ? await window._sb.from('cleaner_unavailable').delete().eq('cleaner_uuid', cr.id).eq('day', day)
-    : await window._sb.from('cleaner_unavailable').insert({ cleaner_uuid: cr.id, day });
+    ? await window._sb.from('cleaner_unavailable').delete().in('cleaner_uuid', ids).eq('day', day)
+    : await window._sb.from('cleaner_unavailable').upsert(ids.map(id => ({ cleaner_uuid: id, day })), { onConflict: 'cleaner_uuid,day', ignoreDuplicates: true });
   if (error) { globalThis.showBanner('Could not update day off: ' + error.message, 'error'); return; }
   if (isOff) delete daysOff[day]; else daysOff[day] = '';
   data.daysOff = daysOff;
@@ -1076,15 +1085,19 @@ function renderCleanerProfile() {
   html += '<span style="font-size:13px;color:#999">Phone</span>';
   html += '<span style="font-size:13px;font-weight:600;color:#333">' + escHtml(cr.phone || '—') + '</span>';
   html += '</div>';
-  if (host) {
+  // One row per host the cleaner works for (usually one).
+  const hostList = (Array.isArray(window._cleanerData.hosts) && window._cleanerData.hosts.length)
+    ? window._cleanerData.hosts
+    : (host ? [host] : []);
+  hostList.forEach((h, i) => {
     html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid #f5f5f3">';
-    html += '<span style="font-size:13px;color:#999">Host</span>';
-    html += '<span style="font-size:13px;font-weight:600;color:#333;text-align:right">' + escHtml(host.name || host.company || '—') +
-      (host.name && host.company ? '<div style="font-size:11px;color:#999;font-weight:400">' + escHtml(host.company) + '</div>' : '') +
-      (host.phone ? '<div style="font-size:11px;color:#999;font-weight:400">' + escHtml(host.phone) + '</div>' : '') +
+    html += '<span style="font-size:13px;color:#999">' + (hostList.length > 1 ? 'Host ' + (i + 1) : 'Host') + '</span>';
+    html += '<span style="font-size:13px;font-weight:600;color:#333;text-align:right">' + escHtml(h.name || h.company || '—') +
+      (h.name && h.company ? '<div style="font-size:11px;color:#999;font-weight:400">' + escHtml(h.company) + '</div>' : '') +
+      (h.phone ? '<div style="font-size:11px;color:#999;font-weight:400">' + escHtml(h.phone) + '</div>' : '') +
     '</span>';
     html += '</div>';
-  }
+  });
   html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #f5f5f3">';
   html += '<span style="font-size:13px;color:#999">Notifications</span>';
   html += '<span id="cleaner-profile-notif-status" style="font-size:13px;font-weight:600;color:#999"></span>';
@@ -1105,30 +1118,40 @@ function renderCleanerProfile() {
   html += '</div>';
   html += '</div>';
 
-  const hostHref = host ? smsHref(host.phone, 'Hi' + (hostFirstName(host) ? ' ' + hostFirstName(host) : '') + ', ') : '';
-  if (hostHref) {
-    html += '<a href="' + escHtml(hostHref) + '" style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:16px;padding:12px;background:#f7f9f8;color:#2f5d4e;border:1px solid #d5ded9;border-radius:10px;font-weight:600;font-size:13px;text-decoration:none">💬 Message host</a>';
-  }
+  hostList.forEach(h => {
+    const href = smsHref(h.phone, 'Hi' + (hostFirstName(h) ? ' ' + hostFirstName(h) : '') + ', ');
+    if (!href) return;
+    const label = hostList.length > 1 ? '💬 Message ' + escHtml(hostFirstName(h) || h.name || h.company || 'host') : '💬 Message host';
+    html += '<a href="' + escHtml(href) + '" style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:' + (hostList.length > 1 ? '8px' : '16px') + ';padding:12px;background:#f7f9f8;color:#2f5d4e;border:1px solid #d5ded9;border-radius:10px;font-weight:600;font-size:13px;text-decoration:none">' + label + '</a>';
+  });
   html += '</div></div>';
 
   html += earningsCard(cleans);
 
   // Subscribe-able .ics of this cleaner's cleans, so they live in the phone
   // calendar the cleaner already uses (Netlify/functions/cleaner-calendar-feed.js).
-  const feedUrl = cr.id ? cleanerFeedUrl(cr.id) : '';
-  if (feedUrl) {
+  // The feed is keyed by cleaner row, i.e. per host: a multi-host cleaner gets one per host.
+  const records = (Array.isArray(window._cleanerData.cleanerRecords) && window._cleanerData.cleanerRecords.length)
+    ? window._cleanerData.cleanerRecords
+    : (cr.id ? [cr] : []);
+  const byUid = window._cleanerData.hostByUserId || {};
+  records.forEach((rec, i) => {
+    const feedUrl = rec && rec.id ? cleanerFeedUrl(rec.id) : '';
+    if (!feedUrl) return;
     const webcal = feedUrl.replace(/^https?:\/\//, 'webcal://');
+    const h = byUid[String(rec.user_id || '')];
+    const forHost = records.length > 1 ? ' — ' + escHtml((h && (h.name || h.company)) || 'host ' + (i + 1)) : '';
     html += '<div style="background:white;border-radius:16px;padding:18px 20px;margin-top:16px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">';
-    html += '<div style="font-weight:700;font-size:14px;color:var(--primary);margin-bottom:4px">📅 Your cleans in your phone calendar</div>';
-    html += '<div style="font-size:12px;color:#888;line-height:1.45;margin-bottom:12px">Subscribe once and every clean appears in Apple, Google or Outlook Calendar with the property, the guest\'s checkout time and the next guest\'s arrival. It updates itself. The lockbox code stays in this app.</div>';
+    html += '<div style="font-weight:700;font-size:14px;color:var(--primary);margin-bottom:4px">📅 Your cleans in your phone calendar' + forHost + '</div>';
+    if (i === 0) html += '<div style="font-size:12px;color:#888;line-height:1.45;margin-bottom:12px">Subscribe once and every clean appears in Apple, Google or Outlook Calendar with the property, the guest\'s checkout time and the next guest\'s arrival. It updates itself. The lockbox code stays in this app.</div>';
     html += '<div style="display:flex;gap:8px">';
     html += '<a href="' + escHtml(webcal) + '" style="flex:1;display:flex;align-items:center;justify-content:center;padding:11px;background:var(--primary);color:white;border-radius:10px;font-weight:600;font-size:13px;text-decoration:none">Add to calendar</a>';
-    html += '<button type="button" onclick="window._copyCleanerFeedUrl()" id="cleaner-feed-copy-btn" style="flex:1;padding:11px;background:white;color:var(--primary);border:1px solid var(--primary);border-radius:10px;font-weight:600;font-size:13px;cursor:pointer">Copy link</button>';
+    html += '<button type="button" onclick="window._copyCleanerFeedUrl(' + i + ')" id="cleaner-feed-copy-btn' + i + '" style="flex:1;padding:11px;background:white;color:var(--primary);border:1px solid var(--primary);border-radius:10px;font-weight:600;font-size:13px;cursor:pointer">Copy link</button>';
     html += '</div>';
-    html += '<input id="cleaner-feed-url" type="text" readonly value="' + escHtml(feedUrl) + '" style="width:100%;box-sizing:border-box;margin-top:10px;padding:8px 10px;border:1px solid #e5e5e0;border-radius:8px;font-size:11px;color:#777;background:#fafaf8">';
-    html += '<div style="font-size:11px;color:#999;margin-top:6px">Google Calendar on Android: copy the link, then in Google Calendar on the web choose Other calendars → From URL.</div>';
+    html += '<input id="cleaner-feed-url' + i + '" type="text" readonly value="' + escHtml(feedUrl) + '" style="width:100%;box-sizing:border-box;margin-top:10px;padding:8px 10px;border:1px solid #e5e5e0;border-radius:8px;font-size:11px;color:#777;background:#fafaf8">';
+    if (i === 0) html += '<div style="font-size:11px;color:#999;margin-top:6px">Google Calendar on Android: copy the link, then in Google Calendar on the web choose Other calendars → From URL.</div>';
     html += '</div>';
-  }
+  });
 
   // "Also a Host?" section — only show if user doesn't already have a host role
   html += '<div id="cleaner-become-host-section" style="margin-top:20px;display:none">';
@@ -1208,9 +1231,10 @@ function cleanerFeedUrl(cleanerId) {
   return base + '/.netlify/functions/cleaner-calendar-feed?key=' + encodeURIComponent(cleanerId);
 }
 
-window._copyCleanerFeedUrl = function () {
-  const input = document.getElementById('cleaner-feed-url');
-  const btn = document.getElementById('cleaner-feed-copy-btn');
+window._copyCleanerFeedUrl = function (i) {
+  const idx = Number(i) || 0;
+  const input = document.getElementById('cleaner-feed-url' + idx);
+  const btn = document.getElementById('cleaner-feed-copy-btn' + idx);
   if (!input) return;
   const done = () => { if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy link'; }, 2000); } };
   const fallback = () => { input.select(); try { document.execCommand('copy'); } catch (_e) { /* deprecated API, ignore */ } done(); };

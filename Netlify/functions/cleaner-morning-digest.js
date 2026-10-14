@@ -16,9 +16,10 @@
 // without push enabled are skipped quietly; the 24h reminder EMAIL
 // (send-clean-reminders.js) still covers them.
 //
-// DEDUP: one digest per cleaner per day via notification_log
-// (type cleaner_digest, reference_id <cleaner uuid>:<date>), so a manual re-run
-// or a double schedule fire cannot double-buzz.
+// DEDUP: one digest per cleaner LOGIN per day via notification_log
+// (type cleaner_digest, reference_id <auth_user_id>:<date>), so a manual re-run
+// or a double schedule fire cannot double-buzz, and a cleaner with rows under
+// two hosts gets a single digest spanning both.
 //
 // AUTH: Netlify's scheduler invokes the function with a JSON body carrying
 // `next_run`; anything else must present x-cron-secret = CRON_SECRET (same
@@ -148,15 +149,21 @@ exports.handler = async (event) => {
     const propName = {};
     (properties || []).forEach(p => { propName[p.id] = p.name || 'Property'; });
 
-    // 3. Group by cleaner, drop cancelled bookings, compose, push
-    const byCleaner = {};
-    live.forEach(c => { (byCleaner[c.cleaner_uuid] = byCleaner[c.cleaner_uuid] || []).push(c); });
+    // 3. Group by the cleaner's LOGIN (auth_user_id), not by cleaner row — a
+    //    cleaner working for two hosts has two rows and should get one digest
+    //    covering both. Drop cancelled bookings, compose, push.
+    const byAuth = {};
+    live.forEach(c => {
+      const cleaner = cleanerById[c.cleaner_uuid];
+      if (!cleaner || cleaner.active === false || !cleaner.auth_user_id) { summary.skipped++; return; }
+      const g = byAuth[cleaner.auth_user_id] = byAuth[cleaner.auth_user_id] || { cleaner, cleans: [] };
+      g.cleans.push(c);
+    });
 
-    for (const cleanerId of Object.keys(byCleaner)) {
-      const cleaner = cleanerById[cleanerId];
-      if (!cleaner || cleaner.active === false || !cleaner.auth_user_id) { summary.skipped++; continue; }
+    for (const authId of Object.keys(byAuth)) {
+      const { cleaner, cleans: mine } = byAuth[authId];
 
-      const items = byCleaner[cleanerId]
+      const items = mine
         .map(c => {
           const sameHost = (bookings || []).filter(b => !c.user_id || String(b.user_id) === String(c.user_id));
           const turnover = resolveTurnover(c, sameHost);
@@ -165,7 +172,7 @@ exports.handler = async (event) => {
         .filter(Boolean);
       if (!items.length) { summary.skipped++; continue; }
 
-      const referenceId = cleanerId + ':' + today;
+      const referenceId = authId + ':' + today;
       if (await hasRecentNotification({ supabaseAdmin: sb, type: 'cleaner_digest', referenceId, withinMinutes: DEDUP_MINUTES })) {
         summary.skipped++;
         continue;
