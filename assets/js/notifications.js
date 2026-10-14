@@ -359,7 +359,13 @@ export async function subscribeToPush(role, cleanerId) {
     }
     console.log('[Push] before saving subscription', { role, cleanerId: cleanerId || null, endpoint: subJson.endpoint || null });
     savePushSubsLocal(subs);
-    if (role === 'host') {
+    // Both roles persist to app_config.push_subscriptions for the SIGNED-IN auth
+    // user. For a host that is the host row the server already reads. For a
+    // cleaner (own email login) it is the cleaner's own app_config row — the
+    // only place a server function can reach them (push-helper sendPushToUser
+    // / send-push user_id = cleaners.auth_user_id). The legacy push_subs.cleaners
+    // map above only ever worked when the cleaner subscribed on the host's device.
+    if (role === 'host' || role === 'cleaner') {
       // Remove the old (just-killed) endpoint from push_subscriptions so dead entries don't accumulate
       if (oldEndpoint && oldEndpoint !== subJson.endpoint) {
         await removeHostPushSubscriptionFromCloudByEndpoint(oldEndpoint).catch(e =>
@@ -429,6 +435,29 @@ export async function sendPushToDevice(subscription, title, body, url, tag, opts
 globalThis.sendPushToDevice = sendPushToDevice;
 
 export function getHostSub() { return getPushSubs().host || null; }
+/**
+ * Push to every device of ONE auth user (send-push user_id mode, email skipped).
+ * For a cleaner pass cleaners.auth_user_id — their subscriptions live under
+ * their own app_config row since the cleaner PWA saves them there.
+ * @returns {Promise<{ok:boolean, sent?:number, reason?:string}>}
+ */
+export async function sendPushToUserId(userId, title, body, url, tag) {
+  if (!userId) return { ok: false, reason: 'no-user' };
+  try {
+    const _af = typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch;
+    const res = await _af(getPushFunctionUrl(), {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, title, body, url: url || '/', tag, skipEmail: true }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) return { ok: false, reason: (data && data.error) || ('http-' + res.status) };
+    return { ok: true, sent: Number(data && data.sent) || 0 };
+  } catch (e) {
+    console.warn('[Push] sendPushToUserId failed:', e && e.message);
+    return { ok: false, reason: (e && e.message) || 'error' };
+  }
+}
+
 export function getCleanerSub(cleanerId) {
   const cleaners = getPushSubs().cleaners || {};
   // Try exact match first (could be local_id or UUID depending on how cleaner subscribed)
@@ -462,7 +491,19 @@ export async function _sendCleanerAssignmentNotifications(booking, cleanerObj, d
   let emailAttempted = false;
   let emailSent = false;
 
-  const cleanerSub = getCleanerSub(cleanerObj.id);
+  // Device-independent path first: the cleaner's own devices, via the
+  // subscriptions they saved under their auth user from the cleaner PWA.
+  if (cleanerObj.auth_user_id) {
+    const pushRes = await sendPushToUserId(
+      cleanerObj.auth_user_id,
+      '🏡 New Clean Assigned',
+      `${booking.name || 'Guest'} · ${fmt(date)}`,
+      cleanerLinkForId(cleanerObj),
+      tag || ('assign-' + String(booking.id || Date.now()))
+    );
+    pushSent = !!(pushRes && pushRes.ok && pushRes.sent > 0);
+  }
+  const cleanerSub = pushSent ? null : getCleanerSub(cleanerObj.id);
   if (cleanerSub) {
     const pushRes = await sendPushToDevice(
       cleanerSub,
@@ -473,7 +514,7 @@ export async function _sendCleanerAssignmentNotifications(booking, cleanerObj, d
       { skipEmail: true } // email already sent via sendCleanerEmail below
     );
     pushSent = !!(pushRes && pushRes.ok);
-  } else {
+  } else if (!pushSent) {
     console.warn('No push subscription found for cleaner', cleanerObj.id, '— cleaner needs to enable notifications');
   }
 

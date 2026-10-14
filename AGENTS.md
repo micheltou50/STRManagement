@@ -49,12 +49,14 @@ After login: config migration -> cloud seed -> host identity -> app init -> `hyd
 - Notification toggles in `app_config.notification_config`: `email_cancellation`, `notif_assignment`, `email_reminder`
 
 ### Cleaners have their own PWA
-Cleaners log in via `auth_user_id` on the `cleaners` table. They can accept/decline/mark-done cleans through `cleaner-action.js` (Netlify Function). Actions trigger push + email notifications to the host and insert message cards into the `messages` table.
+Cleaners sign in with their own Supabase user (`cleaners.auth_user_id`). The cleaner UI is `render-cleaner.js`, fed by `loadCleanerDashboard()` in `supabase.js`: their cleans and assigned properties come through RLS, and host contact plus the sibling bookings needed for turnover deadlines come from the `cleaner_dashboard_context()` SECURITY DEFINER RPC (scoped to `auth.uid()` and to each clean's host `user_id`). `annotateCleanerCleans()` in `utils.js` derives per-clean checkout time, next check-in, same-day-turnover flag and the deadline sort key. Accept / decline / start / finish / acknowledge write to `cleans` directly (RLS policy `cleaner_update_own_cleans`; `started_at` marks a clean in progress) and notify the host via `send-push`. The per-property cheat sheet (lockbox, access, Wi-Fi, cleaner notes, checklist) lives in `properties.check_in_info` and is edited from Property → Access & Rules; the lockbox code is only shown on the day of the clean. "Message Host" opens the phone's SMS app via an `sms:` link to `host_config.phone`. Checklist progress (`cleans.checklist_done`) and photo proof (`cleans.photos`, uploaded to the `photos` bucket under `cleans/<cleaner uuid>/<clean id>/`) are cleaner-owned; the host app never writes them except resetting `started_at` / `checklist_done` when a clean is unassigned. Days off live in `cleaner_unavailable`. Cleaners can subscribe to their cleans as an iCal feed (`cleaner-calendar-feed.js`, keyed by `cleaners.id`). A cleaner can hand a clean to a teammate of the same host: the RPC's `teammates` list feeds the picker, and `cleaner-handoff.js` (service key, after checking the clean is the caller's and the target works for that host) re-points the clean, resets it to awaiting with `notified = false`, and pushes the host and the teammate.
+
+`cleaner-data.js` and `cleaner-action.js` (Netlify Functions) are the legacy link/PIN cleaner path and are no longer called by the frontend.
 
 ## Supabase tables (key ones)
 - `bookings` — guest bookings (status: confirmed/cancelled). Key columns: `source` (`ical`/`gmail`/`outlook`/`manual`), `enrichment_status` (`pending`/`enriched`), `ical_uid`, `ical_feed_id`, `confirmation_code`.
 - `property_ical_feeds` — per-property iCal subscriptions (one row per platform per property). Polled by `ical-sync.js`.
-- `cleans` — cleaning jobs linked to bookings via `booking_id`
+- `cleans` — cleaning jobs linked to bookings via `booking_id` (the booking's `local_id`). `cleaner_confirmed` / `cleaner_declined` / `started_at` / `done` track the cleaner's progress.
 - `cleaners` — cleaner roster with auth, contact info, permissions
 - `app_config` — per-user settings, push subs, notification config, email templates
 - `host_config` — host profile (name, company, contact)

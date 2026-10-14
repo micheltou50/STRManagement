@@ -34,6 +34,9 @@ export async function loadCleansFromCloud() {
       reminderSent:     c.reminder_sent || false,
       assignedAt:       c.assigned_at  || null,
       confirmedAt:      c.confirmed_at || null,
+      startedAt:        c.started_at   || null,
+      checklistDone:    Array.isArray(c.checklist_done) ? c.checklist_done : [],
+      photos:           Array.isArray(c.photos) ? c.photos : [],
       notes:            c.notes        || '',
       cost:             c.cost != null ? Number(c.cost) : null,
       cleanerCancelNotified: c.cleaner_cancel_notified || false,
@@ -77,6 +80,16 @@ export async function saveCleanToCloud(clean) {
       cleaner_cancel_acknowledged_at: clean.cleanerCancelAcknowledgedAt || null,
       updated_at:       new Date().toISOString()
     };
+    // Cleaner-owned progress (started_at, checklist_done, photos) is written by
+    // the cleaner PWA. The host app has no realtime on cleans, so a host edit
+    // (notes, cost…) must not clobber a clean that is live on the cleaner's
+    // phone: started_at / checklist_done are only reset when the clean has no
+    // confirmed cleaner (unassigned, reassigned, or un-confirmed), and photos
+    // are never written from here.
+    if (!clean.cleanerId || !clean.cleanerConfirmed) {
+      basePayload.started_at = null;
+      basePayload.checklist_done = [];
+    }
     if (clean._cloudId) {
       // Guard: never update property_id on existing records.
       console.log('[StayOps] GUARD: property_id stripped from cleans update:', clean._cloudId);
