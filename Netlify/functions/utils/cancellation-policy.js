@@ -39,10 +39,16 @@ async function loadCancellationConfig(supabaseUrl, sbHeaders, userId) {
         '&select=cancellation_window_days,cancellation_policy',
       { headers: sbHeaders }
     );
-    if (!res.ok) return {};
+    if (!res.ok) {
+      // Loud, not silent: before 2026-10-14 the columns did not exist, every
+      // lookup returned 400, and the fallback window applied to everything.
+      console.warn('[cancellation-policy] app_config lookup failed (HTTP ' + res.status + ') — using fallback window of ' + FALLBACK_CANCELLATION_WINDOW_DAYS + ' days');
+      return {};
+    }
     const rows = await res.json();
     return (Array.isArray(rows) && rows[0]) || {};
-  } catch (_) {
+  } catch (e) {
+    console.warn('[cancellation-policy] app_config lookup threw:', e && e.message);
     return {};
   }
 }

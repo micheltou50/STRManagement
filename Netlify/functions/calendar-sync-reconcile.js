@@ -14,6 +14,8 @@
 const { reconcileGoogle } = require('./utils/calendar-reconcile-google');
 const { reconcileOutlook } = require('./utils/calendar-reconcile-outlook');
 const { getFreshAccessToken, sbHeaders, patchConnection } = require('./utils/calendar-token');
+const { pushToProvider } = require('./utils/calendar-push-core');
+const { logSync } = require('./utils/calendar-sync-log');
 const gcal = require('./utils/gcal-client');
 const ocal = require('./utils/outlook-cal-client');
 const crypto = require('crypto');
@@ -100,27 +102,47 @@ async function renewOutlookSubscriptionIfNeeded(userId, conn) {
   }
 }
 
-async function clearPendingOutbound(userId) {
+// Retry outbound pushes that failed earlier (pending_direction='to_provider').
+// One attempt per run. A push that succeeds rewrites its own row (real event
+// id, pending cleared). A row that fails again is removed so a broken row can
+// never retry forever; the failure is logged and the next local mutation
+// re-queues it. (Previously this only cleared the flag and never retried.)
+async function retryPendingOutbound(userId) {
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const url = SUPABASE_URL + '/rest/v1/calendar_sync_state' +
     '?user_id=eq.' + encodeURIComponent(userId) +
     '&pending_direction=eq.to_provider' +
-    '&select=local_table,local_id&limit=50';
+    '&select=provider,local_table,local_id&limit=50';
   const res = await fetch(url, { headers: sbHeaders() });
   const rows = await res.json();
   if (!Array.isArray(rows) || rows.length === 0) return 0;
+
+  let retried = 0;
+  for (const row of rows) {
+    if (!row.provider || !row.local_table || !row.local_id) continue;
+    const base = { userId, provider: row.provider, direction: 'to_provider', localTable: row.local_table, localId: row.local_id };
+    try {
+      const r = await pushToProvider(userId, row.provider, row.local_table, row.local_id, 'upsert');
+      retried++;
+      await logSync({ ...base, providerEventId: r && r.eventId, op: (r && r.op) || 'update', message: 'retried pending outbound push' });
+    } catch (e) {
+      await logSync({ ...base, op: 'error', message: 'pending outbound retry failed: ' + (e && e.message) });
+    }
+  }
+
+  // Successful pushes have already replaced their rows; whatever is still
+  // flagged pending failed again — drop it rather than keep a bogus mapping.
   await fetch(SUPABASE_URL + '/rest/v1/calendar_sync_state' +
     '?user_id=eq.' + encodeURIComponent(userId) +
     '&pending_direction=eq.to_provider', {
-    method: 'PATCH',
+    method: 'DELETE',
     headers: { ...sbHeaders(), Prefer: 'return=minimal' },
-    body: JSON.stringify({ pending_direction: null }),
   });
-  return rows.length;
+  return retried;
 }
 
 async function runForUser(userId, provider, conn) {
-  const out = { userId, provider, reconcile: null, renewed: false, pendingCleared: 0 };
+  const out = { userId, provider, reconcile: null, renewed: false, pendingRetried: 0 };
   try {
     if (provider === 'google_calendar')  out.reconcile = await reconcileGoogle(userId);
     if (provider === 'outlook_calendar') out.reconcile = await reconcileOutlook(userId);
@@ -132,7 +154,7 @@ async function runForUser(userId, provider, conn) {
     if (provider === 'outlook_calendar') await renewOutlookSubscriptionIfNeeded(userId, conn);
     out.renewed = true;
   } catch (_) { void 0; }
-  try { out.pendingCleared = await clearPendingOutbound(userId); } catch (_) { void 0; }
+  try { out.pendingRetried = await retryPendingOutbound(userId); } catch (_) { void 0; }
   return out;
 }
 

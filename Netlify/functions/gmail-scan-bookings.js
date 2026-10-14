@@ -17,7 +17,7 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const { captureError, captureMessage, flush } = require('./utils/sentry');
-const { verifyAuth } = require('./utils/auth');
+const { verifyAuthOrService } = require('./utils/auth');
 const { isPreflight, preflightResponse } = require('./utils/cors');
 const {
   enc, json, safeJson, looksLikeBookingEmail,
@@ -105,7 +105,13 @@ exports.handler = async (event) => {
   // JWT. The old `?uid=` query param was not a secret — it's embedded in every
   // shareable cleaner link and the public calendar feed — so trusting it let
   // anyone trigger a scan for, and read the booking summary of, any user.
-  const auth = await verifyAuth(event);
+  //
+  // The one exception is the scheduled Supabase poll-emails function, which
+  // has no user session: it authenticates with the service-role key and names
+  // the user via `?uid=`. Until 2026-10-14 it sent no credentials at all, so
+  // every background scan was rejected with 401 and emails were only scanned
+  // while the app was open.
+  const auth = await verifyAuthOrService(event);
   if (auth.error) return auth.error;
   const uid = auth.id;
 

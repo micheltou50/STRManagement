@@ -31,6 +31,14 @@ Booking ingestion is two-stage:
 
 Direct bookings (no iCal feed) still flow through the email scanner as standalone inserts when no stub matches.
 
+### Two-way calendar sync is a mirror, not an input, for platform bookings
+Google/Outlook two-way sync (`calendar-push-core.js` outbound, `calendar-reconcile-google.js` / `calendar-reconcile-outlook.js` inbound, shared deletion rules in `utils/calendar-deletion.js`):
+- A calendar event deleted (or moved to another calendar) for a **platform booking** (`source` in `ical`/`gmail`/`outlook`, or with an `ical_uid`) never cancels the booking. The link is dropped, the event is re-pushed, and the host gets a push. Only the platform (iCal feed / confirmation email) can cancel these.
+- For **manual / calendar-sourced bookings**, deleting the event soft-cancels the booking (host is pushed; stays that already started are never auto-cancelled). Restoring the event from the provider's bin re-links and revives it.
+- An inbound event carrying our own marker (`extendedProperties.private.stayops_*` or `[stayops:table:id]` in the description) for a row that still exists is **re-linked**, never inserted as a duplicate.
+- Every sync decision is written to `calendar_sync_log` (`utils/calendar-sync-log.js`). Read that table first when asking "why did this booking change?".
+- Incident this came from: 14 Oct 2026, a live Airbnb booking was cancelled in StayOps because its Google event was deleted on a phone.
+
 ### In-memory state is the runtime source of truth
 All data is loaded from Supabase into in-memory arrays at boot (`hydrateFromCloud()`), then rendered from those arrays. Mutations update both the in-memory array and Supabase. Key arrays:
 - `bookings` — all bookings

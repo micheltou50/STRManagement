@@ -64,7 +64,12 @@ Deno.serve(async (_req) => {
     for (const { user_id } of users) {
       try {
         const url = `${NETLIFY_URL}/.netlify/functions/gmail-scan-bookings?uid=${encodeURIComponent(user_id)}`;
-        const res  = await fetch(url);
+        // gmail-scan-bookings requires auth (a user JWT, or the service-role
+        // key plus ?uid= for this server-to-server path). Without this header
+        // every scheduled scan was rejected with 401.
+        const res  = await fetch(url, {
+          headers: { Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` },
+        });
         const data = await res.json();
 
         console.log(`[poll-emails] user=${user_id} imported=${data.imported ?? 0} updated=${data.updated ?? 0} cancelled=${data.cancelled ?? 0}`);

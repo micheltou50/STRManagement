@@ -9,7 +9,10 @@
 const { getFreshAccessToken, sbHeaders, patchConnection } = require('./calendar-token');
 const gcal = require('./gcal-client');
 const mapper = require('./calendar-mapper');
-const { isCancellationBillable, loadCancellationConfig } = require('./cancellation-policy');
+const { handleBookingEventDeletion, relinkMarkedEvent } = require('./calendar-deletion');
+const { logSync } = require('./calendar-sync-log');
+
+const PROVIDER = 'google_calendar';
 
 async function rest(path, init) {
   const url = process.env.SUPABASE_URL + '/rest/v1' + path;
@@ -131,6 +134,18 @@ async function applyEventToLocal(userId, ev, classification, state) {
     return { op: 'update' };
   }
 
+  // No mapping, but the event carries our own marker for a row we still have
+  // (e.g. restored from Google's bin after a deletion dropped the link):
+  // re-link instead of inserting a duplicate.
+  if (classification.localId) {
+    const relinked = await relinkMarkedEvent({
+      userId, provider: PROVIDER, table, localId: classification.localId, ev,
+      calendarId: (state && state.provider_calendar_id) || ev.organizer?.email || '',
+      loadLocalRowById, upsertSyncState,
+    });
+    if (relinked) return relinked;
+  }
+
   // No mapping yet → new event from phone.
   if (table === 'inbox') {
     // Park in calendar_sync_state for user to triage in the UI.
@@ -146,6 +161,7 @@ async function applyEventToLocal(userId, ev, classification, state) {
       last_synced_at: new Date().toISOString(),
       inbox_payload: ev,
     });
+    await logSync({ userId, provider: PROVIDER, direction: 'to_local', localTable: 'inbox', providerEventId: ev.id, op: 'insert', message: 'unrecognised event parked in inbox: ' + String(ev.summary || '').slice(0, 80) });
     return { op: 'inbox' };
   }
 
@@ -183,6 +199,7 @@ async function applyEventToLocal(userId, ev, classification, state) {
     last_synced_at: new Date().toISOString(),
     pending_direction: null,
   });
+  await logSync({ userId, provider: PROVIDER, direction: 'to_local', localTable: table, localId, providerEventId: ev.id, op: 'insert', message: 'new ' + table + ' row created from calendar event: ' + String(ev.summary || '').slice(0, 80) });
   return { op: 'insert_local' };
 }
 
@@ -197,34 +214,17 @@ async function applyEventDeletion(userId, eventId) {
 
   if (state.local_id) {
     if (state.local_table === 'bookings') {
-      // Soft-cancel via existing pattern.
-      const existingRows = await rest('/bookings' +
-        '?user_id=eq.' + encodeURIComponent(userId) +
-        '&local_id=eq.' + encodeURIComponent(state.local_id) +
-        '&select=id,checkin');
-      const booking = Array.isArray(existingRows) ? existingRows[0] : null;
-      const cancelledAt = new Date().toISOString();
-      const cancellationConfig = await loadCancellationConfig(process.env.SUPABASE_URL, sbHeaders(), userId);
-      await fetch(process.env.SUPABASE_URL + '/rest/v1/bookings' +
-        '?user_id=eq.' + encodeURIComponent(userId) +
-        '&local_id=eq.' + encodeURIComponent(state.local_id), {
-        method: 'PATCH',
-        headers: { ...sbHeaders(), Prefer: 'return=minimal' },
-        body: JSON.stringify({
-          status: 'cancelled',
-          cancelled_at: cancelledAt,
-          cancellation_billable: isCancellationBillable(booking, cancelledAt, cancellationConfig),
-          updated_at: cancelledAt,
-        }),
-      });
-    } else {
-      await fetch(process.env.SUPABASE_URL + '/rest/v1/' + state.local_table +
-        '?user_id=eq.' + encodeURIComponent(userId) +
-        '&local_id=eq.' + encodeURIComponent(state.local_id), {
-        method: 'DELETE',
-        headers: { ...sbHeaders(), Prefer: 'return=minimal' },
-      });
+      // Platform bookings are kept and their event re-created; manual bookings
+      // are soft-cancelled. Host is notified either way. See calendar-deletion.js.
+      return handleBookingEventDeletion({ userId, provider: PROVIDER, state });
     }
+    await fetch(process.env.SUPABASE_URL + '/rest/v1/' + state.local_table +
+      '?user_id=eq.' + encodeURIComponent(userId) +
+      '&local_id=eq.' + encodeURIComponent(state.local_id), {
+      method: 'DELETE',
+      headers: { ...sbHeaders(), Prefer: 'return=minimal' },
+    });
+    await logSync({ userId, provider: PROVIDER, direction: 'to_local', localTable: state.local_table, localId: state.local_id, providerEventId: eventId, op: 'delete', message: 'event deleted in Google Calendar — local ' + state.local_table + ' row deleted' });
   }
   await deleteSyncState(userId, eventId);
   return { op: 'deleted' };
