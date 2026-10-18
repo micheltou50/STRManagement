@@ -532,3 +532,74 @@ export function evenSplitAmounts(totalSigned, n) {
   const extra = cents - base * count;
   return Array.from({ length: count }, (_, i) => sign * (base + (i < extra ? 1 : 0)) / 100);
 }
+
+// ── Cleaner PWA day plan ────────────────────────────────────────────────────
+
+/** 'YYYY-MM-DD' shifted by n days, in local time. */
+function _shiftDayStr(dateStr, n) {
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  const dt = new Date(y, (m || 1) - 1, d || 1);
+  dt.setDate(dt.getDate() + n);
+  return localDateStr(dt);
+}
+
+/**
+ * Split a cleaner's cleans (annotated by annotateCleanerCleans) into the day
+ * plan's sections, ordered the way the plan shows them.
+ *
+ *  - `stale`: open cleans more than `overdueGraceDays` (3) past their date. They
+ *    are left OUT of the plan — the same rule as the host dashboard's "Clean not
+ *    done" alert: by then the clean was done and never marked, or a newer guest
+ *    has been through. Showing months of "Overdue" helps nobody.
+ *  - `cancelled`: booking cancelled, not done, and either not yet acknowledged
+ *    or within `cancelledKeepDays` (14) — acknowledged ones fall off after that.
+ *  - `open` (feeds the week strip and Accept-all) = overdue + today + tomorrow + later.
+ *  - within a day: same-day turnovers first by the next guest's arrival, then by
+ *    checkout, no-deadline last; ties by property name so the order is stable.
+ *  - `completed`: newest first.
+ */
+export function bucketCleanerCleans(all, todayStr, { overdueGraceDays = 3, cancelledKeepDays = 14 } = {}) {
+  const list = Array.isArray(all) ? all : [];
+  const tomorrowStr = _shiftDayStr(todayStr, 1);
+  const overdueFrom = _shiftDayStr(todayStr, -overdueGraceDays);
+  const cancelledFrom = _shiftDayStr(todayStr, -cancelledKeepDays);
+
+  const cancelled = list.filter(c => c._bookingCancelled && !c.done &&
+    (!c.cleaner_cancel_acknowledged || (c.clean_date && c.clean_date >= cancelledFrom)));
+  const active = list.filter(c => !c._bookingCancelled && !c.cleaner_declined);
+  const notDone = active.filter(c => !c.done);
+  const stale = notDone.filter(c => c.clean_date && c.clean_date < overdueFrom);
+  const open = notDone.filter(c => !(c.clean_date && c.clean_date < overdueFrom));
+  const overdue  = open.filter(c => c.clean_date && c.clean_date < todayStr);
+  const today    = open.filter(c => c.clean_date === todayStr);
+  const tomorrow = open.filter(c => c.clean_date === tomorrowStr);
+  const later    = open.filter(c => c.clean_date && c.clean_date > tomorrowStr);
+  const completed = active.filter(c => c.done)
+    .sort((a, b) => String(b.completed_at || b.clean_date || '').localeCompare(String(a.completed_at || a.clean_date || '')));
+
+  const propName = c => (c.properties && c.properties.name) || '';
+  const key = c => (Number.isFinite(c._deadlineMinutes) ? c._deadlineMinutes : Number.MAX_SAFE_INTEGER);
+  const byDeadline = (a, b) => (key(a) - key(b)) || propName(a).localeCompare(propName(b));
+  const byDateThenDeadline = (a, b) => String(a.clean_date).localeCompare(String(b.clean_date)) || byDeadline(a, b);
+  overdue.sort(byDateThenDeadline);
+  today.sort(byDeadline);
+  tomorrow.sort(byDeadline);
+  later.sort(byDateThenDeadline);
+
+  return { todayStr, tomorrowStr, cancelled, open, overdue, today, tomorrow, later, completed, stale };
+}
+
+/**
+ * The host's own cleaner record, if they also clean (behind the Host / Cleaner
+ * switch): a cleaners row linked to this login's auth user id, else one whose
+ * email is the login email (case-insensitive). null when there is none.
+ */
+export function findOwnCleanerRecord(user, cleaners) {
+  if (!user || !Array.isArray(cleaners) || !cleaners.length) return null;
+  const uid = user.id != null ? String(user.id) : '';
+  const byAuth = uid ? cleaners.find(c => c && c.auth_user_id && String(c.auth_user_id) === uid) : null;
+  if (byAuth) return byAuth;
+  const email = String(user.email || '').toLowerCase().trim();
+  if (!email) return null;
+  return cleaners.find(c => c && c.email && String(c.email).toLowerCase().trim() === email) || null;
+}

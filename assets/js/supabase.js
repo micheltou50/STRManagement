@@ -1090,9 +1090,9 @@ export async function handleLoginSubmit() {
     if (typeof window.isPortfolioMode === 'function' && !window.isPortfolioMode() && typeof renderAll === 'function') {
       renderAll();
     }
-    setTimeout(() => { if (typeof checkAutoSendReport === 'function') checkAutoSendReport(); }, 1500);
-    setTimeout(() => { if (typeof maybeAutoScanGmail === 'function') maybeAutoScanGmail(); }, 3000);
-    setTimeout(() => { if (typeof maybeAutoScanOutlook === 'function') maybeAutoScanOutlook(); }, 4500);
+    // Same post-boot tasks as the stored-session boot in main.js (report prompt,
+    // mailbox scans, Host / Cleaner switch) — one list so the paths can't drift.
+    if (typeof globalThis.runSharedPostBootTasks === 'function') globalThis.runSharedPostBootTasks();
   } catch (e) {
     console.error('[StayOps] Boot after login failed:', e);
   } finally {
@@ -1380,6 +1380,7 @@ async function _postAuthBootstrap() {
     if (typeof window.isPortfolioMode === 'function' && !window.isPortfolioMode() && typeof renderAll === 'function') {
       renderAll();
     }
+    if (typeof globalThis.runSharedPostBootTasks === 'function') globalThis.runSharedPostBootTasks();
   } catch (e) {
     console.error('[StayOps] Post-auth bootstrap failed:', e);
   } finally {

@@ -15,7 +15,7 @@ import {
   welcomeShowLanding, welcomeShowSignIn, welcomeShowSignUp, welcomeShowVerify, showSuccessToast,
   detectUserRole, showCleanerApp, loadCleanerDashboard,
 } from './supabase.js';
-import { calcNights, calcNet, escHtml } from './utils.js';
+import { calcNights, calcNet, escHtml, findOwnCleanerRecord } from './utils.js';
 import {
   _sendCleanerAssignmentNotifications, enableNotificationsManually, resetPushOnly, updateNotifStatus, subscribeToPush, sendPushToDevice, getCleanerSub, getFreshHostSub, sendCleanerEmail, cleanerLinkForId, openNotifyModal, sendCleanerReminder, pickContact, sendSMS,
   closeNotifyModal, applyPreset, loadEmailTemplate, saveEmailTemplate, resetEmailTemplate, insertTemplateVar, openEmailTemplatePanel, updateEmailPreview, testNotificationConfig, testCleanerEmail
@@ -457,16 +457,19 @@ globalThis.handleAuthFailure = handleAuthFailure;
 
 // ── HOST / CLEANER ROLE SWITCHER ─────────────────────────────────────────────
 
+/**
+ * Show the Host / Cleaner switch when the signed-in host also has a cleaner
+ * record under their own account (linked by auth user id, or by login email).
+ * Exposed on globalThis because the password and magic-link sign-in paths in
+ * supabase.js run their own boot sequence and must schedule it too — before
+ * that, a fresh sign-in never showed the switch, only a reopen with a stored
+ * session did.
+ */
 function checkRoleSwitcher() {
   try {
     if (typeof isOnboardingComplete === 'function' && !isOnboardingComplete()) return;
 
-    const user = window._supabaseUser;
-    const cleaners = window._cleaners || [];
-    if (!user || !user.email || !cleaners.length) return;
-
-    const hostEmail = user.email.toLowerCase().trim();
-    const match = cleaners.find(c => c.email && c.email.toLowerCase().trim() === hostEmail);
+    const match = findOwnCleanerRecord(window._supabaseUser, window._cleaners || []);
     if (!match) return;
 
     window._matchedCleanerRecord = match;
@@ -477,6 +480,23 @@ function checkRoleSwitcher() {
     console.warn('[StayOps] checkRoleSwitcher failed', e);
   }
 }
+globalThis.checkRoleSwitcher = checkRoleSwitcher;
+
+/**
+ * Post-boot tasks every host sign-in path runs: the stored-session boot below
+ * and the password / magic-link paths in supabase.js (handleLoginSubmit,
+ * _postAuthBootstrap). One list so the three paths cannot drift apart again.
+ */
+function runSharedPostBootTasks() {
+  // Check if host is also a cleaner (show role switcher)
+  setTimeout(checkRoleSwitcher, 1000);
+  // Prompt if an owner report is due (non-blocking, runs after UI is visible)
+  setTimeout(checkAutoSendReport, 1500);
+  // Auto-scan Gmail / Outlook for new booking emails
+  setTimeout(maybeAutoScanGmail, 3000);
+  setTimeout(maybeAutoScanOutlook, 4500);
+}
+globalThis.runSharedPostBootTasks = runSharedPostBootTasks;
 
 window.switchToCleanerMode = function () {
   if (!window._matchedCleanerRecord) return;
@@ -893,16 +913,11 @@ window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
         }
       }
     }, 2000);
-    // Prompt if an owner report is due (non-blocking, runs after UI is visible)
-    setTimeout(checkAutoSendReport, 1500);
-    // Auto-scan Gmail for new booking emails
-    setTimeout(maybeAutoScanGmail, 3000);
-    // Auto-scan Outlook for new booking emails
-    setTimeout(maybeAutoScanOutlook, 4500);
+    // Report prompt, mailbox scans, Host / Cleaner switch — shared with the
+    // sign-in paths in supabase.js.
+    runSharedPostBootTasks();
     // Check for missed cancellations
     setTimeout(checkCancelledBookings, 2500);
-    // Check if host is also a cleaner (show role switcher)
-    setTimeout(checkRoleSwitcher, 1000);
     // Auto-sync iCal feeds (per-property calendar imports) — fire early so
     // bookings are fresh by the time the user looks at the calendar.
     setTimeout(maybeAutoSyncICal, 1500);

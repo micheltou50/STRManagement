@@ -20,7 +20,7 @@
  * below are what the inline onclick handlers depend on. Cross-module calls are guarded
  * on globalThis/window except escHtml/localDateStr (utils) + renderHeaderDateBadge (render).
  */
-import { escHtml, localDateStr } from './utils.js';
+import { escHtml, localDateStr, bucketCleanerCleans } from './utils.js';
 import { renderHeaderDateBadge } from './render.js';
 
 export function cleanerSignOut() {
@@ -522,29 +522,11 @@ function renderNewCleanerView(data) {
   if (!container) return;
 
   const todayStr = localDateStr(new Date());
-  const tomorrowStr = addDays(todayStr, 1);
-
-  const cancelled = all.filter(c => c._bookingCancelled && !c.done);
-  const active = all.filter(c => !c._bookingCancelled && !c.cleaner_declined);
-  const open = active.filter(c => !c.done);
-  const overdue  = open.filter(c => c.clean_date && c.clean_date < todayStr);
-  const today    = open.filter(c => c.clean_date === todayStr);
-  const tomorrow = open.filter(c => c.clean_date === tomorrowStr);
-  const later    = open.filter(c => c.clean_date && c.clean_date > tomorrowStr);
-  const completed = active.filter(c => c.done)
-    .sort((a, b) => String(b.completed_at || b.clean_date || '').localeCompare(String(a.completed_at || a.clean_date || '')));
-
-  // Order within a day by the binding deadline (annotateCleanerCleans): same-day
-  // turnovers first by the next guest's arrival, then by checkout, the longest
-  // vacancy last. Ties fall back to property name so the order is stable.
-  const propName = c => (c.properties && c.properties.name) || '';
-  const key = c => (Number.isFinite(c._deadlineMinutes) ? c._deadlineMinutes : Number.MAX_SAFE_INTEGER);
-  const byDeadline = (a, b) => (key(a) - key(b)) || propName(a).localeCompare(propName(b));
-  const byDateThenDeadline = (a, b) => String(a.clean_date).localeCompare(String(b.clean_date)) || byDeadline(a, b);
-  overdue.sort(byDateThenDeadline);
-  today.sort(byDeadline);
-  tomorrow.sort(byDeadline);
-  later.sort(byDateThenDeadline);
+  // Buckets and in-day ordering come from bucketCleanerCleans (utils.js, tested).
+  // Open cleans older than the host dashboard's 3-day "Clean not done" window
+  // are left out of the plan: by then the clean was done and never marked, or a
+  // newer guest has been through. Acknowledged cancellations fall off after 14 days.
+  const { tomorrowStr, cancelled, open, overdue, today, tomorrow, later, completed } = bucketCleanerCleans(all, todayStr);
 
   const greeting = document.getElementById('cleaner-greeting');
   if (greeting) {
