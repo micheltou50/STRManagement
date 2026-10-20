@@ -22,6 +22,20 @@ in the same commit.** No exceptions — if a save references a new column, the
   create index if not exists idx_foo_bar on public.foo (bar);
   ```
 - **Header comment** on each file: what changed and which app code depends on it.
+- **Grants on every new table.** From 30 October 2026 Supabase no longer
+  auto-grants Data API access to tables created in `public` (existing tables
+  keep their grants). Without a grant, supabase-js / PostgREST returns
+  `42501 permission denied` for the table. So every `create table` ships with
+  its grants in the same file, right after the RLS policy:
+  ```sql
+  grant select, insert, update, delete on public.foo to authenticated;
+  grant select, insert, update, delete on public.foo to service_role;
+  -- only if the table must be readable while logged out:
+  grant select on public.foo to anon;
+  ```
+  Grants are idempotent, so they fit the re-run-safe rule above. RLS still
+  decides which *rows* a role sees; the grant only decides whether the API can
+  reach the table at all.
 
 ## Applying
 

@@ -72,3 +72,4 @@ Cleaners log in via `auth_user_id` on the `cleaners` table. They can accept/decl
 - Some Supabase logic (triggers, RLS policies) may cause behavior that isn't visible in the JS code alone. Always check the actual database behavior, not just what the JS appears to do.
 - `deleteBookingFromCloud()` looks like a DELETE but results in a soft-delete (status = cancelled). Don't assume the row is gone.
 - Two fields for push subscriptions exist: `push_subscriptions` and `push_subs` (backward compat).
+- Since 30 Oct 2026 Supabase does not auto-grant Data API access to new `public` tables. A migration that creates a table must also `grant` it to `authenticated` / `service_role` (and `anon` only if read logged-out), or the app gets `42501 permission denied`. See `supabase/migrations/README.md`.
