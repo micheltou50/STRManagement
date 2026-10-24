@@ -24,6 +24,7 @@ const {
   loadProperties, loadExistingBookings, loadProcessedIds,
   parseBookingEmail, processEmailResult,
   capSkippedIds, buildSummaryResponse,
+  looksLikeReviewEmail, extractReviewHints, parseReviewEmail, processReviewResult,
 } = require('./utils/email-scan-shared');
 
 // ── Gmail-specific helpers ──────────────────────────────────────────────────
@@ -191,7 +192,7 @@ exports.handler = async (event) => {
     const allSenders = [...baseSenders, ...extraSenders];
     const senders = 'from:(' + allSenders.join(' OR ') + ')';
     const searchQueries = [
-      senders + ' subject:(reservation OR booking OR confirmed OR cancelled OR canceled OR modified OR updated OR alteration OR request OR arrival) after:' + afterStr,
+      senders + ' subject:(reservation OR booking OR confirmed OR cancelled OR canceled OR modified OR updated OR alteration OR request OR arrival OR review) after:' + afterStr,
     ];
     // Extra senders also get an unfiltered (any-subject) pass.
     if (extraSenders.length) {
@@ -272,6 +273,21 @@ exports.handler = async (event) => {
         if (!emailBody || emailBody.length < 50) {
           results.skipped++;
           newlySkipped.push(msgId);
+          continue;
+        }
+
+        // A guest's published review ("<Name> left a 5-star review!") carries
+        // the public review text — capture it for the booking website instead
+        // of discarding it as "not a booking". Pending until the host approves.
+        if (looksLikeReviewEmail(emailSubject, emailFrom, emailBody)) {
+          console.log('[gmail-scan] REVIEW EMAIL → Claude:', { msgId, subject: emailSubject });
+          const hints = extractReviewHints(emailSubject, emailBody);
+          const parsedReview = await parseReviewEmail(
+            ANTHROPIC_KEY, emailSubject, emailFrom, emailBody,
+            isSingleProperty ? propMap[0].name : null,
+            isSingleProperty ? null : propertyListStr
+          );
+          await processReviewResult(parsedReview, hints, msgId, 'gmail', ctx);
           continue;
         }
 

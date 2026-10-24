@@ -23,6 +23,7 @@ const {
   loadProperties, loadExistingBookings, loadProcessedIds,
   parseBookingEmail, processEmailResult,
   capSkippedIds, buildSummaryResponse,
+  looksLikeReviewEmail, extractReviewHints, parseReviewEmail, processReviewResult,
 } = require('./utils/email-scan-shared');
 
 // ── Outlook-specific helpers ────────────────────────────────────────────────
@@ -163,7 +164,7 @@ exports.handler = async (event) => {
     const graphUrl =
       'https://graph.microsoft.com/v1.0/me/messages' +
       '?$filter=receivedDateTime ge ' + afterStr +
-      ' and (contains(subject,\'reservation\') or contains(subject,\'booking\') or contains(subject,\'confirmed\') or contains(subject,\'cancelled\') or contains(subject,\'canceled\') or contains(subject,\'modified\') or contains(subject,\'alteration\'))' +
+      ' and (contains(subject,\'reservation\') or contains(subject,\'booking\') or contains(subject,\'confirmed\') or contains(subject,\'cancelled\') or contains(subject,\'canceled\') or contains(subject,\'modified\') or contains(subject,\'alteration\') or contains(subject,\'review\'))' +
       '&$select=id,subject,from,receivedDateTime,body' +
       '&$top=50' +
       '&$orderby=receivedDateTime desc';
@@ -226,6 +227,20 @@ exports.handler = async (event) => {
         if (!emailBody || emailBody.length < 50) {
           results.skipped++;
           newlySkipped.push(msgId);
+          continue;
+        }
+
+        // A guest's published review ("<Name> left a 5-star review!") carries
+        // the public review text — capture it for the booking website instead
+        // of discarding it as "not a booking". Pending until the host approves.
+        if (looksLikeReviewEmail(emailSubject, emailFrom, emailBody)) {
+          const hints = extractReviewHints(emailSubject, emailBody);
+          const parsedReview = await parseReviewEmail(
+            ANTHROPIC_KEY, emailSubject, emailFrom, emailBody,
+            isSingleProperty ? propMap[0].name : null,
+            isSingleProperty ? null : propertyListStr
+          );
+          await processReviewResult(parsedReview, hints, msgId, 'outlook', ctx);
           continue;
         }
 
