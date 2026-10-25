@@ -1,19 +1,34 @@
 /**
  * StayOps — cleaner PWA (email / Supabase-auth): the cleaner-facing app shown after a
- * cleaner signs in with their email. Renders My Cleans / Calendar / Profile, handles
- * accept / decline / done / acknowledge, become-a-host, and the team invite button.
- * The legacy link/PIN login path was removed 2026-07-10 (cleaners log in by email now).
+ * cleaner signs in with their email. Renders My Cleans (a day plan: Today / Tomorrow /
+ * Upcoming, sorted by turnover deadline) + Calendar + Profile, and handles
+ * accept / decline / start / finish / acknowledge, become-a-host, and the team invite
+ * button. The legacy link/PIN login path was removed 2026-07-10 (cleaners log in by email).
+ *
+ * Data comes from loadCleanerDashboard() (supabase.js):
+ *   { cleanerRecord, cleanerRecords, myCleans, host, hosts, hostByUserId, daysOff, teammates }
+ * Each clean is a raw `cleans` row (+ `properties` join incl. check_in_info) annotated by
+ * annotateCleanerCleans() (utils.js) with _checkoutTime / _nextCheckinDate /
+ * _nextCheckinTime / _nextGuests / _sameDayTurnover / _deadlineMinutes / _bookingCancelled.
+ * The Today view sorts and labels by those; nothing here re-derives them.
+ *
+ * "Message host" is deliberately NOT an in-app inbox: it is an sms: link that opens the
+ * phone's messaging app with the host's number (host_config.phone via the RPC) and a
+ * pre-filled first line naming the property and clean date.
+ *
  * render.js re-exports cleanerSignOut for main.js; the window/globalThis self-bridges
  * below are what the inline onclick handlers depend on. Cross-module calls are guarded
  * on globalThis/window except escHtml/localDateStr (utils) + renderHeaderDateBadge (render).
  */
-import { escHtml, localDateStr } from './utils.js';
+import { escHtml, localDateStr, bucketCleanerCleans } from './utils.js';
 import { renderHeaderDateBadge } from './render.js';
 
 export function cleanerSignOut() {
   const signOutPromise = window._sb ? window._sb.auth.signOut() : Promise.resolve();
   signOutPromise.finally(() => {
     window._cleanerData = null;
+    window._cleanerOffline = null;
+    if (typeof globalThis.clearCleanerCache === 'function') globalThis.clearCleanerCache();
     document.body.classList.remove('cleaner-mode');
     const cleanerNav = document.getElementById('cleaner-nav');
     const cleanerContent = document.getElementById('cleaner-content');
@@ -23,9 +38,476 @@ export function cleanerSignOut() {
   });
 }
 
+// ── formatting ─────────────────────────────────────────────────────────────
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function dayStart(dateStr) { return new Date(String(dateStr).slice(0, 10) + 'T00:00:00'); }
+
+/** "2026-10-12" -> "Sat, 12 Oct" */
+function fmtDay(dateStr) {
+  if (!dateStr) return '';
+  const d = dayStart(dateStr);
+  if (Number.isNaN(d.getTime())) return String(dateStr);
+  return DAY_NAMES[d.getDay()] + ', ' + d.getDate() + ' ' + MONTH_NAMES[d.getMonth()];
+}
+
+/** "10:00" -> "10am", "15:30" -> "3:30pm" */
+function fmtClock(hhmm) {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(hhmm || ''));
+  if (!m) return '';
+  const h = Number(m[1]), mi = Number(m[2]);
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return h12 + (mi ? ':' + String(mi).padStart(2, '0') : '') + (h >= 12 ? 'pm' : 'am');
+}
+
+/** ISO timestamp -> "10:42am" (device local time) */
+function fmtStamp(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return fmtClock(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
+}
+
+function addDays(dateStr, n) {
+  const d = dayStart(dateStr);
+  d.setDate(d.getDate() + n);
+  return localDateStr(d);
+}
+
+const TONE = {
+  red:   { bg: '#FCEBEB', fg: '#A32D2D' },
+  amber: { bg: '#FAEEDA', fg: '#854F0B' },
+  green: { bg: '#E1F5EE', fg: '#0F6E56' },
+  blue:  { bg: '#E6F1FB', fg: '#185FA5' },
+  grey:  { bg: '#F1EFE8', fg: '#5F5E5A' },
+};
+function tonePill(label, tone) {
+  const t = TONE[tone] || TONE.grey;
+  return '<span style="display:inline-block;font-size:11px;font-weight:500;background:' + t.bg + ';color:' + t.fg + ';padding:3px 10px;border-radius:12px;white-space:nowrap">' + label + '</span>';
+}
+
+function sectionHeader(label, count, colour, first, id) {
+  return '<div' + (id ? ' id="' + escHtml(id) + '"' : '') + ' style="display:flex;align-items:center;gap:6px;margin:' + (first ? '0' : '22px') + ' 0 12px;scroll-margin-top:72px">' +
+    '<div style="width:8px;height:8px;border-radius:50%;background:' + colour + '"></div>' +
+    '<span style="font-size:12px;font-weight:500;color:' + colour + ';text-transform:uppercase;letter-spacing:0.4px">' + escHtml(label) + '</span>' +
+    (count != null ? '<span style="font-size:11px;color:#999;margin-left:2px">' + count + '</span>' : '') +
+  '</div>';
+}
+
+// ── host contact / Message host ────────────────────────────────────────────
+function hostForClean(data, c) {
+  if (!data) return null;
+  const byUid = data.hostByUserId || {};
+  return (c && c.user_id && byUid[String(c.user_id)]) || data.host || null;
+}
+
+function hostFirstName(host) {
+  const n = String((host && host.name) || '').trim();
+  return n ? n.split(/\s+/)[0] : '';
+}
+
+/**
+ * sms: link that opens the phone's messaging app on the host's number with a
+ * pre-filled first line. `?&body=` is the cross-platform form (iOS wants `&`,
+ * Android `?`) — the same trick the host side uses in notifications.js.
+ * Returns '' when the host has no phone number on file.
+ */
+export function smsHref(phone, body) {
+  const digits = String(phone || '').replace(/[^\d+]/g, '');
+  if (!digits) return '';
+  return 'sms:' + digits + '?&body=' + encodeURIComponent(body || '');
+}
+
+/** "Hi Michel, re Seaview clean Sat, 12 Oct: " — context so the host needn't ask. */
+function messageHostBody(host, c) {
+  const first = hostFirstName(host);
+  const prop = c && c.properties && c.properties.name;
+  let body = 'Hi' + (first ? ' ' + first : '') + ',';
+  if (c && (prop || c.clean_date)) {
+    body += ' re ' + (prop ? prop : 'the') + ' clean' + (c.clean_date ? ' ' + fmtDay(c.clean_date) : '') + ':';
+  }
+  return body + ' ';
+}
+
+function messageHostLink(data, c, compact) {
+  const host = hostForClean(data, c);
+  const href = host ? smsHref(host.phone, messageHostBody(host, c)) : '';
+  if (!href) {
+    return compact ? '' : '<div style="margin-top:8px;font-size:11px;color:#999;text-align:center">Your host hasn\'t added a phone number yet</div>';
+  }
+  const style = compact
+    ? 'display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#2f5d4e;font-weight:500;text-decoration:none;padding:4px 0'
+    : 'display:flex;align-items:center;justify-content:center;gap:6px;width:100%;box-sizing:border-box;padding:10px;background:#f7f9f8;color:#2f5d4e;border:1px solid #d5ded9;border-radius:8px;font-weight:500;font-size:13px;text-decoration:none';
+  return '<a href="' + escHtml(href) + '" style="' + style + '">💬 Message host</a>';
+}
+
+// ── cards ──────────────────────────────────────────────────────────────────
+const BTN_PRIMARY = 'flex:1;padding:11px;background:#2f5d4e;color:white;border:none;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer';
+const BTN_GHOST   = 'flex:1;padding:11px;background:transparent;color:#2f5d4e;border:1px solid #ccc;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer';
+const BTN_DANGER  = 'flex:1;padding:11px;background:transparent;color:#A32D2D;border:1px solid #F09595;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer';
+
+function actionBtn(action, cleanId, label, style) {
+  return '<button type="button" data-action="' + action + '" data-clean-id="' + escHtml(String(cleanId)) + '" style="' + style + '">' + label + '</button>';
+}
+
+function propertyBlock(prop) {
+  return '<div style="margin-top:10px;padding:10px 12px;background:#f7f7f5;border-radius:6px">' +
+    '<div style="font-size:13px;font-weight:500;color:#333">' + escHtml(prop.name || 'Property') + '</div>' +
+    (prop.address ? '<div style="font-size:12px;color:#888;margin-top:1px">' + escHtml(prop.address) + '</div>' : '') +
+  '</div>';
+}
+
+/**
+ * The per-property cheat sheet (properties.check_in_info, edited by the host in
+ * Property → Access & Rules). On the day of the clean the lockbox row sits above
+ * the fold behind a "Show code" tap; before the day the code is withheld.
+ */
+function cheatSheet(info, isDay) {
+  if (!info.lockbox_code && !info.instructions && !info.wifi && !info.cleaner_notes) return '';
+  const row = (label, value) =>
+    '<div style="display:flex;gap:10px;padding:6px 0;border-top:1px solid #ebebe7"><span style="color:#888;flex:0 0 68px">' + label + '</span><span style="color:#333;white-space:pre-wrap;word-break:break-word">' + escHtml(String(value)) + '</span></div>';
+
+  let lockbox = '';
+  if (info.lockbox_code) {
+    lockbox = '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0"><span style="color:#888;flex:0 0 68px">Lockbox</span>' +
+      (isDay
+        ? '<button type="button" data-action="reveal_code" data-code="' + escHtml(String(info.lockbox_code)) + '" style="background:#2f5d4e;color:white;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:500;cursor:pointer">Show code</button>'
+        : '<span style="color:#999;font-size:12px">Code shows on the day</span>') +
+    '</div>';
+  }
+  let rows = '';
+  if (info.instructions) rows += row('Getting in', info.instructions);
+  if (info.wifi) rows += row('Wi-Fi', info.wifi);
+  if (info.cleaner_notes) rows += row('Notes', info.cleaner_notes);
+
+  return '<div style="margin-top:8px;padding:4px 12px 6px;background:#f7f7f5;border-radius:6px;font-size:12px">' +
+    lockbox +
+    (rows
+      ? '<details' + (lockbox ? ' style="border-top:1px solid #ebebe7"' : '') + '>' +
+          '<summary style="cursor:pointer;padding:7px 0;font-weight:500;color:#333;list-style:none;display:flex;justify-content:space-between;align-items:center"><span>Property notes</span><span style="color:#999;font-weight:400">▾</span></summary>' +
+          rows +
+        '</details>'
+      : '') +
+  '</div>';
+}
+
+/** The checklist items the host defined for this property (check_in_info.checklist). */
+function checklistItems(info) {
+  return Array.isArray(info && info.checklist) ? info.checklist.map(s => String(s || '').trim()).filter(Boolean) : [];
+}
+
+/**
+ * Host-defined checklist, ticked per clean into cleans.checklist_done (the item
+ * strings). Taps toggle in place without a re-render (cleanerToggleCheck).
+ */
+function checklistBlock(c, info) {
+  const items = checklistItems(info);
+  if (!items.length) return '';
+  const done = new Set(Array.isArray(c.checklist_done) ? c.checklist_done.map(String) : []);
+  const ticked = items.filter(i => done.has(i)).length;
+  let html = '<div data-checklist style="margin-top:10px;padding:8px 12px 2px;background:#f7f7f5;border-radius:6px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:500;color:#333;margin-bottom:2px"><span>Checklist</span>' +
+    '<span data-checklist-count style="color:' + (ticked === items.length ? '#0F6E56' : '#888') + '">' + ticked + ' / ' + items.length + '</span></div>';
+  items.forEach(item => {
+    const on = done.has(item);
+    html += '<button type="button" data-action="toggle_check" data-clean-id="' + escHtml(String(c.id)) + '" data-item="' + escHtml(item) + '" aria-pressed="' + (on ? 'true' : 'false') + '" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 0;background:none;border:none;border-top:1px solid #ebebe7;font-size:13px;cursor:pointer;color:' + (on ? '#999' : '#1c2620') + ';text-decoration:' + (on ? 'line-through' : 'none') + '">' +
+      '<span data-box style="flex:0 0 20px;width:20px;height:20px;border-radius:6px;border:1.5px solid ' + (on ? '#2f5d4e' : '#bbb') + ';background:' + (on ? '#2f5d4e' : '#fff') + ';color:#fff;font-size:13px;line-height:18px;text-align:center">' + (on ? '✓' : '') + '</span>' +
+      '<span>' + escHtml(item) + '</span></button>';
+  });
+  return html + '</div>';
+}
+
+/**
+ * The teammates this clean could be handed to: other active cleaners of the
+ * clean's host (cleaner_dashboard_context().teammates), never one of the
+ * cleaner's own rows.
+ */
+function teammatesFor(data, c) {
+  const all = Array.isArray(data && data.teammates) ? data.teammates : [];
+  const mine = new Set((Array.isArray(data && data.cleanerRecords) ? data.cleanerRecords : []).map(r => String(r && r.id)));
+  return all.filter(t => t && t.id && !mine.has(String(t.id)) &&
+    (!c.user_id || !t.user_id || String(t.user_id) === String(c.user_id)));
+}
+
+/**
+ * "Can't make it?" → pick a teammate → Hand off. Collapsed by default so it
+ * never competes with Accept / Start. The hand-off runs server-side
+ * (cleaner-handoff.js): the clean leaves this list, the teammate has to accept
+ * it, and the host is told.
+ */
+function handoffBlock(data, c) {
+  const mates = teammatesFor(data, c);
+  if (!mates.length) return '';
+  const id = escHtml(String(c.id));
+  return '<details data-handoff style="margin-top:10px;font-size:12px">' +
+    '<summary style="cursor:pointer;color:#888;list-style:none;display:inline-flex;align-items:center;gap:4px;padding:2px 0"><span>Can\'t make it?</span><span style="color:#bbb">▾</span></summary>' +
+    '<div style="display:flex;gap:8px;margin-top:8px;align-items:center">' +
+      '<select data-handoff-select aria-label="Hand off to" style="flex:1;min-width:0;padding:9px 10px;border:1px solid #d5ded9;border-radius:8px;font-size:13px;background:#fff;color:#1c2620">' +
+        '<option value="">Hand off to…</option>' +
+        mates.map(t => '<option value="' + escHtml(String(t.id)) + '">' + escHtml(t.name || 'Cleaner') + '</option>').join('') +
+      '</select>' +
+      '<button type="button" data-action="handoff" data-clean-id="' + id + '" style="flex:0 0 auto;padding:9px 14px;background:transparent;color:#2f5d4e;border:1px solid #ccc;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Hand off</button>' +
+    '</div>' +
+    '<div style="color:#999;margin-top:6px;line-height:1.4">The clean moves to them to accept, and your host is told.</div>' +
+  '</details>';
+}
+
+/** Photo proof thumbnails + "Add photo" (cleans.photos: [{url, path, at}]). */
+function photosBlock(c) {
+  const photos = Array.isArray(c.photos) ? c.photos : [];
+  let html = '<div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+  photos.slice(-8).forEach(p => {
+    const url = p && (p.url || p);
+    if (!url) return;
+    html += '<a href="' + escHtml(String(url)) + '" target="_blank" rel="noopener" style="display:block;width:48px;height:48px;border-radius:6px;overflow:hidden;border:1px solid #e5e5e0;flex:0 0 auto"><img src="' + escHtml(String(url)) + '" alt="Clean photo" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block"></a>';
+  });
+  html += '<button type="button" data-action="add_photo" data-clean-id="' + escHtml(String(c.id)) + '" style="height:48px;padding:0 12px;background:#fff;border:1px dashed #b7c3bd;border-radius:6px;color:#2f5d4e;font-size:12px;font-weight:500;cursor:pointer">📷 ' + (photos.length ? 'Add photo' : 'Add photo proof') + '</button>';
+  if (photos.length) html += '<span style="font-size:11px;color:#999">' + photos.length + (photos.length === 1 ? ' photo' : ' photos') + '</span>';
+  return html + '</div>';
+}
+
+/**
+ * One clean. mode: 'overdue' | 'today' | 'tomorrow' | 'later'.
+ *  - header: property name + "Guest out 10am · Guest · 4 guests"
+ *  - deadline pill: red "Next guest 3pm" (same-day turnover) / grey "Next guest Thu, 16 Oct" / "No arrival booked"
+ *  - status: Awaiting your response / Confirmed / In progress since 10:42am
+ *  - on the day: Start clean → Finish clean (or Mark done); before: Accept / Decline only
+ *  - Message host everywhere (full button on the day or when awaiting, text link otherwise)
+ */
+function cleanCard(data, c, mode) {
+  const isDay = mode === 'today' || mode === 'overdue';
+  const prop = c.properties || {};
+  const info = (prop.check_in_info && typeof prop.check_in_info === 'object') ? prop.check_in_info : {};
+  const awaiting = !c.cleaner_confirmed && !c.cleaner_declined;
+  const started = !!c.started_at && !c.done;
+  const sameDay = !!c._sameDayTurnover;
+
+  const border = mode === 'overdue' ? '#A32D2D'
+    : (sameDay && isDay) ? '#E24B4A'
+    : started ? '#185FA5'
+    : awaiting ? '#EF9F27'
+    : mode === 'later' ? '#D8D6CE'
+    : '#1D9E75';
+
+  let deadline;
+  if (mode === 'overdue') deadline = tonePill('Overdue', 'red');
+  else if (sameDay) deadline = tonePill('Next guest ' + fmtClock(c._nextCheckinTime) + (isDay ? '' : ' same day'), isDay ? 'red' : 'amber');
+  else if (c._nextCheckinDate) deadline = tonePill('Next guest ' + fmtDay(c._nextCheckinDate), 'grey');
+  else deadline = tonePill('No arrival booked', 'grey');
+
+  let status = '';
+  if (started) status = tonePill('In progress · since ' + fmtStamp(c.started_at), 'blue');
+  else if (awaiting) status = tonePill('Awaiting your response', 'amber');
+  else if (c.cleaner_confirmed) status = tonePill('Confirmed', 'green');
+
+  const guests = c._booking && c._booking.guests != null ? Number(c._booking.guests) : null;
+  const guestLine = [
+    'Guest out ' + fmtClock(c._checkoutTime || '10:00'),
+    escHtml(c.guest_name || 'Guest'),
+    guests ? guests + (guests === 1 ? ' guest' : ' guests') : '',
+  ].filter(Boolean).join(' · ');
+
+  let html = '<div style="background:white;border:0.5px solid #eee;border-left:3px solid ' + border + ';border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
+  html += '<div style="min-width:0">';
+  if (mode === 'overdue') html += '<div style="font-size:11px;font-weight:500;color:#888;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px">' + fmtDay(c.clean_date) + '</div>';
+  html += '<div style="font-size:17px;font-weight:500;color:var(--ink-1);line-height:1.25">' + escHtml(prop.name || 'Property') + '</div>';
+  html += '<div style="font-size:13px;color:#888;margin-top:3px">' + guestLine + '</div>';
+  if (prop.address) html += '<div style="font-size:12px;color:#aaa;margin-top:2px">' + escHtml(prop.address) + '</div>';
+  if (Array.isArray(data.hosts) && data.hosts.length > 1) {
+    // Working for more than one host: say whose property this is.
+    const h = hostForClean(data, c);
+    if (h) html += '<div style="font-size:11px;color:#999;margin-top:2px">for ' + escHtml(h.name || h.company || 'host') + '</div>';
+  }
+  html += '</div>';
+  html += '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">' + deadline + status + '</div>';
+  html += '</div>';
+
+  if (c.notes) {
+    html += '<div style="margin-top:10px;padding:9px 12px;background:#FFF8E6;border-radius:6px;font-size:12px;color:#5a4a1a;white-space:pre-wrap"><span style="font-weight:500">Note from host:</span> ' + escHtml(c.notes) + '</div>';
+  }
+
+  html += cheatSheet(info, isDay);
+  if (isDay && !awaiting) {
+    html += checklistBlock(c, info);
+    html += photosBlock(c);
+  }
+
+  if (awaiting) {
+    html += '<div style="display:flex;gap:8px;margin-top:12px">' + actionBtn('accept', c.id, 'Accept', BTN_PRIMARY) + actionBtn('decline', c.id, 'Decline', BTN_DANGER) + '</div>';
+  } else if (isDay) {
+    html += '<div style="display:flex;gap:8px;margin-top:12px">';
+    if (started) html += actionBtn('done', c.id, 'Finish clean', BTN_PRIMARY);
+    else html += actionBtn('start', c.id, 'Start clean', BTN_PRIMARY) + actionBtn('done', c.id, 'Mark done', BTN_GHOST);
+    html += '</div>';
+  }
+
+  const compact = !isDay && !awaiting;
+  const msg = messageHostLink(data, c, compact);
+  if (msg) html += '<div style="margin-top:8px' + (compact ? ';text-align:right' : '') + '">' + msg + '</div>';
+
+  // Hand-off makes no sense once the clean is under way.
+  if (!started) html += handoffBlock(data, c);
+
+  html += '</div>';
+  return html;
+}
+
+function cancelledCard(c) {
+  const prop = c.properties || {};
+  let html = '<div style="background:white;border:0.5px solid #eee;border-left:3px solid #C0392B;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
+  html += '<div>';
+  html += '<div style="font-size:17px;font-weight:500;color:var(--ink-1);text-decoration:line-through">' + fmtDay(c.clean_date) + '</div>';
+  html += '<div style="font-size:13px;color:#888;margin-top:2px;text-decoration:line-through">' + escHtml(c.guest_name || 'Guest') + '</div>';
+  html += '</div>';
+  html += tonePill('Booking cancelled', 'red');
+  html += '</div>';
+  html += propertyBlock(prop);
+  if (c.cleaner_cancel_acknowledged) {
+    html += '<div style="margin-top:10px;font-size:12px;color:#0F6E56;font-weight:500">✓ Acknowledged</div>';
+  } else {
+    html += '<div style="display:flex;margin-top:10px">' + actionBtn('acknowledge_cancel', c.id, 'Acknowledge cancellation', BTN_PRIMARY.replace('flex:1', 'width:100%')) + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function completedCard(c) {
+  const prop = c.properties || {};
+  return '<div style="background:#f9f9f7;border:0.5px solid #eee;border-radius:8px;padding:12px 16px;margin-bottom:8px;opacity:0.7">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center">' +
+      '<div>' +
+        '<div style="font-size:14px;font-weight:500;color:#555">' + fmtDay(c.clean_date) + '</div>' +
+        '<div style="font-size:12px;color:#999;margin-top:1px">' + escHtml(c.guest_name || '') + (prop.name ? ' · ' + escHtml(prop.name) : '') + '</div>' +
+      '</div>' +
+      '<div style="font-size:11px;color:#999">Done' + (c.completed_at ? ' ' + fmtStamp(c.completed_at) : '') + '</div>' +
+    '</div></div>';
+}
+
+// ── week strip + load summary ─────────────────────────────────────────────
+/**
+ * Seven-day strip (today + 6) above the plan: per-day count of open cleans, red
+ * when the day has a same-day turnover, amber when a clean still awaits the
+ * cleaner's reply, green otherwise. Tapping a day scrolls to that day's section
+ * (every day section carries id="cleaner-day-YYYY-MM-DD").
+ */
+const HEAVY_DAY_CLEANS = 5;     // a day with this many open cleans…
+const HEAVY_DAY_TURNOVERS = 3;  // …or this many same-day turnovers is flagged "heavy"
+
+function isHeavyDay(list) {
+  return list.length >= HEAVY_DAY_CLEANS || list.filter(c => c._sameDayTurnover).length >= HEAVY_DAY_TURNOVERS;
+}
+
+function weekStrip(open, todayStr, daysOff) {
+  daysOff = daysOff || {};
+  const byDay = {};
+  open.forEach(c => { if (c.clean_date) (byDay[c.clean_date] = byDay[c.clean_date] || []).push(c); });
+  let html = '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:10px">';
+  const heavyDays = [];
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(todayStr, i);
+    const list = byDay[d] || [];
+    const n = list.length;
+    const isToday = i === 0;
+    const dt = dayStart(d);
+    const turnovers = list.filter(c => c._sameDayTurnover).length;
+    const heavy = isHeavyDay(list);
+    if (heavy) heavyDays.push({ d, n, turnovers });
+    const off = daysOff[d] != null;            // the cleaner marked this day off
+    const clash = off && n > 0;                // …but cleans are still assigned
+    const tone = !n ? null
+      : turnovers ? '#E24B4A'
+      : list.some(c => !c.cleaner_confirmed) ? '#EF9F27'
+      : '#1D9E75';
+    const title = clash ? ' title="Day off with cleans booked"' : heavy ? ' title="Heavy day"' : off ? ' title="Day off"' : '';
+    html += '<div data-day="' + d + '" role="button"' + title + ' style="text-align:center;padding:7px 2px 6px;border-radius:10px;background:' + (isToday ? '#2f5d4e' : off ? '#F1EFE8' : n ? '#fff' : 'transparent') + ';border:0.5px solid ' + (isToday ? '#2f5d4e' : (clash || heavy) ? '#E24B4A' : n ? '#e5e5e0' : 'transparent') + ';cursor:' + (n ? 'pointer' : 'default') + '">' +
+      '<div style="font-size:10px;font-weight:500;letter-spacing:0.3px;text-transform:uppercase;color:' + (isToday ? 'rgba(255,255,255,0.8)' : '#999') + '">' + DAY_NAMES[dt.getDay()] + '</div>' +
+      '<div style="font-size:15px;font-weight:600;margin-top:1px;color:' + (isToday ? '#fff' : n ? '#1c2620' : '#bbb') + '">' + dt.getDate() + '</div>' +
+      (n
+        ? '<div style="margin:5px auto 0;width:20px;height:20px;border-radius:10px;font-size:11px;font-weight:600;line-height:20px;background:' + tone + ';color:#fff' + (heavy || clash ? ';box-shadow:0 0 0 2px #fff,0 0 0 3.5px #E24B4A' : '') + '">' + n + '</div>'
+        : off
+          ? '<div style="margin:5px auto 0;height:20px;line-height:20px;font-size:9px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:' + (isToday ? 'rgba(255,255,255,0.8)' : '#999') + '">off</div>'
+          : '<div style="margin:5px auto 0;height:20px"></div>') +
+    '</div>';
+  }
+  html += '</div>';
+  // Overload warning: a cleaner finds out about a brutal Saturday on Monday, not Saturday morning.
+  if (heavyDays.length) {
+    html += '<div style="margin-bottom:16px;padding:8px 12px;background:#FCEBEB;border-radius:8px;font-size:12px;color:#A32D2D;line-height:1.45">' +
+      heavyDays.map(h => '<span style="font-weight:600">' + fmtDay(h.d) + '</span> is heavy: ' + h.n + (h.n === 1 ? ' clean' : ' cleans') +
+        (h.turnovers ? ', ' + h.turnovers + ' same-day turnover' + (h.turnovers === 1 ? '' : 's') : '')).join(' · ') +
+      '. If that is too much, message your host early.</div>';
+  } else {
+    html += '<div style="margin-bottom:8px"></div>';
+  }
+  return html;
+}
+
+/**
+ * "Today's load": what goes in the van before the first stop — properties,
+ * bedrooms and bathrooms across today's cleans (from the properties row) and
+ * how many guests arrive next (towels). Properties with no bedroom count are
+ * called out so the host knows to fill in Property Details.
+ */
+function loadSummary(todayList) {
+  const seen = new Set();
+  let beds = 0, baths = 0, arriving = 0, noBeds = 0;
+  todayList.forEach(c => {
+    const p = c.properties || {};
+    seen.add(String(p.id || c.property_id || p.name || c.id));
+    const b = Number(p.bedrooms) || 0;
+    if (b > 0) beds += b; else noBeds++;
+    baths += Number(p.bathrooms) || 0;
+    if (c._nextGuests) arriving += c._nextGuests;
+  });
+  const parts = [seen.size + (seen.size === 1 ? ' property' : ' properties')];
+  if (beds) parts.push(beds + (beds === 1 ? ' bedroom' : ' bedrooms'));
+  if (baths) parts.push((Number.isInteger(baths) ? baths : baths.toFixed(1)) + (baths === 1 ? ' bathroom' : ' bathrooms'));
+  if (arriving) parts.push(arriving + (arriving === 1 ? ' guest' : ' guests') + ' arriving next');
+  return '<div style="margin:-4px 0 12px;padding:9px 12px;background:#F4F6F5;border-radius:8px;font-size:12px;color:#4a5a52">' +
+    '<span style="font-weight:600;color:#2f5d4e">Today\'s load</span> · ' + parts.join(' · ') +
+    (noBeds ? '<div style="font-size:11px;color:#999;margin-top:2px">' + noBeds + (noBeds === 1 ? ' property has' : ' properties have') + ' no bedroom count set</div>' : '') +
+  '</div>';
+}
+
+/**
+ * Upcoming cleans grouped under a small per-day header (id="cleaner-day-…" so
+ * the week strip can scroll to it). `later` arrives sorted by date then deadline.
+ */
+function upcomingByDay(data, later) {
+  let html = '';
+  let current = null;
+  later.forEach(c => {
+    if (c.clean_date !== current) {
+      current = c.clean_date;
+      const n = later.filter(x => x.clean_date === current).length;
+      html += '<div id="cleaner-day-' + escHtml(String(current)) + '" style="display:flex;align-items:baseline;gap:6px;margin:14px 0 8px;scroll-margin-top:72px">' +
+        '<span style="font-size:13px;font-weight:600;color:#333">' + fmtDay(current) + '</span>' +
+        '<span style="font-size:11px;color:#999">' + n + (n === 1 ? ' clean' : ' cleans') + '</span>' +
+      '</div>';
+    }
+    html += cleanCard(data, c, 'later');
+  });
+  return html;
+}
+
+/** When the host assigns a batch (a fortnight of bookings at once), one tap accepts the lot. */
+function acceptAllBar(awaiting) {
+  const ids = awaiting.map(c => String(c.id)).join(',');
+  const n = awaiting.length;
+  return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;padding:10px 12px;background:#FAEEDA;border-radius:8px">' +
+    '<div style="font-size:12px;color:#854F0B"><span style="font-weight:600">' + n + ' cleans</span> are waiting for your reply</div>' +
+    '<button type="button" data-action="accept_all" data-clean-ids="' + escHtml(ids) + '" style="flex-shrink:0;padding:8px 14px;background:#2f5d4e;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">Accept all ' + n + '</button>' +
+  '</div>';
+}
+
+// ── My Cleans (day plan) ───────────────────────────────────────────────────
 function renderNewCleanerView(data) {
   if (!data) return;
-  const { cleanerRecord, myCleans } = data;
+  const cleanerRecord = data.cleanerRecord || {};
+  const all = Array.isArray(data.myCleans) ? data.myCleans : [];
 
   // Hide FAB — cleaners don't need the quick-add button
   const fab = document.querySelector('.fab');
@@ -36,218 +518,124 @@ function renderNewCleanerView(data) {
   // Set header date badge (normally only set during host init)
   renderHeaderDateBadge();
 
-  const greeting = document.getElementById('cleaner-greeting');
-  if (greeting) greeting.textContent = 'Welcome, ' + (cleanerRecord.name || 'Cleaner');
-
-  // Update header subtitle — show property name instead of location
-  const headerSub = document.querySelector('.cleaner-header .header-sub-name');
-  if (headerSub) {
-    const propName = window._cleanerData && window._cleanerData.property && window._cleanerData.property.name;
-    headerSub.textContent = propName || '';
-  }
-
   const container = document.getElementById('cleaner-section-cleans');
   if (!container) return;
 
-  const today = new Date();
-  const todayStr = localDateStr(today);
+  const todayStr = localDateStr(new Date());
+  // Buckets and in-day ordering come from bucketCleanerCleans (utils.js, tested).
+  // Open cleans older than the host dashboard's 3-day "Clean not done" window
+  // are left out of the plan: by then the clean was done and never marked, or a
+  // newer guest has been through. Acknowledged cancellations fall off after 14 days.
+  const { tomorrowStr, cancelled, open, overdue, today, tomorrow, later, completed } = bucketCleanerCleans(all, todayStr);
 
-  function formatDate(dateStr) {
-    if (!dateStr) return '';
-    const d = new Date(dateStr + 'T00:00:00');
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return days[d.getDay()] + ', ' + d.getDate() + ' ' + months[d.getMonth()];
+  const greeting = document.getElementById('cleaner-greeting');
+  if (greeting) {
+    const n = today.length;
+    const turnovers = today.filter(c => c._sameDayTurnover).length;
+    let line = 'Hi ' + (cleanerRecord.name || 'there');
+    if (n) line += ' · ' + n + ' clean' + (n === 1 ? '' : 's') + ' today' + (turnovers ? ', ' + turnovers + ' same-day turnover' + (turnovers === 1 ? '' : 's') : '') + (isHeavyDay(today) ? ' · heavy day' : '');
+    else if (all.length) line += ' · nothing on today';
+    greeting.textContent = line;
   }
-
-  function daysUntil(dateStr) {
-    if (!dateStr) return null;
-    const d = new Date(dateStr + 'T00:00:00');
-    const diff = Math.ceil((d - today) / (1000 * 60 * 60 * 24));
-    return diff;
-  }
-
-  function urgencyPill(days) {
-    if (days === null) return '';
-    let bg, color, label;
-    if (days < 0) {
-      bg = '#F1EFE8'; color = '#5F5E5A'; label = 'Past';
-    } else if (days === 0) {
-      bg = '#FCEBEB'; color = '#A32D2D'; label = 'Today';
-    } else if (days === 1) {
-      bg = '#FCEBEB'; color = '#A32D2D'; label = 'Tomorrow';
-    } else if (days <= 7) {
-      bg = '#FCEBEB'; color = '#A32D2D'; label = 'In ' + days + ' days';
-    } else if (days <= 30) {
-      bg = '#FAEEDA'; color = '#854F0B'; label = 'In ' + days + ' days';
-    } else {
-      bg = '#E1F5EE'; color = '#0F6E56'; label = 'In ' + days + ' days';
-    }
-    return '<div style="font-size:11px;font-weight:500;background:' + bg + ';color:' + color + ';padding:3px 10px;border-radius:12px;white-space:nowrap">' + label + '</div>';
-  }
-
-  const cancelled = myCleans.filter(c => c._bookingCancelled && !c.done);
-  const nonCancelled = myCleans.filter(c => !c._bookingCancelled);
-  const actionNeeded = nonCancelled.filter(c => !c.done && !c.cleaner_confirmed && !c.cleaner_declined);
-  const upcoming = nonCancelled.filter(c => !c.done && c.cleaner_confirmed && c.clean_date >= todayStr);
-  const completed = nonCancelled.filter(c => c.done);
 
   let html = '';
-
-  // Cancelled bookings
-  if (cancelled.length) {
-    html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:12px">';
-    html += '<div style="width:8px;height:8px;border-radius:50%;background:#C0392B"></div>';
-    html += '<span style="font-size:12px;font-weight:500;color:#C0392B;text-transform:uppercase;letter-spacing:0.4px">Cancelled</span>';
-    html += '<span style="font-size:11px;color:#999;margin-left:2px">' + cancelled.length + '</span>';
-    html += '</div>';
-
-    cancelled.forEach(c => {
-      const prop = c.properties || {};
-      const guestLine = escHtml(c.guest_name || 'Guest');
-      const acked = c.cleaner_cancel_acknowledged;
-
-      html += '<div style="background:white;border:0.5px solid #eee;border-left:3px solid #C0392B;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
-      html += '<div>';
-      html += '<div style="font-size:17px;font-weight:500;color:var(--ink-1);text-decoration:line-through">' + formatDate(c.clean_date) + '</div>';
-      html += '<div style="font-size:13px;color:#888;margin-top:2px;text-decoration:line-through">' + guestLine + '</div>';
-      html += '</div>';
-      html += '<div style="font-size:11px;font-weight:500;background:#FCEBEB;color:#A32D2D;padding:3px 10px;border-radius:12px;white-space:nowrap">Booking cancelled</div>';
-      html += '</div>';
-      html += '<div style="margin-top:10px;padding:10px 12px;background:#f7f7f5;border-radius:6px">';
-      html += '<div style="font-size:13px;font-weight:500;color:#333">' + escHtml(prop.name || 'Property') + '</div>';
-      html += '<div style="font-size:12px;color:#888;margin-top:1px">' + escHtml(prop.address || '') + '</div>';
-      html += '</div>';
-      if (acked) {
-        html += '<div style="margin-top:10px;font-size:12px;color:#0F6E56;font-weight:500">✓ Acknowledged</div>';
-      } else {
-        html += '<button type="button" data-action="acknowledge_cancel" data-clean-id="' + String(c.id) + '" style="width:100%;margin-top:10px;padding:10px;background:#2f5d4e;color:white;border:none;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Acknowledge Cancellation</button>';
-      }
-      html += '</div>';
-    });
-  }
-
-  // Action needed
-  if (actionNeeded.length) {
-    html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:12px">';
-    html += '<div style="width:8px;height:8px;border-radius:50%;background:#E24B4A"></div>';
-    html += '<span style="font-size:12px;font-weight:500;color:#A32D2D;text-transform:uppercase;letter-spacing:0.4px">Action needed</span>';
-    html += '<span style="font-size:11px;color:#999;margin-left:2px">' + actionNeeded.length + '</span>';
-    html += '</div>';
-
-    actionNeeded.forEach(c => {
-      const prop = c.properties || {};
-      const days = daysUntil(c.clean_date);
-      const guests = c.guests || '';
-      const guestLine = escHtml(c.guest_name || 'Guest') + (guests ? ' · ' + escHtml(String(guests)) + ' guests' : '');
-
-      html += '<div style="background:white;border:0.5px solid #eee;border-left:3px solid #E24B4A;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
-      html += '<div>';
-      html += '<div style="font-size:17px;font-weight:500;color:var(--ink-1)">' + formatDate(c.clean_date) + '</div>';
-      html += '<div style="font-size:13px;color:#888;margin-top:2px">' + guestLine + '</div>';
-      html += '</div>';
-      html += urgencyPill(days);
-      html += '</div>';
-      html += '<div style="margin-top:10px;padding:10px 12px;background:#f7f7f5;border-radius:6px">';
-      html += '<div style="font-size:13px;font-weight:500;color:#333">' + escHtml(prop.name || 'Property') + '</div>';
-      html += '<div style="font-size:12px;color:#888;margin-top:1px">' + escHtml(prop.address || '') + '</div>';
-      html += '</div>';
-      html += '<div style="display:flex;gap:8px;margin-top:12px">';
-      html += '<button type="button" data-action="accept" data-clean-id="' + String(c.id) + '" style="flex:1;padding:10px;background:#2f5d4e;color:white;border:none;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Accept</button>';
-      html += '<button type="button" data-action="decline" data-clean-id="' + String(c.id) + '" style="flex:1;padding:10px;background:transparent;color:#A32D2D;border:1px solid #F09595;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Decline</button>';
-      html += '</div></div>';
-    });
-  }
-
-  // Upcoming confirmed
-  if (upcoming.length) {
-    html += '<div style="display:flex;align-items:center;gap:6px;margin:20px 0 12px">';
-    html += '<div style="width:8px;height:8px;border-radius:50%;background:#1D9E75"></div>';
-    html += '<span style="font-size:12px;font-weight:500;color:#0F6E56;text-transform:uppercase;letter-spacing:0.4px">Confirmed</span>';
-    html += '<span style="font-size:11px;color:#999;margin-left:2px">' + upcoming.length + '</span>';
-    html += '</div>';
-
-    upcoming.forEach(c => {
-      const prop = c.properties || {};
-      const days = daysUntil(c.clean_date);
-      const checkInInfo = prop.check_in_info || {};
-      const guests = c.guests || '';
-      const guestLine = escHtml(c.guest_name || 'Guest') + (guests ? ' · ' + escHtml(String(guests)) + ' guests' : '');
-
-      html += '<div style="background:white;border:0.5px solid #eee;border-left:3px solid #1D9E75;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
-      html += '<div>';
-      html += '<div style="font-size:17px;font-weight:500;color:var(--ink-1)">' + formatDate(c.clean_date) + '</div>';
-      html += '<div style="font-size:13px;color:#888;margin-top:2px">' + guestLine + '</div>';
-      html += '</div>';
-      html += urgencyPill(days);
-      html += '</div>';
-      html += '<div style="margin-top:10px;padding:10px 12px;background:#f7f7f5;border-radius:6px">';
-      html += '<div style="font-size:13px;font-weight:500;color:#333">' + escHtml(prop.name || 'Property') + '</div>';
-      html += '<div style="font-size:12px;color:#888;margin-top:1px">' + escHtml(prop.address || '') + '</div>';
-      html += '</div>';
-
-      if (checkInInfo.lockbox_code || checkInInfo.instructions) {
-        html += '<div style="margin-top:8px;padding:10px 12px;background:#f7f7f5;border-radius:6px;font-size:12px;color:#666">';
-        html += '<div style="font-weight:500;margin-bottom:2px;color:#333">Access info</div>';
-        let accessParts = [];
-        if (checkInInfo.lockbox_code) accessParts.push('Lockbox: ' + escHtml(checkInInfo.lockbox_code));
-        if (checkInInfo.instructions) accessParts.push(escHtml(checkInInfo.instructions));
-        html += accessParts.join(' · ');
-        html += '</div>';
-      }
-
-      const cleanDateObj = new Date(c.clean_date + 'T00:00:00');
-      const isToday = c.clean_date === todayStr;
-      const isPast = cleanDateObj < today;
-      if (isToday || isPast) {
-        html += '<button type="button" data-action="done" data-clean-id="' + String(c.id) + '" style="width:100%;margin-top:10px;padding:10px;background:transparent;color:#2f5d4e;border:1px solid #ccc;border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">Mark as done</button>';
-      }
-      html += '</div>';
-    });
-  }
-
-  // Completed
-  if (completed.length) {
-    html += '<div style="display:flex;align-items:center;gap:6px;margin:20px 0 12px">';
-    html += '<div style="width:8px;height:8px;border-radius:50%;background:#999"></div>';
-    html += '<span style="font-size:12px;font-weight:500;color:#999;text-transform:uppercase;letter-spacing:0.4px">Completed</span>';
-    html += '</div>';
-
-    completed.slice(0, 10).forEach(c => {
-      const prop = c.properties || {};
-      html += '<div style="background:#f9f9f7;border:0.5px solid #eee;border-radius:8px;padding:12px 16px;margin-bottom:8px;opacity:0.7">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:center">';
-      html += '<div>';
-      html += '<div style="font-size:14px;font-weight:500;color:#555">' + formatDate(c.clean_date) + '</div>';
-      html += '<div style="font-size:12px;color:#999;margin-top:1px">' + escHtml(c.guest_name || '') + ' · ' + escHtml(prop.name || '') + '</div>';
-      html += '</div>';
-      html += '<div style="font-size:11px;color:#999">Done</div>';
-      html += '</div></div>';
-    });
-  }
-
-  if (!html) {
+  if (!all.length) {
     html = '<div style="text-align:center;padding:40px 20px;color:#999"><div style="font-size:40px;margin-bottom:12px">✨</div><div style="font-size:15px;font-weight:500">No cleans assigned yet</div><div style="font-size:13px;margin-top:6px">Your host will assign cleans to you here.</div></div>';
+  } else {
+    html += weekStrip(open, todayStr, data.daysOff);
+    const awaitingAll = open.filter(c => !c.cleaner_confirmed && !c.cleaner_declined);
+    if (awaitingAll.length >= 2) html += acceptAllBar(awaitingAll);
+    let first = true;
+    const header = (label, count, colour, id) => { const h = sectionHeader(label, count, colour, first, id); first = false; return h; };
+    if (cancelled.length) {
+      html += header('Cancelled', cancelled.length, '#C0392B');
+      html += cancelled.map(cancelledCard).join('');
+    }
+    if (overdue.length) {
+      html += header('Overdue', overdue.length, '#A32D2D');
+      html += overdue.map(c => cleanCard(data, c, 'overdue')).join('');
+    }
+    html += header('Today · ' + fmtDay(todayStr), today.length, today.length ? '#2f5d4e' : '#999', 'cleaner-day-' + todayStr);
+    if (today.length) {
+      html += loadSummary(today);
+      html += today.map(c => cleanCard(data, c, 'today')).join('');
+    } else {
+      html += '<div style="padding:16px;background:#f7f7f5;border-radius:8px;color:#888;font-size:13px;text-align:center">Nothing on today</div>';
+    }
+    if (tomorrow.length) {
+      html += header('Tomorrow · ' + fmtDay(tomorrowStr), tomorrow.length, '#854F0B', 'cleaner-day-' + tomorrowStr);
+      html += tomorrow.map(c => cleanCard(data, c, 'tomorrow')).join('');
+    }
+    if (later.length) {
+      html += header('Upcoming', later.length, '#5F5E5A');
+      html += upcomingByDay(data, later);
+    }
+    if (completed.length) {
+      html += header('Completed', completed.length, '#999');
+      html += completed.slice(0, 10).map(completedCard).join('');
+    }
   }
 
-  container.innerHTML = html;
+  // Rendered from the offline cache (supabase.js showCleanerApp) — say so, and
+  // say what will not stick until the connection is back.
+  const offline = window._cleanerOffline;
+  const offlineBar = offline
+    ? '<div style="margin-bottom:12px;padding:9px 12px;background:#FAEEDA;border-radius:8px;font-size:12px;color:#854F0B;line-height:1.45"><span style="font-weight:600">Offline.</span> Showing your plan from ' + fmtStamp(new Date(offline.at || Date.now()).toISOString()) + '. Ticks, photos and status changes will not save until you are back online.</div>'
+    : '';
+  container.innerHTML = offlineBar + html;
 
   if (!container._cleanerDelegated) {
     container.addEventListener('click', async function (e) {
+      const dayEl = e.target.closest('[data-day]');
+      if (dayEl && !e.target.closest('[data-action]')) {
+        const target = document.getElementById('cleaner-day-' + dayEl.getAttribute('data-day'));
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
       const btn = e.target.closest('[data-action]');
       if (!btn) return;
       e.stopPropagation();
       e.stopImmediatePropagation();
       const action = btn.getAttribute('data-action');
+
+      if (action === 'reveal_code') {
+        const code = document.createElement('span');
+        code.style.cssText = 'font-family:\'JetBrains Mono\',monospace;font-weight:600;font-size:16px;color:#1c2620;letter-spacing:1px';
+        code.textContent = btn.getAttribute('data-code') || '';
+        btn.replaceWith(code);
+        return;
+      }
+
+      if (action === 'accept_all') {
+        const ids = (btn.getAttribute('data-clean-ids') || '').split(',').filter(Boolean);
+        if (!ids.length || !window.confirm('Accept all ' + ids.length + ' cleans?')) return;
+        await globalThis.withButtonLoading(btn, () => cleanerAcceptAll(ids), 'Accepting…');
+        return;
+      }
+
       const cleanId = btn.getAttribute('data-clean-id');
       if (!cleanId) return;
-      const labels = { accept: 'Accepting…', decline: 'Declining…', done: 'Completing…', acknowledge_cancel: 'Acknowledging…' };
+      if (action === 'toggle_check') { await cleanerToggleCheck(cleanId, btn.getAttribute('data-item') || '', btn); return; }
+      if (action === 'add_photo') { cleanerPickPhoto(cleanId); return; }
+      if (action === 'handoff') {
+        const wrap = btn.closest('[data-handoff]');
+        const sel = wrap && wrap.querySelector('[data-handoff-select]');
+        const to = sel ? sel.value : '';
+        if (!to) { globalThis.showBanner('Pick who to hand it to first', 'warn'); return; }
+        const toName = (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].textContent) || 'your teammate';
+        if (!window.confirm('Hand this clean to ' + toName + '? It leaves your list and they will need to accept it.')) return;
+        await globalThis.withButtonLoading(btn, () => cleanerHandOff(cleanId, to), 'Handing off…');
+        return;
+      }
+      if (action === 'done') {
+        const left = checklistRemaining(cleanId);
+        if (left > 0 && !window.confirm(left + (left === 1 ? ' checklist item is' : ' checklist items are') + ' not ticked. Finish anyway?')) return;
+      }
+      const labels = { accept: 'Accepting…', decline: 'Declining…', start: 'Starting…', done: 'Finishing…', acknowledge_cancel: 'Acknowledging…' };
       await globalThis.withButtonLoading(btn, async () => {
         if (action === 'accept') await cleanerAcceptClean(cleanId);
         else if (action === 'decline') await cleanerDeclineClean(cleanId);
+        else if (action === 'start') await cleanerStartClean(cleanId);
         else if (action === 'done') await cleanerMarkDone(cleanId);
         else if (action === 'acknowledge_cancel') await cleanerAcknowledgeCancel(cleanId);
       }, labels[action] || 'Working…');
@@ -257,169 +645,316 @@ function renderNewCleanerView(data) {
 }
 window.renderNewCleanerView = renderNewCleanerView;
 
-async function cleanerAcceptClean(cleanId) {
+// ── actions ────────────────────────────────────────────────────────────────
+/**
+ * Shared write path for every cleaner action: PATCH the clean (RLS policy
+ * cleaner_update_own_cleans scopes it to this cleaner), reload the dashboard,
+ * push-notify the host (non-fatal), re-render. `pushFor(clean, cleanerRecord)`
+ * returns { title, body, tag } or null to skip the push.
+ */
+async function _cleanerUpdate(cleanId, patch, failLabel, pushFor) {
   if (!window._sb) return;
-  const { error } = await window._sb
-    .from('cleans')
-    .update({ cleaner_confirmed: true, confirmed_at: new Date().toISOString() })
-    .eq('id', cleanId);
-  if (error) { globalThis.showBanner('Failed to accept: ' + error.message, 'error'); return; }
+  const { error } = await window._sb.from('cleans').update(patch).eq('id', cleanId);
+  if (error) { globalThis.showBanner(failLabel + ': ' + error.message, 'error'); return; }
+
   const data = typeof globalThis.loadCleanerDashboard === 'function'
     ? await globalThis.loadCleanerDashboard()
     : null;
-  if (data) {
-    try {
-      const cleanData = data.myCleans?.find((c) => String(c.id) === String(cleanId));
-      const guestName = cleanData?.guest_name || cleanData?.guestName || 'guest';
-      const cleanDate = cleanData?.clean_date || cleanData?.date || '';
-      const cleanerName = data.cleanerRecord?.name || 'Cleaner';
-      const uid = cleanData?.user_id;
-      if (uid) {
-        await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
-          method: 'POST',
-          body: JSON.stringify({
-            user_id: uid,
-            title: '✅ Clean Confirmed',
-            body: cleanerName + ' accepted the clean for ' + guestName + (cleanDate ? ' on ' + cleanDate : ''),
-            url: '/',
-            tag: 'accept-' + cleanId
-          })
-        });
-      }
-    } catch (e) {
-      console.warn('[StayOps] Push notify failed:', e);
+  if (!data) return;
+
+  try {
+    const c = (data.myCleans || []).find(x => String(x.id) === String(cleanId));
+    const uid = c && c.user_id;
+    const push = (c && typeof pushFor === 'function') ? pushFor(c, data.cleanerRecord || {}) : null;
+    if (uid && push) {
+      await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
+        method: 'POST',
+        body: JSON.stringify({ user_id: uid, title: push.title, body: push.body, url: push.url || '/', tag: push.tag }),
+      });
     }
-    window._cleanerData = data;
-    renderNewCleanerView(data);
-    renderCleanerCalendar();
-    renderCleanerProfile();
+  } catch (e) {
+    console.warn('[StayOps] Push notify failed:', e);
   }
+
+  window._cleanerData = data;
+  renderNewCleanerView(data);
+  renderCleanerCalendar();
+  renderCleanerProfile();
+}
+
+const _guestOn = c => (c.guest_name || 'guest') + (c.clean_date ? ' on ' + c.clean_date : '');
+const _propName = c => (c.properties && c.properties.name) || 'the property';
+
+async function cleanerAcceptClean(cleanId) {
+  await _cleanerUpdate(cleanId,
+    { cleaner_confirmed: true, cleaner_declined: false, confirmed_at: new Date().toISOString() },
+    'Failed to accept',
+    (c, cr) => ({ title: '✅ Clean Confirmed', body: (cr.name || 'Cleaner') + ' accepted the clean for ' + _guestOn(c), tag: 'accept-' + cleanId }));
 }
 window.cleanerAcceptClean = cleanerAcceptClean;
 
-async function cleanerDeclineClean(cleanId) {
-  if (!window._sb) return;
-  const { error } = await window._sb
-    .from('cleans')
-    .update({ cleaner_declined: true })
-    .eq('id', cleanId);
-  if (error) { globalThis.showBanner('Failed to decline: ' + error.message, 'error'); return; }
+/**
+ * "Accept all": one UPDATE across every awaiting clean (RLS still checks each
+ * row belongs to this cleaner), then one push per host instead of one per clean.
+ */
+async function cleanerAcceptAll(ids) {
+  if (!window._sb || !ids.length) return;
+  const { error } = await window._sb.from('cleans')
+    .update({ cleaner_confirmed: true, cleaner_declined: false, confirmed_at: new Date().toISOString() })
+    .in('id', ids);
+  if (error) { globalThis.showBanner('Failed to accept: ' + error.message, 'error'); return; }
+
   const data = typeof globalThis.loadCleanerDashboard === 'function'
     ? await globalThis.loadCleanerDashboard()
     : null;
-  if (data) {
-    try {
-      const cleanData = data.myCleans?.find((c) => String(c.id) === String(cleanId));
-      const guestName = cleanData?.guest_name || cleanData?.guestName || 'guest';
-      const cleanDate = cleanData?.clean_date || cleanData?.date || '';
-      const cleanerName = data.cleanerRecord?.name || 'Cleaner';
-      const uid = cleanData?.user_id;
-      if (uid) {
-        await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
-          method: 'POST',
-          body: JSON.stringify({
-            user_id: uid,
-            title: '❌ Clean Declined',
-            body: cleanerName + ' cannot do the clean for ' + guestName + (cleanDate ? ' on ' + cleanDate : '') + '. Reassign needed.',
-            url: '/',
-            tag: 'decline-' + cleanId
-          })
-        });
-      }
-    } catch (e) {
-      console.warn('[StayOps] Push notify failed:', e);
+  if (!data) return;
+
+  try {
+    const accepted = (data.myCleans || []).filter(c => ids.includes(String(c.id)));
+    const byHost = {};
+    accepted.forEach(c => { if (c.user_id) (byHost[c.user_id] = byHost[c.user_id] || []).push(c); });
+    const name = (data.cleanerRecord && data.cleanerRecord.name) || 'Cleaner';
+    for (const uid of Object.keys(byHost)) {
+      const list = byHost[uid];
+      const dates = list.map(c => c.clean_date).filter(Boolean).sort();
+      await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: uid,
+          title: '✅ ' + list.length + ' cleans confirmed',
+          body: name + ' accepted ' + list.length + ' cleans' + (dates.length ? ' (' + dates[0] + ' to ' + dates[dates.length - 1] + ')' : ''),
+          url: '/',
+          tag: 'accept-all-' + Date.now(),
+        }),
+      });
     }
-    window._cleanerData = data;
-    renderNewCleanerView(data);
-    renderCleanerCalendar();
-    renderCleanerProfile();
+  } catch (e) {
+    console.warn('[StayOps] Push notify failed:', e);
   }
+
+  window._cleanerData = data;
+  renderNewCleanerView(data);
+  renderCleanerCalendar();
+  renderCleanerProfile();
+}
+window.cleanerAcceptAll = cleanerAcceptAll;
+
+/**
+ * Hand a clean to a teammate. RLS only lets a cleaner update their OWN cleans
+ * and the row stops being theirs the moment cleaner_uuid changes, so the
+ * reassignment runs in the cleaner-handoff Netlify function (service key, after
+ * checking the clean is ours and the teammate works for the same host). It
+ * also pushes the host and the teammate; we just reload the plan.
+ */
+async function cleanerHandOff(cleanId, toCleanerId) {
+  const af = typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch;
+  let res;
+  let out;
+  try {
+    res = await af('/.netlify/functions/cleaner-handoff', {
+      method: 'POST',
+      body: JSON.stringify({ cleanId, toCleanerId }),
+    });
+    out = await res.json().catch(() => ({}));
+  } catch (e) {
+    globalThis.showBanner('Hand-off failed: ' + ((e && e.message) || 'no connection'), 'error');
+    return;
+  }
+  if (!res.ok || !out.ok) {
+    globalThis.showBanner('Hand-off failed: ' + (out.error || ('HTTP ' + res.status)), 'error');
+    return;
+  }
+  const toName = (out.to && out.to.name) || 'your teammate';
+  globalThis.showBanner(
+    'Handed to ' + toName + (out.teammateNotified ? ' — they have been notified' : ' — give them a heads-up, they have no push notifications set up'),
+    out.teammateNotified ? 'ok' : 'warn');
+
+  const data = typeof globalThis.loadCleanerDashboard === 'function'
+    ? await globalThis.loadCleanerDashboard()
+    : null;
+  if (!data) return;
+  window._cleanerData = data;
+  renderNewCleanerView(data);
+  renderCleanerCalendar();
+  renderCleanerProfile();
+}
+window.cleanerHandOff = cleanerHandOff;
+
+async function cleanerDeclineClean(cleanId) {
+  await _cleanerUpdate(cleanId,
+    { cleaner_declined: true },
+    'Failed to decline',
+    (c, cr) => ({ title: '❌ Clean Declined', body: (cr.name || 'Cleaner') + ' cannot do the clean for ' + _guestOn(c) + '. Reassign needed.', tag: 'decline-' + cleanId }));
 }
 window.cleanerDeclineClean = cleanerDeclineClean;
 
+/** "Start clean" — stamps started_at so the host sees the clean in progress live. */
+async function cleanerStartClean(cleanId) {
+  await _cleanerUpdate(cleanId,
+    { started_at: new Date().toISOString() },
+    'Failed to start',
+    (c, cr) => ({ title: '🧹 Clean started', body: (cr.name || 'Cleaner') + ' is on site at ' + _propName(c) + (c.guest_name ? ' (' + c.guest_name + ')' : ''), tag: 'start-' + cleanId }));
+}
+window.cleanerStartClean = cleanerStartClean;
+
 async function cleanerMarkDone(cleanId) {
-  if (!window._sb) return;
-  const { error } = await window._sb
-    .from('cleans')
-    .update({ done: true, completed_at: new Date().toISOString() })
-    .eq('id', cleanId);
-  if (error) { globalThis.showBanner('Failed to mark done: ' + error.message, 'error'); return; }
-  const data = typeof globalThis.loadCleanerDashboard === 'function'
-    ? await globalThis.loadCleanerDashboard()
-    : null;
-  if (data) {
-    try {
-      const cleanData = data.myCleans?.find((c) => String(c.id) === String(cleanId));
-      const guestName = cleanData?.guest_name || cleanData?.guestName || 'guest';
-      const cleanDate = cleanData?.clean_date || cleanData?.date || '';
-      const cleanerName = data.cleanerRecord?.name || 'Cleaner';
-      const uid = cleanData?.user_id;
-      if (uid) {
-        await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
-          method: 'POST',
-          body: JSON.stringify({
-            user_id: uid,
-            title: '🏡 Clean Complete!',
-            body: cleanerName + ' has finished the clean for ' + guestName + (cleanDate ? ' on ' + cleanDate : '') + ' — review cleaning cost',
-            url: '/',
-            tag: 'done-' + cleanId
-          })
-        });
-      }
-    } catch (e) {
-      console.warn('[StayOps] Push notify failed:', e);
-    }
-    window._cleanerData = data;
-    renderNewCleanerView(data);
-    renderCleanerCalendar();
-    renderCleanerProfile();
-  }
+  await _cleanerUpdate(cleanId,
+    { done: true, cleaner_confirmed: true, cleaner_declined: false, completed_at: new Date().toISOString() },
+    'Failed to mark done',
+    (c, cr) => ({ title: '🏡 Clean Complete!', body: (cr.name || 'Cleaner') + ' has finished the clean for ' + _guestOn(c) + (Array.isArray(c.photos) && c.photos.length ? ' · ' + c.photos.length + (c.photos.length === 1 ? ' photo' : ' photos') : '') + ' — review cleaning cost', tag: 'done-' + cleanId }));
 }
 window.cleanerMarkDone = cleanerMarkDone;
 
 async function cleanerAcknowledgeCancel(cleanId) {
-  if (!window._sb) return;
-  const { error } = await window._sb
-    .from('cleans')
-    .update({ cleaner_cancel_acknowledged: true, cleaner_cancel_acknowledged_at: new Date().toISOString() })
-    .eq('id', cleanId);
-  if (error) { globalThis.showBanner('Failed to acknowledge: ' + error.message, 'error'); return; }
-  const data = typeof globalThis.loadCleanerDashboard === 'function'
-    ? await globalThis.loadCleanerDashboard()
-    : null;
-  if (data) {
-    try {
-      const cleanData = data.myCleans?.find((c) => String(c.id) === String(cleanId));
-      const cleanerName = data.cleanerRecord?.name || 'Cleaner';
-      const uid = cleanData?.user_id;
-      if (uid) {
-        await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
-          method: 'POST',
-          body: JSON.stringify({
-            user_id: uid,
-            title: '✓ Cancellation acknowledged',
-            body: cleanerName + ' acknowledged the booking cancellation',
-            url: '/',
-            tag: 'ack-cancel-' + cleanId
-          })
-        });
-      }
-    } catch (e) {
-      console.warn('[StayOps] Push notify failed:', e);
-    }
-    window._cleanerData = data;
-    renderNewCleanerView(data);
-    renderCleanerCalendar();
-    renderCleanerProfile();
-  }
+  await _cleanerUpdate(cleanId,
+    { cleaner_cancel_acknowledged: true, cleaner_cancel_acknowledged_at: new Date().toISOString() },
+    'Failed to acknowledge',
+    (c, cr) => ({ title: '✓ Cancellation acknowledged', body: (cr.name || 'Cleaner') + ' acknowledged the booking cancellation', tag: 'ack-cancel-' + cleanId }));
 }
 window.cleanerAcknowledgeCancel = cleanerAcknowledgeCancel;
 
+// ── checklist ──────────────────────────────────────────────────────────────
+function _findClean(cleanId) {
+  const data = window._cleanerData;
+  return data && (data.myCleans || []).find(x => String(x.id) === String(cleanId)) || null;
+}
+
+/** How many of the property's checklist items are still unticked on this clean. */
+function checklistRemaining(cleanId) {
+  const c = _findClean(cleanId);
+  if (!c) return 0;
+  const items = checklistItems(c.properties && c.properties.check_in_info);
+  const done = new Set(Array.isArray(c.checklist_done) ? c.checklist_done.map(String) : []);
+  return items.filter(i => !done.has(i)).length;
+}
+
+function paintCheck(btn, on) {
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btn.style.color = on ? '#999' : '#1c2620';
+  btn.style.textDecoration = on ? 'line-through' : 'none';
+  const box = btn.querySelector('[data-box]');
+  if (box) { box.style.borderColor = on ? '#2f5d4e' : '#bbb'; box.style.background = on ? '#2f5d4e' : '#fff'; box.textContent = on ? '✓' : ''; }
+}
+
+/** Toggle one checklist item: optimistic in place, persisted to cleans.checklist_done, rolled back on error. */
+async function cleanerToggleCheck(cleanId, item, btn) {
+  const c = _findClean(cleanId);
+  if (!c || !item || !window._sb) return;
+  const current = Array.isArray(c.checklist_done) ? c.checklist_done.map(String) : [];
+  const on = !current.includes(item);
+  const next = on ? current.concat([item]) : current.filter(i => i !== item);
+  c.checklist_done = next;
+  paintCheck(btn, on);
+  const wrap = btn.closest('[data-checklist]');
+  const counter = wrap && wrap.querySelector('[data-checklist-count]');
+  if (counter) {
+    const items = checklistItems(c.properties && c.properties.check_in_info);
+    const t = items.filter(i => next.includes(i)).length;
+    counter.textContent = t + ' / ' + items.length;
+    counter.style.color = t === items.length ? '#0F6E56' : '#888';
+  }
+  const { error } = await window._sb.from('cleans').update({ checklist_done: next }).eq('id', cleanId);
+  if (error) {
+    c.checklist_done = current;
+    paintCheck(btn, !on);
+    globalThis.showBanner('Could not save checklist: ' + error.message, 'error');
+  }
+}
+
+// ── photo proof ────────────────────────────────────────────────────────────
+/** One hidden file input for the whole view; remembers which clean asked for a photo. */
+function cleanerPickPhoto(cleanId) {
+  let input = document.getElementById('cleaner-photo-input');
+  if (!input) {
+    input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.id = 'cleaner-photo-input';
+    input.style.display = 'none';
+    input.setAttribute('capture', 'environment');
+    document.body.appendChild(input);
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      const target = input.dataset.cleanId;
+      input.value = '';
+      if (file && target) await cleanerAddPhoto(target, file);
+    });
+  }
+  input.dataset.cleanId = String(cleanId);
+  input.click();
+}
+
+/**
+ * Downscale + upload straight to the public `photos` bucket under
+ * cleans/<cleaner uuid>/<clean id>/… (storage policy "Cleaners upload clean
+ * photos"), then append {url, path, at} to cleans.photos.
+ */
+async function cleanerAddPhoto(cleanId, file) {
+  const data = window._cleanerData;
+  const c = _findClean(cleanId);
+  // Folder = the cleaner row that owns this clean (a multi-host cleaner has one row per host).
+  const cleanerUuid = (c && c.cleaner_uuid) || (data && data.cleanerRecord && data.cleanerRecord.id);
+  if (!c || !cleanerUuid || !window._sb) return;
+  globalThis.showBanner('Uploading photo…', 'info');
+  try {
+    const jpeg = await downscaleToJpeg(file, 1600, 0.82);
+    const path = 'cleans/' + cleanerUuid + '/' + cleanId + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.jpg';
+    // ArrayBuffer body + explicit content type: iOS WKWebView drops Blob bodies (see supabase-receipts.js).
+    const { error: upErr } = await window._sb.storage.from('photos').upload(path, jpeg, { contentType: 'image/jpeg', upsert: false });
+    if (upErr) throw new Error(upErr.message || upErr.error || 'upload failed');
+    const { data: pub } = window._sb.storage.from('photos').getPublicUrl(path);
+    const url = pub && pub.publicUrl;
+    if (!url) throw new Error('no public URL returned');
+    const photos = (Array.isArray(c.photos) ? c.photos : []).concat([{ url, path, at: new Date().toISOString() }]);
+    const { error } = await window._sb.from('cleans').update({ photos }).eq('id', cleanId);
+    if (error) throw new Error(error.message);
+    c.photos = photos;
+    renderNewCleanerView(data);
+    globalThis.showBanner('Photo added', 'ok');
+  } catch (e) {
+    console.warn('[StayOps] cleanerAddPhoto failed:', e);
+    globalThis.showBanner('Photo upload failed: ' + ((e && e.message) || e), 'error');
+  }
+}
+
+/** Shrink a camera shot to a JPEG ArrayBuffer (≤ maxDim on the long side): 5MB phone photos become ~300KB. */
+async function downscaleToJpeg(file, maxDim, quality) {
+  let bitmap = null;
+  if (typeof globalThis.createImageBitmap === 'function') {
+    try { bitmap = await globalThis.createImageBitmap(file, { imageOrientation: 'from-image' }); } catch (_e) { bitmap = null; }
+  }
+  let source = bitmap, w, h, objectUrl = null;
+  if (bitmap) {
+    w = bitmap.width; h = bitmap.height;
+  } else {
+    objectUrl = URL.createObjectURL(file);
+    source = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Could not read image'));
+      img.src = objectUrl;
+    });
+    w = source.naturalWidth; h = source.naturalHeight;
+  }
+  const scale = Math.min(1, maxDim / Math.max(w || 1, h || 1));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round((w || 1) * scale));
+  canvas.height = Math.max(1, Math.round((h || 1) * scale));
+  canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+  if (bitmap && typeof bitmap.close === 'function') bitmap.close();
+  if (objectUrl) URL.revokeObjectURL(objectUrl);
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+  if (!blob) throw new Error('Could not encode image');
+  return blob.arrayBuffer();
+}
+
+// ── Calendar ───────────────────────────────────────────────────────────────
 function renderCleanerCalendar() {
   const container = document.getElementById('cleaner-section-calendar');
   if (!container || !window._cleanerData) return;
 
   const cleans = window._cleanerData.myCleans || [];
+  const daysOff = window._cleanerData.daysOff || {};
   const today = new Date();
   let viewMonth = window._cleanerCalMonth || today.getMonth();
   let viewYear = window._cleanerCalYear || today.getFullYear();
@@ -464,16 +999,30 @@ function renderCleanerCalendar() {
     const dateStr = viewYear + '-' + String(viewMonth + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
     const hasCleans = cleanDates[dateStr];
     const isToday = dateStr === todayStr;
+    const off = daysOff[dateStr] != null;
 
-    html += '<div onclick="showCleanerDayDetail(\'' + dateStr + '\')" style="text-align:center;padding:8px 2px;border-radius:10px;cursor:' + (hasCleans ? 'pointer' : 'default') + ';' + (isToday ? 'background:var(--primary);color:white;font-weight:700;' : '') + '">';
+    // Every day from today on is tappable: the detail panel carries the day-off toggle.
+    html += '<div onclick="showCleanerDayDetail(\'' + dateStr + '\')" style="text-align:center;padding:8px 2px;border-radius:10px;cursor:' + (hasCleans || dateStr >= todayStr ? 'pointer' : 'default') + ';' + (isToday ? 'background:var(--primary);color:white;font-weight:700;' : off ? 'background:#F1EFE8;' : '') + '">';
     html += '<div style="font-size:14px">' + d + '</div>';
     if (hasCleans) {
-      const dotColor = hasCleans.some((c) => !c.cleaner_confirmed && !c.done) ? '#C0392B' : '#3B6D11';
-      html += '<div style="width:6px;height:6px;border-radius:50%;background:' + dotColor + ';margin:3px auto 0"></div>';
+      const live = hasCleans.filter((c) => !c.done && !c._bookingCancelled && !c.cleaner_declined);
+      if (live.length) {
+        const col = live.some((c) => c._sameDayTurnover) ? '#E24B4A'
+          : live.some((c) => !c.cleaner_confirmed) ? '#EF9F27'
+          : '#3B6D11';
+        html += '<div style="display:inline-block;min-width:16px;height:16px;border-radius:8px;padding:0 4px;margin-top:3px;background:' + col + ';color:#fff;font-size:10px;font-weight:600;line-height:16px">' + live.length + '</div>';
+      } else {
+        html += '<div style="width:6px;height:6px;border-radius:50%;background:#bbb;margin:3px auto 0"></div>';
+      }
     }
+    if (off) html += '<div style="font-size:9px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:' + (isToday ? 'rgba(255,255,255,0.8)' : '#999') + ';margin-top:2px">off</div>';
     html += '</div>';
   }
   html += '</div>';
+  const legend = (col, label) => '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:' + col + ';display:inline-block;border:1px solid rgba(0,0,0,0.08)"></span>' + label + '</span>';
+  html += '<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:#777;margin-bottom:4px">' +
+    legend('#E24B4A', 'same-day turnover') + legend('#EF9F27', 'awaiting your reply') + legend('#3B6D11', 'confirmed') + legend('#bbb', 'done') + legend('#F1EFE8', 'day off') + '</div>';
+  html += '<div style="font-size:11px;color:#999;margin-bottom:4px">Tap a day to see its cleans or mark it as a day off.</div>';
   html += '<div id="cleaner-day-detail"></div>';
   container.innerHTML = html;
 }
@@ -492,42 +1041,105 @@ function showCleanerDayDetail(dateStr) {
   const container = document.getElementById('cleaner-day-detail');
   if (!container || !window._cleanerData) return;
 
-  const cleans = (window._cleanerData.myCleans || []).filter((c) => c.clean_date === dateStr);
-  if (!cleans.length) { container.innerHTML = ''; return; }
+  const cleans = (window._cleanerData.myCleans || []).filter((c) => c.clean_date === dateStr && !c._bookingCancelled && !c.cleaner_declined);
+  const todayStr = localDateStr(new Date());
+  const daysOff = window._cleanerData.daysOff || {};
+  const off = daysOff[dateStr] != null;
+  // A past day with nothing on it has nothing to say; a future day always has the day-off toggle.
+  if (!cleans.length && dateStr < todayStr) { container.innerHTML = ''; return; }
+  cleans.sort((a, b) => (Number.isFinite(a._deadlineMinutes) ? a._deadlineMinutes : 1e9) - (Number.isFinite(b._deadlineMinutes) ? b._deadlineMinutes : 1e9));
 
   let html = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid #eee">';
-  html += '<div style="font-weight:700;font-size:13px;color:var(--primary);margin-bottom:8px">' + dateStr + '</div>';
+  html += '<div style="font-weight:700;font-size:13px;color:var(--primary);margin-bottom:8px">' + fmtDay(dateStr) + '</div>';
 
   cleans.forEach((c) => {
     const prop = c.properties || {};
-    const status = c.done ? 'Done' : c.cleaner_confirmed ? 'Confirmed' : c.cleaner_declined ? 'Declined' : 'Pending';
-    const statusColor = c.done ? '#999' : c.cleaner_confirmed ? '#3B6D11' : c.cleaner_declined ? '#C0392B' : '#F5A623';
+    const status = c.done ? 'Done' : c.started_at ? 'On site' : c.cleaner_confirmed ? 'Confirmed' : c.cleaner_declined ? 'Declined' : 'Pending';
+    const statusColor = c.done ? '#999' : c.started_at ? '#185FA5' : c.cleaner_confirmed ? '#3B6D11' : c.cleaner_declined ? '#C0392B' : '#F5A623';
+    let turnover = '';
+    if (c._sameDayTurnover) turnover = ' · <span style="color:#A32D2D;font-weight:500">next guest ' + fmtClock(c._nextCheckinTime) + '</span>';
+    else if (c._nextCheckinDate) turnover = ' · next guest ' + fmtDay(c._nextCheckinDate);
     html += '<div style="background:white;border-radius:10px;padding:12px;margin-bottom:6px;box-shadow:0 1px 3px rgba(0,0,0,0.05)">';
     html += '<div style="display:flex;justify-content:space-between;align-items:center">';
-    html += '<div style="font-weight:600;font-size:14px">' + (prop.name || 'Property') + '</div>';
+    html += '<div style="font-weight:600;font-size:14px">' + escHtml(prop.name || 'Property') + '</div>';
     html += '<span style="font-size:11px;font-weight:700;color:' + statusColor + ';background:' + statusColor + '15;padding:3px 8px;border-radius:6px">' + status + '</span>';
     html += '</div>';
-    html += '<div style="font-size:12px;color:#666;margin-top:3px">' + (c.guest_name || '') + '</div>';
+    html += '<div style="font-size:12px;color:#666;margin-top:3px">' + escHtml(c.guest_name || '') + (c._checkoutTime ? ' · out ' + fmtClock(c._checkoutTime) : '') + turnover + '</div>';
     html += '</div>';
   });
+
+  if (!cleans.length) html += '<div style="font-size:12px;color:#999;padding:4px 0 8px">No cleans this day</div>';
+
+  if (dateStr >= todayStr) {
+    if (off && cleans.length) {
+      html += '<div style="margin:8px 0;padding:8px 12px;background:#FCEBEB;border-radius:8px;font-size:12px;color:#A32D2D">This is a day off, but ' + cleans.length + (cleans.length === 1 ? ' clean is' : ' cleans are') + ' still assigned to you. Your host can see the clash — message them to reassign.</div>';
+    }
+    html += '<button type="button" onclick="cleanerToggleDayOff(\'' + dateStr + '\')" style="width:100%;margin-top:6px;padding:11px;background:' + (off ? '#2f5d4e' : 'transparent') + ';color:' + (off ? '#fff' : '#2f5d4e') + ';border:1px solid ' + (off ? '#2f5d4e' : '#ccc') + ';border-radius:8px;font-weight:500;font-size:13px;cursor:pointer">' +
+      (off ? 'Available again on ' + fmtDay(dateStr) : 'Mark ' + fmtDay(dateStr) + ' as a day off') + '</button>';
+    html += '<div style="font-size:11px;color:#999;margin-top:6px;text-align:center">Your host sees days off when assigning cleans.</div>';
+  }
 
   html += '</div>';
   container.innerHTML = html;
 }
 window.showCleanerDayDetail = showCleanerDayDetail;
 
+/**
+ * Toggle a day off (cleaner_unavailable; RLS: own rows). When cleans are already
+ * assigned that day the host gets a push, so the clash is not a surprise.
+ */
+async function cleanerToggleDayOff(day) {
+  const data = window._cleanerData;
+  const cr = data && data.cleanerRecord;
+  if (!cr || !cr.id || !window._sb || !day) return;
+  const daysOff = data.daysOff || {};
+  const isOff = daysOff[day] != null;
+  // A day off applies to every host the cleaner works for: one row per cleaner record.
+  const records = Array.isArray(data.cleanerRecords) && data.cleanerRecords.length ? data.cleanerRecords : [cr];
+  const ids = records.map(r => r && r.id).filter(Boolean);
+  const { error } = isOff
+    ? await window._sb.from('cleaner_unavailable').delete().in('cleaner_uuid', ids).eq('day', day)
+    : await window._sb.from('cleaner_unavailable').upsert(ids.map(id => ({ cleaner_uuid: id, day })), { onConflict: 'cleaner_uuid,day', ignoreDuplicates: true });
+  if (error) { globalThis.showBanner('Could not update day off: ' + error.message, 'error'); return; }
+  if (isOff) delete daysOff[day]; else daysOff[day] = '';
+  data.daysOff = daysOff;
+
+  if (!isOff) {
+    const dayCleans = (data.myCleans || []).filter(c => c.clean_date === day && !c.done && !c._bookingCancelled && !c.cleaner_declined);
+    const byHost = {};
+    dayCleans.forEach(c => { if (c.user_id) (byHost[c.user_id] = byHost[c.user_id] || []).push(c); });
+    try {
+      for (const uid of Object.keys(byHost)) {
+        const n = byHost[uid].length;
+        await (typeof globalThis.authFetch === 'function' ? globalThis.authFetch : fetch)('/.netlify/functions/send-push', {
+          method: 'POST',
+          body: JSON.stringify({
+            user_id: uid,
+            title: '📅 ' + (cr.name || 'Cleaner') + ' is off on ' + fmtDay(day),
+            body: n + (n === 1 ? ' clean' : ' cleans') + ' that day ' + (n === 1 ? 'needs' : 'need') + ' reassigning',
+            url: '/',
+            tag: 'dayoff-' + day,
+          }),
+        });
+      }
+    } catch (e) {
+      console.warn('[StayOps] Push notify failed:', e);
+    }
+  }
+
+  renderNewCleanerView(data);
+  renderCleanerCalendar();
+  showCleanerDayDetail(day);
+}
+window.cleanerToggleDayOff = cleanerToggleDayOff;
+
+// ── Profile ────────────────────────────────────────────────────────────────
 function renderCleanerProfile() {
   const container = document.getElementById('cleaner-section-profile');
   if (!container || !window._cleanerData) return;
 
-  const cr = window._cleanerData.cleanerRecord;
-
-  // Update header subtitle — show property name instead of location
-  const headerSub = document.querySelector('.cleaner-header .header-sub-name');
-  if (headerSub) {
-    const propName = window._cleanerData.property && window._cleanerData.property.name;
-    headerSub.textContent = propName || '';
-  }
+  const cr = window._cleanerData.cleanerRecord || {};
+  const host = window._cleanerData.host || null;
 
   let html = '';
   html += '<div style="background:white;border-radius:16px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">';
@@ -544,6 +1156,19 @@ function renderCleanerProfile() {
   html += '<span style="font-size:13px;color:#999">Phone</span>';
   html += '<span style="font-size:13px;font-weight:600;color:#333">' + escHtml(cr.phone || '—') + '</span>';
   html += '</div>';
+  // One row per host the cleaner works for (usually one).
+  const hostList = (Array.isArray(window._cleanerData.hosts) && window._cleanerData.hosts.length)
+    ? window._cleanerData.hosts
+    : (host ? [host] : []);
+  hostList.forEach((h, i) => {
+    html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid #f5f5f3">';
+    html += '<span style="font-size:13px;color:#999">' + (hostList.length > 1 ? 'Host ' + (i + 1) : 'Host') + '</span>';
+    html += '<span style="font-size:13px;font-weight:600;color:#333;text-align:right">' + escHtml(h.name || h.company || '—') +
+      (h.name && h.company ? '<div style="font-size:11px;color:#999;font-weight:400">' + escHtml(h.company) + '</div>' : '') +
+      (h.phone ? '<div style="font-size:11px;color:#999;font-weight:400">' + escHtml(h.phone) + '</div>' : '') +
+    '</span>';
+    html += '</div>';
+  });
   html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #f5f5f3">';
   html += '<span style="font-size:13px;color:#999">Notifications</span>';
   html += '<span id="cleaner-profile-notif-status" style="font-size:13px;font-weight:600;color:#999"></span>';
@@ -551,7 +1176,7 @@ function renderCleanerProfile() {
 
   const cleans = window._cleanerData.myCleans || [];
   const completed = cleans.filter((c) => c.done).length;
-  const upcoming = cleans.filter((c) => !c.done && c.cleaner_confirmed).length;
+  const upcoming = cleans.filter((c) => !c.done && c.cleaner_confirmed && !c._bookingCancelled).length;
 
   html += '<div style="display:flex;gap:12px;margin-top:20px">';
   html += '<div style="flex:1;background:#f5f5f3;border-radius:12px;padding:14px;text-align:center">';
@@ -563,7 +1188,42 @@ function renderCleanerProfile() {
   html += '<div style="font-size:11px;color:#999;margin-top:2px">Upcoming</div>';
   html += '</div>';
   html += '</div>';
+
+  hostList.forEach(h => {
+    const href = smsHref(h.phone, 'Hi' + (hostFirstName(h) ? ' ' + hostFirstName(h) : '') + ', ');
+    if (!href) return;
+    const label = hostList.length > 1 ? '💬 Message ' + escHtml(hostFirstName(h) || h.name || h.company || 'host') : '💬 Message host';
+    html += '<a href="' + escHtml(href) + '" style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:' + (hostList.length > 1 ? '8px' : '16px') + ';padding:12px;background:#f7f9f8;color:#2f5d4e;border:1px solid #d5ded9;border-radius:10px;font-weight:600;font-size:13px;text-decoration:none">' + label + '</a>';
+  });
   html += '</div></div>';
+
+  html += earningsCard(cleans);
+
+  // Subscribe-able .ics of this cleaner's cleans, so they live in the phone
+  // calendar the cleaner already uses (Netlify/functions/cleaner-calendar-feed.js).
+  // The feed is keyed by cleaner row, i.e. per host: a multi-host cleaner gets one per host.
+  const records = (Array.isArray(window._cleanerData.cleanerRecords) && window._cleanerData.cleanerRecords.length)
+    ? window._cleanerData.cleanerRecords
+    : (cr.id ? [cr] : []);
+  const byUid = window._cleanerData.hostByUserId || {};
+  records.forEach((rec, i) => {
+    const feedUrl = rec && rec.id ? cleanerFeedUrl(rec.id) : '';
+    if (!feedUrl) return;
+    const webcal = feedUrl.replace(/^https?:\/\//, 'webcal://');
+    const h = byUid[String(rec.user_id || '')];
+    const forHost = records.length > 1 ? ' — ' + escHtml((h && (h.name || h.company)) || 'host ' + (i + 1)) : '';
+    html += '<div style="background:white;border-radius:16px;padding:18px 20px;margin-top:16px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">';
+    html += '<div style="font-weight:700;font-size:14px;color:var(--primary);margin-bottom:4px">📅 Your cleans in your phone calendar' + forHost + '</div>';
+    if (i === 0) html += '<div style="font-size:12px;color:#888;line-height:1.45;margin-bottom:12px">Subscribe once and every clean appears in Apple, Google or Outlook Calendar with the property, the guest\'s checkout time and the next guest\'s arrival. It updates itself. The lockbox code stays in this app.</div>';
+    html += '<div style="display:flex;gap:8px">';
+    html += '<a href="' + escHtml(webcal) + '" style="flex:1;display:flex;align-items:center;justify-content:center;padding:11px;background:var(--primary);color:white;border-radius:10px;font-weight:600;font-size:13px;text-decoration:none">Add to calendar</a>';
+    html += '<button type="button" onclick="window._copyCleanerFeedUrl(' + i + ')" id="cleaner-feed-copy-btn' + i + '" style="flex:1;padding:11px;background:white;color:var(--primary);border:1px solid var(--primary);border-radius:10px;font-weight:600;font-size:13px;cursor:pointer">Copy link</button>';
+    html += '</div>';
+    html += '<input id="cleaner-feed-url' + i + '" type="text" readonly value="' + escHtml(feedUrl) + '" style="width:100%;box-sizing:border-box;margin-top:10px;padding:8px 10px;border:1px solid #e5e5e0;border-radius:8px;font-size:11px;color:#777;background:#fafaf8">';
+    if (i === 0) html += '<div style="font-size:11px;color:#999;margin-top:6px">Google Calendar on Android: copy the link, then in Google Calendar on the web choose Other calendars → From URL.</div>';
+    html += '</div>';
+  });
+
   // "Also a Host?" section — only show if user doesn't already have a host role
   html += '<div id="cleaner-become-host-section" style="margin-top:20px;display:none">';
   html += '<div style="background:white;border-radius:12px;padding:16px;border:1.5px solid #EAF3DE">';
@@ -598,6 +1258,60 @@ function renderCleanerProfile() {
   }
 }
 window.renderCleanerProfile = renderCleanerProfile;
+
+/**
+ * Earnings, from the per-clean fee the host entered (cleans.cost): this month
+ * done / still to do, and last month. Counts and totals only — paid vs unpaid
+ * lives in the host's expenses, which a cleaner cannot read.
+ */
+function earningsCard(cleans) {
+  const now = new Date();
+  const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const ym = d => String(d || '').slice(0, 7);
+  const thisMonth = ym(localDateStr(now));
+  const lastMonth = ym(localDateStr(lm));
+  const live = (cleans || []).filter(c => !c._bookingCancelled && !c.cleaner_declined);
+  const sum = list => list.reduce((t, c) => t + (Number(c.cost) || 0), 0);
+  const money = n => '$' + Math.round(n).toLocaleString('en-AU');
+  const monthLabel = d => MONTH_NAMES[d.getMonth()] + ' ' + d.getFullYear();
+  const row = (label, list, note) => {
+    const total = sum(list);
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f5f5f3">' +
+      '<div><div style="font-size:13px;color:#333">' + label + '</div>' + (note ? '<div style="font-size:11px;color:#999">' + note + '</div>' : '') + '</div>' +
+      '<div style="text-align:right"><div style="font-size:15px;font-weight:700;color:var(--primary)">' + (total ? money(total) : '—') + '</div>' +
+        '<div style="font-size:11px;color:#999">' + list.length + (list.length === 1 ? ' clean' : ' cleans') + '</div></div>' +
+    '</div>';
+  };
+  const doneThis = live.filter(c => c.done && ym(c.clean_date) === thisMonth);
+  const todoThis = live.filter(c => !c.done && ym(c.clean_date) === thisMonth);
+  const doneLast = live.filter(c => c.done && ym(c.clean_date) === lastMonth);
+  const anyFee = live.some(c => Number(c.cost) > 0);
+  let html = '<div style="background:white;border-radius:16px;padding:18px 20px;margin-top:16px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">';
+  html += '<div style="font-weight:700;font-size:14px;color:var(--primary);margin-bottom:2px">💰 Earnings</div>';
+  html += '<div style="font-size:11px;color:#999;margin-bottom:4px">From the fee your host set on each clean' + (anyFee ? '.' : ' — none entered yet, so only counts show.') + ' Paid or unpaid is not tracked here.</div>';
+  html += row(monthLabel(now) + ' · done', doneThis);
+  html += row(monthLabel(now) + ' · still to do', todoThis, 'expected');
+  html += row(monthLabel(lm) + ' · done', doneLast);
+  html += '</div>';
+  return html;
+}
+
+/** Public .ics URL for this cleaner's cleans — keyed by the cleaner's row uuid. */
+function cleanerFeedUrl(cleanerId) {
+  const base = String(globalThis.API_BASE || window.location.origin || '').replace(/\/$/, '');
+  return base + '/.netlify/functions/cleaner-calendar-feed?key=' + encodeURIComponent(cleanerId);
+}
+
+window._copyCleanerFeedUrl = function (i) {
+  const idx = Number(i) || 0;
+  const input = document.getElementById('cleaner-feed-url' + idx);
+  const btn = document.getElementById('cleaner-feed-copy-btn' + idx);
+  if (!input) return;
+  const done = () => { if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy link'; }, 2000); } };
+  const fallback = () => { input.select(); try { document.execCommand('copy'); } catch (_e) { /* deprecated API, ignore */ } done(); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(input.value).then(done).catch(fallback);
+  else fallback();
+};
 
 window._enableCleanerNotifs = async function () {
   const el = document.getElementById('cleaner-profile-notif-status');

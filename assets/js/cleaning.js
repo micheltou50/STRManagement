@@ -25,6 +25,7 @@ import {
   _sendCleanerAssignmentNotifications,
   getCleanerSub,
   sendPushToDevice,
+  sendPushToUserId,
   cleanerLinkForId,
   sendCleanerEmail,
 } from './notifications.js';
@@ -107,6 +108,7 @@ export function getBookingCleanerState(booking) {
   if (!clean) return { key: 'unassigned', label: 'Needs cleaner assignment', tone: 'warn' };
   if (clean.done) return { key: 'done', label: 'Clean completed', tone: 'ok', clean };
   if (clean.cleanerDeclined) return { key: 'declined', label: 'Cleaner declined — reassign needed', tone: 'bad', clean };
+  if (clean.startedAt) return { key: 'in_progress', label: 'Cleaner on site — clean in progress', tone: 'ok', clean };
   if (clean.cleanerConfirmed) return { key: 'confirmed', label: 'Cleaner confirmed', tone: 'ok', clean };
   return { key: 'pending', label: 'Assigned — awaiting cleaner response', tone: 'warn', clean };
 }
@@ -134,7 +136,7 @@ export function normalizeBookingCleanState() {
 
   bookings.forEach(b => {
     const st = getBookingCleanerState(b);
-    const shouldConfirmed = st.key === 'confirmed' || st.key === 'done';
+    const shouldConfirmed = st.key === 'confirmed' || st.key === 'in_progress' || st.key === 'done';
     if (!!b.cleanerConfirmed !== shouldConfirmed) {
       b.cleanerConfirmed = shouldConfirmed;
       bookingsChanged = true;
@@ -251,6 +253,37 @@ export function getSuggestedCleanerForBooking(booking) {
   return getPreferredCleaner();
 }
 
+/**
+ * The note (or '') when `cleaner` has marked `dateStr` as a day off in the
+ * cleaner PWA (cleaner_unavailable, hydrated into window._cleanerDaysOff by
+ * loadCleanerDaysOffFromCloud), else null.
+ */
+export function cleanerDayOff(cleaner, dateStr) {
+  const rows = window._cleanerDaysOff;
+  if (!cleaner || !dateStr || !Array.isArray(rows)) return null;
+  const uuid = cleaner._cloudId || cleaner.cloud_id;
+  if (!uuid) return null;
+  const day = String(dateStr).slice(0, 10);
+  const hit = rows.find(r => String(r.cleanerUuid) === String(uuid) && r.day === day);
+  return hit ? (hit.note || '') : null;
+}
+globalThis.cleanerDayOff = cleanerDayOff;
+
+/** Re-label the booking-detail cleaner select ("Megan · day off") after the host changes the clean date. */
+globalThis._refreshAssignCleanerOptions = function () {
+  const sel = document.getElementById('detail-assign-cleaner');
+  const dateInput = document.getElementById('detail-assign-date');
+  if (!sel || !dateInput) return;
+  const date = dateInput.value;
+  const all = loadCleaners();
+  Array.from(sel.options).forEach(opt => {
+    if (!opt.value) return;
+    const c = all.find(x => String(x.id) === String(opt.value));
+    const label = opt.getAttribute('data-label') || (c && c.name) || opt.textContent;
+    opt.textContent = label + (c && cleanerDayOff(c, date) != null ? ' · day off' : '');
+  });
+};
+
 export function maybeAutoAssignPreferredCleaner(booking, reason) {
   if (!booking || booking.status === 'cancelled') return false;
   if (!booking.checkout || new Date(booking.checkout) < new Date()) return false;
@@ -260,6 +293,9 @@ export function maybeAutoAssignPreferredCleaner(booking, reason) {
   if (state.key !== 'unassigned') return false;
   const preferred = getPreferredCleaner();
   if (!preferred) return false;
+  // Never auto-assign onto a day the preferred cleaner has marked off — leave the
+  // booking in "Needs assignment" so the host picks someone else.
+  if (cleanerDayOff(preferred, booking.checkout) != null) return false;
   const newClean = {
     id: Date.now() + Math.floor(Math.random() * 1000),
     bookingId: booking.id,
@@ -400,6 +436,7 @@ export function prepareCleaningData() {
       else if (c.cleaner && c.cleanerCancelAcknowledged) itemStatus = 'cancelled_acked';
       else itemStatus = 'cancelled';
     }
+    else if (c.startedAt) itemStatus = 'in_progress';
     else if (c.cleanerConfirmed) itemStatus = 'confirmed';
     else itemStatus = 'awaiting';
     allItems.push({
@@ -522,6 +559,8 @@ export function renderCleanRow(item, showProperty, index) {
     ? _pill('#FCEBEB', '#A32D2D', 'Unassigned')
     : item.status === 'awaiting'
       ? _pill('#FEF3E2', '#854F0B', 'Awaiting')
+    : item.status === 'in_progress'
+      ? _pill('#E6F1FB', '#185FA5', 'On site')
       : _pill('#EAF3DE', '#3B6D11', 'Confirmed');
 
   const cleanerText = item.cleaner
@@ -598,6 +637,8 @@ export function renderCleanPipeline(data, showProperty) {
       items: data.filtered.filter(i => i.status === 'unassigned') },
     { key: 'awaiting', label: 'Awaiting', bg: '#FEF3E2', colour: '#854F0B',
       items: data.filtered.filter(i => i.status === 'awaiting') },
+    { key: 'in_progress', label: 'On site', bg: '#E6F1FB', colour: '#185FA5',
+      items: data.filtered.filter(i => i.status === 'in_progress') },
     { key: 'confirmed', label: 'Confirmed', bg: '#EAF3DE', colour: '#3B6D11',
       items: data.filtered.filter(i => i.status === 'confirmed') },
   ];
@@ -997,6 +1038,8 @@ function _renderCleanDesktopPipeline(data, _showProperty) {
       items: data.filtered.filter(i => i.status === 'unassigned') },
     { key: 'awaiting', label: 'Awaiting', colour: '#854F0B', hdr: '#FEF3E2', bg: '#FFFBF5',
       items: data.filtered.filter(i => i.status === 'awaiting') },
+    { key: 'in_progress', label: 'On site', colour: '#185FA5', hdr: '#E6F1FB', bg: '#F5F9FD',
+      items: data.filtered.filter(i => i.status === 'in_progress') },
     { key: 'confirmed', label: 'Confirmed', colour: '#3B6D11', hdr: '#EAF3DE', bg: '#F9FCF5',
       items: data.filtered.filter(i => i.status === 'confirmed') },
     { key: 'cancelled', label: 'Cancelled', colour: '#A32D2D', hdr: '#FDECEA', bg: '#FCEBEB',
@@ -1048,8 +1091,8 @@ globalThis._selectDispatchClean = function(bookingId, cleanId) {
   // server response that uses snake_case.
   const cId = c && (c.cleanerId || c.cleaner_id);
   const cleanerName = cId ? ((window._cleaners || []).find(cl => String(cl.id) === String(cId))?.name || 'Unknown') : 'Unassigned';
-  const statusLabel = c ? (c.cleanerConfirmed ? 'Confirmed' : cId ? 'Awaiting' : 'Unassigned') : 'Unknown';
-  const statusColor = statusLabel === 'Confirmed' ? 'var(--moss)' : statusLabel === 'Awaiting' ? 'var(--warn)' : 'var(--red)';
+  const statusLabel = c ? (c.startedAt && !c.done ? 'On site' : c.cleanerConfirmed ? 'Confirmed' : cId ? 'Awaiting' : 'Unassigned') : 'Unknown';
+  const statusColor = statusLabel === 'Confirmed' || statusLabel === 'On site' ? 'var(--moss)' : statusLabel === 'Awaiting' ? 'var(--warn)' : 'var(--red)';
 
   panel.innerHTML = '<div class="dispatch-panel-hdr">Details</div>' +
     '<div class="dispatch-detail-content">' +
@@ -1060,10 +1103,18 @@ globalThis._selectDispatchClean = function(bookingId, cleanId) {
         '<div class="dispatch-detail-row"><span>Clean date</span><strong>' + fmtD(c?.date) + '</strong></div>' +
         '<div class="dispatch-detail-row"><span>Cleaner</span><strong style="color:' + (cleanerName === 'Unassigned' ? 'var(--red)' : 'var(--moss)') + '">' + escHtml(cleanerName) + '</strong></div>' +
         '<div class="dispatch-detail-row"><span>Status</span><strong style="color:' + statusColor + '">' + escHtml(statusLabel) + '</strong></div>' +
+        (c && Array.isArray(c.checklistDone) && c.checklistDone.length ? '<div class="dispatch-detail-row"><span>Checklist</span><strong>' + c.checklistDone.length + ' ticked</strong></div>' : '') +
         '<div class="dispatch-detail-row"><span>Payout</span><strong>$' + Number(b.hostPayout || 0).toLocaleString() + '</strong></div>' +
         (c?.cost ? '<div class="dispatch-detail-row"><span>Clean cost</span><strong>$' + Number(c.cost).toLocaleString() + '</strong></div>' : '') +
         (b.platform ? '<div class="dispatch-detail-row"><span>Platform</span><strong>' + escHtml(b.platform) + '</strong></div>' : '') +
       '</div>' +
+      (c && Array.isArray(c.photos) && c.photos.length
+        ? '<div style="margin-top:14px"><div style="font-size:11px;font-weight:600;color:var(--muted-2);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Photos from cleaner</div>' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap">' + c.photos.map(p => {
+            const u = p && (p.url || p);
+            return u ? '<a href="' + escHtml(String(u)) + '" target="_blank" rel="noopener"><img src="' + escHtml(String(u)) + '" alt="" loading="lazy" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--hairline-1)"></a>' : '';
+          }).join('') + '</div></div>'
+        : '') +
       '<div style="margin-top:20px">' +
         '<button onclick="showDetail(\'' + escapeJsSingleQuotedHtmlAttr(String(b._cloudId || b.id)) + '\')" class="btn-primary" style="width:100%;padding:10px;border-radius:12px;font-size:13px">Open Full Booking</button>' +
       '</div>' +
@@ -1079,6 +1130,7 @@ export function reassignClean(cleanId) {
     c.cleanerId = null;
     c.cleanerDeclined = false;
     c.cleanerConfirmed = false;
+    c.startedAt = null;
     c.notified = false;
     normalizeBookingCleanState();
     if (typeof saveCleanToCloud === 'function') {
@@ -1321,6 +1373,9 @@ export function addClean() {
   // Find cleaner ID from the saved cleaners list
   const cleanerObj = loadCleaners().find(c => c.name === cleaner);
   const cleanerId = cleanerObj ? cleanerObj.id : null;
+  if (cleanerObj && cleanerDayOff(cleanerObj, date) != null) {
+    globalThis.showBanner('⚠ ' + cleanerObj.name + ' has marked ' + date + ' as a day off — assigned anyway, check with them', 'warn');
+  }
   if (cleanerObj) updateCleanerLearning(cleanerObj, 'manual');
   // Upsert: reuse existing clean record for this booking if one exists
   const existingIdx = cleans.findIndex(c => String(c.bookingId) === String(booking.id) || (booking._cloudId && String(c.bookingId) === String(booking._cloudId)));
@@ -1411,6 +1466,14 @@ export async function assignCleanerToBooking(bookingIdParam) {
   if (!cleanerId || !date) { globalThis.showBanner('⚠ Select a cleaner and date', 'warn'); releaseCleaningLock(lockKey); return; }
   const cleanerObj = loadCleaners().find(c => String(c.id) === cleanerId);
   if (!cleanerObj) { globalThis.showBanner('⚠ Cleaner not found', 'warn'); releaseCleaningLock(lockKey); return; }
+  if (cleanerDayOff(cleanerObj, date) != null) {
+    const go = await globalThis.showAppModal({
+      title: 'Day off',
+      msg: cleanerObj.name + ' has marked ' + date + ' as a day off. Assign anyway?',
+      confirmText: 'Assign anyway',
+    });
+    if (!go) { releaseCleaningLock(lockKey); return; }
+  }
   const booking = bookings.find(b => String(b.id) === String(bookingIdParam) || (b._cloudId && String(b._cloudId) === String(bookingIdParam)));
   if (!booking) {
     console.warn('[StayOps] assignCleanerToBooking: booking not found', { bookingIdParam });
@@ -1488,10 +1551,21 @@ export async function assignCleanerToBooking(bookingIdParam) {
     globalThis.showBanner('✓ Assigned to ' + cleanerObj.name + ' — awaiting cleaner response', 'ok');
     globalThis.showDetail(detailId);
 
-    // Send push notification
-    const cleanerSub = getCleanerSub(cleanerObj.id);
+    // Send push notification — the cleaner's own devices first (subscriptions
+    // saved under their auth user from the cleaner PWA), legacy host-device sub as fallback
     let pushSent = false;
-    console.log('[StayOps] cleaner push sub', { cleanerId: cleanerObj.id, hasSub: !!cleanerSub });
+    if (cleanerObj.auth_user_id) {
+      const r = await sendPushToUserId(
+        cleanerObj.auth_user_id,
+        '🏡 New Clean Assigned',
+        `${booking.name || 'Guest'} · ${fmt(date)}`,
+        cleanerLinkForId(cleanerObj),
+        'assign-' + String(bookingIdParam)
+      );
+      pushSent = !!(r && r.ok && r.sent > 0);
+    }
+    const cleanerSub = pushSent ? null : getCleanerSub(cleanerObj.id);
+    console.log('[StayOps] cleaner push', { cleanerId: cleanerObj.id, viaUser: pushSent, hasLegacySub: !!cleanerSub });
     if (cleanerSub) {
       pushSent = true;
       sendPushToDevice(cleanerSub,
