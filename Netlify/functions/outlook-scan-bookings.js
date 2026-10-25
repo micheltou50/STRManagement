@@ -28,28 +28,7 @@ const {
 
 // ── Outlook-specific helpers ────────────────────────────────────────────────
 
-function extractOutlookBody(msg) {
-  if (!msg.body || !msg.body.content) return '';
-  const { contentType, content } = msg.body;
-
-  if (contentType === 'text') {
-    return content.trim().slice(0, 8000);
-  }
-
-  const stripped = content
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&#\d+;/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  return stripped.slice(0, 8000);
-}
+const { extractOutlookBody } = require('./utils/email-body');
 
 async function updateLastScan(supabaseUrl, sbHeaders, uid, skippedIds) {
   await fetch(

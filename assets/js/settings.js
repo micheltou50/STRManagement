@@ -420,23 +420,11 @@ async function maybeAutoScanGmail() {
       if (data.cancelled) parts.push(data.cancelled + ' cancelled');
       globalThis.showBanner('✓ ' + parts.join(', ') + ' from Gmail', 'ok');
     }
-    showReviewCaptureBanner(data);
     await globalThis.processScanNeedsReview(data);
   } catch (e) {
     // Silent — auto-scan errors must never surface to the user or Sentry
     console.log('[gmail-auto-scan] background scan skipped:', e.message);
   }
-}
-
-/**
- * Guest reviews captured from Airbnb "left a review" emails land in the shared
- * `reviews` table as pending; they are approved on the booking website, not
- * here, so a scan that found some only needs to say so.
- */
-function showReviewCaptureBanner(data) {
-  const n = Number(data && data.reviews) || 0;
-  if (!n) return;
-  globalThis.showBanner('⭐ ' + n + (n === 1 ? ' new guest review' : ' new guest reviews') + ' captured — approve on the booking website', 'ok');
 }
 
 async function scanGmailBookings() {
@@ -474,7 +462,7 @@ async function scanGmailBookings() {
     }
 
     if (statusEl) {
-      const hasChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0) + (data.reviews || 0) > 0;
+      const hasChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0) > 0;
       statusEl.style.background = hasChanges ? '#EDF7ED' : 'var(--surface2)';
       statusEl.style.color = hasChanges ? 'var(--primary)' : 'var(--muted-2)';
 
@@ -506,7 +494,6 @@ async function scanGmailBookings() {
       globalThis.showBanner('✓ ' + parts.join(', ') + ' from Gmail', 'ok');
     }
 
-    showReviewCaptureBanner(data);
     await globalThis.processScanNeedsReview(data);
 
   } catch (_e) {
@@ -557,7 +544,6 @@ async function maybeAutoScanOutlook() {
       if (data.cancelled) parts.push(data.cancelled + ' cancelled');
       globalThis.showBanner('✓ ' + parts.join(', ') + ' from Outlook', 'ok');
     }
-    showReviewCaptureBanner(data);
     await globalThis.processScanNeedsReview(data);
   } catch (e) {
     console.log('[outlook-auto-scan] background scan skipped:', e.message);
@@ -605,7 +591,7 @@ async function scanOutlookBookings() {
     }
 
     if (statusEl) {
-      const hasChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0) + (data.reviews || 0) > 0;
+      const hasChanges = (data.imported || 0) + (data.updated || 0) + (data.cancelled || 0) > 0;
       statusEl.style.background = hasChanges ? '#EDF7ED' : 'var(--surface2)';
       statusEl.style.color = hasChanges ? 'var(--primary)' : 'var(--muted-2)';
 
@@ -636,7 +622,6 @@ async function scanOutlookBookings() {
       globalThis.showBanner('✓ ' + parts.join(', ') + ' from Outlook', 'ok');
     }
 
-    showReviewCaptureBanner(data);
     await globalThis.processScanNeedsReview(data);
 
   } catch (_e) {

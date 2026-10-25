@@ -300,17 +300,17 @@ test('processReviewResult: multi-property host — the listing title picks the p
 
 // ── Summary ──────────────────────────────────────────────────────────────────
 
-test('buildSummaryResponse: reports captured reviews alongside booking changes', () => {
+test('buildSummaryResponse: counts captured reviews but keeps the StayOps message about bookings', () => {
   installModuleStubs();
   try {
     const { buildSummaryResponse } = loadShared();
     const ids = new Set(['a', 'b']); ids._totalNew = 2;
     const onlyReviews = buildSummaryResponse(ids, { imported: 0, updated: 0, cancelled: 0, reviews: 2, skipped: 0, errors: 0, details: [] }, [], ['a', 'b']);
     assert.equal(onlyReviews.reviews, 2);
-    assert.match(onlyReviews.message, /2 guest reviews captured/);
+    assert.equal(onlyReviews.message, 'No new booking changes found', 'reviews are approved on the website, not announced here');
     const mixed = buildSummaryResponse(ids, { imported: 1, updated: 0, cancelled: 0, reviews: 1, skipped: 0, errors: 0, details: [] }, [], ['a', 'b']);
-    assert.match(mixed.message, /1 imported/);
-    assert.match(mixed.message, /1 guest review captured/);
+    assert.equal(mixed.reviews, 1);
+    assert.equal(mixed.message, 'Bookings: 1 imported');
     const none = buildSummaryResponse(ids, { imported: 0, updated: 0, cancelled: 0, skipped: 2, errors: 0, details: [] }, [], ['a', 'b']);
     assert.equal(none.reviews, 0);
     assert.equal(none.message, 'No new booking changes found');

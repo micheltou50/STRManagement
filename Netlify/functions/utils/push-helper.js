@@ -125,7 +125,6 @@ async function sendPushToHost({
       cleaner_declined: 'push_cleaner_decline',
       clean_done: 'push_clean_done',
       cleaner_message: 'push_cleaner_message',
-      new_review: 'push_new_review',
     };
     const cfgKey = typeToKey[type];
     if (cfgKey && nc[cfgKey] === false) {

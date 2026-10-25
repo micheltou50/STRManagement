@@ -1165,6 +1165,8 @@ async function processEmailResult(parsed, msgId, source, ctx) {
 // platform='airbnb' — the same table the booking website reads — so the host
 // approves it with one click in the website admin (Reviews tab). Nothing is
 // published without that approval. Only the public review text is stored.
+// StayOps itself stays silent about reviews: no banner, no push. The hourly
+// scheduled-review-scan.js runs this capture without the app being opened.
 
 const REVIEW_PLATFORMS = ['airbnb.com'];
 
@@ -1333,32 +1335,6 @@ async function insertReview(supabaseUrl, sbHeaders, propertyId, review) {
   return (Array.isArray(rows) && rows[0]) ? rows[0] : { ...row };
 }
 
-async function notifyReviewPush(supabaseAdmin, { propertyId, review, reviewId, fallbackPropertyName }) {
-  try {
-    if (!supabaseAdmin || !propertyId || !reviewId) return;
-    const recent = await hasRecentNotification({
-      supabaseAdmin, type: 'new_review', referenceId: reviewId, withinMinutes: 60,
-    });
-    if (recent) return;
-    const { data: prop } = await supabaseAdmin
-      .from('properties').select('name').eq('id', propertyId).maybeSingle();
-    const propertyName = (prop && prop.name) || fallbackPropertyName || 'Property';
-    const stars = '★'.repeat(review.rating) + '☆'.repeat(5 - review.rating);
-    const snippet = review.reviewText.length > 70 ? review.reviewText.slice(0, 70).trim() + '…' : review.reviewText;
-    await sendPushToHost({
-      supabaseAdmin,
-      propertyId,
-      title: '⭐ New Airbnb review — ' + propertyName,
-      body: review.guestName + ' · ' + stars + ' · "' + snippet + '" — approve it on your booking site',
-      url: '/',
-      type: 'new_review',
-      referenceId: reviewId,
-    });
-  } catch (e) {
-    console.log('[StayOps] review push failed:', e && e.message ? e.message : String(e));
-  }
-}
-
 /**
  * Handle one parsed review email. Mirrors processEmailResult's contract:
  * mutates `results` / `newlySkipped` in place; a message is only marked
@@ -1368,7 +1344,7 @@ async function notifyReviewPush(supabaseAdmin, { propertyId, review, reviewId, f
 async function processReviewResult(parsed, hints, msgId, source, ctx) {
   const {
     supabaseUrl, sbHeaders, propMap, defaultProp, isSingleProperty,
-    results, newlySkipped, supabaseAdmin,
+    results, newlySkipped,
   } = ctx;
   results.reviews = results.reviews || 0;
 
@@ -1426,12 +1402,6 @@ async function processReviewResult(parsed, hints, msgId, source, ctx) {
     source,
   });
   console.log('[' + source + '-scan] review captured:', review.guestName, review.rating + '★', propertyName, review.truncated ? '(truncated)' : '');
-
-  if (supabaseAdmin) {
-    await notifyReviewPush(supabaseAdmin, {
-      propertyId, review, reviewId: row.id, fallbackPropertyName: propertyName,
-    });
-  }
 }
 
 // ── Finalize results ────────────────────────────────────────────────────────
@@ -1452,15 +1422,10 @@ function buildSummaryResponse(allMessageIds, results, needsReview, batch) {
   if (results.imported) parts.push(results.imported + ' imported');
   if (results.updated) parts.push(results.updated + ' updated');
   if (results.cancelled) parts.push(results.cancelled + ' cancelled');
+  // Captured reviews are reported as a count only — they are approved on the
+  // booking website, so StayOps' own message stays about bookings.
   const reviews = results.reviews || 0;
-  const reviewMsg = reviews
-    ? reviews + (reviews === 1 ? ' guest review' : ' guest reviews') + ' captured — approve on the booking website'
-    : '';
-  let message;
-  if (parts.length && reviewMsg) message = 'Bookings: ' + parts.join(', ') + ' · ' + reviewMsg;
-  else if (parts.length) message = 'Bookings: ' + parts.join(', ');
-  else if (reviewMsg) message = reviewMsg;
-  else message = 'No new booking changes found';
+  const message = parts.length ? 'Bookings: ' + parts.join(', ') : 'No new booking changes found';
 
   return {
     found: allMessageIds.size,

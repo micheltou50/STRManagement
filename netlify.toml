@@ -28,7 +28,7 @@
 
 # Smart Pricing v2 scheduled functions register their cron via the
 # `@netlify/functions` schedule() wrapper in the function source itself
-# (scheduled-pricing-weekly.js, close-rate-outcomes.js). Declaring them here
+# (scheduled-pricing-weekly.js, close-rate-outcomes.js, scheduled-review-scan.js). Declaring them here
 # too would create two sources of truth and silent drift if one changes.
 
 [[headers]]
