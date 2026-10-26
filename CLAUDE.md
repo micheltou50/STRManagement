@@ -73,3 +73,25 @@ Cleaners log in via `auth_user_id` on the `cleaners` table. They can accept/decl
 - Some Supabase logic (triggers, RLS policies) may cause behavior that isn't visible in the JS code alone. Always check the actual database behavior, not just what the JS appears to do.
 - `deleteBookingFromCloud()` looks like a DELETE but results in a soft-delete (status = cancelled). Don't assume the row is gone.
 - Two fields for push subscriptions exist: `push_subscriptions` and `push_subs` (backward compat).
+
+## AI documentation — read first, keep current
+
+This repository keeps a shared knowledge base for every AI assistant (Claude, ChatGPT/Codex, Cursor):
+
+- `docs/AI_CONTEXT.md` — what the application is, how it is built and deployed, data model, integrations, business rules.
+- `docs/AI_HANDOFF.md` — current status, work in progress, bugs, next tasks.
+
+**Before starting work:** read both files.
+
+**After completing any significant task** (new feature, behaviour change, schema or migration, new integration, deployment/config change, notable bug fix):
+
+1. Update `docs/AI_CONTEXT.md` if the architecture, features, data model, integrations or deployment changed.
+2. Update `docs/AI_HANDOFF.md`: move finished work into "Recently completed features", refresh work in progress, outstanding bugs, pending tests and recommended next tasks, set "Date of last update", and add a line to the update log.
+3. Commit the documentation changes in the same commit or pull request as the code they describe.
+4. Push, so the latest documentation is on GitHub.
+
+Rules for these files:
+- Verify against the code; never invent. Mark anything unconfirmed as **Unverified**.
+- Never include API keys, passwords, tokens, service-role keys, connection strings or env var values — name the variable only.
+- Never include guest, client or other personal or confidential information.
+- This repository is public — anything committed here is world-readable.
