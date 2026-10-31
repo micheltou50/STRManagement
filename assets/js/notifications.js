@@ -20,7 +20,7 @@ const IS_NATIVE = !!(globalThis.Capacitor
   && globalThis.Capacitor.isNativePlatform());
 import { saveAppConfigToCloud, getCurrentSupabaseUser } from './supabase.js';
 import { bookings, cleans } from './state.js';
-import { fmt, _normName, escHtml, resolveCleanTimesForBooking } from './utils.js';
+import { fmt, _normName, escHtml, resolveCleanTimesForBooking, buildCancellationSmsBody, buildSmsHref } from './utils.js';
 import { getEmailContentConfig } from './settings.js';
 
 function loadCleaners() {
@@ -593,6 +593,155 @@ export function closeNotifyModal() {
   document.getElementById('notify-modal').classList.remove('open');
   const anyOpen = !!document.querySelector('.modal-overlay.open');
   if (!anyOpen) document.body.style.overflow = '';
+}
+
+// ── CANCELLATION SMS ─────────────────────────────────────────────────────────
+// The cancellation email goes out on its own (manual cancel, iCal sync, email
+// scan). This sheet is the host's manual follow-up: an editable text handed to
+// the phone's Messages app through an sms: link. It is offered right after the
+// automatic email, and on demand from the dashboard prompt, the Needs-attention
+// card, the cleaning list and the cancelled booking's detail view.
+
+/** Resolve the roster entry for a clean — by cleaner id first, then by name. */
+export function findCleanerForClean(clean) {
+  if (!clean) return null;
+  const list = loadCleaners();
+  const cid = clean.cleanerId ?? clean.cleaner_id;
+  if (cid != null && String(cid) !== '') {
+    const byId = list.find(cl => String(cl.id) === String(cid) || String(cl._cloudId || '') === String(cid));
+    if (byId) return byId;
+  }
+  const name = _normName(clean.cleaner);
+  return name ? (list.find(cl => _normName(cl.name) === name) || null) : null;
+}
+
+/**
+ * Once the host hands the text to Messages we treat the cleaner as told, the
+ * same way the assignment SMS flips `notified`. Also clears the dashboard's
+ * "Cleaner not notified of cancellation" alert. No-op when already flagged.
+ */
+function markCleanCancelNotified(clean) {
+  if (!clean || clean.cleanerCancelNotified) return false;
+  clean.cleanerCancelNotified = true;
+  const sb = getSupabaseClient();
+  if (sb && clean._cloudId) {
+    sb.from('cleans')
+      .update({ cleaner_cancel_notified: true, updated_at: new Date().toISOString() })
+      .eq('id', clean._cloudId)
+      .then(() => {})
+      .catch(e => console.warn('[StayOps] cleaner_cancel_notified save failed', e));
+  }
+  return true;
+}
+
+/**
+ * Open the "text the cleaner about this cancellation" sheet.
+ *
+ * @param {object} opts
+ * @param {object} opts.clean        the (possibly already removed) clean row
+ * @param {object} [opts.booking]    the cancelled booking, for dates/property/guest
+ * @param {object} [opts.cleaner]    roster entry; resolved from the clean when omitted
+ * @param {boolean} [opts.emailSent] true when the cancellation email was just sent,
+ *                                   so the header confirms it before offering SMS
+ * @param {string} [opts.emailAddress]
+ * @param {function} [opts.onDone]   called after the sheet closes; receives
+ *                                   { smsOpened }
+ * @returns {boolean} false when there is nothing to text (no phone number)
+ */
+export function openCancellationSmsSheet({ clean, booking, cleaner, emailSent = false, emailAddress = '', onDone } = {}) {
+  if (!clean) return false;
+  const cleanerObj = cleaner || findCleanerForClean(clean);
+  const cleanerName = (cleanerObj && cleanerObj.name) || clean.cleaner || 'Cleaner';
+  const phone = cleanerObj && cleanerObj.phone ? String(cleanerObj.phone).trim() : '';
+  if (!phone && !emailSent) {
+    if (typeof globalThis.showBanner === 'function') {
+      globalThis.showBanner('⚠ No phone number for ' + cleanerName + ' — add one in Settings → Team', 'warn');
+    }
+    return false;
+  }
+
+  const propName = booking && booking._propertyId && typeof globalThis.getPropertyNameById === 'function'
+    ? (globalThis.getPropertyNameById(booking._propertyId) || '')
+    : '';
+  const checkin = booking && booking.checkin ? fmt(booking.checkin) : '';
+  const checkout = booking && booking.checkout ? fmt(booking.checkout) : (clean.date ? fmt(clean.date) : '');
+  const guestName = (booking && booking.name) || clean.guestName || 'Guest';
+  const smsBody = buildCancellationSmsBody({ cleanerName, guestName, checkin, checkout, propertyName: propName });
+
+  const existing = document.getElementById('cancel-notify-overlay');
+  if (existing) existing.remove();
+
+  const header = emailSent
+    ? `<div style="width:36px;height:36px;border-radius:50%;background:#EAF1E6;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3D6B4F" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div>
+          <div style="font-size:16px;font-weight:700;color:var(--ink-1)">Email sent</div>
+          <div style="font-size:12px;color:#6B6560;margin-top:2px">${escHtml(cleanerName)}${emailAddress ? ' · ' + escHtml(emailAddress) : ''}</div>
+        </div>`
+    : `<div style="width:36px;height:36px;border-radius:50%;background:#E8EFEA;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f5d4e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        </div>
+        <div>
+          <div style="font-size:16px;font-weight:700;color:var(--ink-1)">Text ${escHtml(cleanerName)}</div>
+          <div style="font-size:12px;color:#6B6560;margin-top:2px">${clean.cleanerCancelNotified ? 'Already notified of this cancellation' : 'Not yet notified of this cancellation'}</div>
+        </div>`;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'cancel-notify-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:10010;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;transition:opacity 0.2s';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:16px;max-width:400px;width:100%;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.2);font-family:'Plus Jakarta Sans',sans-serif">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">${header}</div>
+      <div style="font-size:12px;color:#6B6560;margin-bottom:14px;line-height:1.5">
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Property</span><strong style="color:var(--ink-1)">${escHtml(propName || 'N/A')}</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Guest</span><strong style="color:var(--ink-1)">${escHtml(guestName)}</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Check-in</span><strong style="color:var(--ink-1)">${escHtml(checkin || '—')}</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0"><span>Check-out</span><strong style="color:var(--ink-1)">${escHtml(checkout || '—')}</strong></div>
+      </div>
+      <div style="border-top:1px solid rgba(0,0,0,0.06);padding-top:16px;margin-top:4px">
+        <div style="font-size:13px;font-weight:600;color:var(--ink-1);margin-bottom:10px">${emailSent ? 'Also send a text message?' : 'Text message'}</div>
+        <textarea id="cancel-sms-body" style="width:100%;min-height:80px;border:1px solid rgba(0,0,0,0.12);border-radius:10px;padding:10px 12px;font-family:inherit;font-size:13px;color:var(--ink-1);resize:vertical;line-height:1.5;box-sizing:border-box">${escHtml(smsBody)}</textarea>
+        ${phone
+          ? `<div style="font-size:12px;color:#6B6560;margin-top:6px">To: ${escHtml(phone)}</div>`
+          : '<div style="font-size:12px;color:#C0392B;margin-top:6px">No phone number on file — add one in Settings → Team</div>'}
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button id="cancel-notify-done" style="flex:1;padding:12px;border:1px solid rgba(0,0,0,0.15);border-radius:10px;background:white;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;color:var(--ink-1)">${emailSent ? 'Done' : 'Close'}</button>
+        <button id="cancel-notify-sms" style="flex:1;padding:12px;border:none;border-radius:10px;background:#2f5d4e;color:white;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;${phone ? '' : 'opacity:0.4;pointer-events:none'}">
+          <span style="display:inline-flex;align-items:center;gap:6px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>Send SMS</span>
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => requestAnimationFrame(() => { overlay.style.opacity = '1'; }));
+
+  let smsOpened = false;
+  const dismiss = () => {
+    overlay.style.opacity = '0';
+    setTimeout(() => {
+      overlay.remove();
+      // The email (caller) or the SMS (here) may have flipped the clean's
+      // notified flag, which the dashboard alerts and cleaning list key off.
+      if ((emailSent || smsOpened) && typeof globalThis.renderAll === 'function') globalThis.renderAll();
+      else if (typeof globalThis.renderDashboard === 'function') globalThis.renderDashboard();
+      if (typeof onDone === 'function') onDone({ smsOpened });
+    }, 200);
+  };
+
+  overlay.querySelector('#cancel-notify-done').onclick = dismiss;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
+
+  if (phone) {
+    overlay.querySelector('#cancel-notify-sms').onclick = () => {
+      const msg = overlay.querySelector('#cancel-sms-body').value;
+      smsOpened = true;
+      markCleanCancelNotified(clean);
+      window.location.href = buildSmsHref(phone, msg);
+      dismiss();
+    };
+  }
+  return true;
 }
 
 // ── EMAIL TEMPLATES ───────────────────────────────────────────────────────────

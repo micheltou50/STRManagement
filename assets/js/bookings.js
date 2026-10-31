@@ -36,7 +36,7 @@ import {
   maybeAutoAssignPreferredCleaner,
   isCleanerPerson,
 } from './cleaning.js';
-import { sendCleanerEmail } from './notifications.js';
+import { sendCleanerEmail, openCancellationSmsSheet, findCleanerForClean } from './notifications.js';
 import { loadPayoutLinesForBooking, markPayoutReceived, saveBookingToCloud } from './supabase.js';
 // ── DASHBOARD CALENDAR STATE ─────────────────────────────────────────────────
 let calYear = new Date().getFullYear();
@@ -771,6 +771,43 @@ function showDetail(id) {
           ${cancellationBilled ? 'Mark as refunded ($0)' : 'Mark as billed (' + cancellationAmountText + ')'}
         </button>
       </div>`;
+
+    // Cleaner block: who was assigned, whether they know yet, and the host's
+    // channels to tell them — the cancellation email and/or a text message.
+    let cancelledCleanerBlock = '';
+    if (matchedClean && matchedClean.cleaner) {
+      const cleanerObj = findCleanerForClean(matchedClean);
+      const cleanerPhone = cleanerObj && cleanerObj.phone ? String(cleanerObj.phone).trim() : '';
+      const cleanerEmail = cleanerObj && cleanerObj.email ? String(cleanerObj.email).trim() : '';
+      const cleanIdEsc = escapeJsSingleQuotedHtmlAttr(String(matchedClean.id));
+      const cleanerNameEsc = escHtml(matchedClean.cleaner);
+      const acked = !!matchedClean.cleanerCancelAcknowledged;
+      const told = !!matchedClean.cleanerCancelNotified;
+      const statusText = acked ? 'Acknowledged the cancellation' : told ? 'Notified of the cancellation' : 'Not yet notified';
+      const statusColor = acked ? '#1D9E75' : told ? '#3B6D11' : '#A32D2D';
+      const btnBase = 'flex:1;border:none;border-radius:10px;padding:12px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif;touch-action:manipulation';
+      const actions = [];
+      if (!told && cleanerEmail) {
+        actions.push(`<button type="button" onclick="notifyCancelledCleaner(this,'${safeIdEsc}','${cleanIdEsc}')" style="${btnBase};background:#C0392B;color:#fff">Email ${cleanerNameEsc}</button>`);
+      }
+      if (cleanerPhone) {
+        actions.push(`<button type="button" onclick="smsCancelledCleaner('${safeIdEsc}','${cleanIdEsc}')" style="${btnBase};background:var(--primary);color:#fff">${told ? 'Send SMS' : 'Text ' + cleanerNameEsc}</button>`);
+      }
+      const hint = !cleanerPhone
+        ? `<div style="font-size:12px;color:var(--muted-2);padding:0 16px 14px;line-height:1.45">No phone number for ${cleanerNameEsc} — add one in Settings → Team to send a text.</div>`
+        : '';
+      cancelledCleanerBlock = `
+      <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted-2);letter-spacing:1px;text-transform:uppercase;margin:0 0 8px 2px">Cleaner</div>
+      <div style="background:white;border-radius:16px;border:1px solid var(--hairline-1);margin-bottom:20px;overflow:hidden">
+        <div style="padding:14px 16px">
+          <div style="font-size:14px;font-weight:600;color:var(--ink-1)">${cleanerNameEsc}</div>
+          <div style="font-size:12px;color:${statusColor};margin-top:2px">${statusText}${matchedClean.date ? ' · clean was ' + fmt(matchedClean.date) : ''}</div>
+        </div>
+        ${actions.length ? `<div style="border-top:1px solid var(--hairline-2);padding:12px 16px;display:flex;gap:8px">${actions.join('')}</div>` : ''}
+        ${hint}
+      </div>`;
+    }
+
     document.getElementById('detail-content').innerHTML = `
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px">
         <div style="width:52px;height:52px;border-radius:14px;background:#FCEBEB;display:flex;align-items:center;justify-content:center;font-family:'Newsreader',serif;font-weight:700;font-size:22px;color:#A32D2D;flex-shrink:0">${cancelledInitial}</div>
@@ -801,6 +838,7 @@ function showDetail(id) {
           <span style="font-size:13px;font-weight:600;color:var(--ink-1)">${_bookingDetailPlatformPlain(b.platform)}</span>
         </div>
       </div>
+      ${cancelledCleanerBlock}
       ${cancelBillableBlock}
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:20px">
         <div onclick="closeDetailModal()" style="width:100%;border:1px solid var(--hairline-1);border-radius:14px;padding:14px;text-align:center;color:var(--ink-2);font-size:14px;font-weight:600;cursor:pointer;box-sizing:border-box;touch-action:manipulation;font-family:'Plus Jakarta Sans',sans-serif">Close</div>
@@ -1560,38 +1598,41 @@ async function deleteBooking(id) {
 
   // In-memory arrays are the source of truth (cloud already deleted above).
 
-  // ── Send cancellation email to assigned cleaner(s) ──────────────────────
-  if (orphanedCleans.length && typeof globalThis.isNotifEnabled === 'function' && globalThis.isNotifEnabled('email_cancellation')) {
-    for (const c of orphanedCleans) {
-      if (!c.cleaner) continue;
+  // ── Tell the assigned cleaner(s) ────────────────────────────────────────
+  // The cancellation email goes automatically (when the email_cancellation
+  // flag is on). A text message is the host's call, so it is offered in a
+  // sheet once the booking is cancelled — see smsFollowUp below.
+  const emailCancellationOn = typeof globalThis.isNotifEnabled === 'function' && globalThis.isNotifEnabled('email_cancellation');
+  let smsFollowUp = null; // first orphaned clean whose cleaner has a phone number
+  for (const c of orphanedCleans) {
+    if (!c.cleaner) continue;
+    const cleanerObj = findCleanerForClean(c);
+    const email = cleanerObj && cleanerObj.email ? String(cleanerObj.email).trim() : '';
+    const phone = cleanerObj && cleanerObj.phone ? String(cleanerObj.phone).trim() : '';
+    let emailSent = false;
+    if (emailCancellationOn && email) {
       try {
-        // Look up cleaner email from the cleaners list
-        const cleaners = (typeof globalThis.loadCleaners === 'function' ? globalThis.loadCleaners() : []) || [];
-        const cleanerObj = cleaners.find(cl =>
-          cl.name === c.cleaner || String(cl.id) === String(c.cleanerId || c.cleaner_id)
-        );
-        const email = cleanerObj && cleanerObj.email ? cleanerObj.email.trim() : '';
-        if (email) {
-          await sendCleanerEmail({
-            cleanerName: c.cleaner,
-            cleanerEmail: email,
-            guestName: deletedGuestName || 'Guest',
-            checkin: deletedBooking.checkin ? fmt(deletedBooking.checkin) : '',
-            checkout: deletedBooking.checkout ? fmt(deletedBooking.checkout) : '',
-            cleanDate: c.date || (deletedBooking.checkout ? fmt(deletedBooking.checkout) : ''),
-            type: 'cancellation',
-          });
-          // Mark cleaner as notified about cancellation
-          c.cleanerCancelNotified = true;
-          if (window._sb && c._cloudId) {
-            window._sb.from('cleans').update({ cleaner_cancel_notified: true, updated_at: new Date().toISOString() }).eq('id', c._cloudId).then(() => {}).catch(() => {});
-          }
-          console.log('[StayOps] Cancellation email sent to', c.cleaner, email);
+        const res = await sendCleanerEmail({
+          cleanerName: c.cleaner,
+          cleanerEmail: email,
+          guestName: deletedGuestName || 'Guest',
+          checkin: deletedBooking.checkin ? fmt(deletedBooking.checkin) : '',
+          checkout: deletedBooking.checkout ? fmt(deletedBooking.checkout) : '',
+          cleanDate: c.date || (deletedBooking.checkout ? fmt(deletedBooking.checkout) : ''),
+          type: 'cancellation',
+        });
+        emailSent = !!(res && res.ok);
+        // Mark cleaner as notified about cancellation
+        c.cleanerCancelNotified = true;
+        if (window._sb && c._cloudId) {
+          window._sb.from('cleans').update({ cleaner_cancel_notified: true, updated_at: new Date().toISOString() }).eq('id', c._cloudId).then(() => {}).catch(() => {});
         }
+        console.log('[StayOps] Cancellation email', emailSent ? 'sent to' : 'NOT sent to', c.cleaner, email, res && res.reason ? res.reason : '');
       } catch (e) {
         console.warn('[StayOps] Cancellation email failed for', c.cleaner, e);
       }
     }
+    if (!smsFollowUp && phone) smsFollowUp = { clean: c, cleaner: cleanerObj, emailSent, email };
   }
 
   const user = typeof globalThis.getCurrentSupabaseUser === 'function' ? await globalThis.getCurrentSupabaseUser() : null;
@@ -1637,6 +1678,18 @@ async function deleteBooking(id) {
 
   console.log('[StayOps] deleteBooking: done');
   globalThis.showBanner(cancelChoice.billable ? 'Booking cancelled - late cancel billed' : 'Booking cancelled', 'ok');
+
+  // Offer a text message to the cleaner as well. The sheet confirms whether
+  // the email went out, pre-fills the message and hands it to Messages.
+  if (smsFollowUp) {
+    openCancellationSmsSheet({
+      booking: deletedBooking,
+      clean: smsFollowUp.clean,
+      cleaner: smsFollowUp.cleaner,
+      emailSent: smsFollowUp.emailSent,
+      emailAddress: smsFollowUp.email,
+    });
+  }
 }
 
 async function setCancellationBillable(id, billable) {

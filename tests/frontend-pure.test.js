@@ -489,3 +489,40 @@ test('planPayoutAutoMatch(): a cent of difference is not a match', async () => {
   assert.strictEqual(plan.links.length, 0);
   assert.strictEqual(plan.unmatched.length, 1);
 });
+
+// ── Cancellation SMS helpers ─────────────────────────────────────────────────
+// The text the host hands to Messages when a cleaner's clean is cancelled.
+
+test('buildCancellationSmsBody() names the cleaner, guest, dates and property', async () => {
+  const { buildCancellationSmsBody } = await importUtils();
+  const body = buildCancellationSmsBody({
+    cleanerName: 'Megan Smith', guestName: 'Furian Lee',
+    checkin: '18 Dec 2026', checkout: '21 Dec 2026', propertyName: 'Glenhaven',
+  });
+  assert.strictEqual(
+    body,
+    'Hi Megan, just letting you know the booking for Furian (18 Dec 2026 – 21 Dec 2026) at Glenhaven has been cancelled. Your clean is no longer needed. Thanks!'
+  );
+});
+
+test('buildCancellationSmsBody() degrades gracefully without dates, property or names', async () => {
+  const { buildCancellationSmsBody } = await importUtils();
+  assert.strictEqual(
+    buildCancellationSmsBody({ cleanerName: 'Megan' }),
+    'Hi Megan, just letting you know the booking for the guest has been cancelled. Your clean is no longer needed. Thanks!'
+  );
+  assert.strictEqual(
+    buildCancellationSmsBody({ cleanerName: '', guestName: 'Furian', checkout: '21 Dec 2026' }),
+    'Hi there, just letting you know the booking for Furian (21 Dec 2026) has been cancelled. Your clean is no longer needed. Thanks!'
+  );
+  assert.strictEqual(typeof buildCancellationSmsBody(), 'string');
+});
+
+test('buildSmsHref() strips number formatting and URL-encodes the body', async () => {
+  const { buildSmsHref } = await importUtils();
+  const body = 'Hi Megan, clean cancelled & no longer needed';
+  const href = buildSmsHref('+61 400 000 000', body);
+  assert.strictEqual(href, 'sms:+61400000000?&body=' + encodeURIComponent(body));
+  assert.ok(!href.includes(' '), 'sms: href must not contain raw spaces');
+  assert.strictEqual(buildSmsHref('(02) 1234-5678', ''), 'sms:0212345678?&body=');
+});

@@ -18,7 +18,7 @@ import {
 import { calcNights, calcNet, escHtml } from './utils.js';
 import {
   _sendCleanerAssignmentNotifications, enableNotificationsManually, resetPushOnly, updateNotifStatus, subscribeToPush, sendPushToDevice, getCleanerSub, getFreshHostSub, sendCleanerEmail, cleanerLinkForId, openNotifyModal, sendCleanerReminder, pickContact, sendSMS,
-  closeNotifyModal, applyPreset, loadEmailTemplate, saveEmailTemplate, resetEmailTemplate, insertTemplateVar, openEmailTemplatePanel, updateEmailPreview, testNotificationConfig, testCleanerEmail
+  closeNotifyModal, openCancellationSmsSheet, findCleanerForClean, applyPreset, loadEmailTemplate, saveEmailTemplate, resetEmailTemplate, insertTemplateVar, openEmailTemplatePanel, updateEmailPreview, testNotificationConfig, testCleanerEmail
 } from './notifications.js';
 import {
   switchActiveProperty, openPropertySettingsMenu, openPropertySwitcherSheet, closePropertySwitcherSheet, switchToPortfolioFromSheet, backToPropertyHub, showPropertySub, renderProperty, openPropertyAccessRules, openPropertyDetailsFromHub, openOwnerReportFromHub,
@@ -565,12 +565,14 @@ function checkCancelledBookings() {
       const cleanerName = clean && clean.cleaner ? clean.cleaner : '';
       const notified = clean && clean.cleanerCancelNotified;
 
-      // Look up cleaner email
+      // Look up the cleaner's contact details so the card can offer the right
+      // channel: email (automatic cancellation email) and/or a text message.
       let cleanerEmail = '';
-      if (cleanerName && !notified) {
-        const cleaners = (typeof loadCleaners === 'function' ? loadCleaners() : window._cleaners) || [];
-        const cObj = cleaners.find(cl => cl.name === cleanerName || String(cl.id) === String(clean.cleanerId));
+      let cleanerPhone = '';
+      if (cleanerName) {
+        const cObj = findCleanerForClean(clean);
         cleanerEmail = cObj && cObj.email ? cObj.email.trim() : '';
+        cleanerPhone = cObj && cObj.phone ? cObj.phone.trim() : '';
       }
 
       cards += '<div style="background:#FCEBEB;border-radius:10px;padding:14px 16px;margin-bottom:10px">';
@@ -579,19 +581,27 @@ function checkCancelledBookings() {
       cards += '<div style="font-size:13px;color:#A32D2D;margin-top:4px;text-decoration:line-through">' + fmtD(b.checkin) + ' → ' + fmtD(b.checkout) + '</div>';
 
       if (cleanerName) {
+        const bId = String(b._cloudId || b.id).replace(/'/g, '');
+        const cId = String(clean._cloudId || clean.id).replace(/'/g, '');
+        const btnStyle = 'margin-top:10px;width:100%;padding:10px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif;';
+        const smsBtn = cleanerPhone
+          ? '<button onclick="smsCancelledCleaner(\'' + bId + '\',\'' + cId + '\')" style="' + btnStyle + 'background:#2f5d4e;color:white">' +
+              'Text ' + escHtml(cleanerName) + '</button>'
+          : '';
         if (notified) {
+          // Already emailed (automatically, or by the host). Offer the SMS follow-up.
           cards += '<div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:#3B6D11">' +
             '<span>✓</span><span>' + escHtml(cleanerName) + ' was notified</span></div>';
+          cards += smsBtn;
+        } else if (cleanerEmail) {
+          // Email first (then the sheet offers SMS as well).
+          cards += '<button onclick="notifyCancelledCleaner(this,\'' + bId + '\',\'' + cId + '\')" style="' + btnStyle + 'background:#C0392B;color:white">' +
+            'Notify ' + escHtml(cleanerName) + '</button>';
+        } else if (cleanerPhone) {
+          cards += '<div style="margin-top:10px;font-size:12px;color:#854F0B">' + escHtml(cleanerName) + ' has no email on file</div>';
+          cards += smsBtn;
         } else {
-          const bId = String(b._cloudId || b.id);
-          const cId = clean._cloudId || String(clean.id);
-          if (cleanerEmail) {
-            cards += '<button onclick="notifyCancelledCleaner(this,\'' + bId.replace(/'/g, '') + '\',\'' + cId.replace(/'/g, '') + '\')" ' +
-              'style="margin-top:10px;width:100%;padding:10px;background:#C0392B;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
-              'Notify ' + escHtml(cleanerName) + '</button>';
-          } else {
-            cards += '<div style="margin-top:10px;font-size:12px;color:#854F0B">' + escHtml(cleanerName) + ' has no email on file</div>';
-          }
+          cards += '<div style="margin-top:10px;font-size:12px;color:#854F0B">' + escHtml(cleanerName) + ' has no email or phone on file</div>';
         }
       }
       cards += '</div>';
@@ -621,31 +631,53 @@ window.dismissCancelPrompt = function () {
   }
 };
 
-window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
-  let b = bookingId ? bookings.find(x => String(x._cloudId || x.id) === bookingId) : null;
-  if (!b && _cleanId) {
-    const cl = cleans.find(c => String(c.id) === String(_cleanId) || String(c._cloudId) === String(_cleanId));
-    if (cl && cl.bookingId) b = bookings.find(x => String(x.id) === String(cl.bookingId) || String(x._cloudId) === String(cl.bookingId));
+// Resolve the cancelled booking + its clean from either id (booking cloud id /
+// local id, or the clean's local / cloud id). Shared by the two actions below.
+function _resolveCancelledBookingAndClean(bookingId, cleanId) {
+  let b = bookingId ? bookings.find(x => String(x._cloudId || x.id) === String(bookingId) || String(x.id) === String(bookingId)) : null;
+  let clean = cleanId ? cleans.find(c => String(c.id) === String(cleanId) || String(c._cloudId) === String(cleanId)) : null;
+  if (!b && clean && clean.bookingId) {
+    b = bookings.find(x => String(x.id) === String(clean.bookingId) || String(x._cloudId) === String(clean.bookingId));
   }
-  if (!b) { btn.textContent = 'Booking not found'; return; }
-  const clean = findMatchingCleanForBooking(b);
-  if (!clean || !clean.cleaner) { btn.textContent = 'No cleaner'; return; }
+  if (!clean && b) clean = findMatchingCleanForBooking(b);
+  return { booking: b, clean };
+}
 
-  const cleaners = (typeof loadCleaners === 'function' ? loadCleaners() : window._cleaners) || [];
-  const cObj = cleaners.find(cl => cl.name === clean.cleaner || String(cl.id) === String(clean.cleanerId));
+// After the SMS sheet closes, refresh whichever surface it was opened from.
+function _afterCancellationSmsSheet(booking) {
+  const detail = document.getElementById('detail-modal');
+  if (detail && detail.classList.contains('open') && booking && typeof showDetail === 'function') {
+    showDetail(String(booking._cloudId || booking.id));
+  }
+}
+
+/**
+ * "Notify" for a cancelled booking's cleaner: send the cancellation email,
+ * then offer a text message as well. When the cleaner has no email but does
+ * have a phone number, go straight to the text message instead of dead-ending.
+ */
+window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
+  const { booking: b, clean } = _resolveCancelledBookingAndClean(bookingId, _cleanId);
+  if (!b) { if (btn) btn.textContent = 'Booking not found'; return; }
+  if (!clean || !clean.cleaner) { if (btn) btn.textContent = 'No cleaner'; return; }
+
+  const cObj = findCleanerForClean(clean);
   const email = cObj && cObj.email ? cObj.email.trim() : '';
-  if (!email) { btn.textContent = 'No email on file'; return; }
-
-  const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  const fmtD = d => { if (!d) return ''; try { return new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }); } catch (_e) { return d; } };
-  const propName = typeof getPropertyNameById === 'function' && b._propertyId ? getPropertyNameById(b._propertyId) : '';
   const phone = cObj && cObj.phone ? cObj.phone.trim() : '';
-  const cleanerFirst = (clean.cleaner || '').split(' ')[0];
-  const guestFirst = (b.name || 'Guest').split(' ')[0];
+  if (!email) {
+    if (phone) {
+      openCancellationSmsSheet({ booking: b, clean, cleaner: cObj, onDone: () => _afterCancellationSmsSheet(b) });
+    } else if (btn) {
+      btn.textContent = 'No email or phone on file';
+    }
+    return;
+  }
+
+  const fmtD = d => { if (!d) return ''; try { return new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }); } catch (_e) { return d; } };
 
   // 1. Send email automatically
-  btn.disabled = true;
-  btn.textContent = 'Sending…';
+  const prevLabel = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
   try {
     await sendCleanerEmail({
       cleanerName: clean.cleaner,
@@ -663,69 +695,32 @@ window.notifyCancelledCleaner = async function (btn, bookingId, _cleanId) {
     }
   } catch (e) {
     console.warn('[StayOps] notifyCancelledCleaner email failed', e);
-    btn.textContent = 'Email failed';
-    btn.disabled = false;
+    if (btn) { btn.textContent = 'Email failed'; btn.disabled = false; }
     return;
   }
+  // The dashboard card re-renders on close; the boot prompt card does not, so
+  // leave a visible "done" state on the button there.
+  if (btn) { btn.textContent = prevLabel ? '✓ Emailed' : ''; btn.disabled = true; }
 
-  // 2. Show overlay: email sent ✓ + option to also send SMS
-  const smsBody = `Hi ${cleanerFirst}, just letting you know the booking for ${guestFirst} (${fmtD(b.checkin)} – ${fmtD(b.checkout)})${propName ? ' at ' + propName : ''} has been cancelled. Your clean is no longer needed. Thanks!`;
+  // 2. Email sent ✓ — offer the text message as well.
+  openCancellationSmsSheet({
+    booking: b, clean, cleaner: cObj, emailSent: true, emailAddress: email,
+    onDone: () => _afterCancellationSmsSheet(b),
+  });
+};
 
-  const overlay = document.createElement('div');
-  overlay.id = 'cancel-notify-overlay';
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;transition:opacity 0.2s';
-  overlay.innerHTML = `
-    <div style="background:white;border-radius:16px;max-width:400px;width:100%;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.2)">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
-        <div style="width:36px;height:36px;border-radius:50%;background:#EAF1E6;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3D6B4F" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-        </div>
-        <div>
-          <div style="font-size:16px;font-weight:700;color:var(--ink-1)">Email sent</div>
-          <div style="font-size:12px;color:#6B6560;margin-top:2px">${esc(clean.cleaner)} · ${esc(email)}</div>
-        </div>
-      </div>
-      <div style="font-size:12px;color:#6B6560;margin-bottom:14px;line-height:1.5">
-        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Property</span><strong style="color:var(--ink-1)">${esc(propName || 'N/A')}</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Guest</span><strong style="color:var(--ink-1)">${esc(b.name || 'Guest')}</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(0,0,0,0.06)"><span>Check-in</span><strong style="color:var(--ink-1)">${esc(fmtD(b.checkin))}</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:6px 0"><span>Check-out</span><strong style="color:var(--ink-1)">${esc(fmtD(b.checkout))}</strong></div>
-      </div>
-      <div style="border-top:1px solid rgba(0,0,0,0.06);padding-top:16px;margin-top:4px">
-        <div style="font-size:13px;font-weight:600;color:var(--ink-1);margin-bottom:10px">Also send a text message?</div>
-        <textarea id="cancel-sms-body" style="width:100%;min-height:80px;border:1px solid rgba(0,0,0,0.12);border-radius:10px;padding:10px 12px;font-family:inherit;font-size:13px;color:var(--ink-1);resize:vertical;line-height:1.5;box-sizing:border-box">${esc(smsBody)}</textarea>
-        ${phone
-          ? `<div style="font-size:12px;color:#6B6560;margin-top:6px">To: ${esc(phone)}</div>`
-          : '<div style="font-size:12px;color:#C0392B;margin-top:6px">No phone number on file — add one in Settings → Cleaning</div>'}
-      </div>
-      <div style="display:flex;gap:10px;margin-top:16px">
-        <button id="cancel-notify-done" style="flex:1;padding:12px;border:1px solid rgba(0,0,0,0.15);border-radius:10px;background:white;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;color:var(--ink-1)">Done</button>
-        <button id="cancel-notify-sms" style="flex:1;padding:12px;border:none;border-radius:10px;background:#2f5d4e;color:white;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;${phone ? '' : 'opacity:0.4;pointer-events:none'}">
-          <span style="display:inline-flex;align-items:center;gap:6px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>Send SMS</span>
-        </button>
-      </div>
-    </div>`;
-  document.body.appendChild(overlay);
-  requestAnimationFrame(() => requestAnimationFrame(() => { overlay.style.opacity = '1'; }));
-
-  const dismiss = () => {
-    overlay.style.opacity = '0';
-    setTimeout(() => {
-      overlay.remove();
-      if (typeof renderDashboard === 'function') renderDashboard();
-    }, 200);
-  };
-
-  overlay.querySelector('#cancel-notify-done').onclick = dismiss;
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
-
-  if (phone) {
-    overlay.querySelector('#cancel-notify-sms').onclick = () => {
-      const msg = overlay.querySelector('#cancel-sms-body').value;
-      window.location.href = `sms:${phone}?&body=${encodeURIComponent(msg)}`;
-      dismiss();
-    };
+/**
+ * "Text" for a cancelled booking's cleaner: open the SMS sheet directly,
+ * without (re)sending the email. This is the follow-up for cleans whose
+ * cancellation email already went out automatically.
+ */
+window.smsCancelledCleaner = function (bookingId, cleanId) {
+  const { booking: b, clean } = _resolveCancelledBookingAndClean(bookingId, cleanId);
+  if (!clean || !clean.cleaner) {
+    globalThis.showBanner('No cleaner is assigned to this booking', 'warn');
+    return;
   }
+  openCancellationSmsSheet({ booking: b, clean, onDone: () => _afterCancellationSmsSheet(b) });
 };
 
 // Init on load

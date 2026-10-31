@@ -171,6 +171,29 @@ export function _normName(v) {
   return String(v || '').trim().toLowerCase();
 }
 
+/**
+ * Default text message to a cleaner whose clean has been cancelled. Kept pure
+ * (no DOM, no state) so it can be unit-tested; the SMS sheet lets the host
+ * edit the result before handing it to the phone's Messages app.
+ */
+export function buildCancellationSmsBody({ cleanerName, guestName, checkin, checkout, propertyName } = {}) {
+  const cleanerFirst = String(cleanerName || '').trim().split(/\s+/)[0] || 'there';
+  const guestFirst = String(guestName || '').trim().split(/\s+/)[0] || 'the guest';
+  const dates = checkin && checkout ? ` (${checkin} – ${checkout})` : (checkout ? ` (${checkout})` : '');
+  const where = propertyName ? ` at ${propertyName}` : '';
+  return `Hi ${cleanerFirst}, just letting you know the booking for ${guestFirst}${dates}${where} has been cancelled. Your clean is no longer needed. Thanks!`;
+}
+
+/**
+ * sms: URL that opens the native Messages app with the recipient and body
+ * pre-filled. Spaces, dashes and brackets are stripped from the number — iOS
+ * refuses to open "sms:0400 000 000" once the spaces are percent-encoded.
+ */
+export function buildSmsHref(phone, body) {
+  const number = String(phone || '').replace(/[\s().-]/g, '');
+  return `sms:${number}?&body=${encodeURIComponent(String(body || ''))}`;
+}
+
 /** For onclick="fn('…')" — single-quoted JS string inside double-quoted HTML attribute. */
 export function escapeJsSingleQuotedHtmlAttr(s) {
   return String(s ?? '')

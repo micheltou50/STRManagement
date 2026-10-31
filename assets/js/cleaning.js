@@ -718,11 +718,31 @@ export function toggleCleanAction(index, cleanId, bookingId, status) {
       '<button onclick="event.stopPropagation();reassignClean(\'' + cleanId + '\')" ' +
         'style="flex:1;padding:10px;background:#FCEBEB;color:#A32D2D;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
         'Reassign</button>';
+  } else if (status === 'cancelled') {
+    // Booking cancelled, cleaner assigned but not yet told: send the
+    // cancellation email (the sheet then offers SMS too) or text straight away.
+    const cancelledClean = cleans.find(cl => String(cl.id) === String(cleanId));
+    if (cancelledClean && cancelledClean.cleaner) {
+      buttons =
+        '<button onclick="event.stopPropagation();notifyCancelledCleaner(this,\'' + bookingId + '\',\'' + cleanId + '\')" ' +
+          'style="flex:1;padding:10px;background:#C0392B;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
+          'Notify</button>' +
+        '<button onclick="event.stopPropagation();smsCancelledCleaner(\'' + bookingId + '\',\'' + cleanId + '\')" ' +
+          'style="flex:1;padding:10px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
+          'Send SMS</button>';
+    }
   } else if (status === 'cancelled_pending') {
+    // The cancellation email has gone out (automatically or by the host) and
+    // the cleaner has not acknowledged yet: offer a text message, or re-send
+    // the cancellation email. (Previously "Re-notify" re-sent the *assignment*
+    // notification, which is the wrong message for a cancelled clean.)
     buttons =
-      '<button onclick="event.stopPropagation();renotifyClean(\'' + cleanId + '\')" ' +
+      '<button onclick="event.stopPropagation();smsCancelledCleaner(\'' + bookingId + '\',\'' + cleanId + '\')" ' +
         'style="flex:1;padding:10px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
-        'Re-notify</button>';
+        'Send SMS</button>' +
+      '<button onclick="event.stopPropagation();notifyCancelledCleaner(this,\'' + bookingId + '\',\'' + cleanId + '\')" ' +
+        'style="flex:1;padding:10px;background:var(--surface2);color:var(--ink-1);border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
+        'Re-send email</button>';
   } else if (status === 'cancelled_acked') {
     buttons =
       '<div style="font-size:12px;color:#0F6E56;font-weight:500;padding:10px 0">✓ Cleaner acknowledged</div>';
