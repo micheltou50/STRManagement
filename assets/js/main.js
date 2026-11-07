@@ -25,7 +25,7 @@ import {
   getPropertyColour, getPropertyColourById, getPropertyNameById, isPortfolioMode, enterPortfolioMode, exitPortfolioMode, applyPortfolioModeAfterHostHydrate
 } from './property.js';
 import {
-  analyseExpenses, renderAIIgnoreList, promptIgnore, removeAIIgnoreItem, attachExpensePhoto, attachExpenseFile, attachExpenseFile2, clearExpensePhoto, clearExpensePhoto2, extractExpenseFromReceipt, isExpensePhotoConverting, getExpensePhotoUploadSnapshot, readBookingScreenshot,
+  analyseExpenses, renderAIIgnoreList, promptIgnore, removeAIIgnoreItem, attachExpensePhoto, attachExpenseFile, attachExpenseFile2, clearExpensePhoto, clearExpensePhoto2, extractExpenseFromReceipt, isExpensePhotoConverting, getExpensePhotoUploadSnapshot, readBookingScreenshot, startReceiptCapture,
   extractBookingFromScreenshot, triggerExpenseSuggestion, acceptAISuggestCategory, acceptAISuggestBooking, dismissAISuggest
 } from './ai.js';
 import {
@@ -34,9 +34,10 @@ import {
   findMatchingCleanForBooking
 } from './cleaning.js';
 import { bookings, cleans } from './state.js';
+import { initReceiptScannerUI } from './receipt-scanner.js';
 import { maybeShowSinceLastOpenedRundown } from './since-last-opened.js';
 import {
-  resetFinanceSubViewToHub, backToFinanceHub, toggleExpenseAddForm, closeExpenseAddForm, showFinanceSub, openFinancePanelFromHub, switchPayoutsSubTab, switchMgmtSubTab, switchReportSubTab, renderMgmtFY, renderFinance, fyPrev,
+  resetFinanceSubViewToHub, startEditReceiptCapture, backToFinanceHub, toggleExpenseAddForm, closeExpenseAddForm, showFinanceSub, openFinancePanelFromHub, switchPayoutsSubTab, switchMgmtSubTab, switchReportSubTab, renderMgmtFY, renderFinance, fyPrev,
   fyNext, renderReport, revPrev, revNext, renderRevenue, mgmtPrev, mgmtNext, renderManagement, mgmtCheckboxChange, mgmtToggleSelectAll, generateInvoice, confirmInvoiceClient, renderClientsList,
   addClient, deleteClient, saveBankDetails, saveInvoiceDetails, updateExpenseCat, addExpenseCat, deleteExpenseCat, resetExpenseCats, populateExpenseCatSelect, merchantAutocomplete, selectMerchantSuggest, hideMerchantSuggest,
   toggleExpenseList, clearExpenseFilters, renderExpenses, addExpense, saveExpenseToDriveAndSheet, deleteExpense, attachEditExpensePhoto, clearEditExpensePhoto, openExpenseView, openExpenseEdit, closeExpenseEdit,
@@ -150,6 +151,11 @@ globalThis.getAssetSchedule = getAssetSchedule;
 globalThis.DEPRECIATION_PRESETS = DEPRECIATION_PRESETS;
 
 // Called from index.html onclick/onchange handlers
+// Native iOS document scanner: flag <body> before any receipt UI is shown so the
+// "Snap a receipt" tiles become scanner-first. No-op on the web build and
+// whenever the VisionKit plugin isn't registered.
+try { initReceiptScannerUI(); } catch (_e) { /* cosmetic only */ }
+
 window.handleLoginSubmit        = handleLoginSubmit;
 window.handleSignUpSubmit       = handleSignUpSubmit;
 window.handleMagicLinkSubmit    = handleMagicLinkSubmit;
@@ -177,6 +183,8 @@ window.appModalConfirm          = appModalConfirm;
 window.attachEditExpensePhoto   = attachEditExpensePhoto;
 window.attachExpenseFile        = attachExpenseFile;
 window.attachExpenseFile2       = attachExpenseFile2;
+window.startReceiptCapture      = startReceiptCapture;
+window.startEditReceiptCapture  = startEditReceiptCapture;
 window.autoFillCleanDate        = autoFillCleanDate;
 window.resetFinanceSubViewToHub = resetFinanceSubViewToHub;
 window.backToFinanceHub         = backToFinanceHub;

@@ -23,6 +23,8 @@ import {
   isExpensePhotoConverting,
 } from './ai.js';
 import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud } from './supabase.js';
+import { buildJpegPdf } from './receipt-pdf.js';
+import { hasNativeDocumentScanner, scanReceiptPages, packScannedPages, scanSummaryLabel } from './receipt-scanner.js';
 import {
   bookingRevenue,
   bookingMgmtPayout,
@@ -2321,7 +2323,9 @@ async function receiptImageToPDF(exp) {
     return new Blob([arr], { type: 'application/pdf' });
   }
 
-  // Render the image onto a canvas (A4 proportions: 794×1123)
+  // Render the image onto a canvas (A4 proportions: 794×1123), then wrap the
+  // JPEG as a one-page PDF with the shared writer (receipt-pdf.js — the same
+  // code that packs native multi-page scans).
   return new Promise((resolve, _reject) => {
     const pageW = 794, pageH = 1123;
     const canvas = document.createElement('canvas');
@@ -2337,56 +2341,9 @@ async function receiptImageToPDF(exp) {
         if (h > maxH) { w = w * maxH / h; h = maxH; }
         ctx.drawImage(img, (pageW - w) / 2, 20, w, h);
       }
-      // Get JPEG data URL from canvas, then wrap in a minimal single-image PDF
-      const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.92);
-      const jpegBase64 = jpegDataUrl.split(',')[1];
-      const jpegBytes = atob(jpegBase64);
-      const jpegLen = jpegBytes.length;
-
-      // Build a minimal valid PDF with the JPEG embedded as an image
-      const obj1 = '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n';
-      const obj2 = '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n';
-      const obj3 = `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] /Contents 4 0 R /Resources << /XObject << /Img 5 0 R >> >> >>\nendobj\n`;
-      const streamContent = `q ${pageW} 0 0 ${pageH} 0 0 cm /Img Do Q`;
-      const obj4 = `4 0 obj\n<< /Length ${streamContent.length} >>\nstream\n${streamContent}\nendstream\nendobj\n`;
-      const obj5header = `5 0 obj\n<< /Type /XObject /Subtype /Image /Width ${pageW} /Height ${pageH} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegLen} >>\nstream\n`;
-      const obj5footer = '\nendstream\nendobj\n';
-
-      // Assemble PDF bytes
-      const header = '%PDF-1.4\n';
-      const enc = new TextEncoder();
-      const parts = [
-        enc.encode(header),
-        enc.encode(obj1),
-        enc.encode(obj2),
-        enc.encode(obj3),
-        enc.encode(obj4),
-        enc.encode(obj5header),
-      ];
-      // JPEG bytes as Uint8Array
-      const jpegArr = new Uint8Array(jpegLen);
-      for (let i = 0; i < jpegLen; i++) jpegArr[i] = jpegBytes.charCodeAt(i);
-      parts.push(jpegArr);
-      parts.push(enc.encode(obj5footer));
-
-      // Calculate xref offsets
-      let _offset = 0;
-      const offsets = [];
-      const _preXref = parts.slice(0, -1); // everything before xref
-      let runningOffset = header.length;
-      offsets.push(runningOffset); runningOffset += obj1.length;
-      offsets.push(runningOffset); runningOffset += obj2.length;
-      offsets.push(runningOffset); runningOffset += obj3.length;
-      offsets.push(runningOffset); runningOffset += obj4.length;
-      offsets.push(runningOffset);
-
-      const xref = `xref\n0 6\n0000000000 65535 f \n${offsets.map(o=>String(o).padStart(10,'0')+' 00000 n ').join('\n')}\n`;
-      const trailer = `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${runningOffset + obj5header.length + jpegLen + obj5footer.length}\n%%EOF`;
-
-      parts.push(enc.encode(xref + trailer));
-
-      // Merge all parts into a single Blob
-      resolve(new Blob(parts, { type: 'application/pdf' }));
+      const jpegBase64 = canvas.toDataURL('image/jpeg', 0.92).split(',')[1];
+      const bytes = buildJpegPdf([{ base64: jpegBase64, width: pageW, height: pageH, pageWidth: pageW, pageHeight: pageH }]);
+      resolve(new Blob([bytes], { type: 'application/pdf' }));
     };
 
     if (photoData) {
@@ -2642,26 +2599,67 @@ function refreshEditReceiptUI(e) {
     slot2.style.display = 'none';
   }
 
-  if (links.length === 1) {
-    addAnotherBtn.style.display = 'inline-block';
-    uploadBtn.style.display = 'inline-block';
-    labelEl.textContent = 'Replace receipt or add another';
-  } else if (links.length >= 2) {
-    addAnotherBtn.style.display = 'none';
-    uploadBtn.style.display = 'none';
-    labelEl.textContent = 'Maximum 2 receipts attached';
-  } else {
-    addAnotherBtn.style.display = 'none';
-    uploadBtn.style.display = 'inline-block';
-    labelEl.textContent = 'Upload receipt photo';
-  }
+  // Native iOS: the primary action is the document scanner with a small
+  // "upload a file" escape hatch. Web: the file-picker label, exactly as before.
+  const native = hasNativeDocumentScanner();
+  const scanBtn = document.getElementById('ee-scan-btn');
+  const uploadLink = document.getElementById('ee-upload-link');
+  const canAdd = links.length < 2;
+  uploadBtn.style.display = (canAdd && !native) ? 'inline-block' : 'none';
+  if (scanBtn) scanBtn.style.display = (canAdd && native) ? 'inline-block' : 'none';
+  if (uploadLink) uploadLink.style.display = (canAdd && native) ? 'inline-block' : 'none';
+  addAnotherBtn.style.display = links.length === 1 ? 'inline-block' : 'none';
+  if (links.length === 1) labelEl.textContent = 'Replace receipt or add another';
+  else if (links.length >= 2) labelEl.textContent = 'Maximum 2 receipts attached';
+  else labelEl.textContent = native ? 'Scan or upload a receipt' : 'Upload receipt photo';
   editingReceiptTargetIndex = links.length === 1 ? 0 : 0;
 }
 
-function triggerSecondReceiptUpload() {
-  editingReceiptTargetIndex = 1;
-  document.getElementById('ee-file-input').click();
-  document.getElementById('ee-receipt-label').textContent = 'Upload second receipt';
+function triggerSecondReceiptUpload() { startEditReceiptCapture(1); }
+
+let _editScanInFlight = false;
+/**
+ * Edit-modal receipt capture: Apple's VisionKit document scanner inside the
+ * native iOS app, the file picker everywhere else (and on scanner failure).
+ * @param {0|1} targetIndex which receipt slot the new file replaces/fills.
+ */
+async function startEditReceiptCapture(targetIndex = 0) {
+  editingReceiptTargetIndex = targetIndex;
+  const labelEl = document.getElementById('ee-receipt-label');
+  const openPicker = () => {
+    const input = document.getElementById('ee-file-input');
+    if (input) input.click();
+    if (targetIndex === 1 && labelEl) labelEl.textContent = 'Upload second receipt';
+  };
+  if (!hasNativeDocumentScanner()) { openPicker(); return; }
+  if (_editScanInFlight) return;
+  _editScanInFlight = true;
+  const statusEl = document.getElementById('ee-upload-status');
+  try {
+    const raw = await scanReceiptPages();
+    if (!raw) return; // cancelled — leave the modal untouched
+    if (statusEl) { statusEl.style.display = 'block'; statusEl.style.color = 'var(--muted-2)'; statusEl.textContent = '⟳ Preparing scan…'; }
+    const scan = await packScannedPages(raw);
+    // Staged exactly like a picked PDF: saveExpenseEdit → receiptImageToPDF
+    // passes application/pdf through untouched and uploads it on save.
+    editingExpensePhotoBase64 = scan.pdfBase64;
+    editingExpenseMediaType = 'application/pdf';
+    const img = document.getElementById('ee-photo-img');
+    if (img) img.src = scan.thumbDataUrl || '';
+    document.getElementById('ee-photo-preview').style.display = 'block';
+    if (labelEl) {
+      labelEl.textContent = scanSummaryLabel(scan.pageCount).replace('📄 ', '')
+        + (targetIndex === 1 ? ' (second receipt)' : '') + ' — will upload on save';
+    }
+    if (statusEl) statusEl.style.display = 'none';
+  } catch (e) {
+    console.warn('[Scan] edit-modal scan failed:', e && e.message ? e.message : e);
+    if (statusEl) statusEl.style.display = 'none';
+    globalThis.showBanner('⚠ Scanner unavailable — choose a photo instead', 'warn');
+    openPicker();
+  } finally {
+    _editScanInFlight = false;
+  }
 }
 
 function removeEditReceipt(index) {
@@ -3940,6 +3938,7 @@ export {
   receiptImageToPDF,
   deleteExpense,
   attachEditExpensePhoto,
+  startEditReceiptCapture,
   clearEditExpensePhoto,
   openExpenseView,
   openExpenseEdit,

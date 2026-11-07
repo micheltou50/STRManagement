@@ -49,6 +49,13 @@ After login: config migration -> cloud seed -> host identity -> app init -> `hyd
 - **Scheduled reminders:** Netlify Function `send-clean-reminders.js` runs daily at 10PM UTC, emails cleaners 24h before their clean date
 - Notification toggles in `app_config.notification_config`: `email_cancellation`, `notif_assignment`, `email_reminder`
 
+### Receipts are always PDFs; the native iOS app scans them with VisionKit
+Every receipt in Supabase Storage is a PDF built by `assets/js/receipt-pdf.js` (`buildJpegPdf()`, a dependency-free writer, unit-tested in `tests/receipt-pdf.test.js`). Three capture paths feed it:
+- **Photo / file picker** (web + native): `attachExpenseFile*()` in `ai.js` and `attachEditExpensePhoto()` in `finance.js`; `receiptImageToPDF()` draws the image onto an A4 canvas and wraps it as one page. Picked PDFs pass through untouched.
+- **Native document scan** (Capacitor iOS only): "Snap a receipt" / "+ Add another receipt" / the edit modal's "Scan receipt" call `startReceiptCapture(slot)` (`ai.js`) or `startEditReceiptCapture(index)` (`finance.js`), which go through `assets/js/receipt-scanner.js` → `@capgo/capacitor-document-scanner` (Apple VisionKit, same scanner as the Notes app: edge detection, perspective fix, filters, up to 24 pages). All pages of one scan are downscaled and merged into **one multi-page PDF** staged as `application/pdf`. On the web build `hasNativeDocumentScanner()` is false and these entry points simply open the file picker, so the PWA is unchanged. `initReceiptScannerUI()` (called at `main.js` load) adds `body.doc-scanner`, which reveals the "Upload a file instead" escape hatches.
+- **iOS share sheet**: `receiveSharedReceipt()` in `ai.js`, unchanged — the shared file is already a document.
+The plugin is a native-only dependency: `npx cap sync ios` (run by Codemagic) regenerates `ios/App/CapApp-SPM/Package.swift` from `package.json`, and Capacitor exposes it as `Capacitor.Plugins.DocumentScanner` with no JS import. Every scan path must keep Save blocked via `isExpensePhotoConverting()` while pages are being packed.
+
 ### Cleaners have their own PWA
 Cleaners log in via `auth_user_id` on the `cleaners` table. They can accept/decline/mark-done cleans through `cleaner-action.js` (Netlify Function). Actions trigger push + email notifications to the host and insert message cards into the `messages` table.
 

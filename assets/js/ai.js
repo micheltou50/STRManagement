@@ -8,6 +8,7 @@ import { getCurrentPropertyName, getActivePropertyConfig } from './config.js';
 import { isRevenueBearingBooking } from './booking-revenue.js';
 import { findMatchingCleanForBooking } from './cleaning.js';
 import { saveAppConfigToCloud } from './supabase.js';
+import { hasNativeDocumentScanner, scanReceiptPages, packScannedPages, scanSummaryLabel } from './receipt-scanner.js';
 
 export { renderSmartPricingPanel } from './smart-pricing.js';
 
@@ -313,7 +314,11 @@ export function updateAddReceiptUI() {
   if (!addBtn) return;
   const slot0Present = !!expensePhotoBase64 || expensePhotoConverting;
   const slot1Present = !!expensePhoto2Base64 || expensePhoto2Converting;
-  addBtn.style.display = (slot0Present && !slot1Present) ? 'inline-block' : 'none';
+  const canAddSecond = slot0Present && !slot1Present;
+  addBtn.style.display = canAddSecond ? 'inline-block' : 'none';
+  // Native scanner only: the "or upload a file" escape hatch beside the scan button.
+  const uploadLink = document.getElementById('expense-add-second-upload');
+  if (uploadLink) uploadLink.style.display = (canAddSecond && hasNativeDocumentScanner()) ? 'inline-block' : 'none';
 }
 
 // ── SHARE-TO-EXPENSE (native iOS) ─────────────────────────────────────────────
@@ -491,6 +496,72 @@ function attachExpenseFileSlot(input, slot) {
 
 export function attachExpenseFile(input) { attachExpenseFileSlot(input, 0); }
 export function attachExpenseFile2(input) { attachExpenseFileSlot(input, 1); }
+
+// ── NATIVE DOCUMENT SCAN → RECEIPT SLOT ──────────────────────────────────
+/** Stage a native scan result (already a multi-page PDF) into an Add-form slot. */
+export function attachScannedReceipt(slot, scan) {
+  if (!scan || !scan.pdfBase64) return;
+  const dom = EXPENSE_PHOTO_SLOTS[slot] || EXPENSE_PHOTO_SLOTS[0];
+  _setExpensePhotoSlot(slot, scan.pdfBase64, 'application/pdf');
+  _setExpensePhotoConverting(slot, false);
+  const img = document.getElementById(dom.img);
+  const pdfDiv = document.getElementById(dom.pdf);
+  const preview = document.getElementById(dom.preview);
+  const status = dom.status ? document.getElementById(dom.status) : null;
+  if (img) {
+    if (scan.thumbDataUrl) { img.src = scan.thumbDataUrl; img.style.display = 'block'; }
+    else img.style.display = 'none';
+  }
+  if (pdfDiv) { pdfDiv.style.display = 'block'; pdfDiv.textContent = scanSummaryLabel(scan.pageCount); }
+  if (preview) preview.style.display = 'block';
+  if (status) { status.style.display = 'none'; status.textContent = ''; }
+  updateAddReceiptUI();
+}
+
+/**
+ * Entry point behind "Snap a receipt" / "+ Add another receipt". Inside the
+ * native iOS app this opens Apple's VisionKit document scanner (the same one
+ * the Notes app uses); everywhere else — and whenever the scanner fails — it
+ * opens the slot's file picker exactly as before, so the web build is unchanged.
+ */
+export async function startReceiptCapture(slot = 0) {
+  const dom = EXPENSE_PHOTO_SLOTS[slot] || EXPENSE_PHOTO_SLOTS[0];
+  const openPicker = () => { const input = document.getElementById(dom.input); if (input) input.click(); };
+  if (!hasNativeDocumentScanner()) { openPicker(); return; }
+
+  let raw;
+  try {
+    raw = await scanReceiptPages();
+  } catch (e) {
+    console.warn('[Scan] document scanner failed:', e && e.message ? e.message : e);
+    if (typeof globalThis.showBanner === 'function') globalThis.showBanner('⚠ Scanner unavailable — choose a photo instead', 'warn');
+    openPicker();
+    return;
+  }
+  if (!raw) return; // cancelled in the camera UI — leave the form exactly as it was
+
+  // The camera has closed; decoding + PDF packing takes a moment on long scans,
+  // so stage a placeholder and hold Save (isExpensePhotoConverting) meanwhile.
+  const img = document.getElementById(dom.img);
+  const pdfDiv = document.getElementById(dom.pdf);
+  const preview = document.getElementById(dom.preview);
+  const status = dom.status ? document.getElementById(dom.status) : null;
+  _setExpensePhotoConverting(slot, true);
+  if (img) img.style.display = 'none';
+  if (pdfDiv) { pdfDiv.style.display = 'block'; pdfDiv.textContent = '⟳ Preparing scan…'; }
+  if (preview) preview.style.display = 'block';
+  if (status) { status.style.display = 'none'; status.textContent = ''; }
+  updateAddReceiptUI();
+  try {
+    const scan = await packScannedPages(raw);
+    attachScannedReceipt(slot, scan);
+  } catch (e) {
+    console.warn('[Scan] packing scanned pages failed:', e && e.message ? e.message : e);
+    _setExpensePhotoConverting(slot, false);
+    if (pdfDiv) pdfDiv.textContent = '⚠ Could not process the scan — try again or choose a photo';
+    updateAddReceiptUI();
+  }
+}
 
 export function clearExpensePhoto() {
   expensePhotoBase64 = null;
