@@ -802,6 +802,12 @@ function showDetail(id) {
         </div>
       </div>
       ${cancelBillableBlock}
+
+      ${matchedClean && (matchedClean.cleaner || matchedClean.cleanerId) ? `
+        <div style="background:var(--surface2);border-radius:14px;padding:16px;margin-bottom:16px">
+          <div style="font-size:13px;margin-bottom:10px">Cleaner: ${escHtml(matchedClean.cleaner || 'Assigned cleaner')}</div>
+          <button type="button" class="btn-primary" onclick="closeDetailModal();openNotifyModal('${escapeJsSingleQuotedHtmlAttr(String(matchedClean.id ?? matchedClean._cloudId))}','cancellation')">Message cleaner</button>
+        </div>` : ''}
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:20px">
         <div onclick="closeDetailModal()" style="width:100%;border:1px solid var(--hairline-1);border-radius:14px;padding:14px;text-align:center;color:var(--ink-2);font-size:14px;font-weight:600;cursor:pointer;box-sizing:border-box;touch-action:manipulation;font-family:'Plus Jakarta Sans',sans-serif">Close</div>
       </div>

@@ -17,7 +17,7 @@ import {
 } from './supabase.js';
 import { calcNights, calcNet, escHtml } from './utils.js';
 import {
-  _sendCleanerAssignmentNotifications, enableNotificationsManually, resetPushOnly, updateNotifStatus, subscribeToPush, sendPushToDevice, getCleanerSub, getFreshHostSub, sendCleanerEmail, cleanerLinkForId, openNotifyModal, sendCleanerReminder, pickContact, sendSMS,
+  _sendCleanerAssignmentNotifications, enableNotificationsManually, resetPushOnly, updateNotifStatus, subscribeToPush, sendPushToDevice, getCleanerSub, getFreshHostSub, sendCleanerEmail, cleanerLinkForId, openNotifyModal, sendCleanerReminder, pickContact, sendSMS, copyCleanerMessage,
   closeNotifyModal, applyPreset, loadEmailTemplate, saveEmailTemplate, resetEmailTemplate, insertTemplateVar, openEmailTemplatePanel, updateEmailPreview, testNotificationConfig, testCleanerEmail
 } from './notifications.js';
 import {
@@ -353,6 +353,7 @@ window.openCleanerProfile       = openCleanerProfile;
 window.openExpenseView          = openExpenseView;
 window.openInvEdit              = openInvEdit;
 window.openNotifyModal          = openNotifyModal;
+window.copyCleanerMessage = copyCleanerMessage;
 window.promptIgnore             = promptIgnore;
 window.quickAssignLastCleaner   = quickAssignLastCleaner;
 window.reassignClean            = reassignClean;
@@ -587,6 +588,9 @@ function checkCancelledBookings() {
       cards += '<div style="font-size:13px;color:#A32D2D;margin-top:4px;text-decoration:line-through">' + fmtD(b.checkin) + ' → ' + fmtD(b.checkout) + '</div>';
 
       if (cleanerName) {
+        const messageCleanId = String(clean.id).replace(/[^a-zA-Z0-9_-]/g, '');
+        cards += '<button onclick="openNotifyModal(\'' + messageCleanId + '\',\'cancellation\')" style="margin-top:10px;width:100%;padding:10px;border:1px solid #C0392B;border-radius:8px;background:white;color:#C0392B;font:inherit;cursor:pointer">Message cleaner</button>';
+
         if (notified) {
           cards += '<div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:#3B6D11">' +
             '<span>✓</span><span>' + escHtml(cleanerName) + ' was notified</span></div>';

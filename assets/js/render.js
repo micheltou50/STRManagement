@@ -1121,7 +1121,7 @@ function buildNeedsAttentionHtmlFromDeduped(deduped) {
       if (a.type === 'f') {
         const bIdEsc = escapeJsSingleQuotedHtmlAttr(a.bookingCloudId);
         const cIdEsc = a.cleanId != null ? escapeJsSingleQuotedHtmlAttr(String(a.cleanId)) : '';
-        actionBtn = `<button onclick="event.stopPropagation();notifyCancelledCleaner(this,'${bIdEsc}','${cIdEsc}')" style="flex-shrink:0;background:#C0392B;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;touch-action:manipulation">Notify</button>`;
+        actionBtn = `<button onclick="event.stopPropagation();openNotifyModal('${cIdEsc}','cancellation')" style="flex-shrink:0;background:white;color:#C0392B;border:1px solid #C0392B;border-radius:6px;padding:6px 12px;font:inherit;font-size:11px;cursor:pointer">Message cleaner</button><button onclick="event.stopPropagation();notifyCancelledCleaner(this,'${bIdEsc}','${cIdEsc}')" style="flex-shrink:0;background:#C0392B;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;touch-action:manipulation">Notify</button>`;
       }
 
       return `<div ${onclk} style="background:white;border-radius:8px;padding:10px 12px;margin-bottom:6px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,0,0,0.06)">

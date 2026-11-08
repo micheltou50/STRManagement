@@ -504,15 +504,19 @@ export async function _sendCleanerAssignmentNotifications(booking, cleanerObj, d
 // ── NOTIFY CLEANER (SMS) ────────────────────────────────────────────────────
 let notifyPhone = '';
 let currentNotifyCleanId = null;
+let currentNotifyMode = 'assign';
 
 export function openNotifyModal(cleanId, mode = 'assign') {
   currentNotifyCleanId = cleanId;
-  const c = cleans.find(c => String(c.id) === String(cleanId));
+  currentNotifyMode = mode;
+  notifyPhone = '';
+  const c = cleans.find(c => String(c.id) === String(cleanId) || String(c._cloudId) === String(cleanId));
   if (!c) return;
-  const b = bookings.find(b => String(b.id) === String(c.bookingId))
+  const b = bookings.find(b => (String(b.id) === String(c.bookingId) || String(b._cloudId) === String(c.bookingId)))
     || bookings.find(b => _normName(b.name) === _normName(c.guestName) && String(b.checkout || '').slice(0, 10) === String(c.date || '').slice(0, 10));
   if (!b) console.warn('[StayOps] openNotifyModal: no booking found for clean', c);
   const isReminder = String(mode || '') === 'reminder';
+  const isCancellation = mode === 'cancellation';
 
   const checkinRaw = b ? (b.checkin || b.checkIn || b.startDate) : (c.checkin || '');
   const checkoutRaw = b ? (b.checkout || b.checkOut || b.endDate) : c.date;
@@ -523,7 +527,8 @@ export function openNotifyModal(cleanId, mode = 'assign') {
 
   const defaultTemplate = `Hi {cleanerFirstName}\n\nNew Booking - please see below\n\nCheck in: {checkin}\nCheck out: {checkout}\nName: {guestFirstName}\nNumber of guests: {guests}\n\nPlease let me know if you are available`;
   const reminderTemplate = `Hi {cleanerFirstName}\n\nQuick follow-up for the clean after {guestFirstName} on {checkout}.\n\nPlease let me know if you're available when you can. Thanks!`;
-  const template = isReminder
+  const cancellationTemplate = `Hi {cleanerFirstName}\n\nThe booking for {guestFirstName} ({checkin} – {checkout}) at {propertyName} has been cancelled. Your clean on {cleanDate} is no longer needed. Thanks!`;
+  const template = isCancellation ? cancellationTemplate : isReminder
     ? reminderTemplate
     : (((window._appConfig && window._appConfig.sms_template) || '') || defaultTemplate);
   const msg = template
@@ -533,17 +538,21 @@ export function openNotifyModal(cleanId, mode = 'assign') {
     .replace('{guestName}', c.guestName)
     .replace('{checkin}', checkin)
     .replace('{checkout}', checkout)
-    .replace('{guests}', guests);
+    .replace('{guests}', guests)
+    .replace('{propertyName}', (typeof globalThis.getPropertyNameById === 'function' && (c._propertyId || b?._propertyId) ? globalThis.getPropertyNameById(c._propertyId || b._propertyId) : '') || getCurrentPropertyName())
+    .replace('{cleanDate}', c.date ? fmt(c.date) : checkout);
 
   document.getElementById('notify-message').value = msg;
   const modalTitle = document.getElementById('notify-modal-title');
-  if (modalTitle) modalTitle.textContent = isReminder ? 'Send Reminder' : 'Notify Cleaner';
+  if (modalTitle) modalTitle.textContent = isCancellation ? 'Message cleaner — cancellation' : isReminder ? 'Send Reminder' : 'Notify Cleaner';
   document.getElementById('notify-clean-info').textContent = `${c.cleaner} · After ${c.guestName} · ${fmt(c.date)}`;
   const cleaners = loadCleaners();
-  const matchedCleaner = cleaners.find(cl => cl.name.toLowerCase() === c.cleaner.toLowerCase());
+  const matchedCleaner = cleaners.find(cl => (c.cleanerId && (String(cl.id) === String(c.cleanerId) || String(cl._cloudId) === String(c.cleanerId))) || String(cl.name || '').toLowerCase() === String(c.cleaner || '').toLowerCase());
   if (matchedCleaner && matchedCleaner.phone) notifyPhone = matchedCleaner.phone;
   document.getElementById('notify-number-display').textContent = notifyPhone ? '📱 ' + notifyPhone : 'No number saved — go to Settings > Cleaning to add cleaner details';
-  document.getElementById('notify-modal').classList.add('open'); document.body.style.overflow='hidden';
+  const modal = document.getElementById('notify-modal');
+  modal.style.zIndex = isCancellation ? '10000' : '';
+  modal.classList.add('open'); document.body.style.overflow='hidden';
 }
 
 export function sendCleanerReminder(cleanId) {
@@ -580,13 +589,25 @@ export function sendSMS() {
   }
   const smsUrl = `sms:${notifyPhone}?&body=${encodeURIComponent(msg)}`;
   window.location.href = smsUrl;
-  if (currentNotifyCleanId) {
+  if (currentNotifyCleanId && currentNotifyMode !== 'cancellation') {
     const c = cleans.find(c => String(c.id) === String(currentNotifyCleanId));
     if (c) { c.notified = true; c.cleanerConfirmed = false; }
   }
   closeNotifyModal();
   if (typeof globalThis.switchCleanView === 'function') globalThis.switchCleanView('timeline');
   if (typeof globalThis.populateSelects === 'function') globalThis.populateSelects();
+}
+
+export async function copyCleanerMessage() {
+  const field = document.getElementById('notify-message');
+  try {
+    await navigator.clipboard.writeText(field.value);
+    globalThis.showBanner?.('Message copied — paste it into your messaging app', 'success');
+  } catch (_) {
+    field.focus();
+    field.select();
+    globalThis.showBanner?.('Select and copy the message to send it manually', 'warn');
+  }
 }
 
 export function closeNotifyModal() {

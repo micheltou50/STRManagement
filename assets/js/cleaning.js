@@ -728,6 +728,13 @@ export function toggleCleanAction(index, cleanId, bookingId, status) {
       '<div style="font-size:12px;color:#0F6E56;font-weight:500;padding:10px 0">✓ Cleaner acknowledged</div>';
   }
 
+  if (['cancelled', 'cancelled_pending', 'cancelled_acked'].includes(status) && cleanId) {
+    const clean = cleans.find(c => String(c.id) === String(cleanId) || String(c._cloudId) === String(cleanId));
+    if (clean && (clean.cleaner || clean.cleanerId)) {
+      buttons += `<button type="button" onclick="event.stopPropagation();openNotifyModal('${cleanId}','cancellation')" style="flex:1;padding:10px;background:var(--primary);color:white;border:none;border-radius:10px;font:inherit;cursor:pointer">Message cleaner</button>`;
+    }
+  }
+
   const viewBookingBtn = bookingId
     ? '<button onclick="event.stopPropagation();globalThis.showDetail(\'' + bookingId + '\')" ' +
         'style="flex:1;padding:10px;background:transparent;color:var(--primary);border:1.5px solid var(--hairline-2);border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:\'Plus Jakarta Sans\',sans-serif">' +
@@ -916,6 +923,9 @@ function _renderCleanDesktopTable(data, showProperty) {
     const cleanerHtml = item.cleaner
       ? '<span style="color:var(--moss);font-weight:500">' + escHtml(item.cleaner) + '</span>'
       : '<span style="color:var(--red);font-size:12px">Unassigned</span>';
+    const cancellationMessage = item.clean && item.cleaner && ['cancelled', 'cancelled_pending', 'cancelled_acked'].includes(item.status)
+      ? `<button type="button" onclick="event.stopPropagation();openNotifyModal('${escapeJsSingleQuotedHtmlAttr(String(item.clean.id ?? item.clean._cloudId))}','cancellation')" style="display:block;margin-top:6px;color:var(--primary);background:transparent;border:0;padding:4px 0;font:inherit;cursor:pointer">Message cleaner</button>`
+      : '';
     const costHtml = item.clean && item.clean.cost ? '$' + Number(item.clean.cost).toLocaleString() : '—';
     const bid = item.booking ? escapeJsSingleQuotedHtmlAttr(String(item.booking._cloudId || item.booking.id)) : '';
     const onclick = bid ? ' onclick="showDetail(\'' + bid + '\')" style="cursor:pointer"' : '';
@@ -923,7 +933,7 @@ function _renderCleanDesktopTable(data, showProperty) {
       '<td>' + fmtSh(item.date) + '</td>' +
       propTd +
       '<td><strong>' + escHtml(item.guest) + '</strong></td>' +
-      '<td>' + cleanerHtml + '</td>' +
+      '<td>' + cleanerHtml + cancellationMessage + '</td>' +
       '<td>' + statusBadge(item) + '</td>' +
       '<td>' + costHtml + '</td>' +
       '</tr>';
