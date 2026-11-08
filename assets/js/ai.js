@@ -9,6 +9,7 @@ import { isRevenueBearingBooking } from './booking-revenue.js';
 import { findMatchingCleanForBooking } from './cleaning.js';
 import { saveAppConfigToCloud } from './supabase.js';
 import { hasNativeDocumentScanner, scanReceiptPages, packScannedPages, scanSummaryLabel } from './receipt-scanner.js';
+import { scanImageFileWithReview } from './receipt-review.js';
 
 export { renderSmartPricingPanel } from './smart-pricing.js';
 
@@ -449,49 +450,82 @@ function attachExpenseFileSlot(input, slot) {
     };
     reader.readAsDataURL(file);
   } else {
-    const reader = new FileReader();
-    reader.onload = function(e) {
-      const dataUrl = e.target.result;
-      _setExpensePhotoConverting(slot, true);
-      pdfDiv.style.display = 'block';
-      pdfDiv.textContent = '⟳ Converting to PDF...';
-      img.style.display = 'none';
-      document.getElementById(dom.preview).style.display = 'block';
-      if (status) { status.style.display = 'none'; status.textContent = ''; }
-      updateAddReceiptUI();
-
-      const image = new Image();
-      image.onload = function() {
-        const canvas = document.createElement('canvas');
-        const pageW = 794, pageH = 1123;
-        canvas.width = pageW; canvas.height = pageH;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, pageW, pageH);
-        const maxW = pageW - 40, maxH = pageH - 40;
-        let w = image.width, h = image.height;
-        if (w > maxW) { h = h * maxW / w; w = maxW; }
-        if (h > maxH) { w = w * maxH / h; h = maxH; }
-        ctx.drawImage(image, (pageW - w) / 2, 20, w, h);
-        canvas.toBlob(function(blob) {
-          const fr = new FileReader();
-          fr.onload = function(ev) {
-            _setExpensePhotoSlot(slot, ev.target.result.split(',')[1], 'image/jpeg');
-            _setExpensePhotoConverting(slot, false);
-            pdfDiv.textContent = '📄 Receipt (converted to PDF)';
-            updateAddReceiptUI();
-          };
-          fr.readAsDataURL(blob);
-        }, 'image/jpeg', 0.92);
-      };
-      image.onerror = function() {
+    // Photo (camera roll, or the picker's own Take Photo): run the in-app
+    // document scanner with the corner-adjust review and stage the result as a
+    // 1-page PDF, exactly like a native VisionKit scan. Cancel/Retake put the
+    // slot back as it was; a processing failure falls back to the plain A4 wrap.
+    const preview = document.getElementById(dom.preview);
+    const prev = { pdfDisplay: pdfDiv.style.display, pdfText: pdfDiv.textContent, imgDisplay: img.style.display, previewDisplay: preview.style.display };
+    _setExpensePhotoConverting(slot, true);
+    pdfDiv.style.display = 'block';
+    pdfDiv.textContent = '⟳ Finding the receipt edges…';
+    img.style.display = 'none';
+    preview.style.display = 'block';
+    if (status) { status.style.display = 'none'; status.textContent = ''; }
+    updateAddReceiptUI();
+    scanImageFileWithReview(file, { onRetake: () => { input.value = ''; input.click(); } })
+      .then(scan => {
+        if (scan) { attachScannedReceipt(slot, scan); return; }
         _setExpensePhotoConverting(slot, false);
-        pdfDiv.textContent = '⚠ Could not load image';
+        pdfDiv.style.display = prev.pdfDisplay; pdfDiv.textContent = prev.pdfText;
+        img.style.display = prev.imgDisplay; preview.style.display = prev.previewDisplay;
+        input.value = '';
         updateAddReceiptUI();
-      };
-      image.src = dataUrl;
-    };
-    reader.readAsDataURL(file);
+      })
+      .catch(err => {
+        console.warn('[Scan] in-app scan failed, attaching the photo as-is:', err && err.message ? err.message : err);
+        if (typeof globalThis.showBanner === 'function') globalThis.showBanner('⚠ Could not scan that photo — attaching it as-is', 'warn');
+        convertPhotoToA4Slot(file, slot, dom);
+      });
   }
+}
+
+/** Legacy photo path: fit the image onto a white A4 canvas (JPEG) — used only
+ *  when the in-app scanner cannot process a file. */
+function convertPhotoToA4Slot(file, slot, dom) {
+  const pdfDiv = document.getElementById(dom.pdf);
+  const img = document.getElementById(dom.img);
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const dataUrl = e.target.result;
+    _setExpensePhotoConverting(slot, true);
+    pdfDiv.style.display = 'block';
+    pdfDiv.textContent = '⟳ Converting to PDF...';
+    img.style.display = 'none';
+    document.getElementById(dom.preview).style.display = 'block';
+    updateAddReceiptUI();
+
+    const image = new Image();
+    image.onload = function() {
+      const canvas = document.createElement('canvas');
+      const pageW = 794, pageH = 1123;
+      canvas.width = pageW; canvas.height = pageH;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, pageW, pageH);
+      const maxW = pageW - 40, maxH = pageH - 40;
+      let w = image.width, h = image.height;
+      if (w > maxW) { h = h * maxW / w; w = maxW; }
+      if (h > maxH) { w = w * maxH / h; h = maxH; }
+      ctx.drawImage(image, (pageW - w) / 2, 20, w, h);
+      canvas.toBlob(function(blob) {
+        const fr = new FileReader();
+        fr.onload = function(ev) {
+          _setExpensePhotoSlot(slot, ev.target.result.split(',')[1], 'image/jpeg');
+          _setExpensePhotoConverting(slot, false);
+          pdfDiv.textContent = '📄 Receipt (converted to PDF)';
+          updateAddReceiptUI();
+        };
+        fr.readAsDataURL(blob);
+      }, 'image/jpeg', 0.92);
+    };
+    image.onerror = function() {
+      _setExpensePhotoConverting(slot, false);
+      pdfDiv.textContent = '⚠ Could not load image';
+      updateAddReceiptUI();
+    };
+    image.src = dataUrl;
+  };
+  reader.readAsDataURL(file);
 }
 
 export function attachExpenseFile(input) { attachExpenseFileSlot(input, 0); }
@@ -515,6 +549,10 @@ export function attachScannedReceipt(slot, scan) {
   if (pdfDiv) { pdfDiv.style.display = 'block'; pdfDiv.textContent = scanSummaryLabel(scan.pageCount); }
   if (preview) preview.style.display = 'block';
   if (status) { status.style.display = 'none'; status.textContent = ''; }
+  // The scan is staged in memory now, so release the picker's file: a browser
+  // fires no change event when the same photo is picked again otherwise.
+  const input = document.getElementById(dom.input);
+  if (input) input.value = '';
   updateAddReceiptUI();
 }
 

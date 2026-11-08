@@ -54,6 +54,7 @@ const browserGlobals = {
   NodeList: 'readonly',
   Text: 'readonly',
   Image: 'readonly',
+  ImageData: 'readonly',
   Audio: 'readonly',
   MediaStream: 'readonly',
   AbortController: 'readonly',

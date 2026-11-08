@@ -25,6 +25,7 @@ import {
 import { uploadReceiptToStorage, getReceiptViewUrl, saveExpenseToCloud, deleteExpenseFromCloud } from './supabase.js';
 import { buildJpegPdf } from './receipt-pdf.js';
 import { hasNativeDocumentScanner, scanReceiptPages, packScannedPages, scanSummaryLabel } from './receipt-scanner.js';
+import { scanImageFileWithReview } from './receipt-review.js';
 import {
   bookingRevenue,
   bookingMgmtPayout,
@@ -2399,13 +2400,51 @@ let editingExpenseMediaType = 'image/jpeg';
 function attachEditExpensePhoto(input) {
   const file = input.files[0];
   if (!file) return;
+  if (file.type === 'application/pdf') { attachEditExpenseFileAsIs(file); return; }
+  // Photo: in-app document scan with the corner-adjust review, staged as a
+  // 1-page PDF (same shape as a native scan). Cancel/Retake leave the modal
+  // untouched; a processing failure falls back to attaching the photo as-is.
+  const statusEl = document.getElementById('ee-upload-status');
+  if (statusEl) { statusEl.style.display = 'block'; statusEl.style.color = 'var(--muted-2)'; statusEl.textContent = '⟳ Finding the receipt edges…'; }
+  scanImageFileWithReview(file, { onRetake: () => { input.value = ''; input.click(); } })
+    .then(scan => {
+      if (statusEl) statusEl.style.display = 'none';
+      if (!scan) { input.value = ''; return; }
+      editingExpensePhotoBase64 = scan.pdfBase64;
+      editingExpenseMediaType = 'application/pdf';
+      input.value = ''; // staged in memory; lets the same photo be picked again
+      const img = document.getElementById('ee-photo-img');
+      if (img) { img.style.display = ''; img.src = scan.thumbDataUrl || ''; }
+      document.getElementById('ee-photo-preview').style.display = 'block';
+      const labelEl = document.getElementById('ee-receipt-label');
+      if (labelEl) {
+        labelEl.textContent = scanSummaryLabel(scan.pageCount).replace('📄 ', '')
+          + (editingReceiptTargetIndex === 1 ? ' (second receipt)' : '') + ' — will upload on save';
+      }
+    })
+    .catch(err => {
+      console.warn('[Scan] in-app scan failed, attaching the photo as-is:', err && err.message ? err.message : err);
+      if (statusEl) statusEl.style.display = 'none';
+      globalThis.showBanner('⚠ Could not scan that photo — attaching it as-is', 'warn');
+      attachEditExpenseFileAsIs(file);
+    });
+}
+/** Stage a picked file untouched (PDFs always; photos only when the scanner fails). */
+function attachEditExpenseFileAsIs(file) {
   editingExpenseMediaType = file.type || 'image/jpeg';
   const reader = new FileReader();
   reader.onload = function(ev) {
     editingExpensePhotoBase64 = ev.target.result.split(',')[1];
-    document.getElementById('ee-photo-img').src = ev.target.result;
+    const img = document.getElementById('ee-photo-img');
+    if (img) {
+      // A data: PDF is not an image; keep the preview block but don't show a broken thumbnail.
+      img.style.display = editingExpenseMediaType === 'application/pdf' ? 'none' : '';
+      img.src = editingExpenseMediaType === 'application/pdf' ? '' : ev.target.result;
+    }
     document.getElementById('ee-photo-preview').style.display = 'block';
-    document.getElementById('ee-receipt-label').textContent = 'New receipt selected — will upload on save';
+    document.getElementById('ee-receipt-label').textContent = editingExpenseMediaType === 'application/pdf'
+      ? ('📄 ' + (file.name || 'receipt.pdf') + ' — will upload on save')
+      : 'New receipt selected — will upload on save';
   };
   reader.readAsDataURL(file);
 }
