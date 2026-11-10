@@ -115,6 +115,24 @@ export async function seedLocalConfigFromCloud() {
 }
 
 
+/**
+ * properties.check_in_info (jsonb) — the cleaner's per-property cheat sheet
+ * (lockbox_code, instructions, wifi, cleaner_notes). savePropertyConfig's
+ * _deepMerge skips '' values (it reads them as "no change"), so the Access &
+ * Rules panel writes `false` for a field the host cleared; normalise that back
+ * to '' for the cloud row. Returns null when the property has no cheat sheet
+ * at all so the upsert leaves the column untouched.
+ */
+function _normaliseCheckInInfo(info) {
+  if (!info || typeof info !== 'object') return null;
+  const out = {};
+  Object.keys(info).forEach(k => {
+    const v = info[k];
+    out[k] = (v === false || v == null) ? '' : v;
+  });
+  return out;
+}
+
 export async function savePropertyToCloud(cfg) {
   try {
     const user = await getCurrentSupabaseUser();
@@ -174,6 +192,7 @@ export async function savePropertyToCloud(cfg) {
       booking_com_url:      cfg.bookingComUrl || null,
       stayz_url:            cfg.stayzUrl || null,
       vrbo_url:             cfg.vrboUrl || null,
+      check_in_info:        _normaliseCheckInInfo(cfg.checkInInfo),
       mgmt_fee_rate:     (window._appConfig && window._appConfig.mgmt_fee_rate != null) ? window._appConfig.mgmt_fee_rate : null,
       // Phase 6: false = host manages this property for an owner (statement
       // renders in owner-payable mode). true (or absent) = host owns it

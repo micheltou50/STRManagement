@@ -16,6 +16,11 @@
 [functions."send-clean-reminders"]
   schedule = "0 22 * * *"
 
+# cleaner-morning-digest: one push per cleaner with the shape of their day.
+# 20:00 UTC = 07:00 Sydney during AEDT (Oct–early Apr), 06:00 during AEST.
+[functions."cleaner-morning-digest"]
+  schedule = "0 20 * * *"
+
 # ical-sync: every 15 minutes (matches email auto-scan cadence)
 [functions."ical-sync"]
   schedule = "*/15 * * * *"

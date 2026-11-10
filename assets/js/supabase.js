@@ -8,6 +8,7 @@ import {
   saveAllProperties,
   initPropertyUI,
 } from './config.js';
+import { annotateCleanerCleans, prepareCleanerCache, localDateStr } from './utils.js';
 /* ═══════════════════════════════════════════════════════════════════════════
    STAYOPS — Supabase Integration Layer v2
    Tables: host_config, properties, cleaners, cleaning_jobs,
@@ -133,80 +134,144 @@ export async function detectUserRole() {
   return 'unlinked';
 }
 
+// ── Cleaner offline cache ───────────────────────────────────────────────────
+// The last good dashboard payload per auth user, so the day plan (and today's
+// lockbox codes) still render in a basement with no signal. Keyed by auth user
+// id so one cleaner never sees another's plan on a shared phone. Writes are
+// non-fatal; reads happen only when the live load fails (showCleanerApp).
+const CLEANER_CACHE_PREFIX = 'stayops-cleaner-cache:';
+
+function writeCleanerCache(userId, data) {
+  try {
+    const prepared = prepareCleanerCache(data, localDateStr(new Date()));
+    if (prepared) localStorage.setItem(CLEANER_CACHE_PREFIX + userId, JSON.stringify(prepared));
+  } catch (e) {
+    console.warn('[StayOps] cleaner cache write failed:', e && e.message);
+  }
+}
+
+function readCleanerCache(userId) {
+  try {
+    const raw = localStorage.getItem(CLEANER_CACHE_PREFIX + userId);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && parsed.data ? parsed : null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+export function clearCleanerCache() {
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith(CLEANER_CACHE_PREFIX))
+      .forEach(k => localStorage.removeItem(k));
+  } catch (_e) { /* ignore */ }
+}
+globalThis.clearCleanerCache = clearCleanerCache;
+
+/** The signed-in user's id without a network round-trip (getSession reads local storage). */
+async function offlineUserId() {
+  if (window._supabaseUser && window._supabaseUser.id) return window._supabaseUser.id;
+  try {
+    const { data } = await window._sb.auth.getSession();
+    return data && data.session && data.session.user ? data.session.user.id : null;
+  } catch (_e) {
+    return null;
+  }
+}
+
 export async function loadCleanerDashboard() {
   if (!window._sb) return null;
   const user = await getCurrentSupabaseUser();
   if (!user) return null;
 
-  // Primary lookup: by auth_user_id
-  let { data: cleanerRecord } = await window._sb
+  // Every cleaner row linked to this login. A cleaner who works for two hosts
+  // has one row per host (same auth_user_id): the first row is the "primary"
+  // record for name/contact, while cleans, days off and hosts span all rows.
+  // (The old .single() here threw on the second host's row.)
+  const { data: cleanerRows } = await window._sb
     .from('cleaners')
-    .select('id, name, email, phone')
+    .select('id, name, email, phone, user_id')
     .eq('auth_user_id', user.id)
-    .single();
+    .order('created_at', { ascending: true });
+  let cleanerRecords = Array.isArray(cleanerRows) ? cleanerRows : [];
 
   // Fallback: match by email (for hosts who are also cleaners but haven't linked auth_user_id)
-  if (!cleanerRecord && user.email) {
+  if (!cleanerRecords.length && user.email) {
     const { data: byEmail } = await window._sb
       .from('cleaners')
-      .select('id, name, email, phone')
-      .eq('email', user.email)
-      .limit(1);
+      .select('id, name, email, phone, user_id')
+      .eq('email', user.email);
     if (byEmail && byEmail.length) {
-      cleanerRecord = byEmail[0];
+      cleanerRecords = byEmail;
       // Backfill auth_user_id so future lookups work natively
-      window._sb.from('cleaners').update({ auth_user_id: user.id, updated_at: new Date().toISOString() }).eq('id', cleanerRecord.id).then(() => {
-        console.log('[StayOps] Linked cleaner record to auth user via email match');
+      window._sb.from('cleaners').update({ auth_user_id: user.id, updated_at: new Date().toISOString() }).in('id', byEmail.map(r => r.id)).then(() => {
+        console.log('[StayOps] Linked', byEmail.length, 'cleaner record(s) to auth user via email match');
       }).catch(() => {});
     }
   }
 
-  if (!cleanerRecord) return null;
+  if (!cleanerRecords.length) return null;
+  const cleanerRecord = cleanerRecords[0];
+  const cleanerIds = cleanerRecords.map(r => r.id);
 
   const { data: myCleans } = await window._sb
     .from('cleans')
-    .select('*, properties:property_id (name, address, check_in_info)')
-    .eq('cleaner_uuid', cleanerRecord.id)
+    .select('*, properties:property_id (id, name, address, suburb, state, bedrooms, bathrooms, max_guests, check_in_info)')
+    .in('cleaner_uuid', cleanerIds)
     .order('clean_date', { ascending: true });
-
-  // Check which linked bookings are cancelled. cleans.booking_id canonically
-  // holds the booking's local_id, but legacy rows may hold the cloud UUID, so
-  // match against BOTH bookings.local_id and bookings.id. Routing each value to
-  // the right column also avoids the uuid-type error that an .in('id', [...])
-  // throws when fed numeric/text local_ids (which silently broke this before).
   const cleans = myCleans || [];
-  const bookingIds = [...new Set(cleans.map(c => c.booking_id).filter(Boolean).map(String))];
-  if (bookingIds.length) {
-    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const uuidIds  = bookingIds.filter(v => uuidRe.test(v));
-    const localIds = bookingIds.filter(v => !uuidRe.test(v));
-    const cancelledSet = new Set();
-    const collect = (rows) => (rows || []).forEach(b => {
-      if (b.id != null)       cancelledSet.add(String(b.id));
-      if (b.local_id != null) cancelledSet.add(String(b.local_id));
-    });
-    if (uuidIds.length) {
-      const { data } = await window._sb
-        .from('bookings').select('id, local_id, status')
-        .in('id', uuidIds).eq('status', 'cancelled');
-      collect(data);
+
+  // Host contact + sibling bookings come from the cleaner_dashboard_context()
+  // RPC (SECURITY DEFINER, scoped to auth.uid() — see supabase/migrations/
+  // 20261010_100000_cleaner_phase1_started_at_and_context.sql). RLS hides
+  // host_config from cleaners entirely, and only exposes bookings whose cloud
+  // UUID is stored in cleans.booking_id — but booking_id canonically holds the
+  // host's local_id, so a plain bookings query returns nothing for most cleans.
+  // The RPC returns a minimal column list (dates/times/guests/status) for every
+  // booking at a property this cleaner is assigned to: enough to work out each
+  // clean's deadline (the next guest's check-in) and whether its own booking
+  // was cancelled. A missing/failed RPC degrades to "no deadline info".
+  // It also lists `teammates` — the other active cleaners of every host this
+  // cleaner works for ({ id, name, user_id } only) — for "Can't make it? →
+  // Hand off" (the reassignment itself runs in cleaner-handoff.js).
+  let hosts = [];
+  let ctxBookings = [];
+  let teammates = [];
+  try {
+    const { data: ctx, error: ctxErr } = await window._sb.rpc('cleaner_dashboard_context');
+    if (ctxErr) console.warn('[StayOps] cleaner_dashboard_context failed:', ctxErr.message);
+    if (ctx && typeof ctx === 'object') {
+      hosts = Array.isArray(ctx.hosts) ? ctx.hosts : [];
+      ctxBookings = Array.isArray(ctx.bookings) ? ctx.bookings : [];
+      teammates = Array.isArray(ctx.teammates) ? ctx.teammates.filter(t => t && t.id) : [];
     }
-    if (localIds.length) {
-      const { data } = await window._sb
-        .from('bookings').select('id, local_id, status')
-        .in('local_id', localIds).eq('status', 'cancelled');
-      collect(data);
-    }
-    if (cancelledSet.size) {
-      cleans.forEach(c => {
-        if (c.booking_id && cancelledSet.has(String(c.booking_id))) {
-          c._bookingCancelled = true;
-        }
-      });
-    }
+  } catch (e) {
+    console.warn('[StayOps] cleaner_dashboard_context threw:', e && e.message);
   }
 
-  return { cleanerRecord, myCleans: cleans };
+  annotateCleanerCleans(cleans, ctxBookings);
+
+  // Days off (cleaner_unavailable; RLS: own rows, across every cleaner row) as { 'YYYY-MM-DD': note }.
+  const daysOff = {};
+  try {
+    const { data: offRows, error: offErr } = await window._sb
+      .from('cleaner_unavailable')
+      .select('day, note')
+      .in('cleaner_uuid', cleanerIds);
+    if (offErr) console.warn('[StayOps] cleaner_unavailable load failed:', offErr.message);
+    (offRows || []).forEach(r => { if (r && r.day) daysOff[String(r.day).slice(0, 10)] = r.note || ''; });
+  } catch (e) {
+    console.warn('[StayOps] cleaner_unavailable threw:', e && e.message);
+  }
+
+  const hostByUserId = {};
+  hosts.forEach(h => { if (h && h.user_id) hostByUserId[String(h.user_id)] = h; });
+  const host = hostByUserId[String(cleanerRecord.user_id || '')] || hosts[0] || null;
+
+  const result = { cleanerRecord, cleanerRecords, myCleans: cleans, host, hosts, hostByUserId, daysOff, teammates };
+  writeCleanerCache(user.id, result);
+  return result;
 }
 
 export async function getSupabaseSession() {
@@ -366,6 +431,9 @@ export function _toLocalPatch(row, existing) {
     bookingComUrl:      row.booking_com_url      || existing.bookingComUrl      || '',
     stayzUrl:           row.stayz_url            || existing.stayzUrl           || '',
     vrboUrl:            row.vrbo_url             || existing.vrboUrl            || '',
+    // Cleaner cheat sheet (lockbox / access / wifi / cleaner notes) — edited in
+    // Property → Access & Rules, shown in the cleaner PWA on the day of the clean.
+    checkInInfo: (row.check_in_info && typeof row.check_in_info === 'object') ? row.check_in_info : (existing.checkInInfo || {}),
     branding: {
       subtitle: [suburb, state].filter(Boolean).join(' · '),
       tagline: row.tagline || exBrand.tagline || [suburb, state].filter(Boolean).join(', ')
@@ -499,7 +567,7 @@ export async function saveHostConfigToCloud(configData) {
 // ── CLEANERS ──────────────────────────────────────────────────────────────────
 // Moved verbatim to supabase-cleaners.js. Re-exported here (saveCleanersToCloud);
 // loadCleanersFromCloud imported back for hydration.
-import { loadCleanersFromCloud } from './supabase-cleaners.js';
+import { loadCleanersFromCloud, loadCleanerDaysOffFromCloud } from './supabase-cleaners.js';
 export { saveCleanersToCloud } from './supabase-cleaners.js';
 
 
@@ -666,6 +734,9 @@ export async function hydrateFromCloud() {
     // 1. Cleaners
     const cloudCleaners = await loadCleanersFromCloud();
     if (Array.isArray(cloudCleaners)) { window._cleaners = cloudCleaners; console.log('[StayOps] Hydrated', cloudCleaners.length, 'cleaners from cloud'); }
+
+    // 1b. Cleaner days off (cleaner_unavailable) — assignment warnings + auto-assign skip (cleaning.js cleanerDayOff)
+    window._cleanerDaysOff = await loadCleanerDaysOffFromCloud();
 
     // 2. Bookings
     const cloudBookings = await loadBookingsFromCloud();
@@ -1019,9 +1090,9 @@ export async function handleLoginSubmit() {
     if (typeof window.isPortfolioMode === 'function' && !window.isPortfolioMode() && typeof renderAll === 'function') {
       renderAll();
     }
-    setTimeout(() => { if (typeof checkAutoSendReport === 'function') checkAutoSendReport(); }, 1500);
-    setTimeout(() => { if (typeof maybeAutoScanGmail === 'function') maybeAutoScanGmail(); }, 3000);
-    setTimeout(() => { if (typeof maybeAutoScanOutlook === 'function') maybeAutoScanOutlook(); }, 4500);
+    // Same post-boot tasks as the stored-session boot in main.js (report prompt,
+    // mailbox scans, Host / Cleaner switch) — one list so the paths can't drift.
+    if (typeof globalThis.runSharedPostBootTasks === 'function') globalThis.runSharedPostBootTasks();
   } catch (e) {
     console.error('[StayOps] Boot after login failed:', e);
   } finally {
@@ -1097,13 +1168,34 @@ export function showCleanerApp() {
 
   hideLoadingScreen();
 
-  // Load cleaner data
-  loadCleanerDashboard().then((data) => {
+  // Load cleaner data — falling back to the last cached plan when the live load
+  // fails (no signal), and reloading the moment the connection comes back.
+  const renderFromCache = async () => {
+    const uid = await offlineUserId();
+    const cached = uid ? readCleanerCache(uid) : null;
+    if (!cached) return false;
+    window._cleanerOffline = { at: cached.at };
+    window._cleanerData = cached.data;
+    if (typeof renderNewCleanerView === 'function') renderNewCleanerView(cached.data);
+    return true;
+  };
+  const load = () => loadCleanerDashboard().then(async (data) => {
     if (data) {
+      window._cleanerOffline = null;
       window._cleanerData = data;
       if (typeof renderNewCleanerView === 'function') renderNewCleanerView(data);
+    } else if (!window._cleanerData) {
+      await renderFromCache();
     }
+  }).catch(async (e) => {
+    console.warn('[StayOps] loadCleanerDashboard failed:', e && e.message);
+    if (!window._cleanerData) await renderFromCache();
   });
+  load();
+  if (!window._cleanerOnlineHooked) {
+    window._cleanerOnlineHooked = true;
+    window.addEventListener('online', () => { if (window._cleanerOffline) load(); });
+  }
 }
 
 export function toggleSignUp() {
@@ -1288,6 +1380,7 @@ async function _postAuthBootstrap() {
     if (typeof window.isPortfolioMode === 'function' && !window.isPortfolioMode() && typeof renderAll === 'function') {
       renderAll();
     }
+    if (typeof globalThis.runSharedPostBootTasks === 'function') globalThis.runSharedPostBootTasks();
   } catch (e) {
     console.error('[StayOps] Post-auth bootstrap failed:', e);
   } finally {

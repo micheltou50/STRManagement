@@ -39,6 +39,31 @@ export async function loadCleanersFromCloud() {
   }
 }
 
+/**
+ * Days the host's cleaners have marked off (cleaner_unavailable; RLS policy
+ * host_read_cleaner_unavailable scopes it to cleaners this host employs).
+ * Returns [{ cleanerUuid, day: 'YYYY-MM-DD', note }], recent past onwards.
+ * Consumed by cleaning.js cleanerDayOff() for assignment warnings.
+ */
+export async function loadCleanerDaysOffFromCloud() {
+  try {
+    const user = await getCurrentSupabaseUser();
+    if (!user || !window._sb) return [];
+    const since = new Date();
+    since.setDate(since.getDate() - 7);
+    const { data, error } = await window._sb
+      .from('cleaner_unavailable')
+      .select('cleaner_uuid, day, note')
+      .gte('day', since.toISOString().slice(0, 10))
+      .order('day', { ascending: true });
+    if (error || !Array.isArray(data)) return [];
+    return data.map(r => ({ cleanerUuid: r.cleaner_uuid, day: String(r.day).slice(0, 10), note: r.note || '' }));
+  } catch (e) {
+    console.warn('[StayOps] loadCleanerDaysOffFromCloud failed', e);
+    return [];
+  }
+}
+
 export async function saveCleanersToCloud(cleanerList) {
   try {
     const user = await getCurrentSupabaseUser();

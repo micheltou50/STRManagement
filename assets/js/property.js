@@ -8,6 +8,7 @@ import {
   getActivePropertyConfig,
   getCurrentPropertyName,
   initPropertyUI,
+  savePropertyConfig,
 } from './config.js';
 import { hydrateFromCloud, normalizeDriveLinks } from './supabase.js';
 import { bookings, cleans, expenses, maintenance, inventory, replaceArrayInPlace } from './state.js';
@@ -773,10 +774,55 @@ function renderProperty() {
   if (propFilter === 'inventory')   globalThis.renderInventory?.();
 }
 
-/** UI-only placeholder — Access & Rules screen to be built in a later step */
+/**
+ * Access & Rules — the per-property cheat sheet the cleaner sees on the day
+ * (lockbox code, how to get in, Wi-Fi, where things live). Stored in
+ * properties.check_in_info (jsonb) via cfg.checkInInfo and read by the cleaner
+ * PWA through loadCleanerDashboard() -> properties.check_in_info.
+ * Opened from the Property hub; passes returnSection='property' so the back
+ * button returns to Property, not Settings.
+ */
 function openPropertyAccessRules() {
-  globalThis.showBanner?.('Access & Rules — coming soon', 'info');
+  globalThis.openSettingsPanel?.('access-rules', 'property');
 }
+
+// [input element id, check_in_info key]
+const ACCESS_RULES_FIELDS = [
+  ['access-rules-lockbox',       'lockbox_code'],
+  ['access-rules-instructions',  'instructions'],
+  ['access-rules-wifi',          'wifi'],
+  ['access-rules-cleaner-notes', 'cleaner_notes'],
+];
+
+function populateAccessRulesPanel() {
+  const cfg = getActivePropertyConfig() || {};
+  const info = (cfg.checkInInfo && typeof cfg.checkInInfo === 'object') ? cfg.checkInInfo : {};
+  ACCESS_RULES_FIELDS.forEach(([elId, key]) => {
+    const el = document.getElementById(elId);
+    if (el) el.value = info[key] ? String(info[key]) : '';
+  });
+  const listEl = document.getElementById('access-rules-checklist');
+  if (listEl) listEl.value = Array.isArray(info.checklist) ? info.checklist.join('\n') : '';
+  const nameEl = document.getElementById('access-rules-property-name');
+  if (nameEl) nameEl.textContent = cfg.name || getCurrentPropertyName() || 'this property';
+}
+
+function saveAccessRulesSettings() {
+  const checkInInfo = {};
+  ACCESS_RULES_FIELDS.forEach(([elId, key]) => {
+    const el = document.getElementById(elId);
+    const v = el ? String(el.value || '').trim() : '';
+    // savePropertyConfig's _deepMerge skips '' (reads it as "no change"), so a
+    // cleared field is written as `false`; savePropertyToCloud normalises it to ''.
+    checkInInfo[key] = v || false;
+  });
+  // Arrays replace wholesale in _deepMerge (even when empty), so no `false` dance here.
+  const listEl = document.getElementById('access-rules-checklist');
+  checkInInfo.checklist = listEl ? String(listEl.value || '').split('\n').map(s => s.trim()).filter(Boolean) : [];
+  savePropertyConfig({ checkInInfo });
+  globalThis.showBanner?.('✓ Saved — your cleaner sees this on the clean card', 'ok');
+}
+globalThis.saveAccessRulesSettings = saveAccessRulesSettings;
 
 /**
  * Open Property Details from the Property hub.
@@ -1168,6 +1214,7 @@ export {
   exitPortfolioMode,
   showPropertyPicker,
   populateOwnerReportPanel,
+  populateAccessRulesPanel,
   applyPortfolioModeAfterHostHydrate,
 };
 

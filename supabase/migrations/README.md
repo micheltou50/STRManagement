@@ -30,6 +30,14 @@ Supabase MCP / SQL editor as you always have. The discipline is that the SQL is
 now **committed and diffable**, and idempotent so "did I apply it?" is answered
 by just re-running it.
 
+Gotcha when applying through the Supabase MCP: a statement it classes as
+destructive (`drop policy if exists …` included) waits for a confirmation prompt
+and the tool call times out after 60s with nothing applied. Run the non-destructive
+statements first (`alter table … add column if not exists`, `create policy …`),
+then the drop separately, and re-check `pg_policies` / `information_schema.columns`
+rather than trusting the tool's reply. The file itself stays idempotent with the
+`drop policy if exists` in place so the SQL-editor path keeps working.
+
 ## Files
 
 - `0000_baseline_schema.sql` — snapshot of the production schema on 2026-07-08

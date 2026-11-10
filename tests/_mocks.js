@@ -5,7 +5,7 @@
  *   - makeFakeSupabase({ tables, authUsers }) — minimal in-memory client
  *     supporting the query patterns used by Netlify functions
  *     (from/select/eq/neq/gte/lte/lt/in/not/or/limit/maybeSingle/single,
- *     update, insert, delete, auth.admin.getUserById).
+ *     update, insert, delete, auth.getUser, auth.admin.getUserById).
  *   - installModuleMocks(mocks) — replaces require.cache entries for
  *     @supabase/supabase-js, web-push, and nodemailer with fakes.
  *   - installFetchMock(handler) — overrides globalThis.fetch.
@@ -111,6 +111,14 @@ function makeFakeSupabase({ tables = {}, authUsers = [] } = {}) {
   return {
     from(table) { return builder(table); },
     auth: {
+      // utils/auth.js verifyAuth(): resolve a bearer token to a user. Seed
+      // authUsers with { id, token } (token falls back to the id).
+      async getUser(token) {
+        const u = authUsers.find(x => x.token === token || x.id === token);
+        return u
+          ? { data: { user: u }, error: null }
+          : { data: { user: null }, error: { message: 'invalid token' } };
+      },
       admin: {
         async getUserById(uid) {
           const u = authUsers.find(x => x.id === uid);

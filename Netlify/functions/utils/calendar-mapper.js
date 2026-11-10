@@ -44,6 +44,25 @@ function withMarker(description, table, id) {
   return description.replace(/\s*\[stayops:[^\]]+\]\s*$/i, '').trimEnd() + '\n\n' + tag;
 }
 
+// The header lines our outbound mappers put at the top of an event description
+// (cleanToEvent / maintenanceToEvent / bookingToEvent below). On the way back
+// in they have to be stripped before the description is saved as the row's
+// notes: otherwise an inbound pass copies the header into notes, the next
+// outbound pass prepends a fresh header above it, and the notes grow by one
+// "Cleaner: … / Guest: … / Status: …" block per sync.
+const GENERATED_LINE = {
+  cleans:      /^(Cleaner|Guest|Status):\s/i,
+  maintenance: /^(Contractor|Cost|Status):\s/i,
+  bookings:    /^(Guests|Platform|Confirmation|Host payout|Cleaning fee):\s/i,
+};
+
+function stripGeneratedLines(text, table) {
+  const re = GENERATED_LINE[table];
+  const lines = String(text || '').split(/\r?\n/);
+  const kept = re ? lines.filter(l => !re.test(l.trim())) : lines;
+  return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function bookingToEvent(b) {
   const lines = [];
   if (b.guests) lines.push('Guests: ' + b.guests);
@@ -137,7 +156,7 @@ function eventToLocal(table, event) {
   void end;
 
   const title = String(event.summary || '').replace(/^(Clean(ing)?|Maintenance|Repair|Booking)\s*[:\-—]\s*/i, '').trim();
-  const notes = String(event.description || '').replace(MARKER_RE, '').trim();
+  const notes = stripGeneratedLines(String(event.description || '').replace(MARKER_RE, ''), table);
 
   if (table === 'cleans') {
     return { clean_date: startDate, notes };
@@ -158,4 +177,5 @@ module.exports = {
   maintenanceToEvent,
   classifyEvent,
   eventToLocal,
+  stripGeneratedLines,
 };

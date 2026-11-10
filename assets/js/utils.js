@@ -133,6 +133,109 @@ export function resolveCleanTimesForBooking(booking, bookingsList) {
   return { checkoutTime, checkinTime };
 }
 
+/**
+ * Cleaner PWA — annotate each clean with the turnover facts the Today view sorts
+ * and labels by. Pure (no DOM / state): the caller passes the cleans (raw cleans
+ * rows, snake_case) and the minimal bookings from the cleaner_dashboard_context()
+ * RPC ({id, local_id, property_id, checkin, checkout, checkin_time, checkout_time,
+ * guests, status}). Mutates and returns `cleans`, setting on each:
+ *   _booking           the clean's own booking (matched on local_id, then id) or null
+ *   _bookingCancelled  true when that booking is cancelled
+ *   _checkoutTime      "HH:MM" the departing guest leaves (booking override, else
+ *                      the getTurnoverTimes default — 10:00)
+ *   _nextCheckinDate   "YYYY-MM-DD" of the next arrival at the same property on/after
+ *                      the clean date (not the departing booking, not cancelled), or ''
+ *   _nextCheckinTime   "HH:MM" of that arrival (override, else default 15:00), or ''
+ *   _nextGuests        guest count of that arrival, or null
+ *   _sameDayTurnover   true when the next guest arrives on the clean date itself
+ *   _deadlineMinutes   sort key within a day: same-day turnovers first (by arrival
+ *                      time), then everything else by checkout time, pushed later
+ *                      the further off the next arrival is (none booked = last)
+ * @param {Array<object>} cleans raw `cleans` rows (clean_date, property_id, booking_id)
+ * @param {Array<object>} ctxBookings minimal bookings from the RPC
+ * @returns {Array<object>} the same `cleans` array
+ */
+export function annotateCleanerCleans(cleans, ctxBookings) {
+  const byLocalId = new Map();
+  const byId = new Map();
+  const byProperty = new Map();
+  (ctxBookings || []).forEach(b => {
+    if (!b) return;
+    if (b.local_id != null) byLocalId.set(String(b.local_id), b);
+    if (b.id != null) byId.set(String(b.id), b);
+    if (b.property_id) {
+      const k = String(b.property_id);
+      if (!byProperty.has(k)) byProperty.set(k, []);
+      byProperty.get(k).push(b);
+    }
+  });
+  const times = b => getTurnoverTimes(b ? { checkoutTime: b.checkout_time, checkinTime: b.checkin_time } : null);
+  const mins = label => { const [h, m] = String(label).split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+  const NO_ARRIVAL_DAYS = 30;
+
+  (cleans || []).forEach(c => {
+    if (!c) return;
+    const key = c.booking_id != null && c.booking_id !== '' ? String(c.booking_id) : '';
+    const booking = (key && (byLocalId.get(key) || byId.get(key))) || null;
+    c._booking = booking;
+    c._bookingCancelled = !!(booking && booking.status === 'cancelled');
+    c._checkoutTime = times(booking).checkoutLabel;
+
+    const day = String(c.clean_date || '').slice(0, 10);
+    const propKey = c.property_id ? String(c.property_id) : '';
+    let next = null;
+    if (day && propKey && byProperty.has(propKey)) {
+      byProperty.get(propKey).forEach(b => {
+        if (b === booking || b.status === 'cancelled') return;
+        const ci = String(b.checkin || '').slice(0, 10);
+        if (!ci || ci < day) return;
+        if (!next) { next = b; return; }
+        const nci = String(next.checkin).slice(0, 10);
+        if (ci < nci) { next = b; return; }
+        if (ci === nci && mins(times(b).checkinLabel) < mins(times(next).checkinLabel)) next = b;
+      });
+    }
+    c._nextCheckinDate = next ? String(next.checkin).slice(0, 10) : '';
+    c._nextCheckinTime = next ? times(next).checkinLabel : '';
+    c._nextGuests = next && next.guests != null ? Number(next.guests) : null;
+    c._sameDayTurnover = !!(next && c._nextCheckinDate === day);
+
+    if (c._sameDayTurnover) {
+      c._deadlineMinutes = mins(c._nextCheckinTime);
+    } else {
+      const daysOff = c._nextCheckinDate
+        ? Math.max(1, Math.round((new Date(c._nextCheckinDate + 'T00:00:00') - new Date(day + 'T00:00:00')) / 86400000))
+        : NO_ARRIVAL_DAYS;
+      c._deadlineMinutes = daysOff * 24 * 60 + mins(c._checkoutTime);
+    }
+  });
+  return cleans;
+}
+
+/**
+ * Cleaner PWA offline cache — what loadCleanerDashboard() writes to localStorage
+ * after a successful load so the plan still renders with no signal. Lockbox
+ * codes are kept ONLY for cleans on or before `todayStr` (the doors the cleaner
+ * may be standing at right now); later cleans lose them, the same rule the live
+ * view applies ("code shows on the day"). Deep-copies; never mutates `data`.
+ * @param {object} data the loadCleanerDashboard() result
+ * @param {string} todayStr "YYYY-MM-DD" (local)
+ * @returns {{at:number, data:object}|null}
+ */
+export function prepareCleanerCache(data, todayStr) {
+  if (!data || typeof data !== 'object') return null;
+  const copy = JSON.parse(JSON.stringify(data));
+  const today = String(todayStr || '').slice(0, 10);
+  (Array.isArray(copy.myCleans) ? copy.myCleans : []).forEach(c => {
+    const day = String((c && c.clean_date) || '').slice(0, 10);
+    const info = c && c.properties && c.properties.check_in_info;
+    if (info && typeof info === 'object' && 'lockbox_code' in info && (!day || !today || day > today)) {
+      delete info.lockbox_code;
+    }
+  });
+  return { at: Date.now(), data: copy };
+}
+
 export function fmtShort(dateStr) {
   if (!dateStr) return '';
   const d = parseLocalDayStart(dateStr);
@@ -428,4 +531,75 @@ export function evenSplitAmounts(totalSigned, n) {
   const base = Math.floor(cents / count);
   const extra = cents - base * count;
   return Array.from({ length: count }, (_, i) => sign * (base + (i < extra ? 1 : 0)) / 100);
+}
+
+// ── Cleaner PWA day plan ────────────────────────────────────────────────────
+
+/** 'YYYY-MM-DD' shifted by n days, in local time. */
+function _shiftDayStr(dateStr, n) {
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  const dt = new Date(y, (m || 1) - 1, d || 1);
+  dt.setDate(dt.getDate() + n);
+  return localDateStr(dt);
+}
+
+/**
+ * Split a cleaner's cleans (annotated by annotateCleanerCleans) into the day
+ * plan's sections, ordered the way the plan shows them.
+ *
+ *  - `stale`: open cleans more than `overdueGraceDays` (3) past their date. They
+ *    are left OUT of the plan — the same rule as the host dashboard's "Clean not
+ *    done" alert: by then the clean was done and never marked, or a newer guest
+ *    has been through. Showing months of "Overdue" helps nobody.
+ *  - `cancelled`: booking cancelled, not done, and either not yet acknowledged
+ *    or within `cancelledKeepDays` (14) — acknowledged ones fall off after that.
+ *  - `open` (feeds the week strip and Accept-all) = overdue + today + tomorrow + later.
+ *  - within a day: same-day turnovers first by the next guest's arrival, then by
+ *    checkout, no-deadline last; ties by property name so the order is stable.
+ *  - `completed`: newest first.
+ */
+export function bucketCleanerCleans(all, todayStr, { overdueGraceDays = 3, cancelledKeepDays = 14 } = {}) {
+  const list = Array.isArray(all) ? all : [];
+  const tomorrowStr = _shiftDayStr(todayStr, 1);
+  const overdueFrom = _shiftDayStr(todayStr, -overdueGraceDays);
+  const cancelledFrom = _shiftDayStr(todayStr, -cancelledKeepDays);
+
+  const cancelled = list.filter(c => c._bookingCancelled && !c.done &&
+    (!c.cleaner_cancel_acknowledged || (c.clean_date && c.clean_date >= cancelledFrom)));
+  const active = list.filter(c => !c._bookingCancelled && !c.cleaner_declined);
+  const notDone = active.filter(c => !c.done);
+  const stale = notDone.filter(c => c.clean_date && c.clean_date < overdueFrom);
+  const open = notDone.filter(c => !(c.clean_date && c.clean_date < overdueFrom));
+  const overdue  = open.filter(c => c.clean_date && c.clean_date < todayStr);
+  const today    = open.filter(c => c.clean_date === todayStr);
+  const tomorrow = open.filter(c => c.clean_date === tomorrowStr);
+  const later    = open.filter(c => c.clean_date && c.clean_date > tomorrowStr);
+  const completed = active.filter(c => c.done)
+    .sort((a, b) => String(b.completed_at || b.clean_date || '').localeCompare(String(a.completed_at || a.clean_date || '')));
+
+  const propName = c => (c.properties && c.properties.name) || '';
+  const key = c => (Number.isFinite(c._deadlineMinutes) ? c._deadlineMinutes : Number.MAX_SAFE_INTEGER);
+  const byDeadline = (a, b) => (key(a) - key(b)) || propName(a).localeCompare(propName(b));
+  const byDateThenDeadline = (a, b) => String(a.clean_date).localeCompare(String(b.clean_date)) || byDeadline(a, b);
+  overdue.sort(byDateThenDeadline);
+  today.sort(byDeadline);
+  tomorrow.sort(byDeadline);
+  later.sort(byDateThenDeadline);
+
+  return { todayStr, tomorrowStr, cancelled, open, overdue, today, tomorrow, later, completed, stale };
+}
+
+/**
+ * The host's own cleaner record, if they also clean (behind the Host / Cleaner
+ * switch): a cleaners row linked to this login's auth user id, else one whose
+ * email is the login email (case-insensitive). null when there is none.
+ */
+export function findOwnCleanerRecord(user, cleaners) {
+  if (!user || !Array.isArray(cleaners) || !cleaners.length) return null;
+  const uid = user.id != null ? String(user.id) : '';
+  const byAuth = uid ? cleaners.find(c => c && c.auth_user_id && String(c.auth_user_id) === uid) : null;
+  if (byAuth) return byAuth;
+  const email = String(user.email || '').toLowerCase().trim();
+  if (!email) return null;
+  return cleaners.find(c => c && c.email && String(c.email).toLowerCase().trim() === email) || null;
 }
